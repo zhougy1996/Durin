@@ -76,6 +76,7 @@
 #include "Rendering/MeshGeometryRecord.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
+#include "Materials/DefaultMaterialService.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialParameterCollection.h"
@@ -4229,6 +4230,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		FModuleTestHarness& Lifecycle;
 		~FRendererCleanup() { Lifecycle.Shutdown(); ShutdownRenderingThread(); RHIExit(); }
 	} RendererCleanup{Lifecycle};
+	ASSERT_TRUE(InitializeDefaultMaterialService());
+	struct FDefaultMaterialCleanup
+	{
+		~FDefaultMaterialCleanup() { ShutdownDefaultMaterialService(); }
+	} DefaultMaterialCleanup;
+	const auto DefaultMaterialProxy = GetDefaultMaterialRenderProxy();
 	{
 		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 		FMaterialStaticProperties Properties; Properties.ShadingModel = EMaterialShadingModel::DefaultLit;
@@ -4308,7 +4315,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			EXPECT_EQ(MaterialProxy->GetMaterialNoFallback(), nullptr);
 			EXPECT_TRUE(MaterialProxy->IsCompiling());
-			EXPECT_TRUE(MaterialProxy->GetMaterialWithFallback().Representation.IsPending());
+			EXPECT_TRUE(MaterialProxy->QueryMaterial_RenderThread().Representation.IsPending());
+			const auto* DefaultMaterial = DefaultMaterialProxy->GetMaterialNoFallback();
+			ASSERT_NE(DefaultMaterial, nullptr);
+			EXPECT_EQ(&MaterialProxy->GetMaterialWithFallback(), DefaultMaterial);
 			FRenderPipelinePreparationBatch Batch;
 			FSceneView View;
 			View.ViewportWidth = View.ViewportHeight = 64;

@@ -1,4 +1,5 @@
 #include "RHICommandList.h"
+#include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialShaderMap.h"
 
@@ -364,16 +365,20 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		if (!RenderingThreadProgram) return nullptr;
-		const auto& Material = Resolve_RenderThread();
+		const auto& Material = QueryMaterial_RenderThread();
 		return Material.CompiledProgram && !Material.Representation.IsError() ? &Material : nullptr;
 	}
 
 	auto FMaterialRenderProxy::GetMaterialWithFallback() -> const FMaterialRenderData&
 	{
-		return Resolve_RenderThread();
+		const auto& Material = QueryMaterial_RenderThread();
+		if (!Material.Representation.IsPending()) return Material;
+		if (auto* Default = GetDefaultMaterialRenderProxy_RenderThread(); Default && Default != this)
+			if (const auto* ReadyDefault = Default->GetMaterialNoFallback()) return *ReadyDefault;
+		return GetErrorMaterialRenderData();
 	}
 
-	auto FMaterialRenderProxy::Resolve_RenderThread()
+	auto FMaterialRenderProxy::QueryMaterial_RenderThread()
 		-> const FMaterialRenderData&
 	{
 		CheckRenderingThread();

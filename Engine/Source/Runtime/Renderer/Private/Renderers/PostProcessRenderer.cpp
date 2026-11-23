@@ -527,10 +527,11 @@ namespace Durin
 			return {};
 		}
 		if (bRejectPreparation) return {};
-		const auto* Data = Proxy->GetMaterialNoFallback();
-		if (!Data || !Data->CompiledProgram)
+		const auto* Data = &Proxy->QueryMaterial_RenderThread();
+		if (!Data->CompiledProgram)
 		{
-			const std::string Diagnostic = Proxy->IsCompiling() ? "pending without an accepted program" : "missing or failed accepted program";
+			const std::string Diagnostic = Data->Representation.IsPending()
+				? "pending without an accepted program" : "missing or failed accepted program";
 			if (State->MaterialDiagnostic != Diagnostic)
 				DURIN_WARN("PostProcess material bypassed: {}. Material compiler diagnostics remain on the material.", Diagnostic);
 			State->MaterialDiagnostic = Diagnostic;

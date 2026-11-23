@@ -1248,28 +1248,6 @@ namespace Durin::MaterialEditor
 			DrawList->PushClipRect(CanvasMinimum, CanvasMaximum, true);
 			DrawList->AddRectFilled(CanvasMinimum, CanvasMaximum,
 				IM_COL32(24, 27, 32, 255));
-			if (Material)
-			{
-				const FMaterialCompileStatus& CompileStatus = Material->GetMaterialCompileStatus();
-				if (CompileStatus.HasUnsubmittedEdits()
-					|| CompileStatus.State == EMaterialCompileState::Running
-					|| CompileStatus.State == EMaterialCompileState::Failed)
-				{
-					const bool bFailed = CompileStatus.State == EMaterialCompileState::Failed;
-					const char* Label = CompileStatus.HasUnsubmittedEdits()
-						? (Material->GetAcceptedCompiledProgram()
-							? "Needs compile - preview is last known good"
-							: "Needs compile - preview uses fallback")
-						: bFailed
-						? "Compile failed - preview uses error material"
-						: (Material->GetAcceptedCompiledProgram()
-							? "Compiling - preview is last known good"
-							: "Compiling material graph");
-					DrawList->AddText(Add(CanvasMinimum, {12.0f, 10.0f}),
-						bFailed ? IM_COL32(245, 110, 105, 255)
-							: IM_COL32(235, 190, 85, 255), Label);
-				}
-			}
 
 			const ImVec2 Mouse = ImGui::GetIO().MousePos;
 			HandleViewportInput(CanvasMinimum, Mouse, bHovered);

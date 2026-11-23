@@ -20,6 +20,7 @@ namespace Durin
 	ENGINE_API auto InitializeDefaultMaterialService() -> bool;
 	ENGINE_API auto ShutdownDefaultMaterialService() -> void;
 	ENGINE_API auto GetDefaultMaterialRenderProxy() -> FMaterialRenderProxyRef;
+	auto GetDefaultMaterialRenderProxy_RenderThread() -> FMaterialRenderProxy*;
 	ENGINE_API auto IsDefaultMaterialServiceAvailable() -> bool;
 
 	// Fixed Engine content roots which a cook front end must include even when

@@ -452,18 +452,16 @@ namespace Durin::MaterialEditor
 							FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Owner);
 				}
 			}
-			ImGui::SameLine();
-			const auto Session = EditingSession;
-			ImGui::TextDisabled("%s: %s%s", Session ? "Preview" : "Compile", FormatCompileState(Status),
-				(Material->GetAcceptedCompiledProgram() && !Status.IsCurrent()) ? " (showing last known good)" : "");
-			if (Session && Session->GetSourceMaterial())
+			if (Status.State == EMaterialCompileState::Running)
 			{
-				const auto& SourceStatus = Session->GetSourceMaterial()->GetMaterialCompileStatus();
-				if (!SourceStatus.IsCurrent())
-				{
-					ImGui::SameLine();
-					ImGui::TextDisabled("Scene: %s", FormatCompileState(SourceStatus));
-				}
+				ImGui::SameLine();
+				ImGui::TextDisabled("Compiling material...");
+			}
+			const auto* Source = EditingSession ? EditingSession->GetSourceMaterial() : nullptr;
+			if (Source && Source != Material && Source->GetMaterialCompileStatus().State == EMaterialCompileState::Running)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("Compiling scene material...");
 			}
 		}
 		ImGui::SameLine();

@@ -65,37 +65,12 @@ namespace Durin::MaterialEditor
 		return nullptr;
 	}
 
-	auto FormatCompileState(const FMaterialCompileStatus& Status) -> const char*
-	{
-		if (Status.HasScheduledEdits()) return "Waiting for edits to finish";
-		if (Status.HasUnsubmittedEdits()) return "Needs compile";
-		switch (Status.State)
-		{
-		case EMaterialCompileState::NeverRequested: return "Not compiled";
-		case EMaterialCompileState::Running: return "Compiling";
-		case EMaterialCompileState::Ready: return "Ready";
-		case EMaterialCompileState::Failed: return "Failed";
-		case EMaterialCompileState::Canceled: return "Canceled";
-		}
-		return "Unknown";
-	}
-
 	auto DrawMaterialCompileStatus(DMaterialInterface* Material, const DMaterial* Source,
 		const FMaterialDiagnosticNavigation& NavigateFunction, const FMaterialDiagnosticNavigation& NavigateGraph) -> void
 	{
+		if (!Material) return;
 		DMaterial* Base = FindCompiledBase(Material);
-		if (!Material)
-		{
-			ImGui::TextDisabled("Compiled program: unavailable");
-			return;
-		}
-		const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
-		ImGui::Text("Compile: %s", FormatCompileState(Status));
-		ImGui::Text("Freshness: %s", Status.IsCurrent() ? "current" : "stale");
-
-		if (Material->GetAcceptedCompiledProgram() && !Status.IsCurrent())
-			ImGui::TextDisabled("Preview uses the last known good program.");
-		if (ImGui::CollapsingHeader("Statistics", ImGuiTreeNodeFlags_DefaultOpen))
+		if (ImGui::CollapsingHeader("Statistics"))
 		{
 			const auto Debug = Material->GetMaterialCompileDebugInfo();
 			ImGui::Text("Request: %llu; target: %s", static_cast<unsigned long long>(Debug.RequestId),
@@ -154,13 +129,12 @@ namespace Durin::MaterialEditor
 		}
 		if (Source)
 		{
-			ImGui::Text("Scene material: %s", FormatCompileState(Source->GetMaterialCompileStatus()));
 			for (const auto& Diagnostic : Source->GetMaterialCompileDiagnostics())
 				ImGui::TextWrapped("Scene: %s", Diagnostic.Message.c_str());
 		}
+		const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
 		uint32 DiagnosticIndex = 0;
-		for (const FMaterialProgramDiagnostic& Diagnostic
-			: Material->GetMaterialCompileDiagnostics())
+		for (const FMaterialProgramDiagnostic& Diagnostic : Diagnostics)
 		{
 			ImGui::PushID(static_cast<int>(DiagnosticIndex++));
 			bool bLocated = false;
@@ -195,10 +169,11 @@ namespace Durin::MaterialEditor
 					? " (stale location)" : "");
 			ImGui::PopID();
 		}
-		const auto& CookDiagnostic = Material->GetMaterialCookDiagnostic();
-		if (!CookDiagnostic.empty())
-			ImGui::TextWrapped("Cook: %.*s",
-				static_cast<int>(CookDiagnostic.size()), CookDiagnostic.data());
+		if (Diagnostics.empty())
+		{
+			const auto CookDiagnostic = Material->GetMaterialCookDiagnostic();
+			if (!CookDiagnostic.empty()) ImGui::TextWrapped("%s", CookDiagnostic.c_str());
+		}
 	}
 
 	auto OpenReferencedMaterialAsset(FAssetEditorToolkit& Toolkit, std::string_view Path, std::string_view ClassName) -> bool

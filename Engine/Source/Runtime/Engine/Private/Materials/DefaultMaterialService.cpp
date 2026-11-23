@@ -6,6 +6,7 @@
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Materials/Material.h"
+#include "RenderingThread.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -21,12 +22,21 @@ namespace Durin
 		};
 
 		FDefaultMaterialServiceState GDefaultMaterialService;
+		FMaterialRenderProxyRef GDefaultMaterialProxy_RenderThread;
 		constexpr std::array<std::string_view, 1> GBuiltInCookRoots{
 			DefaultMaterialPackagePath};
 
 		auto CheckDefaultMaterialGameThread() -> void
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
+		}
+
+		auto PublishDefaultMaterialProxy(FMaterialRenderProxyRef Proxy) -> void
+		{
+			if (IsRenderingThreadRunning())
+				EnqueueRenderCommand("PublishDefaultMaterialProxy", [Proxy = std::move(Proxy)](FRHICommandListImmediate&) {
+					GDefaultMaterialProxy_RenderThread = Proxy;
+				});
 		}
 	}
 
@@ -96,6 +106,7 @@ namespace Durin
 		AddToRoot(Material);
 		GDefaultMaterialService.Material = Material;
 		GDefaultMaterialService.Proxy = std::move(Proxy);
+		PublishDefaultMaterialProxy(GDefaultMaterialService.Proxy);
 		GDefaultMaterialService.bAcceptingBindings = true;
 		return true;
 	}
@@ -105,6 +116,7 @@ namespace Durin
 		CheckDefaultMaterialGameThread();
 		if (!GDefaultMaterialService.bInitialized) return;
 		GDefaultMaterialService.bAcceptingBindings = false;
+		PublishDefaultMaterialProxy({});
 		GDefaultMaterialService.Proxy = {};
 		if (GDefaultMaterialService.Material != nullptr)
 		{
@@ -120,6 +132,12 @@ namespace Durin
 		return GDefaultMaterialService.bAcceptingBindings
 			? GDefaultMaterialService.Proxy
 			: FMaterialRenderProxyRef{};
+	}
+
+	auto GetDefaultMaterialRenderProxy_RenderThread() -> FMaterialRenderProxy*
+	{
+		CheckRenderingThread();
+		return GDefaultMaterialProxy_RenderThread.GetReference();
 	}
 	auto GetDefaultMaterial() -> DMaterialInterface*
 	{

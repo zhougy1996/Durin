@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+#include "Materials/MaterialRenderProxy.h"
+#include "RenderPipelineCreation.h"
 #include "Rendering/MeshBatch.h"
 #include "Rendering/MeshGeometryRecord.h"
 #include "Rendering/StaticMeshBatchBinding.h"
@@ -11,6 +13,18 @@
 
 namespace Durin
 {
+	inline auto QueryMeshMaterial_RenderThread(const FMaterialRenderProxyRef& Proxy) -> const FMaterialRenderData&
+	{
+		if (!Proxy)
+		{
+			RecordMaterialFallbackReason(EMaterialFallbackReason::MissingProxy);
+			return GetErrorMaterialRenderData();
+		}
+		const auto& Material = Proxy->QueryMaterial_RenderThread();
+		if (Material.Representation.IsPending()) FRenderPipelinePreparationBatch::MarkResourcePending();
+		return Material;
+	}
+
 	// One asset-specific selection/material algorithm shared by both providers.
 	template <typename TProxy>
 	auto CollectStaticMeshAssetBatches(const TProxy& Proxy,

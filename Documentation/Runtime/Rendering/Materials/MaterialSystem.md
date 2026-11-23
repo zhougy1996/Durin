@@ -1146,8 +1146,13 @@ it does not capture a full parameter array. Asset `GetStaticProperties` continue
 to describe authored configuration, while resource properties describe the selected
 rendering generation. Materials expose no aggregate render-query snapshot API.
 `GetRenderProxy` provides the rendering endpoint, and only proxy resolution
-assembles `FMaterialRenderRepresentation`. Render-thread consumers choose
-`GetMaterialNoFallback` or `GetMaterialWithFallback` explicitly.
+assembles `FMaterialRenderRepresentation`. Render-thread consumers that defer
+draws or bypass effects use `QueryMaterial_RenderThread` to observe the
+requested publication, including pending work. `GetMaterialNoFallback` selects
+only a usable requested program. `GetMaterialWithFallback` returns a drawable
+publication with its matching bindings. While a program is pending it selects
+the published default surface material when available. Failed materials and
+unavailable defaults use ErrorMaterial.
 
 - `DStaticMesh` owns the ordered material-slot definitions. Each slot has a
   mesh-local user-facing `Name`, exact imported `SourceName`, original

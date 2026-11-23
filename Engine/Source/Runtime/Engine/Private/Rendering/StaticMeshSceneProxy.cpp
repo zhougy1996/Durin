@@ -4,7 +4,6 @@
 
 #include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
-#include "RenderPipelineCreation.h"
 
 namespace Durin
 {
@@ -63,15 +62,7 @@ namespace Durin
 	auto FStaticMeshSceneProxy::ResolveMaterialRenderData_RenderThread(
 		uint32 SlotIndex) const -> const FMaterialRenderData&
 	{
-		const FMaterialRenderProxyRef& MaterialProxy = GetMaterialRenderProxy(SlotIndex);
-		if (MaterialProxy)
-		{
-			if (const auto* Material = MaterialProxy->GetMaterialNoFallback()) return *Material;
-			if (MaterialProxy->IsCompiling()) FRenderPipelinePreparationBatch::MarkResourcePending();
-			return MaterialProxy->GetMaterialWithFallback();
-		}
-		RecordMaterialFallbackReason(EMaterialFallbackReason::MissingProxy);
-		return GetErrorMaterialRenderData();
+		return QueryMeshMaterial_RenderThread(GetMaterialRenderProxy(SlotIndex));
 	}
 
 	auto FStaticMeshSceneProxy::GetMaterialRenderProxy(uint32 SlotIndex) const
@@ -97,10 +88,7 @@ namespace Durin
 		CheckRenderingThread();
 		const auto Key = Proxy.GetReference();
 		if (const auto Found = Materials.find(Key); Found != Materials.end()) return Found->second;
-		if (!Proxy) RecordMaterialFallbackReason(EMaterialFallbackReason::MissingProxy);
-		if (Proxy && !Proxy->GetMaterialNoFallback() && Proxy->IsCompiling())
-			FRenderPipelinePreparationBatch::MarkResourcePending();
-		return Materials.emplace(Key, Proxy ? Proxy->GetMaterialWithFallback() : GetErrorMaterialRenderData()).first->second;
+		return Materials.emplace(Key, QueryMeshMaterial_RenderThread(Proxy)).first->second;
 	}
 
 	auto FStaticMeshSceneProxy::CanBeOccluded() const -> bool

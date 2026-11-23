@@ -7,7 +7,6 @@ namespace Durin
 	class DMaterial;
 	class DMaterialInterface;
 	class FAssetEditorToolkit;
-	struct FMaterialCompileStatus;
 	struct FMaterialProgramDiagnostic;
 }
 
@@ -27,7 +26,6 @@ namespace Durin::MaterialEditor
 		size_t EntryIndex) -> void;
 	auto DrawMaterialEditorPreferences(FMaterialEditorProfileSettings& Settings, std::string& OutError) -> bool;
 	auto ResetMaterialEditorPreferences(FMaterialEditorProfileSettings& Settings) -> bool;
-	auto FormatCompileState(const FMaterialCompileStatus& Status) -> const char*;
 	using FMaterialDiagnosticNavigation = std::function<void(const FMaterialProgramDiagnostic&)>;
 	auto DrawMaterialCompileStatus(DMaterialInterface* Material, const DMaterial* Source,
 		const FMaterialDiagnosticNavigation& NavigateFunction, const FMaterialDiagnosticNavigation& NavigateGraph = {}) -> void;

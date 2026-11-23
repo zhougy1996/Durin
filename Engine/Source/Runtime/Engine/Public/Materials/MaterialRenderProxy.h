@@ -87,7 +87,10 @@ namespace Durin
 
 		// RenderThread only. A missing/invalid program returns null without selecting a fallback.
 		ENGINE_API auto GetMaterialNoFallback() -> const FMaterialRenderData*;
-		// RenderThread only. Returns the accepted material, a pending publication, or the explicit error material.
+		// RenderThread only. Reports the requested publication, including pending work.
+		ENGINE_API auto QueryMaterial_RenderThread() -> const FMaterialRenderData&;
+		// RenderThread only. Selects a drawable publication, including a default
+		// surface material while compiling or the error material when needed.
 		ENGINE_API auto GetMaterialWithFallback() -> const FMaterialRenderData&;
 		ENGINE_API auto IsCompiling() const -> bool;
 
@@ -95,7 +98,6 @@ namespace Durin
 		ENGINE_API auto GetResolutionCount_RenderThread() const -> uint64;
 
 	private:
-		auto Resolve_RenderThread() -> const FMaterialRenderData&;
 		// Bindings retain the exact program and parameter sequence they were built for.
 		struct FParameterBinding
 		{

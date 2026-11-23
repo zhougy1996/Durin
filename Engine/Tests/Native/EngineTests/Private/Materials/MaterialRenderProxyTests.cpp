@@ -42,6 +42,7 @@ namespace
 	struct FMaterialProxySnapshot
 	{
 		Durin::FMaterialRenderData RenderData;
+		bool bFallbackIsPending = false;
 		uint64 PublicationCount = 0;
 		uint64 ResolutionCount = 0;
 		bool bIsCompiling = false;
@@ -67,7 +68,9 @@ namespace
 				if (bResolve)
 				{
 					Snapshot.RenderData =
-						Proxy->GetMaterialWithFallback();
+						Proxy->QueryMaterial_RenderThread();
+					if (Snapshot.RenderData.Representation.IsPending())
+						Snapshot.bFallbackIsPending = Proxy->GetMaterialWithFallback().Representation.IsPending();
 					Snapshot.bIsCompiling = Proxy->IsCompiling();
 					Snapshot.bHasMaterial = Proxy->GetMaterialNoFallback() != nullptr;
 				}
@@ -119,6 +122,7 @@ TEST(FMaterialRenderProxyTests, PendingProgramDoesNotBecomeInvalidMaterial)
 	EXPECT_TRUE(Compiling.bIsCompiling);
 	EXPECT_FALSE(Compiling.bHasMaterial);
 	EXPECT_TRUE(Compiling.RenderData.Representation.IsPending());
+	EXPECT_FALSE(Compiling.bFallbackIsPending);
 	EXPECT_FALSE(Compiling.RenderData.Representation.IsError());
 	EXPECT_EQ(GetMaterialFallbackDiagnosticsSnapshot().Get(EMaterialFallbackReason::MaterialDataInvalid),
 		Before.Get(EMaterialFallbackReason::MaterialDataInvalid));

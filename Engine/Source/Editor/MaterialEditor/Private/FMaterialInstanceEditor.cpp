@@ -378,9 +378,11 @@ namespace Durin::MaterialEditor
 					if (IsValid(Owner)) FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Owner);
 			}
 		}
-		ImGui::SameLine();
-		ImGui::TextDisabled("Compile: %s%s", FormatCompileState(Status),
-			(Instance.GetAcceptedCompiledProgram() && !Status.IsCurrent()) ? " (showing last known good)" : "");
+		if (Status.State == EMaterialCompileState::Running)
+		{
+			ImGui::SameLine();
+			ImGui::TextDisabled("Compiling material...");
+		}
 		ImGui::SameLine();
 		if (ImGui::Button("Window")) ImGui::OpenPopup("MaterialWindows");
 		if (ImGui::BeginPopup("MaterialWindows"))
