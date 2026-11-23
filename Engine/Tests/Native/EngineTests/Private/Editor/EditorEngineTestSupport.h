@@ -51,7 +51,6 @@ namespace Durin
 		{ Editor.StartupState = State; Editor.StartupError = std::move(Error); }
 		static auto InitializeProjectWorkspace(DEditorEngine& Editor) -> bool { return Editor.InitializeProjectWorkspace(); }
 		static auto InitializeWorkspaces(DEditorEngine& Editor) -> bool { return Editor.InitializeWorkspaces(); }
-		static auto OpenDefaultLevel(DEditorEngine& Editor) -> void { Editor.OpenDefaultLevel(); }
 
 		static auto BindMainFrameModule(DEditorEngine& Editor, IMainFrameModule* Module) -> IMainFrameModule*
 		{ return std::exchange(Editor.MainFrameModule, Module); }
@@ -61,9 +60,6 @@ namespace Durin
 
 		static auto SetStartupViewport(DEditorEngine& Editor, std::shared_ptr<FSceneViewport> Viewport) -> void
 		{ Editor.MainSceneViewport = std::move(Viewport); }
-
-		static auto HasInitialLevelPath(const DEditorEngine& Editor) -> bool
-		{ return Editor.InitialLevelPath.IsValid(); }
 
 		static auto SetInitialLevelPath(DEditorEngine& Editor, FSoftObjectPath Path) -> void
 		{ Editor.InitialLevelPath = std::move(Path); }

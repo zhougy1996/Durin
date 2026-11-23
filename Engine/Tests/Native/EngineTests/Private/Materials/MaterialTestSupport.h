@@ -343,8 +343,8 @@ namespace
 			const Durin::FPrimitiveSceneInfo* Info = Scene->GetPrimitiveSceneInfos().front();
 			Snapshot.Proxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(&Info->GetProxy());
 			if (Snapshot.Proxy == nullptr) return;
-			Snapshot.Material =
-				Snapshot.Proxy->ResolveMaterialRenderData_RenderThread();
+			const auto& Proxy = Snapshot.Proxy->GetMaterialRenderProxy(0);
+			Snapshot.Material = Proxy ? Proxy->QueryMaterial_RenderThread() : Durin::GetErrorMaterialRenderData();
 			Snapshot.Transform = Info->GetProxy().GetLocalToWorld();
 		});
 		WaitForRenderingThread();
@@ -363,13 +363,11 @@ namespace
 			Snapshot.Proxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(&Scene->GetPrimitiveSceneInfos().front()->GetProxy());
 			if (Snapshot.Proxy == nullptr) return;
 			Snapshot.RenderData = Snapshot.Proxy->GetRenderData();
-			for (uint32 SlotIndex = 0; SlotIndex < Snapshot.Proxy->GetNumMaterials(); ++SlotIndex)
+			for (const auto& Proxy : Snapshot.Proxy->GetUsedMaterials())
 			{
 				Snapshot.Materials.push_back(
-					Snapshot.Proxy->ResolveMaterialRenderData_RenderThread(
-						SlotIndex));
-				Snapshot.MaterialProxies.push_back(
-					Snapshot.Proxy->GetMaterialRenderProxy(SlotIndex).GetReference());
+					Proxy ? Proxy->QueryMaterial_RenderThread() : Durin::GetErrorMaterialRenderData());
+				Snapshot.MaterialProxies.push_back(Proxy.GetReference());
 			}
 		});
 		WaitForRenderingThread();

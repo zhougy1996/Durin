@@ -4314,7 +4314,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		Durin::Testing::QueueMaterialTestState(*MaterialProxy, Compiling);
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			EXPECT_EQ(MaterialProxy->GetMaterialNoFallback(), nullptr);
-			EXPECT_TRUE(MaterialProxy->IsCompiling());
 			EXPECT_TRUE(MaterialProxy->QueryMaterial_RenderThread().Representation.IsPending());
 			const auto* DefaultMaterial = DefaultMaterialProxy->GetMaterialNoFallback();
 			ASSERT_NE(DefaultMaterial, nullptr);

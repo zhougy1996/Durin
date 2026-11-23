@@ -312,13 +312,10 @@ TEST_F(FEditorToolTests, AutomationWaitsForDocumentCompletionAndPrimaryScenePres
 	} Restore{*Editor, FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame)};
 	FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Ready, "stale error");
 	ASSERT_TRUE(FEditorEngineTestAccess::InitializeWorkspaces(*Editor)) << Editor->GetStartupError();
-	FEditorEngineTestAccess::OpenDefaultLevel(*Editor);
 	EXPECT_EQ(1, MainFrame.WorkspaceCalls);
-	EXPECT_FALSE(FEditorEngineTestAccess::HasInitialLevelPath(*Editor));
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	EXPECT_TRUE(Editor->CanTransact());
 	EXPECT_TRUE(Editor->GetStartupError().empty());
-	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 
 	auto SceneViewport = FSceneViewport::CreateOffscreen(nullptr);
 	SceneViewport->SetSceneGeneration(17);

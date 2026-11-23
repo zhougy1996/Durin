@@ -10,6 +10,7 @@
 #include "Toolkits/ToolkitManager.h"
 #include "Tickable.h"
 #include "Editor/EditorEngine.h"
+#include "Editor/EditorStartup.h"
 #include "PropertyEditor/PropertyHandle.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Notifications/Notification.h"
@@ -267,6 +268,31 @@ namespace Durin
 	auto DEditorEngine::Map_Load(const FSoftObjectPath& Path, std::string& Error) -> bool
 	{
 		return LoadEditorMap(Path, Error, false);
+	}
+
+	auto DEditorEngine::LoadDefaultMapAtStartup() -> void
+	{
+		FSoftObjectPath Path;
+		std::string Error;
+		if (EditorStartup::ResolveStartupLevel(*GetCurrentProject(), Path, Error))
+		{
+			if (!Path.IsValid()) return;
+			try
+			{
+				if (LoadEditorMap(Path, Error, true))
+				{
+					InitialLevelPath = Path;
+					return;
+				}
+			}
+			catch (const std::exception& Exception) { Error = Exception.what(); }
+			catch (...) { Error = "Unknown map loading exception."; }
+		}
+		if (bShutdownRequested) return;
+		if (Path.IsValid()) Error = std::format("{}: {}", Path.ToString(), Error);
+		DURIN_WARN("Could not open the editor startup map. {}", Error);
+		GetNotificationManager().Post({.Type = ENotificationType::Warning,
+			.Message = "Could not open the editor startup map", .Details = std::move(Error)});
 	}
 
 	auto DEditorEngine::LoadEditorMap(const FSoftObjectPath& Path, std::string& Error, bool bStartupMap) -> bool

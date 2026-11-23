@@ -42,10 +42,8 @@ namespace
 	struct FMaterialProxySnapshot
 	{
 		Durin::FMaterialRenderData RenderData;
-		bool bFallbackIsPending = false;
 		uint64 PublicationCount = 0;
 		uint64 ResolutionCount = 0;
-		bool bIsCompiling = false;
 		bool bHasMaterial = false;
 	};
 
@@ -69,9 +67,6 @@ namespace
 				{
 					Snapshot.RenderData =
 						Proxy->QueryMaterial_RenderThread();
-					if (Snapshot.RenderData.Representation.IsPending())
-						Snapshot.bFallbackIsPending = Proxy->GetMaterialWithFallback().Representation.IsPending();
-					Snapshot.bIsCompiling = Proxy->IsCompiling();
 					Snapshot.bHasMaterial = Proxy->GetMaterialNoFallback() != nullptr;
 				}
 				Snapshot.PublicationCount =
@@ -119,17 +114,14 @@ TEST(FMaterialRenderProxyTests, PendingProgramDoesNotBecomeInvalidMaterial)
 	const auto Counters = GetMaterialRenderProxyCounters();
 	Durin::Testing::QueueMaterialTestState(*Proxy, Pending);
 	const auto Compiling = CaptureMaterialProxy(Proxy);
-	EXPECT_TRUE(Compiling.bIsCompiling);
 	EXPECT_FALSE(Compiling.bHasMaterial);
 	EXPECT_TRUE(Compiling.RenderData.Representation.IsPending());
-	EXPECT_FALSE(Compiling.bFallbackIsPending);
 	EXPECT_FALSE(Compiling.RenderData.Representation.IsError());
 	EXPECT_EQ(GetMaterialFallbackDiagnosticsSnapshot().Get(EMaterialFallbackReason::MaterialDataInvalid),
 		Before.Get(EMaterialFallbackReason::MaterialDataInvalid));
 	EXPECT_EQ(GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, Counters.RepresentationValidationFailureCount);
 	Durin::Testing::QueueMaterialTestState(*Proxy, {});
 	const auto Failed = CaptureMaterialProxy(Proxy);
-	EXPECT_FALSE(Failed.bIsCompiling);
 	EXPECT_FALSE(Failed.bHasMaterial);
 	EXPECT_FALSE(Failed.RenderData.Representation.IsPending());
 	EXPECT_TRUE(Failed.RenderData.Representation.IsError());
@@ -793,11 +785,10 @@ TEST(FMaterialRenderProxyTests, OrderedPublicationsShareOnlyLazyResolution)
 	Proxy->SetCompiling_GameThread(true);
 	Proxy->SetCompiling_GameThread(true);
 	const auto Pending = CaptureMaterialProxy(Proxy);
-	EXPECT_TRUE(Pending.bIsCompiling);
 	EXPECT_EQ(Pending.PublicationCount, Invalidated.PublicationCount + 1);
 	EXPECT_EQ(Pending.RenderData.CompiledProgram, Updated.RenderData.CompiledProgram);
 	Proxy->SetCompiling_GameThread(false);
-	EXPECT_FALSE(CaptureMaterialProxy(Proxy).bIsCompiling);
+	EXPECT_EQ(CaptureMaterialProxy(Proxy).PublicationCount, Pending.PublicationCount + 1);
 	EXPECT_EQ(Applied.QueuedPublicationCount,
 		Applied.PublicationCount
 			+ Applied.PendingPublicationCount);
@@ -1259,12 +1250,10 @@ TEST(FMaterialResourceTests, DetachedSnapshotsSurviveOwnerRetirement)
 	Input.CompiledProgram = Program;
 	Input.StaticProperties = FMaterialStaticProperties{};
 	Input.Parameters.push_back({FGuid{1, 0, 0, 1}, .25f});
-	Input.bIsCompiling = true;
 	Owner.CompiledProgram = std::move(Input.CompiledProgram);
 	Owner.AcceptedProperties = std::move(Input.StaticProperties);
 	Program->DefaultParameters = Durin::Testing::MakeMaterialParameterSet(Input.Parameters);
 	auto Snapshot = Durin::Testing::CaptureResourceTestState(Owner);
-	EXPECT_FALSE(Snapshot.bIsCompiling);
 	EXPECT_EQ(Snapshot.CompiledProgram, Program);
 	Snapshot.Parameters.front().Value = .75f;
 	EXPECT_EQ(Program->DefaultParameters.ScalarParameters.front().Value, .25f);

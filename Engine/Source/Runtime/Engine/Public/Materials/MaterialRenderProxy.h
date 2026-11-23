@@ -92,7 +92,6 @@ namespace Durin
 		// RenderThread only. Selects a drawable publication, including a default
 		// surface material while compiling or the error material when needed.
 		ENGINE_API auto GetMaterialWithFallback() -> const FMaterialRenderData&;
-		ENGINE_API auto IsCompiling() const -> bool;
 
 		ENGINE_API auto GetPublicationCount_RenderThread() const -> uint64;
 		ENGINE_API auto GetResolutionCount_RenderThread() const -> uint64;

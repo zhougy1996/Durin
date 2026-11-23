@@ -196,8 +196,9 @@ namespace Durin
 			};
 			EnqueueRenderCommand<FCaptureMixedV4Texture>(
 				[StaticMeshProxy, &BoundTexture](FRHICommandListImmediate&) {
-					const auto Binding = GetMaterialBinding(
-						StaticMeshProxy->ResolveMaterialRenderData_RenderThread());
+					const auto& SlotProxy = StaticMeshProxy->GetMaterialRenderProxy(0);
+					ASSERT_TRUE(SlotProxy);
+					const auto Binding = GetMaterialBinding(SlotProxy->QueryMaterial_RenderThread());
 					BoundTexture = Binding.Textures[0];
 				});
 			FlushRenderingCommands();
@@ -319,8 +320,9 @@ namespace Durin
 			};
 			EnqueueRenderCommand<FCaptureEditorTextureMaterialReference>(
 				[StaticMeshProxy, &Result](FRHICommandListImmediate&) {
-					const auto Binding = GetMaterialBinding(
-						StaticMeshProxy->ResolveMaterialRenderData_RenderThread());
+					const auto& SlotProxy = StaticMeshProxy->GetMaterialRenderProxy(0);
+					ASSERT_TRUE(SlotProxy);
+					const auto Binding = GetMaterialBinding(SlotProxy->QueryMaterial_RenderThread());
 					Result = Binding.Textures[0];
 				});
 			FlushRenderingCommands();

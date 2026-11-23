@@ -22,12 +22,6 @@ namespace Durin
 		return SlotIndex < Materials.size() ? Materials[SlotIndex] : EmptyProxy;
 	}
 
-	auto FSplineMeshSceneProxy::ResolveMaterialRenderData_RenderThread(uint32 SlotIndex) const
-		-> const FMaterialRenderData&
-	{
-		return QueryMeshMaterial_RenderThread(GetMaterialRenderProxy(SlotIndex));
-	}
-
 	auto FSplineMeshSceneProxy::UpdateMaterialBinding_RenderThread(
 		const FMaterialRenderProxyBindingUpdate& Update) -> bool
 	{

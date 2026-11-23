@@ -32,7 +32,6 @@ namespace Durin
 		auto GetLocalBounds() const -> FBox override { return DynamicData.LocalBounds; }
 		ENGINE_API auto CaptureLODSelection_RenderThread() const -> std::optional<FMeshLODSelectionSnapshot> override;
 		ENGINE_API auto GetMaterialRenderProxy(uint32 SlotIndex) const -> const FMaterialRenderProxyRef&;
-		ENGINE_API auto ResolveMaterialRenderData_RenderThread(uint32 SlotIndex) const -> const FMaterialRenderData&;
 		ENGINE_API auto UpdateMaterialBinding_RenderThread(const FMaterialRenderProxyBindingUpdate& Update) -> bool override;
 		ENGINE_API auto UpdateDynamicData_RenderThread(FSplineMeshRenderDynamicData InDynamicData) -> bool;
 		ENGINE_API auto ResolveGeometryRecord_RenderThread(uint32 LODIndex,

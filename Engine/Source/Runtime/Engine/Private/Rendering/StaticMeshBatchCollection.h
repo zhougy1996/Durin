@@ -89,7 +89,7 @@ namespace Durin
 		Batch.PublishedMaterials.reserve(Record->GetElements().size());
 		for (const auto& Geometry : Record->GetElements())
 		{
-			Batch.PublishedMaterials.push_back(Proxy.ResolveMaterialRenderData_RenderThread(Geometry.MaterialSlotDiagnostic));
+			Batch.PublishedMaterials.push_back(QueryMeshMaterial_RenderThread(Proxy.GetMaterialRenderProxy(Geometry.MaterialSlotDiagnostic)));
 		}
 		Collector.Add(std::move(Batch));
 	}

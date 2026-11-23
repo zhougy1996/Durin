@@ -240,10 +240,12 @@ TEST(FMaterialThumbnailRendererTests, PreviewComponentResolvesInstanceInheritanc
 	Durin::EnqueueRenderCommand<FCaptureThumbnailMaterialProxiesCommand>(
 		[MaterialProxy, InstanceProxy, &MaterialData, &InstanceData](
 			Durin::FRHICommandListImmediate&) {
-			MaterialData =
-				MaterialProxy->ResolveMaterialRenderData_RenderThread(0);
-			InstanceData =
-				InstanceProxy->ResolveMaterialRenderData_RenderThread(0);
+			const auto& MaterialSlot = MaterialProxy->GetMaterialRenderProxy(0);
+			const auto& InstanceSlot = InstanceProxy->GetMaterialRenderProxy(0);
+			ASSERT_TRUE(MaterialSlot);
+			ASSERT_TRUE(InstanceSlot);
+			MaterialData = MaterialSlot->QueryMaterial_RenderThread();
+			InstanceData = InstanceSlot->QueryMaterial_RenderThread();
 		});
 	Durin::FlushRenderingCommands();
 	const auto MaterialBinding =

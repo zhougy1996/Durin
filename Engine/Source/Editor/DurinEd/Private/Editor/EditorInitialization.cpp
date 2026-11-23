@@ -1,5 +1,4 @@
 #include "Editor/EditorEngine.h"
-#include "Editor/EditorStartup.h"
 #include "Editor/IMainFrameModule.h"
 #include "Notifications/Notification.h"
 #include "Asset/Asset.h"
@@ -66,31 +65,6 @@ namespace Durin
 		if (bShutdownRequested) return false;
 		if (!MainFrameModule->InitializeWorkspaces(StartupError)) return false;
 		return !bShutdownRequested;
-	}
-
-	auto DEditorEngine::LoadDefaultMapAtStartup() -> void
-	{
-		FSoftObjectPath Path;
-		std::string Error;
-		if (EditorStartup::ResolveStartupLevel(*GetCurrentProject(), Path, Error))
-		{
-			if (!Path.IsValid()) return;
-			try
-			{
-				if (LoadEditorMap(Path, Error, true))
-				{
-					InitialLevelPath = Path;
-					return;
-				}
-			}
-			catch (const std::exception& Exception) { Error = Exception.what(); }
-			catch (...) { Error = "Unknown map loading exception."; }
-		}
-		if (bShutdownRequested) return;
-		if (Path.IsValid()) Error = std::format("{}: {}", Path.ToString(), Error);
-		DURIN_WARN("Could not open the editor startup map. {}", Error);
-		GetNotificationManager().Post({.Type = ENotificationType::Warning,
-			.Message = "Could not open the editor startup map", .Details = std::move(Error)});
 	}
 
 }

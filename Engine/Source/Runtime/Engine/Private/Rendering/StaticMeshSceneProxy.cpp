@@ -59,12 +59,6 @@ namespace Durin
 		return Bounds;
 	}
 
-	auto FStaticMeshSceneProxy::ResolveMaterialRenderData_RenderThread(
-		uint32 SlotIndex) const -> const FMaterialRenderData&
-	{
-		return QueryMeshMaterial_RenderThread(GetMaterialRenderProxy(SlotIndex));
-	}
-
 	auto FStaticMeshSceneProxy::GetMaterialRenderProxy(uint32 SlotIndex) const
 		-> const FMaterialRenderProxyRef&
 	{

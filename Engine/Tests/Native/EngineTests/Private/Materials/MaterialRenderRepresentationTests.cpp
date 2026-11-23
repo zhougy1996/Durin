@@ -4,6 +4,7 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/MaterialShaderMap.h"
 #include "MaterialRenderRepresentationTestFixture.h"
+#include "Rendering/StaticMeshBatchCollection.h"
 
 TEST(FMaterialRenderRepresentationTests, IndependentCacheIsSharedByCopiesAndIsolatedFromOtherPublications)
 {
@@ -372,10 +373,6 @@ TEST(FErrorMaterialTests, MissingStructuralProxyUsesErrorWithoutAssetLookup)
 	const bool bOwnsRenderingThread =
 		!Durin::IsRenderingThreadRunning();
 	if (bOwnsRenderingThread) Durin::InitRenderingThread();
-	Durin::FStaticMeshSceneProxy Proxy(
-		nullptr,
-		std::vector<Durin::FMaterialRenderProxyRef>{
-			Durin::FMaterialRenderProxyRef{}});
 	Durin::FMaterialRenderData Resolved;
 	struct FCaptureMissingProxyErrorCommand
 	{
@@ -385,8 +382,8 @@ TEST(FErrorMaterialTests, MissingStructuralProxyUsesErrorWithoutAssetLookup)
 		}
 	};
 	Durin::EnqueueRenderCommand<FCaptureMissingProxyErrorCommand>(
-		[&Proxy, &Resolved](Durin::FRHICommandListImmediate&) {
-			Resolved = Proxy.ResolveMaterialRenderData_RenderThread(0);
+		[&Resolved](Durin::FRHICommandListImmediate&) {
+			Resolved = Durin::QueryMeshMaterial_RenderThread({});
 		});
 	WaitForRenderingThread();
 	EXPECT_TRUE(Resolved.Representation.IsError());

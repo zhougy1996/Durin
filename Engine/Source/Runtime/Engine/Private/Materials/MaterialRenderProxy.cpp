@@ -308,12 +308,6 @@ namespace Durin
 		GMaterialRenderProxyCounters.ParameterBindingBuildCount.fetch_add(1);
 	}
 
-	auto FMaterialRenderProxy::IsCompiling() const -> bool
-	{
-		CheckRenderingThread();
-		return bCompiling;
-	}
-
 	auto FMaterialRenderProxy::HasStableOpaqueDepth_RenderThread() -> bool
 	{
 		CheckRenderingThread();
