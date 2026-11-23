@@ -777,6 +777,22 @@ TEST(FMaterialGraphInteractionTests, FunctionNodesCanBeCreatedFromSearchBeforeWi
 	Transactions->Reset(); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FMaterialGraphInteractionTests, CanvasDisplaysPluginExpressionWithNamedOutputRows)
+{
+	FMaterialGraphNodeView Waves;
+	Waves.PrimaryLabel = "Evaluate Gerstner Waves";
+	Waves.Outputs = {
+		{.Name = "World Displacement", .Type = EMaterialProgramValueType::Float3},
+		{.SourceIndex = 1, .OutputIndex = 1, .Name = "Tangent Normal", .Type = EMaterialProgramValueType::Float3},
+	};
+
+	EXPECT_EQ(MakeGraphNodeDisplay(Waves).Title, Waves.PrimaryLabel);
+	EXPECT_FALSE(IsHeaderOnlyGraphNode(Waves));
+	EXPECT_EQ(GraphOutputLabel(Waves, 0), "World Displacement");
+	EXPECT_EQ(GraphOutputLabel(Waves, 1), "Tangent Normal");
+	EXPECT_LT(GraphNodePinOffset(Waves) + GraphNodePinRowHeight(Waves), GraphNodeHeight(Waves));
+}
+
 TEST(FMaterialGraphInteractionTests, CanvasGeometryUsesStableMetricsAndZoomHysteresis)
 {
 	const FMaterialGraphCanvasMetrics& Metrics = FMaterialGraphGeometry::GetMetrics();

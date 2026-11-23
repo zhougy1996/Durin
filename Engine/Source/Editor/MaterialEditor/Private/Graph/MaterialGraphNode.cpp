@@ -241,10 +241,11 @@ namespace Durin::MaterialEditor
 		const auto* Description = FindMaterialExpressionDescription(Expression->GetClass());
 		if (Description)
 		{
-			if (Description->SemanticOpcode) Node.Opcode = *Description->SemanticOpcode;
+			Node.Opcode = Description->SemanticOpcode;
 			if (!Description->Shapes.empty()) Node.ResultType = Description->Shapes.front().ResultType;
 		}
-		if (const auto* Texture = Cast<DMaterialExpressionTextureParameter>(Expression); Texture && !IsMaterialSamplingNode(Node.Opcode))
+		if (const auto* Texture = Cast<DMaterialExpressionTextureParameter>(Expression);
+			Texture && (!Node.Opcode || !IsMaterialSamplingNode(*Node.Opcode)))
 			Node.ResultType = Texture->DefaultValue.Dimension == EMaterialTextureDimension::TextureCube ? EMaterialProgramValueType::TextureCube : EMaterialProgramValueType::Texture2D;
 		if (auto* Type = Expression->GetClass()->FindPropertyByName("ResultType"))
 			Node.ResultType = *static_cast<const EMaterialProgramValueType*>(Type->GetValuePtr(Expression));
@@ -434,7 +435,8 @@ namespace Durin::MaterialEditor
 				FMaterialGraphPinView Pin{.InputIndex = InputIndex,
 					.Name = Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value"};
 				if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
-				if (IsMaterialAdaptiveNumeric(Node.Opcode) && !(Node.Opcode == EMaterialProgramOpcode::Lerp && InputIndex == 2))
+				if (Node.Opcode && IsMaterialAdaptiveNumeric(*Node.Opcode)
+					&& !(Node.Opcode == EMaterialProgramOpcode::Lerp && InputIndex == 2))
 				{
 					// Keep the resolved width first for pin styling, while allowing reconnection.
 					Pin.AcceptedTypes = {Node.ResultType};
@@ -448,8 +450,10 @@ namespace Durin::MaterialEditor
 					Pin.bUseConstant = Numeric->UseConstant;
 					Pin.bSupportsConstant = true;
 					Pin.RetainedConstant = DefaultView(Numeric->Constant);
-					Pin.InlineDefault = DefaultView(Numeric->UseConstant ? Numeric->Constant
-						: GetMaterialNumericInputFallback(Node.Opcode, Node.ResultType, InputIndex));
+					if (Numeric->UseConstant)
+						Pin.InlineDefault = Pin.RetainedConstant;
+					else if (Node.Opcode)
+						Pin.InlineDefault = DefaultView(GetMaterialNumericInputFallback(*Node.Opcode, Node.ResultType, InputIndex));
 				}
 				if (!Input.IsConnected() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None) Pin.SourceType = Pin.InlineDefault.Type;
 				else if (!Input.IsConnected() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
@@ -529,9 +533,9 @@ namespace Durin::MaterialEditor
 						.Name = Port.Name, .Type = Port.Type, .Constraint = Port.Constraint});
 				}
 		}
-		else if (IsMaterialSamplingNode(Node.Opcode))
+		else if (Node.Opcode && IsMaterialSamplingNode(*Node.Opcode))
 		{
-			for (const auto& Output : GetMaterialSampleOutputs(Node.Opcode))
+			for (const auto& Output : GetMaterialSampleOutputs(*Node.Opcode))
 				View.Outputs.push_back({.SourceIndex = static_cast<int32>(Output.Id), .OutputIndex = static_cast<uint8>(Output.Id), .Name = Output.Name, .Type = Output.Type});
 		}
 		else if (Node.Opcode == EMaterialProgramOpcode::GetMaterialAttributes)

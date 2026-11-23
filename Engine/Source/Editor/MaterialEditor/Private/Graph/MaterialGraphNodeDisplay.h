@@ -12,7 +12,8 @@ namespace Durin::MaterialEditor
 	// Keep canvas, framing and automatic layout on the same node-specific geometry.
 	inline auto IsHeaderOnlyGraphNode(const FMaterialGraphNodeView& Node) -> bool
 	{
-		return !Node.Node.bMaterialOutput && (Node.Node.Opcode == EMaterialProgramOpcode::Constant
+		return !Node.Node.bMaterialOutput && Node.Inputs.empty() && Node.Outputs.size() <= 1
+			&& (Node.Node.Opcode == EMaterialProgramOpcode::Constant
 			|| Node.Node.Opcode == EMaterialProgramOpcode::Time
 			|| Node.Node.Opcode == EMaterialProgramOpcode::WorldPosition
 			|| Node.Node.Opcode == EMaterialProgramOpcode::StaticBool
@@ -22,8 +23,8 @@ namespace Durin::MaterialEditor
 
 	inline auto IsCompactGraphOperation(const FMaterialGraphNodeView& Node) -> bool
 	{
-		return IsMaterialAdaptiveNumeric(Node.Node.Opcode)
-			|| Node.Node.Opcode == EMaterialProgramOpcode::Swizzle;
+		return Node.Node.Opcode && (IsMaterialAdaptiveNumeric(*Node.Node.Opcode)
+			|| Node.Node.Opcode == EMaterialProgramOpcode::Swizzle);
 	}
 
 	inline auto GraphNodeWidth(const FMaterialGraphNodeView& Node) -> float

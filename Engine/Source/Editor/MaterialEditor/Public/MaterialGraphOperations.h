@@ -155,7 +155,7 @@ namespace Durin::MaterialEditor
 	{
 		FGuid Id;
 		bool bMaterialOutput = false;
-		EMaterialProgramOpcode Opcode = EMaterialProgramOpcode::Constant;
+		std::optional<EMaterialProgramOpcode> Opcode;
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		std::variant<std::monostate, FMaterialParameterValue, FMaterialGraphParameterInfo,
 			FMaterialGraphSampleInfo, std::vector<uint8>> Data;

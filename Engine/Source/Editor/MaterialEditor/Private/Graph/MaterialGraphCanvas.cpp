@@ -74,7 +74,7 @@ namespace Durin::MaterialEditor
 					if (bCollapsible) CollapsibleNodes.insert(Node.Node.Id);
 					return bCollapsible && !ExpandedNodes.contains(Node.Node.Id);
 				};
-				if (IsMaterialSamplingNode(Node.Node.Opcode))
+				if (Node.Node.Opcode && IsMaterialSamplingNode(*Node.Node.Opcode))
 					std::erase_if(Node.Outputs, [&](const auto& Pin) {
 						return Hide(Pin.Type == EMaterialProgramValueType::Texture2D
 							&& !(UsedSampleOutputs[Node.Node.Id] & (1u << Pin.OutputIndex)));
@@ -161,10 +161,12 @@ namespace Durin::MaterialEditor
 				DrawList.AddBezierCubic(A, ControlA, ControlB, B, Color, Thickness);
 		}
 
-		auto NodeTitleColor(EMaterialProgramOpcode Opcode) -> ImU32
+		auto NodeTitleColor(std::optional<EMaterialProgramOpcode> Opcode) -> ImU32
 		{
 			using Op = EMaterialProgramOpcode;
-			switch (Opcode)
+			constexpr auto DefaultColor = IM_COL32(66, 72, 83, 255);
+			if (!Opcode) return DefaultColor;
+			switch (*Opcode)
 			{
 			case Op::Parameter: case Op::TextureParameter: case Op::TextureSampleParameter2D:
 				return IM_COL32(48, 100, 66, 255);
@@ -184,7 +186,7 @@ namespace Durin::MaterialEditor
 				return IM_COL32(112, 76, 142, 255);
 			case Op::MakeMaterialAttributes: case Op::GetMaterialAttributes: case Op::SetMaterialAttributes:
 				return IM_COL32(119, 57, 60, 255);
-			default: return IM_COL32(66, 72, 83, 255);
+			default: return DefaultColor;
 			}
 		}
 
