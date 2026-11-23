@@ -35,10 +35,18 @@ public float2 ClampWaterPixel(float2 pixel, float4 viewport)
         max(viewport.xy + viewport.zw - 0.55, middle));
 }
 
+float WaterBackgroundLayerTolerance(float slopeTolerance)
+{
+    const float minLayerDepthTolerance = 0.001;
+    const float layerDepthSlopeScale = 2.0;
+    return max(minLayerDepthTolerance, layerDepthSlopeScale * slopeTolerance);
+}
+
 public FWaterBackground SampleWaterBackground(
     Texture2D<float4> sceneColor, Texture2D<float> sceneDepth, Texture2D<float> waterCoverage,
     FWaterViewUniform view, float4 viewport, float2 samplePixel,
-    float3 viewForward, float surfaceDepth, float slopeTolerance, float selectedDepth = 0.0)
+    float3 viewForward, float surfaceDepth, float slopeTolerance, float selectedDepth = 0.0,
+    bool requireCoverage = true)
 {
     float2 texel = ClampWaterPixel(samplePixel, viewport) - 0.5;
     int2 corner = int2(floor(texel));
@@ -48,9 +56,7 @@ public FWaterBackground SampleWaterBackground(
     float3 bedColor = 0.0;
     float3 skyColor = 0.0;
     float depth = 0.0;
-    const float minLayerDepthTolerance = 0.001;
-    const float layerDepthSlopeScale = 2.0;
-    float layerDepthTolerance = max(minLayerDepthTolerance, layerDepthSlopeScale * slopeTolerance);
+    float layerDepthTolerance = WaterBackgroundLayerTolerance(slopeTolerance);
     [unroll]
     for (uint tap = 0; tap < 4; ++tap)
     {
@@ -69,7 +75,7 @@ public FWaterBackground SampleWaterBackground(
         }
         // Coverage records where water passed the opaque depth test at this tap.
         // On oblique views its water depth can differ greatly from the source pixel's.
-        if (waterCoverage.Load(pixel) < 0.5) continue;
+        if (requireCoverage && waterCoverage.Load(pixel) < 0.5) continue;
         float3 viewPosition;
         if (!ReconstructViewPositionAnalytic(view.Projection[0], view.Projection[1],
                 view.Projection[2], view.Projection[3], WaterNdc(float2(pixel.xy) + 0.5, viewport),
@@ -158,12 +164,12 @@ float2 ProjectWaterRefraction(FWaterRefractionRay ray, float separation, float d
 // A silhouette has two distinct depths. Interpolating them would create a
 // receiver between surfaces. Filter color only after the ray has picked a layer.
 float WaterReceiverDepth(Texture2D<float> sceneDepth, Texture2D<float> coverage,
-    FWaterViewUniform view, float4 viewport, float2 samplePixel, float3 forward)
+    FWaterViewUniform view, float4 viewport, float2 samplePixel, float3 forward, bool requireCoverage = true)
 {
     int3 texel = int3(int2(ClampWaterPixel(samplePixel, viewport)), 0);
     float deviceDepth = sceneDepth.Load(texel);
     float3 position;
-    if (coverage.Load(texel) < 0.5 || deviceDepth == view.DepthParameters.x ||
+    if ((requireCoverage && coverage.Load(texel) < 0.5) || deviceDepth == view.DepthParameters.x ||
         !ReconstructViewPositionAnalytic(view.Projection[0], view.Projection[1], view.Projection[2],
             view.Projection[3], WaterNdc(float2(texel.xy) + 0.5, viewport), deviceDepth, position))
         return -1.0;
@@ -173,10 +179,49 @@ float WaterReceiverDepth(Texture2D<float> sceneDepth, Texture2D<float> coverage,
 public struct FWaterRefractionCandidate
 {
     public float2 offset;
-    // Zero means no candidate. A positive depth can be the best available
-    // sample when the search ends before the ray converges.
+    // Zero means no candidate.
     public float depth;
+    public bool converged;
+    // Coverage can end at the finite water mesh while the opaque receiver continues.
+    // Only a depth-validated continuation may gather beyond that coverage.
+    public bool allowUncoveredTaps;
 };
+
+bool TryContinueReceiverLayer(Texture2D<float> sceneDepth, Texture2D<float> coverage, FWaterViewUniform view,
+    float4 viewport, float2 anchorPixel, float2 targetPixel, float3 viewForward, float surfaceDepth,
+    float layerTolerance, float anchorDepth, out float targetDepth)
+{
+    targetDepth = 0.0;
+    float2 anchor = floor(ClampWaterPixel(anchorPixel, viewport)) + 0.5;
+    float2 target = floor(ClampWaterPixel(targetPixel, viewport)) + 0.5;
+    float2 travel = target - anchor;
+    float clipWSlope = dot(view.Projection[3].xyz, viewForward);
+    float clipWConstant = view.Projection[3].w;
+    bool perspective = clipWSlope > 1.0e-6;
+    float anchorValue = perspective ? rcp(clipWSlope * anchorDepth + clipWConstant) : anchorDepth;
+    float targetValue = anchorValue;
+    // Reciprocal clip W varies linearly across the projection of a planar receiver.
+    // Establish its local slope using covered taps on the original depth layer.
+    [unroll]
+    for (uint axis = 0; axis < 2; ++axis)
+    {
+        if (travel[axis] == 0.0) continue;
+        float2 step = axis == 0 ? float2(1, 0) : float2(0, 1);
+        float depth = WaterReceiverDepth(sceneDepth, coverage, view, viewport, anchor + step, viewForward);
+        if (depth <= 0.0 || abs(depth - anchorDepth) > layerTolerance)
+        {
+            step = -step;
+            depth = WaterReceiverDepth(sceneDepth, coverage, view, viewport, anchor + step, viewForward);
+            if (depth <= 0.0 || abs(depth - anchorDepth) > layerTolerance) return false;
+        }
+        float value = perspective ? rcp(clipWSlope * depth + clipWConstant) : depth;
+        targetValue += (value - anchorValue) * travel[axis] * step[axis];
+    }
+    if (targetValue <= 0.0) return false;
+    float expectedDepth = perspective ? (rcp(targetValue) - clipWConstant) / clipWSlope : targetValue;
+    targetDepth = WaterReceiverDepth(sceneDepth, coverage, view, viewport, target, viewForward, false);
+    return targetDepth >= surfaceDepth && abs(targetDepth - expectedDepth) <= layerTolerance;
+}
 
 public FWaterRefractionCandidate FindWaterRefractionCandidate(Texture2D<float> sceneDepth,
     Texture2D<float> coverage, FWaterViewUniform view, float4 viewport, float2 pixel, float3 surfaceInView,
@@ -219,7 +264,11 @@ public FWaterRefractionCandidate FindWaterRefractionCandidate(Texture2D<float> s
             candidate.depth = depth;
             bestError = abs(error);
             candidate.offset = probe;
-            if (bestError <= rayDepthTolerance) break;
+            if (bestError <= rayDepthTolerance)
+            {
+                candidate.converged = true;
+                break;
+            }
         }
         // An opaque silhouette can hide the receiver without intersecting the
         // transmitted ray. Advance beyond holes in the visible water coverage.
@@ -253,6 +302,20 @@ public FWaterRefractionCandidate FindWaterRefractionCandidate(Texture2D<float> s
         }
         distance = nextDistance;
         probe = ProjectWaterRefraction(ray, distance, depthBias);
+    }
+    if (candidate.depth > 0.0 && !candidate.converged)
+    {
+        // The march probe may be far from the ray at the selected depth.
+        // Project to that depth and let the final gather revalidate the layer.
+        float2 projected = ProjectWaterRefraction(ray, candidate.depth - surfaceDepth, depthBias);
+        float continuedDepth;
+        if (TryContinueReceiverLayer(sceneDepth, coverage, view, viewport, pixel + candidate.offset, pixel + projected,
+                viewForward, surfaceDepth, WaterBackgroundLayerTolerance(slopeTolerance), candidate.depth, continuedDepth))
+        {
+            candidate.depth = continuedDepth;
+            candidate.allowUncoveredTaps = true;
+        }
+        candidate.offset = projected;
     }
     return candidate;
 }
