@@ -829,6 +829,46 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 		Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
 		PublishWater();
 	}
+
+	// Extend water just over the reprojected footprint at the finite pool edge.
+	// A green foreground quad at receiver-like depth then occludes one corner.
+	const FVector3 ScreenForward(2.0 * Axis, 0, -Axis);
+	const FVector3 ScreenRight(0, 1, 0);
+	const FVector3 ScreenUp(Axis, 0, 2.0 * Axis);
+	const double FocalPixels = 160.0 / std::tan(Math::DegreesToRadians(30.0));
+	const auto AddScreenQuad = [&](uint32 Id, FVector2 Center, double Size, double Depth,
+		const FMaterialRenderProxyRef& Proxy) {
+		const auto ToCenter = ScreenForward + ScreenRight * ((Center.x - 160.0) / FocalPixels)
+			+ ScreenUp * ((120.0 - Center.y) / FocalPixels);
+		const auto Position = View.ViewLocation + ToCenter * Depth;
+		const double Width = Size * Depth / FocalPixels;
+		FMatrix Transform(1.0);
+		Transform[0] = FVector4(ScreenRight * (Width / 1.6), 0);
+		Transform[1] = FVector4(ScreenUp * (Width / 1.4), 0);
+		Transform[2] = FVector4(ScreenForward, 0);
+		Transform[3] = FVector4(Position - ScreenForward * .5, 1);
+		FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
+			std::make_unique<FStaticMeshSceneProxy>(Grid.get(), std::vector{Proxy}), Transform);
+	};
+	const double BedDepthAtLowerCorner = -5.0
+		/ (ScreenForward.z + ScreenUp.z * ((120.0 - 214.5) / FocalPixels));
+	const double CornerWaterDepth = BedDepthAtLowerCorner - .004;
+	Input.IR.GetAttribute(P::MP_EmissiveColor).Literal = {.25f, 0, 0};
+	PublishWater();
+	AddScreenQuad(722, {165.0, 214.0}, 2.0, CornerWaterDepth, Water);
+	AddScreenQuad(723, {164.5, 214.5}, .8, CornerWaterDepth - .004, Foreground);
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	CheckColor(HDR, 164, 214, {0, 1, 0});
+	for (const auto [X, Y] : {std::pair{164u, 213u}, std::pair{165u, 213u}, std::pair{165u, 214u}})
+		EXPECT_GT(ReadChannel(HDR, X, Y, 0), 1.0f) << "Covered tap (" << X << ", " << Y << ")";
+	CheckColor(HDR, 165, 177, {1.25f, 1, 1});
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	ASSERT_FALSE(HasFailure());
+	EXPECT_GT(ReadChannel(Refraction, 165, 177, 1), 25.0f);
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(723));
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(722));
+	Input.IR.GetAttribute(P::MP_EmissiveColor).Literal = {};
 	View = TopDownView;
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(719));
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(720));

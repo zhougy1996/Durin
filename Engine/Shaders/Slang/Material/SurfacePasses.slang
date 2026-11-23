@@ -139,8 +139,7 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
         if (candidate.depth > 0.0)
         {
             FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage,
-                WaterView, viewport, input.pos.xy + candidate.offset, viewForward, surfaceDepth, slopeTolerance,
-                candidate.depth, !candidate.allowUncoveredTaps);
+                WaterView, viewport, input.pos.xy + candidate.offset, viewForward, surfaceDepth, slopeTolerance, candidate.depth);
             // A reprojected candidate needs at least one finite tap from its layer.
             // Otherwise retain the original pixel's color and depth together.
             if (refracted.valid && (candidate.converged || !refracted.open))
