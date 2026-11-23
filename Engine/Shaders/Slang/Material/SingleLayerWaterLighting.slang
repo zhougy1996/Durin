@@ -38,7 +38,7 @@ public float2 ClampWaterPixel(float2 pixel, float4 viewport)
 public FWaterBackground SampleWaterBackground(
     Texture2D<float4> sceneColor, Texture2D<float> sceneDepth, Texture2D<float> waterCoverage,
     FWaterViewUniform view, float4 viewport, float2 samplePixel,
-    float3 viewForward, float surfaceDepth, float slopeTolerance, float maxReceiverDepth = 0.0)
+    float3 viewForward, float surfaceDepth, float slopeTolerance, float selectedDepth = 0.0)
 {
     float2 texel = ClampWaterPixel(samplePixel, viewport) - 0.5;
     int2 corner = int2(floor(texel));
@@ -48,6 +48,7 @@ public FWaterBackground SampleWaterBackground(
     float3 bedColor = 0.0;
     float3 skyColor = 0.0;
     float depth = 0.0;
+    float receiverTolerance = max(0.001, 2.0 * slopeTolerance);
     [unroll]
     for (uint tap = 0; tap < 4; ++tap)
     {
@@ -74,7 +75,7 @@ public FWaterBackground SampleWaterBackground(
             continue;
         float tapDepth = dot(viewPosition, viewForward);
         if (tapDepth + slopeTolerance < surfaceDepth) continue;
-        if (maxReceiverDepth > 0.0 && tapDepth > maxReceiverDepth) continue;
+        if (selectedDepth > 0.0 && abs(tapDepth - selectedDepth) > receiverTolerance) continue;
         finiteWeight += weight;
         depth += tapDepth * weight;
         bedColor += sceneColor.Load(pixel).rgb * weight;
@@ -180,13 +181,15 @@ public void ResolveWaterRefraction(Texture2D<float4> sceneColor, Texture2D<float
     float span = max(abs(probe.x), abs(probe.y));
     if (span == 0.0) return;
     float stride = max(4.0, span / 6.0);
-    float firstFraction = min(1.0, stride / span);
-    distance *= firstFraction;
+    float marchStep = distance * min(1.0, stride / span);
+    distance = marchStep;
     probe = ProjectWaterRefraction(ray, distance, depthBias);
     float nearDistance = 0.0;
     float farDistance = -1.0;
-    bool haveHit = false;
-    float selectedDepth = 0.0;
+    float depthTolerance = max(0.001, 2.0 * slopeTolerance);
+    float bestDepth = 0.0;
+    float bestError = 1.0e20;
+    float2 bestProbe = 0.0;
     // The source texel supplies only a first estimate. At a silhouette it can
     // belong to the bed while the refracted ray hits the pier, or vice versa.
     [loop]
@@ -196,38 +199,56 @@ public void ResolveWaterRefraction(Texture2D<float4> sceneColor, Texture2D<float
             pixel + probe, viewForward);
         bool validReceiver = depth > 0.0 && depth + slopeTolerance >= surfaceDepth;
         float receiver = max(depth - surfaceDepth, 0.0);
-        bool crossed = validReceiver && receiver <= distance;
-        if (validReceiver && (crossed || !haveHit))
+        float error = receiver - distance;
+        if (validReceiver && error >= -depthTolerance && abs(error) < bestError)
         {
-            selectedDepth = depth;
-            offset = probe;
+            bestDepth = depth;
+            bestError = abs(error);
+            bestProbe = probe;
+            if (bestError <= depthTolerance) break;
         }
-        haveHit = haveHit || crossed;
-        if (validReceiver && abs(receiver - distance) < 1.0e-4) break;
-        if (crossed || !validReceiver) farDistance = distance;
+        // An opaque silhouette can hide the receiver without intersecting the
+        // transmitted ray. Advance beyond holes in the visible water coverage.
+        if (!validReceiver)
+        {
+            distance = max(distance, farDistance) + marchStep;
+            nearDistance = distance - marchStep;
+            farDistance = -1.0;
+            probe = ProjectWaterRefraction(ray, distance, depthBias);
+            continue;
+        }
+        if (error <= 0.0) farDistance = distance;
         else nearDistance = distance;
-        // Keep the nearest crossing. An occluded footprint bounds the search
-        // without contributing its foreground color.
-        float nextDistance = validReceiver && receiver > nearDistance && (farDistance < 0.0 || receiver < farDistance)
+        float nextDistance = receiver > nearDistance && (farDistance < 0.0 || receiver < farDistance)
             ? receiver : 0.5 * (nearDistance + farDistance);
         float2 next = ProjectWaterRefraction(ray, nextDistance, depthBias);
-        if (all(abs(next - probe) < 0.25)) break;
         float2 delta = abs(next - probe);
+        if (all(delta < 0.25) && farDistance >= 0.0)
+        {
+            // A crossing that cannot converge in depth is a jump between
+            // surfaces in the depth buffer. Continue looking for a receiver.
+            nearDistance = farDistance;
+            farDistance = -1.0;
+            distance = nearDistance + marchStep;
+            probe = ProjectWaterRefraction(ray, distance, depthBias);
+            continue;
+        }
         if (farDistance < 0.0 && max(delta.x, delta.y) > stride)
         {
             nextDistance = lerp(distance, nextDistance, stride / max(delta.x, delta.y));
-            next = ProjectWaterRefraction(ray, nextDistance, depthBias);
         }
         distance = nextDistance;
-        probe = next;
+        probe = ProjectWaterRefraction(ray, distance, depthBias);
     }
-    if (selectedDepth > 0.0)
+    if (bestDepth > 0.0)
     {
         FWaterBackground refracted = SampleWaterBackground(sceneColor, sceneDepth, coverage,
-            view, viewport, pixel + offset, viewForward, surfaceDepth, slopeTolerance,
-            selectedDepth + max(slopeTolerance, 0.001));
-        if (refracted.valid) background = refracted;
-        else offset = 0.0;
+            view, viewport, pixel + bestProbe, viewForward, surfaceDepth, slopeTolerance, bestDepth);
+        if (refracted.valid)
+        {
+            background = refracted;
+            offset = bestProbe;
+        }
     }
 }
 

@@ -719,6 +719,18 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	CheckColor(HDR, Offset > 0 ? 319u : 0u, 120, FVector3f(1.0f));
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(716));
 
+	// The shallow stripe overlaps the projected ray after it has already passed
+	// the stripe's depth. Its screen-space edge cannot intercept the ray.
+	const double ShallowStripeY = -5.0 * (2.0 / 320.0) * 3.25 / std::sqrt(3.0);
+	Add(717, 0.0, -.25, .16, .04, Foreground, ShallowStripeY);
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	CheckColor(HDR, 160, 120, FVector3f(1.0f));
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	ASSERT_FALSE(HasFailure());
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 0), Offset, .1f);
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(717));
+
 	// Track an actual underwater landmark in the shaded HDR image with the camera locked.
 	Add(718, 0.0, -.999, 1.0, .18, Foreground);
 	for (uint32 Scale : {1u, 2u})
