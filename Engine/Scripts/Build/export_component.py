@@ -42,8 +42,13 @@ def generate_backend(engine, runtime, cmake, output):
             games.append(dict(Project=project, Platform=platform, Name=preset.name, Configuration=configuration,
                               TargetReceipt=str(artifacts / "TargetReceipts" / project / configuration / "TargetReceipt.json"),
                               ArtifactsRoot=str(artifacts), DependenciesRoot=str(engine / "External")))
-    write(output, dict(SchemaVersion=1, Kind="source-stage", WorkingDirectory=str(root), CMake=str(cmake),
-                       AssetTool=str(runtime / ("DurinAssetTool.exe" if os.name == "nt" else "DurinAssetTool")), Games=games))
+    backend = dict(SchemaVersion=1, Kind="source-stage", WorkingDirectory=str(root), CMake=str(cmake),
+                   AssetTool=str(runtime / ("DurinAssetTool.exe" if os.name == "nt" else "DurinAssetTool")), Games=games)
+    if os.name == "nt":
+        backend["Environment"] = {k: os.environ[k] for k in ("PATH", "INCLUDE", "LIB", "LIBPATH") if k in os.environ}
+    content = json.dumps(backend, indent=2)
+    if not output.is_file() or output.read_text(encoding="utf-8") != content:
+        output.write_text(content, encoding="utf-8")
 
 
 def publish(recipe, runtime, engine, compatibility, abi, backend_file):
@@ -62,7 +67,7 @@ def publish(recipe, runtime, engine, compatibility, abi, backend_file):
         files[dest.name] = digest
     backend = runtime / "ExportBackend.json"
     data = json.loads(backend_file.read_text(encoding="utf-8"))
-    data.update(Component="ExportComponent.json", AssetTool="DurinAssetTool.exe", PolicyFile="ExportPolicy.json", Environment={k: os.environ[k] for k in ["PATH", "INCLUDE", "LIB", "LIBPATH"] if k in os.environ})
+    data.update(Component="ExportComponent.json", AssetTool="DurinAssetTool.exe", PolicyFile="ExportPolicy.json")
     write(backend, data)
     shutil.copy2(engine / "Source/Developer/GameExport/Contracts/win64-system-v1.json", runtime / "ExportPolicy.json")
     for item in [backend, runtime / "ExportPolicy.json"]:

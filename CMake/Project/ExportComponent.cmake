@@ -5,13 +5,14 @@ function(durin_generate_export_component)
     endif()
     get_target_property(_runtime DurinAssetTool RUNTIME_OUTPUT_DIRECTORY)
     set(_generator "${CMAKE_SOURCE_DIR}/Engine/Scripts/Build/export_component.py")
+    set(_backend "${CMAKE_BINARY_DIR}/ExportBackend.json")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${_generator}" "${CMAKE_SOURCE_DIR}/CMakePresets.json"
         "${CMAKE_SOURCE_DIR}/Tools/DurinDevTool/durin_dev_tool/build/config_io.py"
         "${CMAKE_SOURCE_DIR}/Tools/DurinDevTool/durin_dev_tool/build/selection.py")
     execute_process(COMMAND "${Python_EXECUTABLE}" "${_generator}" --generate-backend
         --engine "${CMAKE_SOURCE_DIR}/Engine" --runtime "${_runtime}" --cmake "${CMAKE_COMMAND}"
-        --output "${CMAKE_BINARY_DIR}/ExportBackend.json" RESULT_VARIABLE _result)
+        --output "${_backend}" RESULT_VARIABLE _result)
     if(NOT _result EQUAL 0)
         message(FATAL_ERROR "Cannot generate declared Game product sets")
     endif()
@@ -65,19 +66,37 @@ function(durin_generate_export_component)
         endif()
     endwhile()
     set(_recipe "${CMAKE_COMMAND}\n")
+    set(_binaries "${CMAKE_COMMAND}")
     foreach(_target IN LISTS _targets)
-        string(APPEND _recipe "$<TARGET_FILE:${_target}>\n")
+        set(_binary "$<TARGET_FILE:${_target}>")
+        string(APPEND _recipe "${_binary}\n")
+        list(APPEND _binaries "${_binary}")
         get_target_property(_imported "${_target}" IMPORTED)
         if(NOT _imported)
-            string(APPEND _recipe "$<JOIN:$<TARGET_RUNTIME_DLLS:${_target}>,\n>\n")
+            set(_runtime_dlls "$<TARGET_RUNTIME_DLLS:${_target}>")
+            string(APPEND _recipe "$<JOIN:${_runtime_dlls},\n>\n")
+            list(APPEND _binaries "${_runtime_dlls}")
         endif()
     endforeach()
-    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/ExportComponent.inputs" CONTENT "${_recipe}")
-    add_custom_target(ExportComponent ALL
-        COMMAND "${Python_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Engine/Scripts/Build/export_component.py"
-            --recipe "${CMAKE_BINARY_DIR}/ExportComponent.inputs" --backend "${CMAKE_BINARY_DIR}/ExportBackend.json" --runtime "${_runtime}"
+    set(_inputs "${CMAKE_BINARY_DIR}/ExportComponent.inputs")
+    file(GENERATE OUTPUT "${_inputs}" CONTENT "${_recipe}")
+
+    set(_contracts "${CMAKE_SOURCE_DIR}/Engine/Source/Developer/GameExport/Contracts")
+    file(GLOB _schemas CONFIGURE_DEPENDS "${_contracts}/*.schema.json")
+    set(_products "${_runtime}/ExportComponent.json" "${_runtime}/ExportBackend.json" "${_runtime}/ExportPolicy.json")
+    foreach(_schema IN LISTS _schemas)
+        cmake_path(GET _schema FILENAME _name)
+        list(APPEND _products "${_runtime}/Contracts/${_name}")
+    endforeach()
+
+    add_custom_command(OUTPUT ${_products}
+        COMMAND "${Python_EXECUTABLE}" "${_generator}"
+            --recipe "${_inputs}" --backend "${_backend}" --runtime "${_runtime}"
             --engine "${CMAKE_SOURCE_DIR}/Engine" --compatibility "${DURIN_COOK_COMPATIBILITY}"
             --abi "${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}-${CMAKE_SIZEOF_VOID_P}"
-        DEPENDS ${_visited}
+        DEPENDS "${_generator}" "${_inputs}" "${_backend}" "${_contracts}/win64-system-v1.json"
+            ${_schemas} ${_visited} ${_binaries}
+        COMMENT "Publishing ExportComponent"
         VERBATIM)
+    add_custom_target(ExportComponent ALL DEPENDS ${_products})
 endfunction()
