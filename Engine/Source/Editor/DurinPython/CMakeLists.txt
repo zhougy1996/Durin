@@ -25,40 +25,45 @@ if(DURIN_ENABLE_PYTHON AND (WIN32 OR (APPLE AND DURIN_PYTHON_SDK_ROOT)) AND EXIS
         VERBATIM)
     add_custom_target(DurinPythonStdlib DEPENDS "${_python_zip}")
     set(_durin_python_zip "${CMAKE_CURRENT_BINARY_DIR}/durin-python.zip")
-    file(GLOB_RECURSE _durin_python_sources CONFIGURE_DEPENDS
-        RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/Python" "${CMAKE_CURRENT_SOURCE_DIR}/Python/durin/*.py")
-    list(TRANSFORM _durin_python_sources PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/Python/"
-        OUTPUT_VARIABLE _durin_python_dependencies)
+    set(_durin_python_root "${CMAKE_CURRENT_SOURCE_DIR}/Python")
+    file(GLOB_RECURSE _durin_python_sources CONFIGURE_DEPENDS "${_durin_python_root}/*.py")
+    # A removed source changes the inventory even if all remaining files predate the zip.
+    set(_durin_python_inventory "${CMAKE_CURRENT_BINARY_DIR}/durin-python.inputs")
+    file(GENERATE OUTPUT "${_durin_python_inventory}" CONTENT "${_durin_python_sources}\n")
     add_custom_command(OUTPUT "${_durin_python_zip}"
-        COMMAND "${Python_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/CMake/PackagePython.py" "${CMAKE_CURRENT_SOURCE_DIR}/Python" "${_durin_python_zip}"
-        DEPENDS ${_durin_python_dependencies} "${CMAKE_CURRENT_SOURCE_DIR}/CMake/PackagePython.py"
+        COMMAND "${Python_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/CMake/PackagePython.py" "${_durin_python_root}" "${_durin_python_zip}"
+        DEPENDS ${_durin_python_sources} "${_durin_python_inventory}" "${CMAKE_CURRENT_SOURCE_DIR}/CMake/PackagePython.py"
+        COMMENT "Packaging durin-python.zip"
         VERBATIM)
     # Deploy Python-only edits even when the native module does not relink.
-    add_custom_target(DurinPythonPackage
+    set(_durin_python_runtime_zip "${DURIN_PROJECT_EXTERNAL_RUNTIME_DIR}/durin-python.zip")
+    add_custom_command(OUTPUT "${_durin_python_runtime_zip}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${DURIN_PROJECT_EXTERNAL_RUNTIME_DIR}"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_durin_python_zip}"
-            "${DURIN_PROJECT_EXTERNAL_RUNTIME_DIR}/durin-python.zip"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_durin_python_zip}" "${_durin_python_runtime_zip}"
         DEPENDS "${_durin_python_zip}"
+        COMMENT "Deploying durin-python.zip"
         VERBATIM)
+    add_custom_target(DurinPythonPackage ALL DEPENDS "${_durin_python_runtime_zip}")
+    set(_python_runtime_files "${_python_library};${_python_zip};${_python_root}/LICENSE.txt")
+    set(_python_deploy_files "${_python_runtime_files};${_durin_python_zip}")
     add_library(DurinCPython SHARED IMPORTED GLOBAL)
     set_target_properties(DurinCPython PROPERTIES
         IMPORTED_LOCATION "${_python_library}"
         IMPORTED_IMPLIB "${_python_root}/libs/python313.lib"
         INTERFACE_INCLUDE_DIRECTORIES "${_python_root}/include"
-        DURIN_RUNTIME_DEPLOY_FILES "${_python_library};${_python_zip};${_python_root}/LICENSE.txt;${_durin_python_zip}")
+        DURIN_RUNTIME_DEPLOY_FILES "${_python_deploy_files}")
     add_dependencies(DurinCPython DurinPythonStdlib DurinPythonPackage)
     target_include_directories(DurinPython PRIVATE "${_python_root}/include")
     add_dependencies(DurinPython DurinPythonStdlib DurinPythonPackage)
     # Keep deployment in the runtime closure without importing CPython symbols.
-    set_property(TARGET DurinPython PROPERTY DURIN_RUNTIME_DEPLOY_FILES
-        "${_python_library};${_python_zip};${_python_root}/LICENSE.txt;${_durin_python_zip}")
+    set_property(TARGET DurinPython PROPERTY DURIN_RUNTIME_DEPLOY_FILES "${_python_deploy_files}")
     target_compile_definitions(DurinPython PRIVATE DURIN_WITH_PYTHON=1)
     get_filename_component(_python_library_name "${_python_library}" NAME)
     target_compile_definitions(DurinPython PRIVATE DURIN_PYTHON_LIBRARY="${_python_library_name}")
     if(WIN32)
         target_link_options(DurinPython PRIVATE /NODEFAULTLIB:python313.lib)
     endif()
-    durin_target_deploy_runtime_files(DurinPython DurinCPython)
+    durin_target_deploy_files(DurinPython "${_python_runtime_files}")
 else()
     target_compile_definitions(DurinPython PRIVATE DURIN_WITH_PYTHON=0)
 endif()
