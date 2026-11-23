@@ -753,6 +753,44 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	View.ViewportHeight = 240;
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(718));
 
+	// Oblique view of a pier face crossing the waterline. Only the dry half is green.
+	const auto TopDownView = View;
+	const auto AddPierFace = [&](uint32 Id, double CenterZ, const FMaterialRenderProxyRef& Material) {
+		FMatrix Transform(1.0);
+		Transform[0] = FVector4(0, 0, 1.25, 0);
+		Transform[1] = FVector4(0, .5, 0, 0);
+		Transform[2] = FVector4(-1, 0, 0, 0);
+		Transform[3] = FVector4(.5, 0, CenterZ, 1);
+		FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
+			std::make_unique<FStaticMeshSceneProxy>(Grid.get(), std::vector{Material}), Transform);
+	};
+	AddPierFace(719, 1.0, Foreground);
+	AddPierFace(720, -1.0, Bed);
+	View.ViewLocation = {-6, 0, 3};
+	const double Axis = 1.0 / std::sqrt(5.0);
+	View.ViewMatrix[0] = FVector4(2 * Axis, 0, Axis, 0);
+	View.ViewMatrix[1] = FVector4(0, 1, 0, 0);
+	View.ViewMatrix[2] = FVector4(-Axis, 0, 2 * Axis, 0);
+	View.ViewMatrix[3] = FVector4(15 * Axis, 0, 0, 1);
+	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, 0, 1};
+	Input.IR.GetAttribute(P::MP_Specular).Literal = {.5f};
+	PublishWater();
+	for (auto Depth : {ESceneDepthConvention::ForwardZ, ESceneDepthConvention::ReversedZ})
+	{
+		SCOPED_TRACE(Depth == ESceneDepthConvention::ForwardZ ? "ForwardZ oblique pier" : "ReversedZ oblique pier");
+		View.DepthConvention = Depth;
+		ASSERT_TRUE(SceneViewProjection::BuildPerspectiveProjection(VerticalFov, Aspect, .1, 100.0, Depth, View.ProjectionMatrix));
+		View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+		CaptureHDR(HDR);
+		ASSERT_FALSE(HasFatalFailure());
+		CheckColor(HDR, 160, 100, {0, 1, 0});
+		for (uint32 Y : {132u, 145u, 158u})
+			CheckColor(HDR, 160, Y, FVector3f(1.0f));
+	}
+	View = TopDownView;
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(719));
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(720));
+
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::None;
 	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, 0, 1};
 	Input.IR.GetAttribute(P::MP_Specular).Literal = {};

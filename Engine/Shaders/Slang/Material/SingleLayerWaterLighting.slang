@@ -36,7 +36,7 @@ public float2 ClampWaterPixel(float2 pixel, float4 viewport)
 }
 
 public FWaterBackground SampleWaterBackground(
-    Texture2D<float4> sceneColor, Texture2D<float> sceneDepth,
+    Texture2D<float4> sceneColor, Texture2D<float> sceneDepth, Texture2D<float> waterCoverage,
     FWaterViewUniform view, float4 viewport, float2 samplePixel,
     float3 viewForward, float surfaceDepth, float slopeTolerance)
 {
@@ -64,6 +64,9 @@ public FWaterBackground SampleWaterBackground(
             skyColor += sceneColor.Load(pixel).rgb * weight;
             continue;
         }
+        // Coverage records where water passed the opaque depth test at this tap.
+        // On oblique views its water depth can differ greatly from the source pixel's.
+        if (waterCoverage.Load(pixel) < 0.5) continue;
         float3 viewPosition;
         if (!ReconstructViewPositionAnalytic(view.Projection[0], view.Projection[1],
                 view.Projection[2], view.Projection[3], WaterNdc(float2(pixel.xy) + 0.5, viewport),

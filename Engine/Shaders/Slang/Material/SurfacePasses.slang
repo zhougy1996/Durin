@@ -122,7 +122,7 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
     FSurfaceLightingFrame frame = BuildSurfaceLightingFrame(input.worldPosition, normal, Lighting.ViewPosition.xyz);
     float waterIor = WaterIor(surface.specular);
     float4 viewport = MaterialView.Viewport;
-    FWaterBackground background = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterView,
+    FWaterBackground background = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
         viewport, input.pos.xy, viewForward, surfaceDepth, slopeTolerance);
     float2 offset = 0.0;
 #if DURIN_MATERIAL_REFRACTION_METHOD != 0
@@ -137,7 +137,7 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
     offset = WaterRefractionOffsetInPixels(normalXY, authoredIor, viewport.zw, length(right),
         max(background.depth - surfaceDepth, 0.0) * 100.0,
         asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)), background.open);
-    FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterView,
+    FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
         viewport, input.pos.xy + offset, viewForward, surfaceDepth, slopeTolerance);
     if (refracted.valid) background = refracted;
 #endif
