@@ -177,38 +177,26 @@ namespace Durin
 		FShaderCompileOptions EffectiveOptions = Options;
 		EffectiveOptions.VirtualShaderPath = std::string(VirtualShaderPath);
 		EffectiveOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
-		std::vector<std::string> PhysicalDependencies;
-		if (auto Result = DependencyResolver.Resolve(FShaderPaths::SourcePath(VirtualShaderPath), EffectiveOptions, PhysicalDependencies); !Result) return Result;
+		std::vector<FShaderMacroDefinition> NormalizedMacros;
+		if (auto Result = ShaderCompileUtilities::NormalizeMacros(EffectiveOptions, NormalizedMacros); !Result)
+			return Result;
+		// Reuse the validated metadata used to compute the source-tree fingerprint.
+		FShaderMetaData MetaData;
+		if (auto Result = ResolveSourceMetaData(VirtualShaderPath, FShaderPaths::SourcePath(VirtualShaderPath),
+			EffectiveOptions, NormalizedMacros, MetaData); !Result)
+			return Result;
 
-		OutDependencies.reserve(PhysicalDependencies.size());
-		for (const std::string& PhysicalPath : PhysicalDependencies)
+		const auto& Portable = MetaData.PortableDependencies;
+		std::vector<FShaderSourceDependencyFingerprint> Dependencies;
+		Dependencies.reserve(Portable.size());
+		for (size_t Index = 0; Index < Portable.size(); ++Index)
 		{
-			std::string VirtualPath;
-			if (!FShaderPaths::TryMakeVirtualSourcePath(
-				PhysicalPath, VirtualPath))
-			{
-				OutDependencies.clear();
-				return std::unexpected(std::format("Shader dependency '{}' has no registered virtual identity.", (PhysicalPath)));
-			}
-			auto ContentHash = FFileHelper::HashFileXx128(PhysicalPath);
+			auto ContentHash = FFileHelper::HashFileXx128(MetaData.Dependencies[Index].NormalizedPath);
 			if (!ContentHash)
-			{
-				OutDependencies.clear();
 				return std::unexpected((std::move(ContentHash.error())).GetMessage());
-			}
-			OutDependencies.push_back({
-				.VirtualPath = std::move(VirtualPath),
-				.ContentHash = *ContentHash});
+			Dependencies.push_back({Portable[Index].VirtualPath, *ContentHash});
 		}
-		std::ranges::sort(OutDependencies, [](const auto& A, const auto& B) {
-			return std::tie(A.VirtualPath, A.ContentHash.HashHigh,
-				A.ContentHash.HashLow)
-				< std::tie(B.VirtualPath, B.ContentHash.HashHigh,
-					B.ContentHash.HashLow);
-		});
-		OutDependencies.erase(
-			std::unique(OutDependencies.begin(), OutDependencies.end()),
-			OutDependencies.end());
+		OutDependencies = std::move(Dependencies);
 		return {};
 	}
 

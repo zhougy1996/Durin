@@ -413,6 +413,12 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(SameGenerationStats.ManifestHits, 0u);
 		EXPECT_EQ(SameGenerationStats.SourceTreeFingerprintHits, 1u);
 
+		std::vector<FShaderSourceDependencyFingerprint> ColdManifest;
+		ASSERT_TRUE((Error = Builder->BuildSourceDependencyManifest("/ShaderBuilderTests/Simple", Options, ColdManifest))) << std::string(Error.error());
+		ASSERT_FALSE(ColdManifest.empty());
+		EXPECT_EQ(Builder->GetStats().DependencyResolutions, 1u);
+		EXPECT_EQ(Builder->GetStats().ManifestHits, 1u);
+
 		Builder.reset();
 		Builder = std::make_unique<FShaderBuilder>();
 		FShaderSourceDependencyFingerprint WarmFingerprint;
@@ -444,6 +450,11 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_NE(ChangedFingerprint.ContentHash,
 			ColdFingerprint.ContentHash);
 		EXPECT_EQ(Builder->GetStats().DependencyResolutions, 1u);
+		std::vector<FShaderSourceDependencyFingerprint> ChangedManifest;
+		ASSERT_TRUE((Error = Builder->BuildSourceDependencyManifest("/ShaderBuilderTests/Simple", Options, ChangedManifest))) << std::string(Error.error());
+		EXPECT_NE(ChangedManifest, ColdManifest);
+		EXPECT_EQ(Builder->GetStats().DependencyResolutions, 1u);
+		EXPECT_EQ(Builder->GetStats().ManifestHits, 2u);
 	}
 
 	TEST_F(FShaderBuilderTests, AsyncCacheWaitReleasesWorkerAndCancellationIsSubscriberScoped)

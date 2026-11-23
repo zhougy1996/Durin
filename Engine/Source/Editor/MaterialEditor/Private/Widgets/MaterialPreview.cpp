@@ -320,13 +320,18 @@ namespace Durin::MaterialEditor
 		}
 
 	private:
-		auto BuildRootInputPreview(DMaterial& Working) -> void
+		auto ResetRootInputPreview() -> void
 		{
 			if (RootInputPreview) FAssetCompilingManager::Get().MarkCompilationAsCanceled(*RootInputPreview);
 			RootInputPreview.Reset();
 			RootInputPreviewParameters.clear();
-			RootInputPreviewRevision = Working.GetMaterialContentRevision();
+			RootInputPreviewRevision.reset();
 			bRootInputPreviewCommitted = false;
+		}
+
+		auto BuildRootInputPreview(DMaterial& Working) -> void
+		{
+			RootInputPreviewRevision = Working.GetMaterialContentRevision();
 			if (Working.UsesMaterialAttributes()) return;
 
 			auto Root = Working.CaptureRootInputs();
@@ -376,7 +381,10 @@ namespace Durin::MaterialEditor
 		auto SelectRootInputPreview(DMaterial& Working,
 				const std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>>& Draft) -> DMaterial*
 		{
-			if (RootInputPreviewRevision != Working.GetMaterialContentRevision()) BuildRootInputPreview(Working);
+			if (RootInputPreviewRevision && RootInputPreviewRevision != Working.GetMaterialContentRevision())
+				ResetRootInputPreview();
+			if (Draft && !RootInputPreviewRevision)
+				BuildRootInputPreview(Working);
 			const bool bShowCommitted = bRootInputPreviewCommitted
 				&& Working.GetEditCompileMode() != EMaterialEditCompileMode::Manual
 				&& !Working.GetMaterialCompileStatus().IsCurrent();
@@ -488,7 +496,7 @@ namespace Durin::MaterialEditor
 		DMaterialInterface* CurrentMaterial = nullptr;
 		TStrongObjectPtr<DMaterial> RootInputPreview;
 		std::map<EMaterialProperty, FGuid> RootInputPreviewParameters;
-		uint64 RootInputPreviewRevision = 0;
+		std::optional<uint64> RootInputPreviewRevision;
 		bool bRootInputPreviewCommitted = false;
 		FQuat PreviewRotation = FQuatConstants::Identity;
 		EMaterialPreviewShape Shape = EMaterialPreviewShape::Sphere;
