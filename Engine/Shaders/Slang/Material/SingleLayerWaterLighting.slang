@@ -216,9 +216,9 @@ FWaterRefractionCandidate FindCoveredReceiver(Texture2D<float> sceneDepth, Textu
         gradient[axis] = (value - anchorValue) * step[axis];
     }
 
-    // Test from the intended footprint toward the last observed receiver, at
-    // one-pixel intervals. Limit the extra depth reads when the gap is large.
-    bool targetCovered = coverage.Load(int3(int2(start), 0)) >= 0.5;
+    // Search back toward the observed receiver even when the target has water
+    // coverage: the reprojected pixel can land on a different depth layer.
+    // Step one pixel at a time and bound the extra depth reads.
     [loop]
     for (uint step = 0; step <= maxRetreatSteps; ++step)
     {
@@ -238,9 +238,7 @@ FWaterRefractionCandidate FindCoveredReceiver(Texture2D<float> sceneDepth, Textu
                 return result;
             }
         }
-        // Retreat only at a coverage edge. A covered target on another layer
-        // is a failed reprojection, so the caller keeps the original background.
-        if (targetCovered || fraction == 1.0) break;
+        if (fraction == 1.0) break;
     }
     return (FWaterRefractionCandidate)0;
 }
