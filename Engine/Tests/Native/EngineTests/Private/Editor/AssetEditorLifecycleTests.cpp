@@ -1186,6 +1186,25 @@ namespace
 		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
 	}
 
+	TEST_F(FAssetEditorLifecycleTests, GenericEditorPreventsEditsOnReadOnlyMount)
+	{
+		Testing::RegisterMountPointForTests("/AssetEditorLifecycle/", Testing::GetTestWorkDirectory().generic_string(), true, false);
+		auto* Definition = NewObject<FGenericEditorTestDefinition>(nullptr, {});
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		auto* Object = Asset("ReadOnlyWaves");
+		FSoftObjectPath Path;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
+		const auto Flags = Object->GetObjectFlags();
+		ASSERT_TRUE(AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem,
+			.Assets = {{Path, Object->GetClass()->GetQualifiedName().ToString()}}}));
+		auto* Editor = Durin::Testing::FindReflectedEditor(AssetEditorSubsystem, Object, EAssetOpenMethod::Edit);
+		ASSERT_NE(nullptr, Editor);
+		EXPECT_EQ(Flags, Object->GetObjectFlags());
+		EXPECT_FALSE(Editor->GetToolkit()->CanSaveActiveDocument());
+		EXPECT_FALSE(Editor->GetToolkit()->SaveActiveDocument());
+	}
+
 	TEST_F(FAssetEditorLifecycleTests, TransactionScopesRestoreTheirOwnerWithoutChangingTheProcessEditor)
 	{
 		const auto ProcessEditor = GEditor;

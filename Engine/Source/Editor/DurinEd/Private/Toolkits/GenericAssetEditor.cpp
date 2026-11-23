@@ -1,5 +1,7 @@
 #include "Toolkits/GenericAssetEditor.h"
 
+#include "DObject/Package.h"
+#include "Misc/MountPaths.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/AssetEditorSession.h"
 #include "PropertyEditor/PropertyView.h"
@@ -30,7 +32,10 @@ namespace Durin
 			FBaseAssetToolkit::OnClose();
 		}
 		auto OnActivateAsset(DObject& Object) -> void override
-		{ if (!IsReadOnly()) Session.Activate(&Object); }
+		{
+			bReadOnlyMount = IsOnReadOnlyMount(Object);
+			if (!IsReadOnly() && !bReadOnlyMount) Session.Activate(&Object);
+		}
 		auto OnDrawToolkit(bool bActive) -> bool override
 		{
 			if (!bActive) RequestDeactivate();
@@ -40,6 +45,7 @@ namespace Durin
 		{ return FToolkitPanelSpawner{"Details", "Details", [this] { DrawDetails(); }}; }
 		auto OnSaveAsset(DObject& Object) -> bool override
 		{
+			if (IsOnReadOnlyMount(Object)) return false;
 			const auto Context = ViewContext();
 			return Properties.FinishActiveEdit(&Context, false)
 				&& Session.Save(&Object, {}, [this](std::string Message) { Error = std::move(Message); });
@@ -52,19 +58,28 @@ namespace Durin
 		auto OnPackageReloaded(DPackage*, DPackage*) -> void override
 		{ if (auto* Active = GetActiveAsset()) OnActivateAsset(*Active); }
 		auto OnIsAssetDirty(const DObject& Object) const -> bool override { return Session.IsDirty(&Object); }
-		auto OnCanSaveActiveDocument() const -> bool override { return Session.CanSave(GetActiveAsset()); }
-		auto OnCanUndo() const -> bool override { return Session.CanUndo(); }
-		auto OnCanRedo() const -> bool override { return Session.CanRedo(); }
-		auto OnUndo() -> bool override { return RequestDeactivate() && Session.Undo(); }
-		auto OnRedo() -> bool override { return RequestDeactivate() && Session.Redo(); }
+		auto OnCanSaveActiveDocument() const -> bool override { return !bReadOnlyMount && Session.CanSave(GetActiveAsset()); }
+		auto OnCanUndo() const -> bool override { return !bReadOnlyMount && Session.CanUndo(); }
+		auto OnCanRedo() const -> bool override { return !bReadOnlyMount && Session.CanRedo(); }
+		auto OnUndo() -> bool override { return OnCanUndo() && RequestDeactivate() && Session.Undo(); }
+		auto OnRedo() -> bool override { return OnCanRedo() && RequestDeactivate() && Session.Redo(); }
 	private:
+		static auto IsOnReadOnlyMount(const DObject& Object) -> bool
+		{
+			const auto* Package = Object.GetPackage();
+			if (!Package) return false;
+			const auto Mount = FMountPaths::FindMountForVirtualPath(Package->GetPackagePath());
+			return Mount && !Mount->Mount->bContentWritable;
+		}
 		auto ViewContext() -> FPropertyViewContext
-		{ return {.ReportError = [this](std::string Message) { Error = std::move(Message); }, .bReadOnly = IsReadOnly()}; }
+		{ return {.ReportError = [this](std::string Message) { Error = std::move(Message); }, .bReadOnly = IsReadOnly() || bReadOnlyMount}; }
 		auto DrawDetails() -> void
 		{
 			if (auto* Object = GetActiveAsset())
 			{
 				const auto Context = ViewContext();
+				if (bReadOnlyMount)
+					ImGui::TextWrapped("This asset is read-only. To edit it, copy it into your project in the Content Browser.");
 				DrawDetailPanel(Properties, Context, Object);
 			}
 			if (!Error.empty()) ImGui::TextWrapped("%s", Error.c_str());
@@ -72,6 +87,7 @@ namespace Durin
 		FAssetEditorToolkitId Type{"GenericAssetEditor"};
 		FAssetEditorSession Session;
 		FPropertyView Properties;
+		bool bReadOnlyMount = false;
 		std::string Error;
 	};
 	DGenericAssetEditor::DGenericAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}

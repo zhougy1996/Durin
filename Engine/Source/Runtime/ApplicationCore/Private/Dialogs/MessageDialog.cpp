@@ -18,7 +18,7 @@ namespace Durin
 	{
 		if (!Interactive) return EMessageDialogResult::Error;
 #if defined(_WIN32)
-		const int Result = ::MessageBoxW(nullptr, StringUtils::Utf8ToWide(Message).c_str(),
+		const int Result = ::MessageBoxW(::GetActiveWindow(), StringUtils::Utf8ToWide(Message).c_str(),
 			StringUtils::Utf8ToWide(Title).c_str(), (Decline ? MB_YESNOCANCEL : MB_OKCANCEL) | MB_ICONQUESTION | MB_DEFBUTTON2);
 		if (Result == IDYES || Result == IDOK) return EMessageDialogResult::Yes;
 		if (Result == IDNO) return EMessageDialogResult::No;

@@ -302,7 +302,7 @@ namespace
 		const auto& Default = Asset->GetWaveGroup();
 		Require(Default && Default->Waves.size() == 16, "Default generator must produce sixteen waves.");
 		Require(Default->Waves[0].Direction == FVector2(1, 0)
-			&& std::abs(Default->BaseAmplitude - 2.540625f) < 1.e-5f
+			&& std::abs(Default->BaseAmplitude - .2540625f) < 1.e-5f
 			&& std::abs(Default->BaseWavelength / Default->Waves[0].WavenumberRatio - 60.f) < 1.e-5f
 			&& std::abs(Default->Waves[1].Direction.x + .664813) < 1.e-5
 			&& std::abs(Default->Waves[1].Direction.y - .747010) < 1.e-5,
