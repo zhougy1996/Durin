@@ -32,13 +32,23 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	auto RecordGraphEdit(DObject& Owner, DTransactor* Transactions, std::string Description,
 		std::span<DObject* const> Objects, const std::function<void()>& Apply) -> FMaterialGraphCommandResult;
 
-	// Asset-level writeback also supports incomplete graphs used by repair tools.
-	MATERIALEDITOR_API auto WriteExpressionConnection(DObject* Owner, const FMaterialGraphPinAddress& Target,
-		const FMaterialGraphPinAddress& Source, bool Replace = false, ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) -> bool;
-	MATERIALEDITOR_API auto WriteInputDefault(DObject* Owner, const FMaterialGraphPinAddress& Pin,
+	// Asset writes use the owning expression and its numeric slot or function port.
+	using FExpressionInputKey = std::variant<uint32, FGuid>;
+	MATERIALEDITOR_API auto WriteExpressionConnection(DObject* Owner, DMaterialExpression* Target, FExpressionInputKey Input,
+		FMaterialExpressionInput Source, bool Replace = false, ETransactionMode Mode = ETransactionMode::Record,
+		std::string* OutError = nullptr, FGuid SourcePort = {}) -> bool;
+	MATERIALEDITOR_API auto WriteRootConnection(DMaterial* Material, EMaterialProperty Property,
+		FMaterialExpressionInput Source, bool Replace = false, ETransactionMode Mode = ETransactionMode::Record,
+		std::string* OutError = nullptr, FGuid SourcePort = {}) -> bool;
+	MATERIALEDITOR_API auto WriteInputDefault(DObject* Owner, DMaterialExpression* Expression, FExpressionInputKey Input,
 		FMaterialInputDefault Value, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
-	MATERIALEDITOR_API auto SetInputConstantEnabled(DObject* Owner, const FMaterialGraphPinAddress& Pin,
+	MATERIALEDITOR_API auto WriteInputDefault(DMaterial* Material, EMaterialProperty Property,
+		FMaterialInputDefault Value, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+	MATERIALEDITOR_API auto SetInputConstantEnabled(DObject* Owner, DMaterialExpression* Expression, uint32 Index,
 		bool Enabled, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+	MATERIALEDITOR_API auto SetInputConstantEnabled(DMaterial* Material, EMaterialProperty Property,
+		bool Enabled, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+	auto GetExpressionInputKey(const FMaterialGraphPinView& Input) -> FExpressionInputKey;
 	// The command supplies one synchronous mutation after all affected objects have been recorded.
 	auto EditExpressions(DObject& Owner, DTransactor* Transactions, std::string Description,
 		std::span<DMaterialExpression* const> Objects, const std::function<void()>& Apply) -> FMaterialGraphCommandResult;

@@ -220,6 +220,7 @@ namespace Durin::MaterialEditor
 
 	auto DMaterialGraphNode::Refresh(FMaterialGraphNodeView Metadata, FMaterialGraphPinSource Source, FPinOperation Operation) -> void
 	{
+		if (MaterialExpression.Get() != Source.Expression) Pins.clear();
 		MaterialExpression = Source.Expression;
 		View = std::move(Metadata);
 		if (Source.Expression) SetExpressionLabels(View, Source.Expression);
@@ -239,8 +240,17 @@ namespace Durin::MaterialEditor
 		CreateInputPins();
 		CreateOutputPins();
 
+		const auto Previous = std::move(Pins);
 		Pins.clear();
 		Pins.reserve(View.Inputs.size() + View.Outputs.size());
+		const auto AddPin = [&](EMaterialGraphPinDirection Direction, int32 Index, int32 Ordinal, FGuid Port) {
+			auto Pin = FMaterialGraphPin(this, Direction, Index, Ordinal, Port);
+			const auto Match = std::ranges::find_if(Previous, [&](const FMaterialGraphPin& Old) {
+				return Old.Direction == Direction && Old.PortId == Port && (Port.IsValid() || Old.SourceIndex == Index);
+			});
+			Pin.Id = Match == Previous.end() ? FGuid::NewGuid() : Match->Id;
+			Pins.push_back(std::move(Pin));
+		};
 		const auto* Call = Cast<DMaterialExpressionFunctionCall>(ActiveSource->Expression);
 		for (const auto& Input : View.Inputs)
 		{
@@ -250,10 +260,10 @@ namespace Durin::MaterialEditor
 				const auto It = std::ranges::find(Call->FunctionInputs, Input.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
 				Index = It == Call->FunctionInputs.end() ? -1 : static_cast<int32>(It - Call->FunctionInputs.begin());
 			}
-			Pins.push_back(FMaterialGraphPin(this, EMaterialGraphPinDirection::Input, Index, static_cast<int32>(&Input - View.Inputs.data())));
+			AddPin(EMaterialGraphPinDirection::Input, Index, static_cast<int32>(&Input - View.Inputs.data()), Input.PortId);
 		}
 		for (const auto& Output : View.Outputs)
-			Pins.push_back(FMaterialGraphPin(this, EMaterialGraphPinDirection::Output, Output.SourceIndex, static_cast<int32>(&Output - View.Outputs.data())));
+			AddPin(EMaterialGraphPinDirection::Output, Output.SourceIndex, static_cast<int32>(&Output - View.Outputs.data()), Output.PortId);
 	}
 
 	auto DMaterialGraphNode::GetInputPin(int32 Index) const -> const FMaterialGraphPin*
@@ -264,6 +274,31 @@ namespace Durin::MaterialEditor
 	auto DMaterialGraphNode::GetOutputPin(int32 Index) const -> const FMaterialGraphPin*
 	{
 		return Index >= 0 && static_cast<size_t>(Index) < View.Outputs.size() ? &Pins[View.Inputs.size() + Index] : nullptr;
+	}
+
+	auto DMaterialGraphNode::FindInputPin(uint32 Index) const -> const FMaterialGraphPin*
+	{
+		const auto It = std::ranges::find_if(View.Inputs, [&](const auto& Pin) { return !Pin.MaterialProperty && !Pin.PortId.IsValid() && Pin.InputIndex == Index; });
+		return GetInputPin(static_cast<int32>(It - View.Inputs.begin()));
+	}
+
+	auto DMaterialGraphNode::FindInputPin(FGuid Port) const -> const FMaterialGraphPin*
+	{
+		if (!Port.IsValid()) return nullptr;
+		const auto It = std::ranges::find(View.Inputs, Port, &FMaterialGraphPinView::PortId);
+		return GetInputPin(static_cast<int32>(It - View.Inputs.begin()));
+	}
+
+	auto DMaterialGraphNode::FindInputPin(EMaterialProperty Property) const -> const FMaterialGraphPin*
+	{
+		const auto It = std::ranges::find(View.Inputs, std::optional{Property}, &FMaterialGraphPinView::MaterialProperty);
+		return GetInputPin(static_cast<int32>(It - View.Inputs.begin()));
+	}
+
+	auto DMaterialGraphNode::FindPinById(FGuid PinId) const -> const FMaterialGraphPin*
+	{
+		const auto It = std::ranges::find(Pins, PinId, &FMaterialGraphPin::Id);
+		return It == Pins.end() ? nullptr : &*It;
 	}
 
 	auto DMaterialGraphNode::AllocateDefaultPins() -> void
@@ -286,12 +321,13 @@ namespace Durin::MaterialEditor
 		const auto& Source = *ActiveSource;
 		const auto* Material = Source.Material;
 		if (!Material) return;
-		const auto Properties = GetMaterialDomainInputProperties(Material->GetDomain());
+		const auto Properties = GetMaterialDomainInputProperties(EMaterialDomain::Surface);
+		const auto Active = FMaterialAttributeDefinitionMap::GetActiveProperties(Material->GetDomain(), Material->GetStaticProperties());
+		const bool bPacked = Material->UsesMaterialAttributes();
 		for (uint32 Index = 0; Index < Properties.size(); ++Index)
 		{
 			const auto Property = Properties[Index];
 			const bool bAttributes = Property == EMaterialProperty::MP_MaterialAttributes;
-			if (!Material->IsRootInputVisible(Property)) continue;
 			const auto Description = Material->GetExpressionInputDescription(Property);
 			check(Description);
 			FMaterialGraphPinView Pin{.InputIndex = Index, .MaterialProperty = Property, .Name = std::string(Description->Name),
@@ -317,8 +353,7 @@ namespace Durin::MaterialEditor
 					Pin.RetainedConstant = DefaultView(Numeric->Constant);
 				}
 			}
-			Pin.bActive = bAttributes || Property == EMaterialProperty::MP_WorldPositionOffset || IsMaterialSurfaceOutputActive(
-				Property, Material->GetStaticProperties());
+			Pin.bActive = bPacked ? bAttributes : std::ranges::contains(Active, Property);
 			View.Inputs.push_back(std::move(Pin));
 		}
 	}

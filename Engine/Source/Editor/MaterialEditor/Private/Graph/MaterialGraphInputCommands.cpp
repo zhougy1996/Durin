@@ -47,49 +47,45 @@ namespace Durin::MaterialEditor
 			}
 		};
 
-		auto FindExpression(std::span<const TObjectPtr<DMaterialExpression>> Expressions, FGuid Id) -> DMaterialExpression*
+		auto IsExpressionMember(DObject& Owner, const DMaterialExpression* Expression) -> bool
 		{
-			const auto It = std::ranges::find(Expressions, Id, [](const auto& Expression) { return Expression->Id; });
-			return It == Expressions.end() ? nullptr : It->Get();
+			return Expression && std::ranges::contains(FMaterialExpressionEditing::GetExpressions(Owner), Expression,
+				[](const auto& Member) { return Member.Get(); });
 		}
 
-		auto FindInput(DMaterialExpression* Expression, const FMaterialGraphPinAddress& Address, FMaterialRootInputs* Root = nullptr,
+		auto FindRootInput(FMaterialRootInputs& Root, EMaterialProperty Property) -> FEditableInput
+		{
+			if (Property == EMaterialProperty::MP_MaterialAttributes) return {.Source = &Root.Attributes};
+			auto* Numeric = Root.Properties.Find(Property);
+			if (!Numeric) return {.Message = "The material property is unavailable."};
+			return {.Source = &Numeric->Connection, .Default = &Numeric->Constant, .RootProperty = Property, .Numeric = Numeric};
+		}
+
+		auto FindInput(DMaterialExpression* Expression, FExpressionInputKey Key,
 			std::vector<FMaterialExpressionFunctionInputBinding>* DraftBindings = nullptr) -> FEditableInput
 		{
-			if (Address.IsMaterialRoot())
-			{
-				if (!Address.HasValidRootAddress() || Expression || !Root)
-					return {.Message = "The material output input address is invalid."};
-				if (Address.Property == EMaterialProperty::MP_MaterialAttributes)
-					return {.Source = &Root->Attributes};
-				auto* Numeric = Root->Properties.Find(Address.Property);
-				if (!Numeric) return {.Message = "The material property is unavailable."};
-				return {.Source = &Numeric->Connection, .Default = &Numeric->Constant,
-					.RootProperty = Address.Property, .Numeric = Numeric};
-			}
-			const auto Index = Address.Index;
-			const auto PortId = Address.PortId;
 			if (!Expression) return {.Message = "The input owner is unavailable."};
-			if (PortId.IsValid())
+			if (const auto* PortId = std::get_if<FGuid>(&Key))
 			{
 				auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
 				if (!Call || !Call->Function.IsValid()) return {.Message = "The function input owner is unavailable."};
 				const auto& Ports = Call->Function->GetFunctionSignature().Inputs;
-				const auto Port = std::ranges::find(Ports, PortId, &FMaterialFunctionPort::Id);
+				const auto Port = std::ranges::find(Ports, *PortId, &FMaterialFunctionPort::Id);
 				if (Port == Ports.end()) return {.Message = "The function input port is unavailable."};
 				if (Port->Type > EMaterialProgramValueType::Float4)
 				{
 					return {.Message = "The function input port is not numeric."};
 				}
 				auto& Bindings = DraftBindings ? *DraftBindings : Call->FunctionInputs;
-				auto Input = std::ranges::find(Bindings, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+				auto Input = std::ranges::find(Bindings, *PortId, &FMaterialExpressionFunctionInputBinding::InputId);
 				if (Input == Bindings.end())
 				{
 					if (!DraftBindings) return {.Message = "The function input has no binding."};
-					Input = Bindings.emplace(Bindings.end(), PortId, Port->Type);
+					Input = Bindings.emplace(Bindings.end(), *PortId, Port->Type);
 				}
 				return {&Input->Input, &Input->InputDefault};
 			}
+			const auto Index = std::get<uint32>(Key);
 			FEditableInput Result;
 			VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
 				if (Pin == Index) Result.Source = &Input;
@@ -159,92 +155,120 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto GraphEditInternals::SetInputConstantEnabled(DObject* Owner, const FMaterialGraphPinAddress& Pin,
-		bool Enabled, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	auto GraphEditInternals::GetExpressionInputKey(const FMaterialGraphPinView& Input) -> FExpressionInputKey
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Transactions = *Admission;
-		if (Pin.IsMaterialRoot() && (!Pin.HasValidRootAddress() || Pin.Property == EMaterialProperty::MP_MaterialAttributes))
-			return RejectCommand("Invalid material property address.");
-		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		auto* Expression = FindExpression(FMaterialExpressionEditing::GetExpressions(*Owner), Pin.NodeId);
-		if (!Expression && !Pin.IsMaterialRoot()) return RejectCommand("The input owner is unavailable.");
-		std::optional<FMaterialRootInputs> RootEdit;
-		if (const auto* Material = Cast<DMaterial>(Owner); Material && Pin.IsMaterialRoot()) RootEdit = Material->CaptureRootInputs();
-		const auto Input = FindInput(Expression, Pin, RootEdit ? &*RootEdit : nullptr);
-		if (!Input.Message.empty()) return RejectCommand(Input.Message);
-		if (!Input.Numeric || !Input.SupportsDefault()) return RejectCommand("This input does not support an editable constant.");
-		if (Input.Numeric->UseConstant == Enabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (RootEdit)
-		{
-			Input.Numeric->UseConstant = Enabled;
-			FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
-			return CommitGraphEdit(*Owner, Transactions, "Set Material Input Constant", Candidate, &*RootEdit);
-		}
-		auto Next = *Input.Numeric;
-		Next.UseConstant = Enabled;
-		return EditExpressionInputs(*Owner, Transactions, Enabled ? "Enable Input Constant" : "Use Definition Default", {Expression},
-			[&] { *Input.Numeric = std::move(Next); }, {}, {{Input.Numeric, Next}});
+		if (Input.PortId.IsValid()) return Input.PortId;
+		return Input.InputIndex;
 	}
 
-	auto GraphEditInternals::WriteInputDefault(DObject* Owner, const FMaterialGraphPinAddress& Pin,
+	namespace
+	{
+		auto SetConstant(DObject* Owner, DMaterialExpression* Expression, uint32 Index, std::optional<EMaterialProperty> Property,
+			bool Enabled, ETransactionMode Mode) -> FMaterialGraphCommandResult
+		{
+			auto Admission = ResolveEditorTransactor(Mode);
+			if (!Admission) return RejectCommand(Admission.error());
+			auto* Transactions = *Admission;
+			if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+			if (!Property && !IsExpressionMember(*Owner, Expression)) return RejectCommand("The input owner is unavailable.");
+			std::optional<FMaterialRootInputs> RootEdit;
+			if (Property) RootEdit = Cast<DMaterial>(Owner)->CaptureRootInputs();
+			const auto Input = RootEdit ? FindRootInput(*RootEdit, *Property) : FindInput(Expression, Index);
+			if (!Input.Message.empty()) return RejectCommand(Input.Message);
+			if (!Input.Numeric || !Input.SupportsDefault()) return RejectCommand("This input does not support an editable constant.");
+			if (Input.Numeric->UseConstant == Enabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			if (RootEdit)
+			{
+				Input.Numeric->UseConstant = Enabled;
+				FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
+				return CommitGraphEdit(*Owner, Transactions, "Set Material Input Constant", Candidate, &*RootEdit);
+			}
+			auto Next = *Input.Numeric;
+			Next.UseConstant = Enabled;
+			return EditExpressionInputs(*Owner, Transactions, Enabled ? "Enable Input Constant" : "Use Definition Default", {Expression},
+				[&] { *Input.Numeric = std::move(Next); }, {}, {{Input.Numeric, Next}});
+		}
+
+		auto WriteDefault(DObject* Owner, DMaterialExpression* Expression, FExpressionInputKey Key, std::optional<EMaterialProperty> Property,
+			FMaterialInputDefault Value, ETransactionMode Mode) -> FMaterialGraphCommandResult
+		{
+			auto Admission = ResolveEditorTransactor(Mode);
+			if (!Admission) return RejectCommand(Admission.error());
+			auto* Transactions = *Admission;
+			if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+			if (!Property && !IsExpressionMember(*Owner, Expression)) return RejectCommand("The input owner is unavailable.");
+			std::optional<FMaterialRootInputs> Root;
+			if (Property) Root = Cast<DMaterial>(Owner)->CaptureRootInputs();
+			auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
+			auto Bindings = Call ? Call->FunctionInputs : std::vector<FMaterialExpressionFunctionInputBinding>{};
+			const auto Input = Root ? FindRootInput(*Root, *Property) : FindInput(Expression, Key, Call ? &Bindings : nullptr);
+			if (!Input.Message.empty()) return RejectCommand(Input.Message);
+			if (!Input.SupportsDefault()) return RejectCommand("This input does not support an inline numeric value.");
+			std::vector<float> Components;
+			if (Value.Kind == EMaterialInputDefaultKind::Literal && Value.Type <= EMaterialProgramValueType::Float4)
+			{
+				const std::array Values{Value.Literal.X, Value.Literal.Y, Value.Literal.Z, Value.Literal.W};
+				Components.assign(Values.begin(), Values.begin() + static_cast<uint32>(Value.Type) + 1);
+			}
+			else if (Value.Kind != EMaterialInputDefaultKind::None) return RejectCommand("The input default is not numeric.");
+			if (Input.Numeric && Components.empty() && !Input.Numeric->UseConstant) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			if (Input.Read() == Components && (!Input.Numeric || Input.Numeric->UseConstant == !Components.empty())) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			if (Root || Call)
+			{
+				if (!Input.Write(Components)) return RejectCommand("The input default has an incompatible width.");
+				FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
+				if (Root) return CommitGraphEdit(*Owner, Transactions, "Edit Input Default", Candidate, &*Root);
+				return CommitGraphEdit(*Owner, Transactions, "Edit Input Default", Candidate, nullptr, {}, {},
+					{Call}, [&] { Call->FunctionInputs.swap(Bindings); });
+			}
+			auto Next = *Input.Numeric;
+			if (Components.empty()) Next.UseConstant = false;
+			else Next.SetConstant(Components);
+			return EditExpressionInputs(*Owner, Transactions, "Edit Input Default", {Expression},
+				[&] { *Input.Numeric = std::move(Next); }, {}, {{Input.Numeric, Next}});
+		}
+
+	}
+
+	auto GraphEditInternals::WriteInputDefault(DObject* Owner, DMaterialExpression* Expression, FExpressionInputKey Input,
 		FMaterialInputDefault Value, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Transactions = *Admission;
-		if (Pin.IsMaterialRoot() && (!Pin.HasValidRootAddress() || Pin.Property == EMaterialProperty::MP_MaterialAttributes))
-			return RejectCommand("Invalid material property address.");
-		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		std::optional<FMaterialRootInputs> Root;
-		if (const auto* Material = Cast<DMaterial>(Owner); Material && Pin.IsMaterialRoot()) Root = Material->CaptureRootInputs();
-		auto* Expression = FindExpression(FMaterialExpressionEditing::GetExpressions(*Owner), Pin.NodeId);
-		if (!Expression && !Pin.IsMaterialRoot()) return RejectCommand("The input owner is unavailable.");
-		auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
-		auto Bindings = Call ? Call->FunctionInputs : std::vector<FMaterialExpressionFunctionInputBinding>{};
-		const auto Input = FindInput(Expression, Pin, Root ? &*Root : nullptr, Call ? &Bindings : nullptr);
-		if (!Input.Message.empty()) return RejectCommand(Input.Message);
-		if (!Input.SupportsDefault()) return RejectCommand("This input does not support an inline numeric value.");
-		std::vector<float> Components;
-		if (Value.Kind == EMaterialInputDefaultKind::Literal && Value.Type <= EMaterialProgramValueType::Float4)
-		{
-			const std::array Values{Value.Literal.X, Value.Literal.Y, Value.Literal.Z, Value.Literal.W};
-			Components.assign(Values.begin(), Values.begin() + static_cast<uint32>(Value.Type) + 1);
-		}
-		else if (Value.Kind != EMaterialInputDefaultKind::None) return RejectCommand("The input default is not numeric.");
-		if (Input.Numeric && Components.empty() && !Input.Numeric->UseConstant) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (Input.Read() == Components && (!Input.Numeric || Input.Numeric->UseConstant == !Components.empty())) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (Root || Call)
-		{
-			if (!Input.Write(Components)) return RejectCommand("The input default has an incompatible width.");
-			FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
-			if (Root) return CommitGraphEdit(*Owner, Transactions, "Edit Input Default", Candidate, &*Root);
-			return CommitGraphEdit(*Owner, Transactions, "Edit Input Default", Candidate, nullptr, {}, {},
-				{Call}, [&] { Call->FunctionInputs.swap(Bindings); });
-		}
-		auto Next = *Input.Numeric;
-		if (Components.empty()) Next.UseConstant = false;
-		else Next.SetConstant(Components);
-		return EditExpressionInputs(*Owner, Transactions, "Edit Input Default", {Expression},
-			[&] { *Input.Numeric = std::move(Next); }, {}, {{Input.Numeric, Next}});
+		return WriteDefault(Owner, Expression, Input, {}, std::move(Value), Mode);
 	}
 
-	auto DMaterialGraph::PromoteInputToParameter(const FMaterialGraphPinAddress& Target, ETransactionMode Mode)
+	auto GraphEditInternals::WriteInputDefault(DMaterial* Material, EMaterialProperty Property,
+		FMaterialInputDefault Value, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	{
+		return WriteDefault(Material, nullptr, uint32{0}, Property, std::move(Value), Mode);
+	}
+
+	auto GraphEditInternals::SetInputConstantEnabled(DObject* Owner, DMaterialExpression* Expression, uint32 Index,
+		bool Enabled, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	{
+		return SetConstant(Owner, Expression, Index, {}, Enabled, Mode);
+	}
+
+	auto GraphEditInternals::SetInputConstantEnabled(DMaterial* Material, EMaterialProperty Property,
+		bool Enabled, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	{
+		return SetConstant(Material, nullptr, 0, Property, Enabled, Mode);
+	}
+
+	auto DMaterialGraph::PromoteInputToParameter(const FMaterialGraphPin* Pin, ETransactionMode Mode)
 		-> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Material = Cast<DMaterial>(GetMaterialOrFunction());
 		if (!Material) return std::unexpected(RejectCommand("Input parameters require a base material."));
-		if (Target.IsMaterialRoot() && !MaterialEditing::CanPromoteSurfaceOutput(*Material, Target.Property))
-			return std::unexpected(RejectCommand("This root input cannot be promoted to a numeric parameter."));
-		const auto* Pin = FindPin(Target);
-		if (!Pin || Pin->Direction != EMaterialGraphPinDirection::Input || !Pin->LinkedTo.empty())
+		auto* Node = Pin ? Pin->GetOwningNode() : nullptr;
+		if (!Node || FindNode(Node->GetView().Node.Id) != Node || Pin->Direction != EMaterialGraphPinDirection::Input
+			|| Node->GetInputPin(Pin->DisplayIndex) != Pin || !Pin->LinkedTo.empty())
 			return std::unexpected(RejectCommand("Select an unconnected input."));
-		auto* Node = Pin->GetOwningNode();
 		const auto& View = Node->GetView();
 		const auto& Input = View.Inputs[Pin->DisplayIndex];
+		if (Input.MaterialProperty && !MaterialEditing::CanPromoteSurfaceOutput(*Material, *Input.MaterialProperty))
+			return std::unexpected(RejectCommand("This root input cannot be promoted to a numeric parameter."));
 		if (Input.SourceType > EMaterialProgramValueType::Float4)
 			return std::unexpected(RejectCommand("Only numeric inputs can be promoted."));
 		auto Literal = Input.InlineDefault.Literal;
@@ -275,11 +299,11 @@ namespace Durin::MaterialEditor
 		auto& Parameter = *Created.Expression;
 		auto Candidate = Material->GetExpressionCollection();
 		std::optional<FMaterialRootInputs> Root;
-		if (Target.IsMaterialRoot()) Root = Material->CaptureRootInputs();
+		if (Input.MaterialProperty) Root = Material->CaptureRootInputs();
 		auto* Expression = Node->GetMaterialExpression();
 		auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
 		auto Bindings = Call ? Call->FunctionInputs : std::vector<FMaterialExpressionFunctionInputBinding>{};
-		auto Destination = FindInput(Expression, Target, Root ? &*Root : nullptr, Call ? &Bindings : nullptr);
+		auto Destination = Root ? FindRootInput(*Root, *Input.MaterialProperty) : FindInput(Expression, GetExpressionInputKey(Input), Call ? &Bindings : nullptr);
 		if (!Destination.Source) return std::unexpected(RejectCommand(std::move(Destination.Message)));
 		if (Destination.Source->IsConnected()) return std::unexpected(RejectCommand("The input is already connected."));
 		const bool NeedsMask = Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3;
@@ -304,21 +328,22 @@ namespace Durin::MaterialEditor
 		return GetCreatedNodes(Generated);
 	}
 
-	auto DMaterialGraphNode::ExtractInputDefault(const FMaterialGraphPinAddress& Pin, ETransactionMode Mode) -> TMaterialGraphResult<DMaterialGraphNode*>
+	auto DMaterialGraphNode::ExtractInputDefault(const FMaterialGraphPin* Pin, ETransactionMode Mode) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		auto* Graph = ResolveInputGraph(Pin);
 		auto* Expression = GetMaterialExpression();
-		if (!Graph || (!Expression && !Pin.IsMaterialRoot())) return std::unexpected(RejectCommand("The input pin is unavailable."));
+		if (!Graph) return std::unexpected(RejectCommand("The input pin is unavailable."));
+		const auto& InputView = View.Inputs[Pin->DisplayIndex];
 		auto& Owner = *Graph->GetMaterialOrFunction();
 		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(Owner)};
 		std::optional<FMaterialRootInputs> Root;
-		if (const auto* Material = Cast<DMaterial>(&Owner); Material && Pin.IsMaterialRoot()) Root = Material->CaptureRootInputs();
+		if (const auto* Material = Cast<DMaterial>(&Owner); Material && InputView.MaterialProperty) Root = Material->CaptureRootInputs();
 		auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
 		auto Bindings = Call ? Call->FunctionInputs : std::vector<FMaterialExpressionFunctionInputBinding>{};
-		const auto Input = FindInput(Expression, Pin, Root ? &*Root : nullptr, Call ? &Bindings : nullptr);
+		const auto Input = Root ? FindRootInput(*Root, *InputView.MaterialProperty) : FindInput(Expression, GetExpressionInputKey(InputView), Call ? &Bindings : nullptr);
 		if (!Input.Message.empty()) return std::unexpected(RejectCommand(Input.Message));
 		const bool bRootNormal = Input.RootProperty == EMaterialProperty::MP_Normal;
 		const auto Value = Input.Read();
@@ -335,21 +360,22 @@ namespace Durin::MaterialEditor
 		return Graph->GetCreatedNode(Id);
 	}
 
-	auto DMaterialGraphNode::InlineInputNode(const FMaterialGraphPinAddress& Pin, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	auto DMaterialGraphNode::InlineInputNode(const FMaterialGraphPin* Pin, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		auto* Graph = ResolveInputGraph(Pin);
 		auto* Expression = GetMaterialExpression();
-		if (!Graph || (!Expression && !Pin.IsMaterialRoot())) return RejectCommand("The input pin is unavailable.");
+		if (!Graph) return RejectCommand("The input pin is unavailable.");
+		const auto& InputView = View.Inputs[Pin->DisplayIndex];
 		auto& Owner = *Graph->GetMaterialOrFunction();
 		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(Owner)};
 		std::optional<FMaterialRootInputs> Root;
-		if (const auto* Material = Cast<DMaterial>(&Owner); Material && Pin.IsMaterialRoot()) Root = Material->CaptureRootInputs();
+		if (const auto* Material = Cast<DMaterial>(&Owner); Material && InputView.MaterialProperty) Root = Material->CaptureRootInputs();
 		auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
 		auto Bindings = Call ? Call->FunctionInputs : std::vector<FMaterialExpressionFunctionInputBinding>{};
-		const auto Input = FindInput(Expression, Pin, Root ? &*Root : nullptr, Call ? &Bindings : nullptr);
+		const auto Input = Root ? FindRootInput(*Root, *InputView.MaterialProperty) : FindInput(Expression, GetExpressionInputKey(InputView), Call ? &Bindings : nullptr);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault() || Input.Source->OutputIndex != 0)
 			return RejectCommand("This source cannot be represented by an inline binding.");
@@ -358,7 +384,7 @@ namespace Durin::MaterialEditor
 			return RejectCommand("The source expression is unavailable.");
 		const auto Value = ReadConstant(Source);
 		if (Value.empty()) return RejectCommand("Only numeric constants can be inlined; parameter exposure remains an explicit node.");
-		const auto* LiveLink = Root ? nullptr : FindInput(Expression, Pin).Source;
+		const auto* LiveLink = Root ? nullptr : FindInput(Expression, GetExpressionInputKey(InputView)).Source;
 		std::optional<FMaterialNumericInput> Numeric;
 		if (Root || Call)
 		{

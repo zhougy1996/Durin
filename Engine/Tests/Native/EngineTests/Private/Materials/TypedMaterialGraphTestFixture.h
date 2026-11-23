@@ -55,8 +55,10 @@ namespace Durin::Testing
 		int32 X, int32 Y, FMaterialProgramLink Input, ETransactionMode Mode = ETransactionMode::Record)
 		-> MaterialEditor::TMaterialGraphResult<std::vector<FGuid>>
 	{
-		std::optional<MaterialEditor::FMaterialGraphPinAddress> Source;
-		if (Input.SourceNodeId.IsValid()) Source = MaterialEditor::FMaterialGraphPinAddress::Output(Input);
+		const auto* Source = Input.SourceNodeId.IsValid() ? Graph.FindOutputGraphPin(Input) : nullptr;
+		if (Input.SourceNodeId.IsValid() && !Source)
+			return std::unexpected(MaterialEditor::FMaterialGraphCommandResult{.Status = MaterialEditor::EMaterialGraphCommandStatus::Rejected,
+				.Message = "The source output no longer exists."});
 		std::vector<MaterialEditor::DMaterialGraphNode*> AuxiliaryNodes;
 		auto Created = MakeCreationAction(Entry).PerformAction(Graph, X, Y, Source, Mode, &AuxiliaryNodes);
 		if (!Created) return std::unexpected(std::move(Created.error()));

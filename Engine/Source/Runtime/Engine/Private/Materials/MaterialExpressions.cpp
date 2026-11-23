@@ -263,8 +263,9 @@ namespace Durin
 	auto GetMaterialDomainInputProperties(EMaterialDomain Domain) -> std::span<const EMaterialProperty>
 	{
 		static const auto Surface = [] {
-			std::vector<EMaterialProperty> Properties{EMaterialProperty::MP_MaterialAttributes};
+			std::vector<EMaterialProperty> Properties;
 			for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions()) Properties.push_back(Field.Property);
+			Properties.push_back(EMaterialProperty::MP_MaterialAttributes);
 			return Properties;
 		}();
 		static constexpr std::array PostProcess{EMaterialProperty::MP_EmissiveColor, EMaterialProperty::MP_MaterialAttributes};

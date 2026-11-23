@@ -50,7 +50,6 @@ namespace Durin
 		auto CanEditMaterialAttributesMode() const -> bool { return Domain == EMaterialDomain::Surface; }
 		ENGINE_API auto GetNumericInputForProperty(EMaterialProperty Property) const -> std::optional<FMaterialNumericInputView>;
 		ENGINE_API auto GetExpressionInputForProperty(EMaterialProperty Property) const -> const FMaterialExpressionInput*;
-		ENGINE_API auto IsRootInputVisible(EMaterialProperty Property) const -> bool;
 		ENGINE_API auto GetExpressionInputDescription(EMaterialProperty Property) const -> std::optional<FMaterialInputDescription>;
 		auto GetRootPosition() const -> std::pair<int32, int32> { return {EditorX, EditorY}; }
 		ENGINE_API void SetRootPosition(int32 X, int32 Y);

@@ -29,19 +29,19 @@ an ordered reading sequence.
 `FMaterialSchema` and `FMaterialFunctionSchema` override graph-specific capabilities
 and creation eligibility. The graph exposes this policy through `GetSchema()`. Creation actions call the editor command to instantiate expressions. The graph synchronizes when the asset publishes the edit.
 `CanCreateConnection`, `BreakPinLinks` and `GetGraphContextActions` are virtual extension points. Schema owns creation eligibility, function-port and parameter
-capabilities, material-output deletion protection, source-address validity,
+capabilities, material-output deletion protection, live pin membership,
 connection replacement rules, and type compatibility hints. Menus and commands
 consume these policies; direct expression creation and paste also check the
 graph-kind restrictions. Graph owns connection writeback. The editor passes the working material directly
 to its configuration and shared parameter operations.
 Type compatibility is advisory during editing: structurally valid links may be
-retained for compiler diagnostics. Hidden output pins remain command-addressable;
-the visible read model is not the authority for connection admission. Schema
+retained for compiler diagnostics. Asset repair commands can address authored
+inputs directly. Schema
 contains no ImGui or workspace navigation services.
 
 `DMaterial` and `DMaterialFunction` own concrete `DMaterialExpression` children.
 Each authored input stores an upstream expression reference and an output index.
-Editor pin addresses use expression GUIDs to identify their nodes. Each
+Editor node selection uses expression GUIDs to identify the nodes. Each
 expression stores its editor coordinates and label in `EditorLayout`, and the
 editor assembles the GUID-keyed presentation from the expressions. Material
 instances never own or edit a graph.
@@ -53,10 +53,10 @@ detached value for bulk graph assignment. Property queries provide access to
 individual inputs. Rejected assignments preserve the material.
 
 The editor projects one root for each base material, including an empty expression
-body. Every root pin uses a material-root address with an `EMaterialProperty`
-key, including `MP_MaterialAttributes` for the packed input. Root pin
-`SourceIndex` selects a row in the domain's input property list. Commands,
-selection and reconnection use the property key across pin reconstruction. Root
+body. Each root pin maps to an `EMaterialProperty`, including
+`MP_MaterialAttributes` for the packed input. Root pin `SourceIndex` selects an
+entry in the stable material property list. Asset commands use the property
+directly. Root
 input edits record the material before changing its fields. A published root-input
 change rebuilds the root pins and their links. A root-position change updates
 presentation only. Working-copy Apply compares root bindings by upstream
@@ -65,12 +65,10 @@ expression identity and includes the root coordinates in its save checkpoint.
 `DMaterial::Domain` selects Surface or PostProcess output definitions. The read-only
 `GetExpressionInputDescription` returns the stored connection, numeric input
 when applicable, type and name for every supported property in either mode.
-`IsRootInputVisible` applies the domain and mode when projecting canvas pins. Surface
-admits DefaultLit, Unlit and ClearCoat. PostProcess admits opaque Unlit. Its root
-shows Emissive Color in individual mode or Material Attributes in packed mode.
-The mode switch is editable in Surface. Both root representations and their
-inactive links/defaults persist across domain/model/output-mode changes. Engine's
-attribute registry and selected execution contract determine which values compile.
+The root keeps individual and packed pins and their connections across mode
+and domain changes. The canvas dims inactive pins and wires. Details shows
+inactive values without inline editing. The mode, domain, shading model and
+blend determine which inputs are active and which values compile.
 WPO follows the property-address contract and
 [vertex evaluation](../../../Runtime/Rendering/Materials/MaterialVertexEvaluation.md).
 
@@ -104,28 +102,33 @@ Missing expression references, invalid source pins selected by a connection comm
 and recursive function dependencies are rejected. Apply and package validation
 retain their strict graph-validation boundary.
 
-`DMaterialGraph` owns structural edits for both material and material-function graphs. Commands use `FGraphEditSession` and `FMaterialExpressionEditing` for
-live edits, ownership reconciliation, and publication. Transaction capture,
-rollback, and replay follow [Transactions and gestures](#transactions-and-gestures).
+`DMaterialGraph` owns structural edits for both material and material-function
+graphs. Commands validate the proposed writes and record the affected objects
+before `FMaterialExpressionEditing` reconciles ownership and publishes the
+settled graph. Transaction capture and replay follow
+[Transactions and gestures](#transactions-and-gestures).
 The graph owns clipboard commands and supplies a lightweight command object with the same weak owner for asset commands. The public command object has no raw connect or disconnect entry points.
-New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Details routes pin default changes through the owning node. A Set Material Attributes node uses schema admission for existing pins and checks the same type and cycle rules before adding a new input. Choosing a source creates the binding and connection in one edit. Choosing the base value removes the binding and its pin. Undo restores the attribute selection and its previous connection. An open Set prototype starts with standard material defaults.
+New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation and derives activity from the material configuration. The read model copies these node views for full and partial refresh. Details routes pin default changes through the owning node. A Set Material Attributes node uses schema admission for existing pins and checks the same type and cycle rules before adding a new input. Choosing a source creates the binding and connection in one edit. Choosing the base value removes the binding and its pin. Undo restores the attribute selection and its previous connection. An open Set prototype starts with standard material defaults.
 Each graph node owns transient editor pins. `GetInputPin` and `GetOutputPin` take
 display ordinals. A pin's signed 32-bit `SourceIndex` identifies the authored
 slot, with -1 for a signature port that has no call binding. Function outputs
 use the call's binding order, texture outputs use channel indices, and selected
 material attributes use their property slots. After allocating the nodes and
-pins, the graph resolves each visible input's expression reference and output
+pins, the graph resolves each projected input's expression reference and output
 index and fills both pins' `LinkedTo` lists. Pin pointers are borrowed until
 reconstruction or removal. The canvas receives detached copies of the resulting
-endpoints.
+endpoints. Cross-frame gestures retain a weak graph node and a transient pin ID.
+Node reconstruction preserves pin IDs for matching slots or named ports.
+Replacing a node, removing a port or rebuilding the graph invalidates its old
+handles.
 
 The canvas resolves gesture endpoints to live pins when previewing or committing a wire.
 Schema checks graph membership, direction, types, occupancy and upstream cycles
 through the pins' linked neighbors. Graph writes the selected output's expression
 and signed source slot to the input. A newly exposed function port acquires a
 binding in the same transaction as the connection. Breaking an output clears all
-its consumers together, including material root inputs retained in a hidden
-output mode. Low-level asset repair retains address-based entry points.
+its consumers together, including inactive material root inputs. Asset repair
+edits a material property or an expression input slot or function port directly.
 
 A partial refresh builds descriptors only for the requested expressions and uses their original asset ordinals for default positions.
 Details resolves the selected graph node and follows the input pin's link to label and locate the upstream output.
@@ -143,7 +146,7 @@ compilation-mode validation additionally checks function bodies and required bin
 Insertion, nested edits and clipboard paste use editing mode, so unfinished
 dependencies remain editable. Compilation, preview and package validation stay strict.
 `DMaterialGraph::RemoveNodes` resolves the selection to expression objects and
-clears each stored input that references a removed object, including hidden root
+clears each stored input that references a removed object, including inactive root
 properties. `DMaterialGraphNode::InlineInputNode` copies a connected constant
 into its input default and deletes the constant only after its last consumer is
 gone. Both operations record the complete edit in one transaction.
@@ -183,7 +186,7 @@ name change and `SetFunctionPort` for a combined edit. Both preserve the port GU
 `GetEditableName` and `SetEditableName` within the graph edit. Function input and
 output expressions opt in and map the editable name to their own `Port.Name`.
 The function asset validates the signature and publishes changes, including Undo/Redo.
-Caller graphs refresh their GUID-addressed pins from that publication. Ordinary node
+Caller graphs reconstruct their pins from the updated function port identities. Ordinary node
 properties use the shared Details editor. The canvas supports typed link dragging,
 Shift replacement, node movement, copy/cut/paste and function navigation. Numeric
 node creation supplies typed inline literal defaults; texture and Surface operations
@@ -392,15 +395,13 @@ catalog shape, function asset path, or typed terminal payload. `CanCreate` and
 signature input, including scalar broadcast. Creation and its optional source link
 publish once and occupy one undo entry. Function calls use the current asset signature and asset-level dependency validation before publication.
 
-`FMaterialGraphPinAddress` identifies fixed inputs/outputs, function GUID ports,
-material root properties and aggregate Surface inputs. The graph resolves these
-addresses and shares source validation, replacement policy, default preservation,
-and transaction publication. `CanCreateConnection` returns the admission decision and
+Graph commands take live pins for connection validation, replacement policy,
+default preservation and transaction publication. `CanCreateConnection` returns the admission decision and
 reason. `TryCreateConnection` returns true when it changes a link. The canvas
 and Details request error text for failed edits. Repeating an existing link
 leaves the error text empty and undo history untouched. `BreakPinLinks` follows the same
-change and error convention. Callers use `Input`, `Output` and `MaterialOutput`
-address constructors. Details uses the node commands `SetAttributeInput` and `ClearAttributeInput` for optional attribute bindings.
+change and error convention. Details uses the node commands `SetAttributeInput`
+and `ClearAttributeInput` for optional attribute bindings.
 Graph change notifications drive pin and downstream type refresh after a connection edit. Type compatibility guides palette filtering, automatic connections,
 and connection admission. The internal asset writer also supports incomplete graphs for compiler diagnostics. Commands also use parameter GUIDs and `EMaterialProperty`. They cover creation, complete node replacement,
 removal, connection, disconnection, surface assignment, movement, layout,
@@ -773,7 +774,7 @@ to private Material Editor code. `MoveNodes` accepts the projected material root
 alongside expressions. A single scoped transaction groups the changed
 expressions and the material when its root moved.
 `DMaterialGraph::CalculateLayout` reads node sizes from the current graph and follows
-stored expression inputs, including hidden root properties. It returns a detached presentation. `Layout` applies the
+stored expression inputs, including inactive root properties. It returns a detached presentation. `Layout` applies the
 calculated positions in one transaction. The canvas captures stable IDs from the returned nodes for its selection.
 A position command with no changes leaves undo history untouched.
 

@@ -87,13 +87,13 @@ namespace Durin::MaterialEditor
 		auto FinishRootInputEdit(bool bCancel) -> bool;
 		auto DrawRootInputValue(const FMaterialGraphPinView& Pin, uint64 Revision,
 			FMaterialInputDefault Value, float Width) -> void;
-		auto DrawNodeLiteral(const FGuid& NodeId, FMaterialGraphPinAddress Pin,
+		auto DrawNodeLiteral(const FMaterialGraphPin* Pin,
 			EMaterialProgramValueType Type, const FMaterialProgramLiteral& Value) -> void;
 		friend struct FMaterialGraphCanvasTestAccess;
 		auto ReportError(std::string Message) const -> void;
 		// Returns true for both Succeeded and NoChange.
-		auto BreakPinLinks(const FMaterialGraphPinAddress& Address) -> bool;
-		auto ConnectPins(const FMaterialGraphPinAddress& Input, FMaterialProgramLink Source, bool Replace) -> bool;
+		auto BreakPinLinks(const FMaterialGraphPin* Pin) -> bool;
+		auto ConnectPins(const FMaterialGraphPin* Input, const FMaterialGraphPin* Source, bool Replace) -> bool;
 		auto CheckCommand(const FMaterialGraphCommandResult& Result) const -> bool;
 		template<class T> auto CheckCommand(const TMaterialGraphResult<T>& Result) const -> bool
 		{
@@ -133,18 +133,28 @@ namespace Durin::MaterialEditor
 			bool bReleased = false;
 			std::unordered_map<FGuid, FMaterialGraphNodePresentation> StartPositions;
 		};
-		struct FLinkingInteraction { FGuid SourceNode; uint8 SourceOutputIndex = 0; FGuid SourceOutputId; };
+		struct FPinHandle
+		{
+			TWeakObjectPtr<DMaterialGraphNode> Node;
+			FGuid PinId;
+			explicit FPinHandle(const FMaterialGraphPin& Pin) : Node(Pin.GetOwningNode()), PinId(Pin.GetId()) {}
+			auto Resolve(const DMaterialGraph& Graph) const -> const FMaterialGraphPin*
+			{
+				const auto* Owner = Node.Get();
+				return Owner && Graph.FindNode(Owner->GetView().Node.Id) == Owner ? Owner->FindPinById(PinId) : nullptr;
+			}
+			auto operator==(const FPinHandle& Other) const -> bool { return PinId == Other.PinId && Node.Get() == Other.Node.Get(); }
+		};
+		struct FLinkingInteraction { FPinHandle Source; };
 		struct FReconnectingInputInteraction
 		{
-			FMaterialGraphPinAddress Destination;
+			FPinHandle Destination;
 		};
 
 		struct FMarqueeInteraction { ImVec2 Start{}; };
 		struct FNodeCreationMenuInteraction
 		{
-			FGuid SourceNode;
-			uint8 SourceOutputIndex = 0;
-			FGuid SourceOutputId;
+			std::optional<FPinHandle> Source;
 			ImVec2 GraphPosition{};
 			bool bOpenRequested = true;
 			int32 Selection = 0;
@@ -154,7 +164,7 @@ namespace Durin::MaterialEditor
 		struct FContextMenuInteraction
 		{
 			FGuid ContextNode;
-			std::optional<EMaterialProperty> SurfaceOutput;
+			std::optional<FPinHandle> RootInput;
 		};
 		using FInteraction = std::variant<
 			FIdleInteraction,
@@ -192,8 +202,7 @@ namespace Durin::MaterialEditor
 			DTransactor& Transactions, const FMaterialGraphView& View) -> void;
 		auto RememberCreation(const FMaterialGraphCreationAction& Node) -> void;
 		auto HasClipboard() const -> bool;
-		auto DrawCreationMenu(DObject& Owner,
-			DTransactor& Transactions, const FMaterialGraphView& View) -> void;
+		auto DrawCreationMenu(DObject& Owner, DTransactor& Transactions) -> void;
 		auto ResetInteraction() -> void;
 		auto ToggleNodePins(const FGuid& NodeId) -> void;
 		auto PrepareFunctionView(DMaterialFunction& Function) -> void;
@@ -253,8 +262,7 @@ namespace Durin::MaterialEditor
 		std::optional<FParameterTextDraft> ParameterTextDraft;
 		struct FNodeLiteralDraft
 		{
-			FGuid NodeId;
-			FMaterialGraphPinAddress Pin;
+			FPinHandle Pin;
 			FMaterialInputDefault Value;
 			uint64 Revision = 0;
 			int ActiveFrame = -1;

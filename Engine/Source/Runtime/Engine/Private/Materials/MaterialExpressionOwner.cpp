@@ -102,12 +102,6 @@ namespace Durin
 		return Result;
 	}
 
-	auto DMaterial::IsRootInputVisible(EMaterialProperty Property) const -> bool
-	{
-		return (Property == EMaterialProperty::MP_MaterialAttributes) == UsesMaterialAttributes()
-			&& std::ranges::contains(GetMaterialDomainInputProperties(Domain), Property);
-	}
-
 	void DMaterial::SetRootPosition(int32 X, int32 Y)
 	{
 		if (EditorX == X && EditorY == Y) return;

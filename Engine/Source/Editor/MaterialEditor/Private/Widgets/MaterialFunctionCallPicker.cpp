@@ -10,7 +10,7 @@ namespace Durin::MaterialEditor
 		const auto* Node = Graph.FindNode(CallId);
 		if (!Node || Node->GetView().Node.Opcode != EMaterialProgramOpcode::FunctionCall) return;
 		ImGui::PushID(CallId.ToString().c_str());
-		std::optional<FMaterialGraphPinAddress> Disconnect;
+		const FMaterialGraphPin* Disconnect = nullptr;
 		for (const auto& Pin : Node->GetView().Inputs)
 		{
 			ImGui::PushID(Pin.PortId.ToString().c_str());
@@ -18,14 +18,14 @@ namespace Durin::MaterialEditor
 			ImGui::TextDisabled("%s", DescribeFunctionDefault(Pin.Default).c_str());
 			if (Pin.Link.SourceNodeId.IsValid() && !Pin.bRequired && ImGui::SmallButton("Use Default"))
 			{
-				Disconnect = Node->GetView().InputAddress(Pin);
+				Disconnect = Node->FindInputPin(Pin);
 			}
 			ImGui::PopID();
 		}
 		ImGui::PopID();
 		if (Disconnect)
 		{
-			Graph.GetSchema().BreakPinLinks(Graph.FindPin(*Disconnect), ETransactionMode::Record, &Error);
+			Graph.GetSchema().BreakPinLinks(Disconnect, ETransactionMode::Record, &Error);
 		}
 	}
 

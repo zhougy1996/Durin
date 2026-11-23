@@ -40,16 +40,16 @@ namespace Durin::MaterialEditor
 		}
 	}
 	auto FMaterialGraphSchema::GetGraphContextActions(const DMaterialGraph& Graph,
-		std::optional<FMaterialGraphPinAddress> Source) const -> std::vector<FMaterialGraphCreationAction>
+		const FMaterialGraphPin* Source) const -> std::vector<FMaterialGraphCreationAction>
 	{
 		if (!Graph.GetMaterialOrFunction()) return {};
 		std::optional<EMaterialProgramValueType> Type;
 		if (Source)
 		{
-			if (!IsSourceAddressValid(*Source) || !IsSourceKeyValid(*Source)) return {};
-			const auto* Pin = Graph.FindOutputPin({Source->NodeId, static_cast<uint8>(Source->Index), Source->PortId});
-			if (!Pin) return {};
-			Type = Pin->Type;
+			const auto* Node = Source->GetOwningNode();
+			if (Source->Direction != EMaterialGraphPinDirection::Output || Graph.FindNode(Node->GetView().Node.Id) != Node
+				|| Node->GetOutputPin(Source->DisplayIndex) != Source) return {};
+			Type = Node->GetView().Outputs[Source->DisplayIndex].Type;
 		}
 		const auto Catalog = EnumerateCatalog();
 		std::vector<FMaterialGraphCreationAction> Actions;
@@ -93,8 +93,7 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::DrawCreationMenu(
 		DObject& Owner,
-		DTransactor& Transactions,
-		const FMaterialGraphView& View) -> void
+		DTransactor& Transactions) -> void
 	{
 		auto* CreationMenu = std::get_if<FNodeCreationMenuInteraction>(&Interaction);
 		if (CreationMenu && CreationMenu->bOpenRequested)
@@ -133,11 +132,15 @@ namespace Durin::MaterialEditor
 		if (ImGui::IsItemEdited()) CreationMenu->Selection = 0;
 
 		std::optional<EMaterialProgramValueType> SourceType;
-		const auto Source = std::ranges::find(View.Nodes, CreationMenu->SourceNode,
-			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
-		if (CreationMenu->SourceNode.IsValid() && Source != View.Nodes.end())
-			for (const auto& Pin : Source->Outputs)
-				if (Pin.PortId == CreationMenu->SourceOutputId && Pin.OutputIndex == CreationMenu->SourceOutputIndex) SourceType = Pin.Type;
+		const auto* Source = CreationMenu->Source ? CreationMenu->Source->Resolve(*EditorGraph) : nullptr;
+		if (CreationMenu->Source && !Source)
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			ResetInteraction();
+			return;
+		}
+		if (Source) SourceType = Source->GetOwningNode()->GetView().Outputs[Source->DisplayIndex].Type;
 		const bool bCreationMenuResultsStale =
 			bCreationMenuResultsDirty
 			|| CachedCreationMenuQuery != CreationMenu->Search.data()
@@ -146,10 +149,7 @@ namespace Durin::MaterialEditor
 		{
 			if (bCreationMenuResultsDirty || CachedCreationMenuSourceType != SourceType)
 			{
-				std::optional<FMaterialGraphPinAddress> Pin;
-				if (CreationMenu->SourceNode.IsValid())
-					Pin = FMaterialGraphPinAddress::Output({CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId});
-				CachedCreationActions = EditorGraph->GetSchema().GetGraphContextActions(*EditorGraph, Pin);
+				CachedCreationActions = EditorGraph->GetSchema().GetGraphContextActions(*EditorGraph, Source);
 			}
 			CachedCreationMenuResults.clear();
 			const std::string Query = CreationMenu->Search.data();
@@ -282,9 +282,6 @@ namespace Durin::MaterialEditor
 		if (bActivateSelection && !Results.empty())
 		{
 			const auto& Action = CachedCreationActions[Results[static_cast<size_t>(CreationMenu->Selection)]];
-			std::optional<FMaterialGraphPinAddress> Source;
-			if (CreationMenu->SourceNode.IsValid()) Source = FMaterialGraphPinAddress::Output(
-				{CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId});
 			const auto Created = Action.PerformAction(*EditorGraph, static_cast<int32>(std::round(CreationMenu->GraphPosition.x)),
 				static_cast<int32>(std::round(CreationMenu->GraphPosition.y)), Source);
 			if (CheckCommand(Created))

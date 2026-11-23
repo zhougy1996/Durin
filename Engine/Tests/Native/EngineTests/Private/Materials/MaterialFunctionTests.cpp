@@ -1,3 +1,4 @@
+#include "MaterialGraphPinTestSupport.h"
 #include "MaterialGraph.h"
 #include "Graph/MaterialGraphCommands.h"
 #include "AssetDeleteModel.h"
@@ -1322,7 +1323,7 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_TRUE(Testing::CreateGraphCatalogNode(*FunctionAuthoringGraph, EMaterialProgramOpcode::Multiply));
 	const auto Call = AuthoringGraph->InsertFunctionCall(*Function, 300, 0, Durin::ETransactionMode::NotTransactable).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Call);
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::MaterialOutput(), FMaterialGraphPinAddress::Output({Call.value(), 0, Function->GetFunctionSignature().Outputs[0].Id}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Testing::WriteConnection(Material, EMaterialProperty::MP_MaterialAttributes, FMaterialProgramLink{Call.value(), 0, Function->GetFunctionSignature().Outputs[0].Id}, true, Durin::ETransactionMode::NotTransactable));
 	const auto CaptureFields = [](const auto& Owner) {
 		std::vector<FPropertyValueSnapshotPayload> Fields;
 		std::vector<FGuid> Sources;

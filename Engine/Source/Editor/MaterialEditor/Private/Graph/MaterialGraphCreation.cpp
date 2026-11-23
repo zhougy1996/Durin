@@ -70,7 +70,7 @@ namespace Durin::MaterialEditor
 			[&](const auto& Port) { return FMaterialGraphSchema::AcceptsPort(Port.Type, *SourceType); });
 	}
 	auto FMaterialGraphCreationAction::PerformAction(DMaterialGraph& Graph, int32 X, int32 Y,
-		std::optional<FMaterialGraphPinAddress> SourcePin, ETransactionMode Mode,
+		const FMaterialGraphPin* Pin, ETransactionMode Mode,
 			std::vector<DMaterialGraphNode*>* AuxiliaryNodes) const -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
 		if (AuxiliaryNodes) AuxiliaryNodes->clear();
@@ -79,16 +79,15 @@ namespace Durin::MaterialEditor
 		if (!Graph.GetMaterialOrFunction()) return std::unexpected(RejectCommand("The graph owner is unavailable.", {}, EMaterialGraphCommandStatus::StaleOwner));
 		FMaterialProgramLink Source;
 		std::optional<EMaterialProgramValueType> SourceType;
-		const FMaterialGraphPin* Pin = nullptr;
-		if (SourcePin)
+		if (Pin)
 		{
-			if (SourcePin->Kind != EMaterialGraphPinKind::Output && SourcePin->Kind != EMaterialGraphPinKind::FunctionOutput)
-				return std::unexpected(RejectCommand("Creation requires an output pin."));
-			Pin = Graph.FindPin(*SourcePin);
-			if (!Pin) return std::unexpected(RejectCommand("The source output no longer exists."));
-			const auto& Output = Pin->GetOwningNode()->GetView().Outputs[Pin->DisplayIndex];
+			const auto* Node = Pin->GetOwningNode();
+			if (Pin->Direction != EMaterialGraphPinDirection::Output || Graph.FindNode(Node->GetView().Node.Id) != Node
+				|| Node->GetOutputPin(Pin->DisplayIndex) != Pin)
+				return std::unexpected(RejectCommand("The source output no longer exists."));
+			const auto& Output = Node->GetView().Outputs[Pin->DisplayIndex];
 			SourceType = Output.Type;
-			Source = {SourcePin->NodeId, Output.OutputIndex, Output.PortId};
+			Source = {Node->GetView().Node.Id, Output.OutputIndex, Output.PortId};
 		}
 		if (!Graph.GetSchema().AllowsCreation(*this, SourceType))
 			return std::unexpected(RejectCommand("This action is not compatible with the graph or source output."));

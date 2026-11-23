@@ -14,6 +14,7 @@
 #include "Widgets/MaterialDetailsStyle.h"
 #include "Graph/MaterialEditingOperations.h"
 #include "MaterialGraphEditInternals.h"
+#include "MaterialGraphCommands.h"
 #include "Materials/MaterialExpressionInputs.h"
 #include "MaterialGraphValueTypes.h"
 #include "Asset/AssetPicker.h"
@@ -218,11 +219,10 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphCanvas::FinishRootInputEdit(bool bCancel) -> bool
 	{
 		const auto Draft = std::exchange(RootInputDraft, std::nullopt);
-		const auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
-		auto* Root = EditorGraph->GetRootNode();
-		if (!bCancel && Draft && Root && Material && RootInputRevision == Material->GetMaterialContentRevision())
+		auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
+		if (!bCancel && Draft && Material && RootInputRevision == Material->GetMaterialContentRevision())
 		{
-			const auto Result = Root->PinDefaultValueChanged(FMaterialGraphPinAddress::MaterialOutput(Draft->first), Draft->second);
+			const auto Result = GraphEditInternals::WriteInputDefault(Material, Draft->first, Draft->second);
 			CheckCommand(Result);
 			if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded && Services.RootInputCommitted)
 				Services.RootInputCommitted(RootInputRevision);
@@ -313,23 +313,23 @@ namespace Durin::MaterialEditor
 		return ReadModel.GetView();
 	}
 
-	auto FMaterialGraphCanvas::DrawNodeLiteral(const FGuid& NodeId, FMaterialGraphPinAddress Pin,
+	auto FMaterialGraphCanvas::DrawNodeLiteral(const FMaterialGraphPin* Pin,
 		EMaterialProgramValueType Type, const FMaterialProgramLiteral& Value) -> void
 	{
 		const int Count = static_cast<int>(Type) + 1;
-		if (Count < 1 || Count > 4) return;
+		if (!Pin || Count < 1 || Count > 4) return;
 		std::array<float, 4> Components{Value.X, Value.Y, Value.Z, Value.W};
 		const bool bEdited = ImGui::InputScalarN("##Value", ImGuiDataType_Float, Components.data(), Count,
 			nullptr, nullptr, "%.4g");
 		const bool bFinished = DetailsStyle::NumericInputFinished();
 		if (bEdited)
 		{
-			NodeLiteralDraft = FNodeLiteralDraft{NodeId, Pin,
+			NodeLiteralDraft = FNodeLiteralDraft{FPinHandle(*Pin),
 				{.Kind = EMaterialInputDefaultKind::Literal, .Type = Type,
 					.Literal = {Components[0], Components[1], Components[2], Components[3]}},
 				GetNodeLiteralRevision(EditorGraph->GetMaterialOrFunction()), bFinished ? -1 : ImGui::GetFrameCount()};
 		}
-		else if (NodeLiteralDraft && NodeLiteralDraft->NodeId == NodeId && NodeLiteralDraft->Pin == Pin)
+		else if (NodeLiteralDraft && NodeLiteralDraft->Pin == FPinHandle(*Pin))
 			NodeLiteralDraft.reset();
 	}
 
@@ -355,8 +355,8 @@ namespace Durin::MaterialEditor
 		// A canvas selection change can remove the input before Details draws its deactivation frame.
 		if (NodeLiteralDraft->ActiveFrame == ImGui::GetFrameCount()) return;
 		const auto Draft = *std::exchange(NodeLiteralDraft, std::nullopt);
-		if (auto* Node = EditorGraph->FindNode(Draft.NodeId))
-			CheckCommand(Node->PinDefaultValueChanged(Draft.Pin, Draft.Value));
+		if (const auto* Pin = Draft.Pin.Resolve(*EditorGraph))
+			CheckCommand(Pin->GetOwningNode()->PinDefaultValueChanged(Pin, Draft.Value));
 	}
 
 	auto FMaterialGraphCanvas::DrawSelectionDetails(DTransactor& Transactions) -> void
@@ -525,7 +525,7 @@ namespace Durin::MaterialEditor
 						if (Changed) break;
 						for (const auto& Pin : Source.Outputs)
 						{
-							const auto* Output = EditorGraph->FindPin(FMaterialGraphPinAddress::Output({Source.Node.Id, Pin.OutputIndex, Pin.PortId}));
+							const auto* Output = EditorGraph->FindOutputGraphPin({Source.Node.Id, Pin.OutputIndex, Pin.PortId});
 							if (!SelectedNode->CanSetAttributeInput(Attribute, Output).Allows(true)) continue;
 							if (ImGui::Selectable(std::format("{}: {}##{}:{}:{}", Source.PrimaryLabel, Pin.Name,
 								Source.Node.Id.ToString(), Pin.OutputIndex, Pin.PortId.ToString()).c_str()))
@@ -595,7 +595,7 @@ namespace Durin::MaterialEditor
 					return;
 				}
 				ImGui::SetNextItemWidth(Width);
-				DrawNodeLiteral(Selected.Node.Id, Selected.InputAddress(Pin), Value.Type, Value.Literal);
+				DrawNodeLiteral(InputPin, Value.Type, Value.Literal);
 			};
 			auto Label = Pin.Name;
 			if (SamplingMode)
@@ -649,31 +649,31 @@ namespace Durin::MaterialEditor
 			if (ImGui::Button("...", {MenuWidth, 0.0f})) ImGui::OpenPopup("InputActions");
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Input actions");
 			MonaImGui::PropertyEdit::EndRow();
-			if (bResetRequested) Submit(SelectedNode->SetPinUseConstant(Selected.InputAddress(Pin), false));
+			if (bResetRequested) Submit(SelectedNode->SetPinUseConstant(InputPin, false));
 			if (ImGui::BeginPopup("InputActions"))
 			{
 				if (!Changed && bConnected)
 				{
-					if (ImGui::MenuItem("Inline constant", nullptr, false, !bRootNormal && !bRootAttributes)) Submit(SelectedNode->InlineInputNode(Selected.InputAddress(Pin)));
-					if (!Changed && ImGui::MenuItem("Disconnect")) Changed = BreakPinLinks(Selected.InputAddress(Pin));
+					if (ImGui::MenuItem("Inline constant", nullptr, false, !bRootNormal && !bRootAttributes)) Submit(SelectedNode->InlineInputNode(InputPin));
+					if (!Changed && ImGui::MenuItem("Disconnect")) Changed = BreakPinLinks(InputPin);
 				}
 				else if (!Changed)
 				{
-					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Changed = CheckCommand(SelectedNode->ExtractInputDefault(Selected.InputAddress(Pin)));
+					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Changed = CheckCommand(SelectedNode->ExtractInputDefault(InputPin));
 					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !bInheritedDynamic && !bInheritedContext
-						&& (!Selected.InputAddress(Pin).IsMaterialRoot() || MaterialEditing::CanPromoteSurfaceOutput(*Material, Selected.InputAddress(Pin).Property))))
-						Changed = CheckCommand(EditorGraph->PromoteInputToParameter(Selected.InputAddress(Pin)));
+						&& (!Pin.MaterialProperty || MaterialEditing::CanPromoteSurfaceOutput(*Material, *Pin.MaterialProperty))))
+						Changed = CheckCommand(EditorGraph->PromoteInputToParameter(InputPin));
 				}
 				if (!Changed && Pin.bSupportsConstant && ImGui::MenuItem(Pin.bUseConstant ? "Use definition default" : "Use retained constant"))
-					Submit(SelectedNode->SetPinUseConstant(Selected.InputAddress(Pin), !Pin.bUseConstant));
+					Submit(SelectedNode->SetPinUseConstant(InputPin, !Pin.bUseConstant));
 				if (!Changed && bInheritedDynamic && ImGui::MenuItem("Override with constant"))
 				{
 					Value.Kind = EMaterialInputDefaultKind::Literal;
-					Submit(SelectedNode->PinDefaultValueChanged(Selected.InputAddress(Pin), Value));
+					Submit(SelectedNode->PinDefaultValueChanged(InputPin, Value));
 				}
 				if (!Changed && Pin.PortId.IsValid() && !Pin.bRequired
 					&& Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None && ImGui::MenuItem("Use function default"))
-					Submit(SelectedNode->PinDefaultValueChanged(Selected.InputAddress(Pin), {}));
+					Submit(SelectedNode->PinDefaultValueChanged(InputPin, {}));
 				if (!Changed && bConnected && !bRootAttributes && ImGui::BeginMenu("When disconnected"))
 				{
 					ImGui::TextUnformatted("Value used after disconnecting");

@@ -21,6 +21,7 @@ namespace Durin::MaterialEditor
 {
 	class DMaterialGraph;
 	class DMaterialGraphNode;
+	struct FMaterialGraphPin;
 
 	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 14;
 
@@ -39,26 +40,6 @@ namespace Durin::MaterialEditor
 	{
 		FMaterialGraphNodeAddress Node;
 		int32 X, Y;
-	};
-
-	enum class EMaterialGraphPinKind : uint8 { Input, FunctionInput, MaterialRoot, Output, FunctionOutput };
-	struct FMaterialGraphPinAddress
-	{
-		FGuid NodeId;
-		EMaterialGraphPinKind Kind = EMaterialGraphPinKind::Input;
-		uint32 Index = 0;
-		FGuid PortId;
-		EMaterialProperty Property = EMaterialProperty::MP_MaterialAttributes;
-		auto operator==(const FMaterialGraphPinAddress&) const -> bool = default;
-		auto IsMaterialRoot() const -> bool { return Kind == EMaterialGraphPinKind::MaterialRoot; }
-		static auto Input(FGuid Node, uint32 Index, FGuid Port = {}) -> FMaterialGraphPinAddress
-		{ return {Node, Port.IsValid() ? EMaterialGraphPinKind::FunctionInput : EMaterialGraphPinKind::Input, Port.IsValid() ? 0u : Index, Port}; }
-		static auto MaterialOutput(EMaterialProperty Property = EMaterialProperty::MP_MaterialAttributes) -> FMaterialGraphPinAddress
-		{ return {.Kind = EMaterialGraphPinKind::MaterialRoot, .Property = Property}; }
-		auto HasValidRootAddress() const -> bool
-		{ return IsMaterialRoot() && !NodeId.IsValid() && !PortId.IsValid() && Index == 0; }
-		static auto Output(FMaterialProgramLink Link) -> FMaterialGraphPinAddress
-		{ return {Link.SourceNodeId, Link.SourceOutputId.IsValid() ? EMaterialGraphPinKind::FunctionOutput : EMaterialGraphPinKind::Output, Link.SourceOutputIndex, Link.SourceOutputId}; }
 	};
 
 	// Status controls flow; editor-owned text explains rejection. Material diagnostics
@@ -156,7 +137,7 @@ namespace Durin::MaterialEditor
 			FMaterialGraphPortCreation,
 			FMaterialGraphCollectionParameterCreation> Payload;
 		MATERIALEDITOR_API auto PerformAction(DMaterialGraph& Graph, int32 X, int32 Y,
-			std::optional<FMaterialGraphPinAddress> Source = {}, ETransactionMode Mode = ETransactionMode::Record,
+			const FMaterialGraphPin* Source = nullptr, ETransactionMode Mode = ETransactionMode::Record,
 			std::vector<DMaterialGraphNode*>* AuxiliaryNodes = nullptr) const -> TMaterialGraphResult<DMaterialGraphNode*>;
 	};
 	MATERIALEDITOR_API auto MakeCreationAction(const FMaterialGraphCatalogEntry& Entry) -> FMaterialGraphCreationAction;
@@ -202,11 +183,7 @@ namespace Durin::MaterialEditor
 		FMaterialGraphNodePresentation Presentation;
 		std::vector<FMaterialGraphOutputPinView> Outputs;
 		std::string FunctionPath;
-		auto InputAddress(const FMaterialGraphPinView& Pin) const -> FMaterialGraphPinAddress
-		{
-			if (Pin.MaterialProperty) return FMaterialGraphPinAddress::MaterialOutput(*Pin.MaterialProperty);
-			return FMaterialGraphPinAddress::Input(Node.Id, Pin.InputIndex, Pin.PortId);
-		}
+
 	};
 
 	// Is a detached deterministic snapshot used by widgets, tests, and automation.

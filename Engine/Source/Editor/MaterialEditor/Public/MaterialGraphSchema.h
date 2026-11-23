@@ -35,15 +35,8 @@ namespace Durin::MaterialEditor
 			bool Replace = false, ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
 		MATERIALEDITOR_API virtual auto BreakPinLinks(const FMaterialGraphPin* Pin,
 			ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
-		// Resolve retained UI addresses at the command boundary.
-		MATERIALEDITOR_API auto CanCreateConnection(const DMaterialGraph& Graph,
-			const FMaterialGraphPinAddress& A, const FMaterialGraphPinAddress& B) const -> FMaterialGraphConnectionResponse;
-		MATERIALEDITOR_API auto TryCreateConnection(DMaterialGraph& Graph, const FMaterialGraphPinAddress& A,
-			const FMaterialGraphPinAddress& B, bool Replace = false, ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
-		MATERIALEDITOR_API auto BreakPinLinks(DMaterialGraph& Graph, FMaterialGraphPinAddress Pin,
-			ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
 		MATERIALEDITOR_API virtual auto GetGraphContextActions(const DMaterialGraph& Graph,
-			std::optional<FMaterialGraphPinAddress> Source = {}) const -> std::vector<FMaterialGraphCreationAction>;
+			const FMaterialGraphPin* Source = nullptr) const -> std::vector<FMaterialGraphCreationAction>;
 		virtual auto HasFunctionPorts() const -> bool = 0;
 		virtual auto CanOwnParameters() const -> bool = 0;
 		virtual auto CanCreateExpression(const DMaterialExpression& Expression) const -> bool
@@ -84,17 +77,6 @@ namespace Durin::MaterialEditor
 		static auto IsConnectionTypeCompatible(const FMaterialGraphPinView& Input, EMaterialProgramValueType Source) -> bool
 		{
 			return Accepts(Input.AcceptedTypes, Source);
-		}
-		static auto IsSourceAddressValid(const FMaterialGraphPinAddress& Source) -> bool
-		{
-			return (Source.Kind == EMaterialGraphPinKind::Output || Source.Kind == EMaterialGraphPinKind::FunctionOutput)
-				&& Source.Index <= 255
-				&& (Source.NodeId.IsValid() || (Source.Index == 0 && !Source.PortId.IsValid()));
-		}
-		static auto IsSourceKeyValid(const FMaterialGraphPinAddress& Source) -> bool
-		{
-			return (Source.Kind == EMaterialGraphPinKind::FunctionOutput) == Source.PortId.IsValid()
-				&& (!Source.PortId.IsValid() || Source.Index == 0);
 		}
 		static auto CanReplaceConnection(const FMaterialExpressionInput& Previous,
 			const FMaterialExpressionInput& Next, bool bReplace) -> bool

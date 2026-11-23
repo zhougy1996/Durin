@@ -258,19 +258,18 @@ namespace Durin::MaterialEditor
 		if (Services.ReportError) Services.ReportError(std::move(Message));
 	}
 
-	auto FMaterialGraphCanvas::BreakPinLinks(const FMaterialGraphPinAddress& Address) -> bool
+	auto FMaterialGraphCanvas::BreakPinLinks(const FMaterialGraphPin* Pin) -> bool
 	{
 		std::string Error;
-		const bool Changed = EditorGraph->GetSchema().BreakPinLinks(*EditorGraph, Address, ETransactionMode::Record, &Error);
+		const bool Changed = EditorGraph->GetSchema().BreakPinLinks(Pin, ETransactionMode::Record, &Error);
 		if (!Error.empty()) ReportError(std::move(Error));
 		return Changed;
 	}
 
-	auto FMaterialGraphCanvas::ConnectPins(const FMaterialGraphPinAddress& Input, FMaterialProgramLink Source, bool Replace) -> bool
+	auto FMaterialGraphCanvas::ConnectPins(const FMaterialGraphPin* Input, const FMaterialGraphPin* Source, bool Replace) -> bool
 	{
 		std::string Error;
-		const bool Changed = EditorGraph->GetSchema().TryCreateConnection(*EditorGraph, Input,
-			FMaterialGraphPinAddress::Output(Source), Replace, ETransactionMode::Record, &Error);
+		const bool Changed = EditorGraph->GetSchema().TryCreateConnection(Input, Source, Replace, ETransactionMode::Record, &Error);
 		if (!Error.empty()) ReportError(std::move(Error));
 		return Changed;
 	}
@@ -389,13 +388,13 @@ namespace Durin::MaterialEditor
 			std::erase_if(SelectedNodes, [&](const auto& Id) { return !CachedNodeIndices.contains(std::holds_alternative<FGuid>(Id) ? std::get<FGuid>(Id) : OutputNodeId); });
 			if (PendingFrameNode.IsValid() && !CachedNodeIndices.contains(PendingFrameNode)) PendingFrameNode = {};
 			if (const auto* Context = std::get_if<FContextMenuInteraction>(&Interaction);
-				Context && Context->ContextNode.IsValid() && !CachedNodeIndices.contains(Context->ContextNode)) ResetInteraction();
+				Context && (!CachedNodeIndices.contains(Context->ContextNode) || (Context->RootInput && !Context->RootInput->Resolve(*EditorGraph)))) ResetInteraction();
 			if (const auto* Link = std::get_if<FLinkingInteraction>(&Interaction);
-				Link && !EditorGraph->FindOutputPin({Link->SourceNode, Link->SourceOutputIndex, Link->SourceOutputId})) ResetInteraction();
+				Link && !Link->Source.Resolve(*EditorGraph)) ResetInteraction();
 			if (const auto* Menu = std::get_if<FNodeCreationMenuInteraction>(&Interaction);
-				Menu && Menu->SourceNode.IsValid() && !EditorGraph->FindOutputPin({Menu->SourceNode, Menu->SourceOutputIndex, Menu->SourceOutputId})) ResetInteraction();
+				Menu && Menu->Source && !Menu->Source->Resolve(*EditorGraph)) ResetInteraction();
 			if (const auto* Reconnect = std::get_if<FReconnectingInputInteraction>(&Interaction);
-				Reconnect && !EditorGraph->FindInputPin(Reconnect->Destination)) ResetInteraction();
+				Reconnect && !Reconnect->Destination.Resolve(*EditorGraph)) ResetInteraction();
 			bVisualGraphTopologyStale = true;
 			bViewStale = false;
 		}
@@ -549,7 +548,7 @@ namespace Durin::MaterialEditor
 				if (Pin == Outputs.end()) continue;
 				const auto A = Source.OutputPins[Pin - Outputs.begin()];
 				const bool Focused = SelectedNodes.empty() || SelectedNodes.contains(SelectionKey(Node->GetView().Node.Id)) || SelectedNodes.contains(SelectionKey(SourceId));
-				const auto Color = TypeColor(Pin->Type);
+				const auto Color = InputView.bActive ? TypeColor(Pin->Type) : IM_COL32(90, 95, 105, 255);
 				DrawCulledLink(DrawList, A, Destination.InputPins[I], CanvasMinimum, CanvasMaximum,
 					Focused ? Color : WithAlpha(Color, 72), Focused ? 3.0f : 1.5f);
 			}
@@ -688,8 +687,16 @@ namespace Durin::MaterialEditor
 
 		const auto* Context = std::get_if<FContextMenuInteraction>(&Interaction);
 		const FGuid ContextNode = Context ? Context->ContextNode : FGuid{};
-		const std::optional<EMaterialProperty> ContextSurfaceOutput =
-			Context ? Context->SurfaceOutput : std::nullopt;
+		const auto* ContextPin = Context && Context->RootInput ? Context->RootInput->Resolve(*EditorGraph) : nullptr;
+		if (Context && Context->RootInput && !ContextPin)
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			ResetInteraction();
+			return;
+		}
+		const auto ContextSurfaceOutput = ContextPin
+			? ContextPin->GetOwningNode()->GetView().Inputs[ContextPin->DisplayIndex].MaterialProperty : std::nullopt;
 		const auto ContextNodeIt = std::ranges::find(View.Nodes, ContextNode,
 			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
 		const FMaterialGraphNodeView* ContextNodeView =
@@ -740,7 +747,7 @@ namespace Durin::MaterialEditor
 			if (*ContextSurfaceOutput == EMaterialProperty::MP_MaterialAttributes)
 			{
 				if (ImGui::MenuItem("Disconnect Surface"))
-					BreakPinLinks(FMaterialGraphPinAddress::MaterialOutput());
+					BreakPinLinks(ContextPin);
 			}
 			else
 			{
@@ -755,10 +762,10 @@ namespace Durin::MaterialEditor
 				};
 				if (Link.SourceNodeId.IsValid()
 					&& ImGui::MenuItem("Disconnect to Default"))
-					BreakPinLinks(FMaterialGraphPinAddress::MaterialOutput(*ContextSurfaceOutput));
+					BreakPinLinks(ContextPin);
 				if (ImGui::MenuItem("Reset Default"))
 					if (auto* Root = EditorGraph->FindNode(ContextNodeView->Node.Id))
-						CheckCommand(Root->SetPinUseConstant(FMaterialGraphPinAddress::MaterialOutput(*ContextSurfaceOutput), false));
+						CheckCommand(Root->SetPinUseConstant(EditorGraph->FindRootPin(*ContextSurfaceOutput), false));
 				if (MaterialEditing::CanPromoteSurfaceOutput(*SurfaceMaterial, *ContextSurfaceOutput)
 					&& ImGui::MenuItem("Promote to Parameter"))
 					CheckCommand(
@@ -993,7 +1000,6 @@ namespace Durin::MaterialEditor
 		if (bOpenCreationMenuByDoubleClick)
 		{
 			Interaction = FNodeCreationMenuInteraction{
-				.SourceNode = {},
 				.GraphPosition = Multiply(
 					Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
 		}
@@ -1002,18 +1008,22 @@ namespace Durin::MaterialEditor
 			ResetInteraction();
 		}
 
+		const auto* HoveredInput = HoveredInputNode ? EditorGraph->FindNode(HoveredInputNode->View->Node.Id) : nullptr;
+		const auto* HoveredInputPin = HoveredInput ? HoveredInput->FindInputPin(HoveredInputNode->View->Inputs[HoveredInputIndex]) : nullptr;
+		const auto* HoveredOutputPin = HoveredOutput ? EditorGraph->FindOutputGraphPin({HoveredOutput->View->Node.Id,
+			HoveredOutput->View->Outputs[HoveredOutputIndex].OutputIndex, HoveredOutput->View->Outputs[HoveredOutputIndex].PortId}) : nullptr;
+
 		if (bCanvasPointerInteractionAvailable && !bCreationShortcutHandled && !bOpenCreationMenuByDoubleClick
 			&& std::holds_alternative<FIdleInteraction>(Interaction)
 			&& ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
-			if (HoveredInputNode)
+			if (HoveredInputPin)
 			{
-				Interaction = FReconnectingInputInteraction{HoveredInputNode->View->InputAddress(HoveredInputNode->View->Inputs[HoveredInputIndex])};
+				Interaction = FReconnectingInputInteraction{FPinHandle(*HoveredInputPin)};
 			}
-			else if (HoveredOutput)
+			else if (HoveredOutputPin)
 			{
-				const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
-				Interaction = FLinkingInteraction{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
+				Interaction = FLinkingInteraction{FPinHandle(*HoveredOutputPin)};
 			}
 
 			else if (HoveredNode)
@@ -1106,63 +1116,57 @@ namespace Durin::MaterialEditor
 
 		if (const auto* ActiveLink = std::get_if<FLinkingInteraction>(&Interaction))
 		{
-			const FGuid SourceNode = ActiveLink->SourceNode;
-			const FMaterialProgramLink SourceLink{SourceNode, ActiveLink->SourceOutputIndex, ActiveLink->SourceOutputId};
-			const auto SourceIt = VisualIndices.find(SourceNode);
-			if (SourceIt != VisualIndices.end())
+			const auto Handle = ActiveLink->Source;
+			const auto* Source = Handle.Resolve(*EditorGraph);
+			if (!Source) ResetInteraction();
+			else
 			{
-				const ImVec2 A = VisualNodes[SourceIt->second].OutputPosition(SourceLink);
-				DrawList->AddBezierCubic(A, Add(A, {60.0f, 0.0f}),
-					Subtract(Mouse, {60.0f, 0.0f}), Mouse,
-					TypeColor(VisualNodes[SourceIt->second].View->Node.ResultType), 2.5f);
-			}
-			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
-			{
-				ResetInteraction();
-				if (bPointerAvailable && HoveredInputNode)
-					ConnectPins(HoveredInputNode->View->InputAddress(HoveredInputNode->View->Inputs[HoveredInputIndex]),
-						SourceLink, ImGui::GetIO().KeyShift);
-
-				else if (bCanvasPointerInteractionAvailable && !HoveredNode
-					&& !HoveredOutput)
+				const auto& SourceView = Source->GetOwningNode()->GetView();
+				const auto SourceIt = VisualIndices.find(SourceView.Node.Id);
+				if (SourceIt != VisualIndices.end())
 				{
-					Interaction = FNodeCreationMenuInteraction{
-						.SourceNode = SourceNode,
-						.SourceOutputIndex = SourceLink.SourceOutputIndex,
-						.SourceOutputId = SourceLink.SourceOutputId,
-						.GraphPosition = Multiply(
-							Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
+					const auto& Output = SourceView.Outputs[Source->DisplayIndex];
+					const auto A = VisualNodes[SourceIt->second].OutputPosition({SourceView.Node.Id, Output.OutputIndex, Output.PortId});
+					DrawList->AddBezierCubic(A, Add(A, {60.0f, 0.0f}), Subtract(Mouse, {60.0f, 0.0f}), Mouse,
+						TypeColor(SourceView.Outputs[Source->DisplayIndex].Type), 2.5f);
+				}
+				if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+				{
+					ResetInteraction();
+					if (bPointerAvailable && HoveredInputPin)
+						ConnectPins(HoveredInputPin, Source, ImGui::GetIO().KeyShift);
+					else if (bCanvasPointerInteractionAvailable && !HoveredNode && !HoveredOutput)
+						Interaction = FNodeCreationMenuInteraction{.Source = Handle,
+							.GraphPosition = Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
 				}
 			}
 		}
-		if (const auto* Reconnecting =
-			std::get_if<FReconnectingInputInteraction>(&Interaction))
+		if (const auto* Reconnecting = std::get_if<FReconnectingInputInteraction>(&Interaction))
 		{
-			const auto Address = Reconnecting->Destination;
-			const auto DestinationIt = VisualIndices.find(Address.IsMaterialRoot() ? OutputNodeId : Address.NodeId);
-			if (DestinationIt != VisualIndices.end())
+			const auto* Input = Reconnecting->Destination.Resolve(*EditorGraph);
+			if (!Input) ResetInteraction();
+			else
 			{
-				const auto& Destination = VisualNodes[DestinationIt->second];
-				const auto Pin = std::ranges::find_if(Destination.View->Inputs, [&](const auto& Input) {
-					return Destination.View->InputAddress(Input) == Address;
-				});
-				if (Pin != Destination.View->Inputs.end())
+				const auto* Node = Input->GetOwningNode();
+				const auto Found = VisualIndices.find(Node->GetView().Node.Id);
+				if (Found != VisualIndices.end())
 				{
-					const auto Row = static_cast<size_t>(Pin - Destination.View->Inputs.begin());
-					const ImVec2 A = Destination.InputPins[Row];
-					DrawList->AddBezierCubic(A, Subtract(A, {60.0f, 0.0f}),
-						Add(Mouse, {60.0f, 0.0f}), Mouse, IM_COL32(240, 210, 105, 255), 2.5f);
+					const auto& Destination = VisualNodes[Found->second];
+					const auto Pin = std::ranges::find_if(Destination.View->Inputs, [&](const auto& View) {
+						return Node->FindInputPin(View) == Input;
+					});
+					if (Pin != Destination.View->Inputs.end())
+					{
+						const auto A = Destination.InputPins[Pin - Destination.View->Inputs.begin()];
+						DrawList->AddBezierCubic(A, Subtract(A, {60.0f, 0.0f}), Add(Mouse, {60.0f, 0.0f}),
+							Mouse, IM_COL32(240, 210, 105, 255), 2.5f);
+					}
 				}
-			}
-			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
-			{
-				if (bPointerAvailable && HoveredOutput)
+				if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 				{
-					const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
-					const FMaterialProgramLink Source{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
-					ConnectPins(Address, Source, true);
+					ResetInteraction();
+					if (bPointerAvailable && HoveredOutputPin) ConnectPins(Input, HoveredOutputPin, true);
 				}
-				ResetInteraction();
 			}
 		}
 
@@ -1183,7 +1187,8 @@ namespace Durin::MaterialEditor
 				Interaction = FContextMenuInteraction{
 					.ContextNode = HoveredNode ? HoveredNode->View->Node.Id
 						: HoveredInputNode ? HoveredInputNode->View->Node.Id : FGuid{},
-					.SurfaceOutput = HoveredInputNode ? HoveredInputNode->View->Inputs[HoveredInputIndex].MaterialProperty : std::nullopt};
+					.RootInput = HoveredInputPin && HoveredInputNode->View->Inputs[HoveredInputIndex].MaterialProperty
+						? std::optional{FPinHandle(*HoveredInputPin)} : std::nullopt};
 				ImGui::OpenPopup("MaterialGraphContext");
 			}
 		}
@@ -1191,7 +1196,6 @@ namespace Durin::MaterialEditor
 			&& ImGui::IsKeyPressed(ImGuiKey_Space))
 		{
 			Interaction = FNodeCreationMenuInteraction{
-				.SourceNode = {},
 				.GraphPosition = Multiply(
 					Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
 		}
@@ -1275,9 +1279,7 @@ namespace Durin::MaterialEditor
 
 			const FLinkingInteraction* Linking =
 				std::get_if<FLinkingInteraction>(&Interaction);
-			const FGuid LinkSourceNode = Linking ? Linking->SourceNode : FGuid{};
-			const FMaterialProgramLink LinkSource{LinkSourceNode, Linking ? Linking->SourceOutputIndex : uint8{0},
-				Linking ? Linking->SourceOutputId : FGuid{}};
+			const auto* LinkSource = Linking ? Linking->Source.Resolve(*EditorGraph) : nullptr;
 			const auto Hit = HitTest(VisualGraph, CanvasMinimum, CanvasMaximum, Mouse);
 			const auto* HoveredNode = Hit.Node;
 			const bool bOverNodeTitle = HoveredNode
@@ -1384,14 +1386,14 @@ namespace Durin::MaterialEditor
 						const auto& Pin = Visual.View->Inputs[Index];
 						if (Linking)
 						{
-							const auto Response = EditorGraph->GetSchema().CanCreateConnection(
-								EditorGraph->FindPin(FMaterialGraphPinAddress::Output(LinkSource)), EditorGraph->FindPin(Visual.View->InputAddress(Pin)));
+							const auto* Node = EditorGraph->FindNode(Visual.View->Node.Id);
+							const auto Response = EditorGraph->GetSchema().CanCreateConnection(LinkSource, Node ? Node->FindInputPin(Pin) : nullptr);
 							const bool Accepted = Response.Allows(ImGui::GetIO().KeyShift);
 							DrawList->AddCircle(Visual.InputPins[Index], 8.0f, Accepted ? IM_COL32(90, 220, 125, 230) : IM_COL32(235, 90, 90, 230));
 							const std::string_view Hint = Accepted ? "Connect" : Response.Reason;
 							ImGui::SetTooltip("%.*s", static_cast<int>(Hint.size()), Hint.data());
 						}
-						else if (!Pin.bActive) ImGui::SetTooltip("Inactive for the current shading/blend settings. Its connection and default are retained.");
+						else if (!Pin.bActive) ImGui::SetTooltip("Inactive for the current material settings. Its connection and default are retained.");
 						else
 						{
 							std::string Default;
@@ -1414,8 +1416,8 @@ namespace Durin::MaterialEditor
 				const auto& Pin = Hit.OutputNode->View->Outputs[Hit.OutputIndex];
 				if (Reconnect)
 				{
-					const auto Address = FMaterialGraphPinAddress::Output({Hit.OutputNode->View->Node.Id, Pin.OutputIndex, Pin.PortId});
-					const auto Response = EditorGraph->GetSchema().CanCreateConnection(EditorGraph->FindPin(Reconnect->Destination), EditorGraph->FindPin(Address));
+					const auto Response = EditorGraph->GetSchema().CanCreateConnection(Reconnect->Destination.Resolve(*EditorGraph),
+						EditorGraph->FindOutputGraphPin({Hit.OutputNode->View->Node.Id, Pin.OutputIndex, Pin.PortId}));
 					const std::string_view Hint = Response.Allows(true) ? "Connect" : Response.Reason;
 					ImGui::SetTooltip("%.*s", static_cast<int>(Hint.size()), Hint.data());
 				}
@@ -1468,7 +1470,7 @@ namespace Durin::MaterialEditor
 			DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(Zoom, DetailLevel);
 
 			DrawContextMenu(Owner, Transactions, View);
-			DrawCreationMenu(Owner, Transactions, View);
+			DrawCreationMenu(Owner, Transactions);
 
 			DrawList->PopClipRect();
 		}
