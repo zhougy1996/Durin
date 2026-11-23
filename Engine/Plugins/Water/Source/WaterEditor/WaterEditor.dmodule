@@ -2,5 +2,6 @@
   "ModuleName": "WaterEditor",
   "LinkType": "Shared",
   "PCH": "Self",
-  "PrivateDependencies": ["AssetTools", "ContentBrowser", "Core", "DurinEd", "Water"]
+  "PrivateDependencies": ["AssetTools", "ContentBrowser", "Core", "DurinEd", "Water"],
+  "ReflectHeaders": ["Private/WaterWavesAssetDefinition.h"]
 }
