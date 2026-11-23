@@ -8,6 +8,11 @@
 
 namespace Durin::Private
 {
+#if DURIN_WITH_EDITORONLY_DATA
+	auto CollectExpressionLayout(const FMaterialExpressionCollection& Collection) -> FMaterialGraphPresentation;
+	auto ApplyExpressionLayout(const FMaterialExpressionCollection& Collection, const FMaterialGraphPresentation& Presentation) -> bool;
+#endif
+
 	// Checks that the collection accounts for every expression child of this owner.
 	auto ValidateExpressionOwnership(const DObject& Owner,
 		const FMaterialExpressionCollection& Collection) -> std::expected<void, std::string>;

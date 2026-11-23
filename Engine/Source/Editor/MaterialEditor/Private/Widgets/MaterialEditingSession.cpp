@@ -14,12 +14,13 @@
 
 namespace Durin::MaterialEditor
 {
-	auto FMaterialEditingSession::FAuthoredState::Matches(const DMaterial& Material) const -> bool
+	auto FMaterialEditingSession::FAuthoredState::Matches(const DMaterial& Material, bool bIncludeLayout) const -> bool
 	{
 		const auto& Current = Material.GetExpressionCollection().Expressions;
 		if (Domain != Material.GetDomain() || Properties != Material.GetStaticProperties()
-			|| RootPosition != Material.GetRootPosition() || RootBindings.UseMaterialAttributes != Material.UsesMaterialAttributes()
-			|| Presentation != Material.GetMaterialGraphPresentation() || Expressions.size() != Current.size()) return false;
+			|| RootBindings.UseMaterialAttributes != Material.UsesMaterialAttributes() || Expressions.size() != Current.size()) return false;
+		if (bIncludeLayout && (RootPosition != Material.GetRootPosition()
+			|| Presentation != Material.GetMaterialGraphPresentation())) return false;
 		const auto& Packed = *Material.GetExpressionInputForProperty(EMaterialProperty::MP_MaterialAttributes);
 		if (RootBindings.AttributeSource != Packed.GetExpressionId() || RootBindings.AttributeOutputIndex != Packed.OutputIndex)
 			return false;
@@ -50,6 +51,7 @@ namespace Durin::MaterialEditor
 			if (!Before || !After || Before->GetClass() != After->GetClass()) return false;
 			bool bIdentical = true;
 			Before->GetClass()->ForEachProperty([&](FProperty* Property) {
+				if (Property->NamePrivate == FName("EditorLayout")) return;
 				for (uint32 Element = 0; bIdentical && Element < Property->GetArrayDim(); ++Element)
 					bIdentical = ArePropertyValuesIdentical(Property, Before, Element, After, Element);
 			});
@@ -145,7 +147,6 @@ namespace Durin::MaterialEditor
 			return false;
 		}
 		Working->SetRootPosition(Applied.RootPosition.first, Applied.RootPosition.second);
-		Working->SetMaterialGraphPresentation(Applied.Presentation);
 		Working->CompileEdits();
 		Working->SetEditCompileMode(Mode);
 		Graph = DMaterialGraph::Create(*Working);
@@ -186,6 +187,11 @@ namespace Durin::MaterialEditor
 	{
 		if (!CheckSource(Error)) return false;
 		if (!HasUnappliedChanges()) return true;
+		if (Applied.Matches(*Working, false))
+		{
+			bApplyPending = false;
+			return ApplyCurrent(Error);
+		}
 		bApplyPending = true;
 		RequestedWorkingRevision = WorkingPackage->GetEditRevision();
 		if (!Working->GetMaterialCompileStatus().IsCurrent()) Working->CompileEdits();
@@ -212,6 +218,7 @@ namespace Durin::MaterialEditor
 		bApplyPending = false;
 		if (!CheckSource(Error)) return false;
 		if (!HasUnappliedChanges()) return true;
+		if (Applied.Matches(*Working, false)) return ApplyCurrent(Error);
 		const auto Status = Working->GetMaterialCompileStatus();
 		if (Status.HasUnsubmittedEdits() || (!Status.IsCurrent() && Working->IsCompilationFinished()))
 			Working->CompileEdits();
@@ -223,6 +230,18 @@ namespace Durin::MaterialEditor
 	{
 		if (!CheckSource(Error)) return false;
 		if (!HasUnappliedChanges()) return true;
+		if (Applied.Matches(*Working, false))
+		{
+			Applied.RootPosition = Working->GetRootPosition();
+			Applied.Presentation = Working->GetMaterialGraphPresentation();
+			FScopedMaterialGraphChange GraphBatch(*Source);
+			Source->SetRootPosition(Applied.RootPosition.first, Applied.RootPosition.second);
+			Source->SetMaterialGraphPresentation(Applied.Presentation);
+			if (Transactor.IsValid()) Transactor->InvalidateSavedState(*Source->GetPackage());
+			SourceRevision = Source->GetPackage()->GetEditRevision();
+			ObservedWorkingRevision = 0;
+			return true;
+		}
 		if (!Working->GetMaterialCompileStatus().IsCurrent())
 		{
 			Error = "Apply requires a successful compilation of the current preview. Compile the latest edits and retry.";
@@ -252,7 +271,6 @@ namespace Durin::MaterialEditor
 		// The complete candidate configuration passed admission before publication.
 		(void)Source->SetMaterialConfiguration({Candidate.Domain, Candidate.Properties});
 		Source->SetRootPosition(Candidate.RootPosition.first, Candidate.RootPosition.second);
-		Source->SetMaterialGraphPresentation(Candidate.Presentation);
 		if (Source->GetMaterialCompileStatus().HasUnsubmittedEdits()) Source->CompileEdits();
 		Source->SetEditCompileMode(PreviousMode);
 		if (Transactor.IsValid()) Transactor->InvalidateSavedState(*Source->GetPackage());

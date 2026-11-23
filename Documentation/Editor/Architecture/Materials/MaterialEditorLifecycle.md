@@ -75,7 +75,9 @@ relocation or sibling-package edits with unchanged source values are allowed.
 Publication updates the existing source through material mutation boundaries and
 submits its changed root and loaded dependent variants together. Scene references
 keep their identity and runtime compilation retains its last-good failure policy.
-Apply does not save the package to disk.
+Apply does not save the package to disk. Layout-only Apply copies positions and
+labels onto the current source expressions and preserves their identity. It does
+not request a compile or advance the material or function semantic revision.
 
 Working-copy checkpoints include Domain as well as static properties, expression
 children, roots and presentation. Initialization installs the complete configuration

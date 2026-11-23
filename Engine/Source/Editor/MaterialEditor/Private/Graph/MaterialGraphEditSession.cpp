@@ -104,7 +104,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		// New objects are retained by structural history; they have no prior authored state.
 		if (!Impl->OriginalObjects.contains(&Expression)) return;
 		Expression.GetClass()->ForEachProperty([&](FProperty* P) {
-			if (P->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+			if (P->HasAnyPropertyFlags(EPropertyFlags::Transient) || P->NamePrivate == FName("EditorLayout")) return;
 			for (uint32 Index = 0; Index < P->GetArrayDim(); ++Index)
 			{
 				FMemberChange M;
@@ -119,7 +119,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		if (Target.GetClass() != Source.GetClass()) return RejectCommand("Expression assignment requires matching classes.");
 		FMaterialGraphCommandResult Result;
 		Target.GetClass()->ForEachProperty([&](FProperty* P) {
-			if (P->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+			if (P->HasAnyPropertyFlags(EPropertyFlags::Transient) || P->NamePrivate == FName("EditorLayout")) return;
 			for (uint32 Index = 0; Index < P->GetArrayDim(); ++Index)
 			{
 				if (ArePropertyValuesIdentical(P, &Source, Index, &Target, Index)) continue;
@@ -336,11 +336,24 @@ namespace Durin::MaterialEditor::GraphEditInternals
 				if (!Nested) Recording.Cancel();
 				return false;
 			};
-			if ((bStructural || bPresentation || bRootChanged) && !Record(Impl->Owner)) return RejectCommand("Unable to record the graph owner.");
+			if ((bStructural || bRootChanged) && !Record(Impl->Owner)) return RejectCommand("Unable to record the graph owner.");
 			for (auto* Node : Removed)
 				if (!Record(*Node)) return RejectCommand("Unable to record the removed expression.");
 			for (auto* Member : Changed)
 				if (!Record(*Member->Object())) return RejectCommand("Unable to record the edited expression.");
+			if (bPresentation)
+			{
+				for (const auto& Node : bStructural ? Accepted : Expressions)
+				{
+					if (!Impl->OriginalObjects.contains(Node.Get())) continue;
+					const auto Position = std::ranges::lower_bound(Presentation.Nodes, Node->Id, {}, &FMaterialGraphNodePresentation::NodeId);
+					const bool bAuthored = Position != Presentation.Nodes.end() && Position->NodeId == Node->Id;
+					const auto& Layout = Node->EditorLayout;
+					if ((bAuthored != Layout.bAuthored || (bAuthored && (Position->X != Layout.X
+						|| Position->Y != Layout.Y || Position->DisplayName != Layout.DisplayName))) && !Record(*Node))
+						return RejectCommand("Unable to record the expression layout.");
+				}
+			}
 			for (auto* Member : Changed)
 				if (auto Result = Member->Restore(false); !Result)
 				{
@@ -353,7 +366,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		for (auto* Node : Removed) Node->MarkAsGarbage();
 		FMaterialExpressionEditing::ReconcileOwnership(Impl->Owner, {});
 		Impl->bFinished = true;
-		if (bPresentation) WritePresentation(Impl->Owner, Presentation);
+		if (bPresentation || bStructural) WritePresentation(Impl->Owner, Presentation);
 		if (bRootChanged) FMaterialExpressionEditing::ApplyRootEdits(*Cast<DMaterial>(&Impl->Owner), Root);
 		if (bRootChanged || bStructural || !Changed.empty()) FMaterialExpressionEditing::Publish(Impl->Owner);
 		return {.Status = EMaterialGraphCommandStatus::Succeeded};

@@ -519,8 +519,9 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(CaptureMaterialOutputBindings(*Draft), CaptureMaterialOutputBindings(Outputs));
 	ASSERT_TRUE(Transactions.Get()->Redo());
-	const auto Label = std::ranges::find(Draft->GetMaterialGraphPresentation().Nodes, CallId, &FMaterialGraphNodePresentation::NodeId);
-	ASSERT_NE(Label, Draft->GetMaterialGraphPresentation().Nodes.end());
+	const auto Layout = Draft->GetMaterialGraphPresentation();
+	const auto Label = std::ranges::find(Layout.Nodes, CallId, &FMaterialGraphNodePresentation::NodeId);
+	ASSERT_NE(Label, Layout.Nodes.end());
 	EXPECT_EQ(Label->DisplayName, "Reusable Surface");
 	EXPECT_EQ(GetCall(*Draft)->Function.Get(), First);
 	Call->Function = Second;
@@ -569,6 +570,33 @@ TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStay
 	EXPECT_EQ(Source->GetMaterialGraphPresentation(), Presentation);
 	ASSERT_NE(Source->FindParameterDefinition(Definition.Id), nullptr);
 	EXPECT_FLOAT_EQ(Source->FindParameterDefinition(Definition.Id)->Value.GetScalar(), 0.23f);
+}
+
+TEST_F(FMaterialEditingSessionTests, LayoutOnlyApplyPreservesExpressionsAndCompileRevision)
+{
+	using namespace Durin;
+	TStrongObjectPtr<DMaterialGraph> SourceGraph(DMaterialGraph::Create(*Source));
+	ASSERT_TRUE(Testing::CreateGraphConstant(*SourceGraph, 0.31f));
+	ASSERT_FALSE(Source->GetExpressionCollection().Expressions.empty());
+	const auto* Expression = Source->GetExpressionCollection().Expressions.front().Get();
+	const auto Id = Expression->Id;
+	const auto SourceRevision = Source->GetMaterialCompileDebugInfo().AuthoredRevision;
+	const auto SourceProgramRevision = Source->GetMaterialProgramRevision();
+	FMaterialEditingSession Session;
+	std::string Error;
+	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error)) << Error;
+	auto* Draft = Session.GetWorkingMaterial();
+	const auto DraftRevision = Draft->GetMaterialCompileDebugInfo().AuthoredRevision;
+	const FMaterialGraphPresentation Layout{.Nodes = {{Id, 120, -70, "Parameter label"}}};
+	ASSERT_EQ(Draft->SetMaterialGraphPresentation(Layout), EMaterialGraphPresentationResult::Changed);
+	EXPECT_NE(Source->GetMaterialGraphPresentation(), Layout);
+	ASSERT_TRUE(Session.RequestApply(Error)) << Error;
+	EXPECT_FALSE(Session.HasUnappliedChanges());
+	EXPECT_EQ(Source->GetExpressionCollection().Expressions.front().Get(), Expression);
+	EXPECT_EQ(Source->GetMaterialGraphPresentation(), Layout);
+	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().AuthoredRevision, SourceRevision);
+	EXPECT_EQ(Source->GetMaterialProgramRevision(), SourceProgramRevision);
+	EXPECT_EQ(Draft->GetMaterialCompileDebugInfo().AuthoredRevision, DraftRevision);
 }
 
 TEST_F(FMaterialEditingSessionTests, ExternalSourceChangeRejectsApplyWithoutOverwritingEitherSide)

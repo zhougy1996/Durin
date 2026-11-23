@@ -124,17 +124,14 @@ namespace Durin::MaterialEditor
 					Node->View.Presentation.Y = Y;
 					continue;
 				}
-				const auto& Positions = Material ? Material->GetMaterialGraphPresentation().Nodes
-					: Cast<DMaterialFunction>(Asset)->GetFunctionPresentation().Nodes;
-				const auto It = std::ranges::find(Positions, Change.NodeId, &FMaterialGraphNodePresentation::NodeId);
-				if (It != Positions.end()) Node->View.Presentation = *It;
-				else
-				{
-					const auto& Expressions = Material ? Material->GetExpressionCollection().Expressions
-						: Cast<DMaterialFunction>(Asset)->GetExpressionCollection().Expressions;
-					const auto Expression = std::ranges::find_if(Expressions, [&](const auto& E) { return E->Id == Change.NodeId; });
-					Node->View.Presentation = DefaultNodePresentation(Node->View.Node, std::distance(Expressions.begin(), Expression));
-				}
+				const auto& Expressions = Material ? Material->GetExpressionCollection().Expressions
+					: Cast<DMaterialFunction>(Asset)->GetExpressionCollection().Expressions;
+				const auto Expression = std::ranges::find_if(Expressions, [&](const auto& Entry) { return Entry && Entry->Id == Change.NodeId; });
+				if (Expression == Expressions.end()) continue;
+				const auto& Layout = (*Expression)->EditorLayout;
+				Node->View.Presentation = Layout.bAuthored
+					? FMaterialGraphNodePresentation{Change.NodeId, Layout.X, Layout.Y, Layout.DisplayName}
+					: DefaultNodePresentation(Node->View.Node, std::distance(Expressions.begin(), Expression));
 			}
 		}
 		if (!Reconstruct.empty()) RefreshNodes(EnumerateCatalog(), Reconstruct);

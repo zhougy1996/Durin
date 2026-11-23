@@ -19,6 +19,43 @@
 #include "Threading/RunnableThread.h"
 
 #if DURIN_WITH_EDITORONLY_DATA
+namespace Durin::Private
+{
+	auto CollectExpressionLayout(const FMaterialExpressionCollection& Collection) -> FMaterialGraphPresentation
+	{
+		FMaterialGraphPresentation Presentation;
+		for (const auto& Expression : Collection.Expressions)
+		{
+			if (!Expression || !Expression->EditorLayout.bAuthored) continue;
+			const auto& Layout = Expression->EditorLayout;
+			Presentation.Nodes.push_back({Expression->Id, Layout.X, Layout.Y, Layout.DisplayName});
+		}
+		std::ranges::sort(Presentation.Nodes, {}, &FMaterialGraphNodePresentation::NodeId);
+		return Presentation;
+	}
+
+	auto ApplyExpressionLayout(const FMaterialExpressionCollection& Collection, const FMaterialGraphPresentation& Presentation) -> bool
+	{
+		std::vector<FGuid> Ids;
+		for (const auto& Expression : Collection.Expressions)
+			if (Expression) Ids.push_back(Expression->Id);
+		const auto Layout = SanitizeMaterialGraphPresentation(Presentation, Ids);
+		bool bChanged = false;
+		for (const auto& Expression : Collection.Expressions)
+		{
+			if (!Expression) continue;
+			const auto Position = std::ranges::lower_bound(Layout.Nodes, Expression->Id, {}, &FMaterialGraphNodePresentation::NodeId);
+			FMaterialExpressionLayout Candidate;
+			if (Position != Layout.Nodes.end() && Position->NodeId == Expression->Id)
+				Candidate = {true, Position->X, Position->Y, Position->DisplayName};
+			if (Expression->EditorLayout == Candidate) continue;
+			Expression->EditorLayout = std::move(Candidate);
+			bChanged = true;
+		}
+		return bChanged;
+	}
+}
+
 namespace Durin
 {
 	// Replay has loaded every participant before native completion. Repair child
@@ -46,7 +83,7 @@ namespace Durin
 			return std::ranges::contains(RootProperties, Name);
 		}))
 			FMaterialExpressionEditing::Publish(*this, Event.OperationId);
-		else if (std::ranges::any_of(Event.Change.ChangedProperties, [](FName Name) { return Name == "GraphPresentation" || Name == "EditorX" || Name == "EditorY"; }))
+		else if (std::ranges::any_of(Event.Change.ChangedProperties, [](FName Name) { return Name == "EditorX" || Name == "EditorY"; }))
 			GraphChanges.PublishPresentation(*this);
 	}
 
@@ -55,15 +92,18 @@ namespace Durin
 		if (Event.Type != ETransactionObjectEventType::UndoRedo) return;
 		if (std::ranges::contains(Event.Change.ChangedProperties, FName("ExpressionCollection")))
 			FMaterialExpressionEditing::Publish(*this, Event.OperationId);
-		else if (std::ranges::contains(Event.Change.ChangedProperties, FName("Presentation")))
-			GraphChanges.PublishPresentation(*this);
 	}
 
 	auto DMaterialExpression::PostTransacted(const FTransactionObjectEvent& Event) -> void
 	{
 		if (Event.Type != ETransactionObjectEventType::UndoRedo || IsGarbage()) return;
 		auto* Owner = GetOuter();
-		if (Cast<DMaterial>(Owner) || Cast<DMaterialFunction>(Owner)) FMaterialExpressionEditing::Publish(*Owner, Event.OperationId);
+		if (!Cast<DMaterial>(Owner) && !Cast<DMaterialFunction>(Owner)) return;
+		const auto& Properties = Event.Change.ChangedProperties;
+		if (Properties.size() == 1 && Properties.front() == FName("EditorLayout"))
+			GetMaterialGraphChangeSource(*Owner).PublishPresentation(*Owner);
+		else
+			FMaterialExpressionEditing::Publish(*Owner, Event.OperationId);
 	}
 
 	auto FMaterialExpressionEditing::GetExpressions(DObject& Owner) -> std::vector<TObjectPtr<DMaterialExpression>>&

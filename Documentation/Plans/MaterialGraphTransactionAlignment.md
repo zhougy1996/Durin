@@ -2,7 +2,7 @@
 
 Summary: Align material and function editing with UE 5.8 by recording authored objects before mutation and retiring both material-specific transaction builders.
 
-Last reviewed: 2026-11-20
+Last reviewed: 2026-11-23
 
 Status: Active
 Completed:
@@ -24,6 +24,10 @@ The shared lifecycle prerequisite now records pending-kill changes on a whole-ob
 Stage 2 replaces the material graph custom history entry and its expression membership annotation with native owner and expression records. On base `255188d5e`, the graph tests cover mixed creation/edit and edit/deletion across GC, atomic nested paste rejection, and separate same-GUID replacements on Undo and Redo. Both material and function collections use the Durin `ValidateTransactionSource` metadata check on existing serialized membership. This preserves the accepted stale-edit contract without storing a second membership snapshot. Toolkit completion follows UE's `PostUndo` and `PostRedo` placement. Temporary command validation remains in the existing session until stage 4.
 
 Stage 2 acceptance passed on Win64-Debug-DurinEditor. The all-target build passed across the workspace. MaterialGraphEditingTests passed 116 cases, followed by a separate passing physical-loss case using a standalone transaction without GC ownership. MaterialEditorInteractionTests passed 76, MaterialEditingPersistenceTests 40, MaterialFunctionTests 31, EditorOperationTests 408 and CoreTransactionContractTests 19. The open caller graph follows function port names through Undo and Redo. The working-copy tests cover global history publication, isolation and save/reload.
+
+The layout portion of stage 3 stores positions and labels on expressions and migrates the deprecated material and function layout fields on package load. The material still owns its root position. Move and auto-layout use ordinary object recording, so replay restores the moved expression's baseline and leaves later writes on other expressions intact. Layout-only publication and Apply preserve the semantic revision. Parameter and configuration history remain open in this stage.
+
+Layout validation on base `ccf0dacdd` used Win64-Debug-DurinEditor. MaterialEditorInteractionTests passed 82 cases, MaterialFunctionTests passed 31 and MaterialPackageTests passed 8. MaterialEditingPersistenceTests passed 46 unchanged cases and passed the revised legacy layout fixture separately. The fixture covers coordinates and a nonempty label in both former owner formats through load, save and reopen. MaterialGraphEditingTests passed 118 of 119 cases, including layout replay and cancellation. Its catalog matrix rejects the Single Layer Water terminal before layout commit in the existing catalog creation path.
 
 ### Stage 2 prerequisite contracts
 
@@ -67,7 +71,7 @@ UE paths below are relative to `Engine/Source/Editor` in the local UE 5.8 source
 
 ### Stage 3: Align layout and gesture recording with data ownership
 
-- [ ] Map persisted positions and labels to independently recordable node state. Specify writeback and reconstruction across graph rebuild, function reopen and working-copy Apply. If serialization ownership changes, migrate existing GUID-keyed layout on load and verify save/reopen before removing its former representation.
+- [x] Map persisted positions and labels to independently recordable node state. Specify writeback and reconstruction across graph rebuild, function reopen and working-copy Apply. If serialization ownership changes, migrate existing GUID-keyed layout on load and verify save/reopen before removing its former representation.
 - [ ] Move layout, parameter and configuration history to the objects that own the authored values. Keep temporary pointer/slider feedback and Escape restoration local to the gesture. Audit each remaining material `StoreUndo` call against a concrete replay requirement. Document any required Durin-specific command, its affected state and its regression test.
 - [ ] Verify one released multi-node drag gives one undo entry. Undo a move on A after an independent change on B and verify B's position survives. Check cancellation, a stale gesture, parameter preview and retry, mixed ordinary/configuration edits in both orders, and an anonymous configuration-only owner. Layout edits must leave the semantic compile revision unchanged.
 

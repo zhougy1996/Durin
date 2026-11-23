@@ -64,11 +64,7 @@ namespace Durin
 #endif
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 #if DURIN_WITH_EDITORONLY_DATA
-		auto GetMaterialGraphPresentation() const
-			-> const FMaterialGraphPresentation&
-		{
-			return GraphPresentation;
-		}
+		ENGINE_API auto GetMaterialGraphPresentation() const -> FMaterialGraphPresentation;
 #endif
 		auto GetMaterialProgramRevision() const -> uint64
 		{
@@ -188,10 +184,10 @@ namespace Durin
 		static auto DeriveExpressionParameterSchema(const FMaterialExpressionCollection& Collection,
 			std::vector<FMaterialParameterDefinition>& OutDefinitions) -> FMaterialProgramValidationResult;
 
-		// Shared node positions are persisted for authoring but excluded from Cook and compilation.
 #if DURIN_WITH_EDITORONLY_DATA
-		DPROPERTY(EditorOnly)
-		FMaterialGraphPresentation GraphPresentation;
+		// Load-only field for packages authored before expression-owned layout.
+		DPROPERTY(Deprecated)
+		FMaterialGraphPresentation GraphPresentation_DEPRECATED;
 #endif
 
 		// Detached code checkpoint classifies reflected default/metadata edits without retaining resources.

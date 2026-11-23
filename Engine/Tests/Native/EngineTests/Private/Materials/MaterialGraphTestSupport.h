@@ -82,6 +82,7 @@ namespace
 				if (Expressions[Index]->GetClass() != Other.Expressions[Index]->GetClass()) return false;
 				bool Identical = true;
 				Expressions[Index]->GetClass()->ForEachProperty([&](FProperty* Property) {
+					if (Property->NamePrivate == FName("EditorLayout")) return;
 					Identical &= ArePropertyValuesIdentical(Property, Expressions[Index].Get(), 0, Other.Expressions[Index].Get(), 0);
 				});
 				if (!Identical) return false;

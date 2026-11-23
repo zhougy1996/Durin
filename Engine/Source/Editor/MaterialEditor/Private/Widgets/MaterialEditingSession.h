@@ -52,7 +52,7 @@ namespace Durin::MaterialEditor
 			FMaterialGraphPresentation Presentation;
 			std::pair<int32, int32> RootPosition;
 			FMaterialOutputBindings RootBindings;
-			auto Matches(const DMaterial& Material) const -> bool;
+			auto Matches(const DMaterial& Material, bool bIncludeLayout = true) const -> bool;
 		};
 		static auto Capture(const DMaterial& Material, FAuthoredState& OutState) -> std::expected<void, FObjectGraphError>;
 		auto ApplyCurrent(std::string& Error) -> bool;

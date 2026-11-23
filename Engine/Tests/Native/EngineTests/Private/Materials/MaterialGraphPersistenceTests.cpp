@@ -661,6 +661,83 @@ TEST(FMaterialGraphPersistenceTests, SecondFunctionOutputRetainsItsIndexAcrossHi
 	ASSERT_TRUE(Testing::EnsurePackageNotResident(FunctionPath));
 }
 
+TEST(FMaterialGraphPersistenceTests, LegacyOwnerLayoutsMigrateCoordinatesAndLabels)
+{
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	Testing::FScopedMountRegistryFixture Registry;
+	Testing::RegisterMountPointForTests("/LegacyLayout/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	const auto Check = []<class T>(std::string_view PathName, const char* Field, const char* Type, uint32 Version) {
+		using namespace ObjectPackage;
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(PathName, Path));
+		T* Asset = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+		FGuid Id;
+		{
+			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Asset));
+			const auto Created = Testing::CreateGraphConstant(*Graph, .5f);
+			ASSERT_TRUE(Created);
+			Id = *Created;
+		}
+		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+		const auto File = FindPackageExact(Path);
+		ASSERT_TRUE(File);
+		auto Bytes = FFileHelper::LoadFileToArray(File->PhysicalPath);
+		ASSERT_TRUE(Bytes);
+		FLinkerTables Tables;
+		ASSERT_TRUE(ReadPackage(*Bytes, {}, Path, Tables));
+		ASSERT_TRUE(UnloadPackage(Path));
+
+		const FSerializedType Int{.Kind = EValueKind::I32};
+		const FSerializedType UInt{.Kind = EValueKind::U32};
+		const FSerializedType Guid{.Kind = EValueKind::Guid};
+		const FSerializedType String{.Kind = EValueKind::String};
+		const FSerializedType Node{.Kind = EValueKind::Struct, .QualifiedName = "Durin::FMaterialGraphNodePresentation",
+			.Children = {String, Guid, Int, Int}};
+		const FSerializedType Nodes{.Kind = EValueKind::Array, .Children = {Node}};
+		const FSerializedType Layout{.Kind = EValueKind::Struct, .QualifiedName = Type, .Children = {Nodes, UInt}};
+		Tables.Schemas.push_back({Node.QualifiedName, {{"NodeId", Guid}, {"X", Int}, {"Y", Int}, {"DisplayName", String}}});
+		Tables.Schemas.push_back({Layout.QualifiedName, {{"SchemaVersion", UInt}, {"Nodes", Nodes}}});
+		const auto Owner = T::StaticClass()->GetQualifiedName().ToString();
+		const auto OwnerSchema = std::ranges::find(Tables.Schemas, Owner, &FSerializedSchema::QualifiedName);
+		ASSERT_NE(OwnerSchema, Tables.Schemas.end());
+		OwnerSchema->Fields.push_back({Field, Layout});
+		for (auto& Export : Tables.Exports)
+			std::erase_if(Export.Properties, [](const auto& Property) { return Property.FieldName == "EditorLayout"; });
+		const auto AssetExport = std::ranges::find_if(Tables.Exports, [&](const auto& Export) {
+			return std::ranges::any_of(Export.Properties, [&](const auto& Property) { return Property.DeclaringType == Owner; });
+		});
+		ASSERT_NE(AssetExport, Tables.Exports.end());
+		FSerializedValue LegacyNode{.Elements = {{.Guid = Id}, {.Signed = 137}, {.Signed = -246}, {.Text = "Legacy node label"}},
+			.FieldTypes = std::vector{Guid, Int, Int, String}, .FieldNames = {"NodeId", "X", "Y", "DisplayName"}};
+		AssetExport->Properties.push_back({.DeclaringType = Owner, .FieldName = Field, .Type = Layout,
+			.Value = {.Elements = {{.Unsigned = Version}, {.Elements = {std::move(LegacyNode)}}},
+				.FieldTypes = std::vector{UInt, Nodes}, .FieldNames = {"SchemaVersion", "Nodes"}}});
+		FByteBuffer Bulk;
+		const auto Written = WritePackage(Tables, *Bytes, Bulk);
+		ASSERT_TRUE(Written) << FormatPackageError(Written);
+		ASSERT_TRUE(Bulk.empty());
+		ASSERT_TRUE(FFileHelper::SaveArrayToFileAtomically(*Bytes, File->PhysicalPath));
+
+		const FMaterialExpressionLayout Expected{true, 137, -246, "Legacy node label"};
+		for (int Load = 0; Load < 2; ++Load)
+		{
+			Asset = LoadObject<T>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+			ASSERT_TRUE(Asset);
+			const auto* Expression = FindMaterialExpression(Asset->GetExpressionCollection().Expressions, Id);
+			ASSERT_TRUE(Expression);
+			EXPECT_EQ(Expression->EditorLayout, Expected);
+			if (Load == 0) ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+			ASSERT_TRUE(UnloadPackage(Path));
+		}
+	};
+	Check.operator()<DMaterial>("/LegacyLayout/Material", "GraphPresentation", "Durin::FMaterialGraphPresentation",
+		CurrentMaterialGraphPresentationSchemaVersion);
+	Check.operator()<DMaterialFunction>("/LegacyLayout/Function", "Presentation", "Durin::FMaterialFunctionPresentation",
+		CurrentMaterialFunctionPresentationSchemaVersion);
+}
+
 TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGraphAfterEditingAndReopen)
 {
 	InitializeDObjectSystem();
@@ -682,7 +759,12 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 		ASSERT_TRUE(Source) << (Error ? Error->ToString() : Original);
 		TStrongObjectPtr<T> KeepSource(Source);
 		const auto Before = CaptureExpressions(*Source);
-		const auto CheckVersion = [](const FPackagePath& PackagePath) {
+		const auto ReadLayout = [](const T& Asset) {
+			if constexpr (std::is_same_v<T, DMaterial>) return Asset.GetMaterialGraphPresentation().Nodes;
+			else return Asset.GetFunctionPresentation().Nodes;
+		};
+		const auto BeforeLayout = ReadLayout(*Source);
+		const auto CheckVersion = [](const FPackagePath& PackagePath, bool bResaved) {
 			const auto Data = FindPackageExact(PackagePath);
 			ASSERT_TRUE(Data);
 			const auto Bytes = FFileHelper::LoadFileToArray(Data->PhysicalPath);
@@ -703,8 +785,22 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 			const auto Expression = std::ranges::find(InputSchema->Fields, "Expression", &ObjectPackage::FSerializedField::Name);
 			ASSERT_NE(Expression, InputSchema->Fields.end());
 			EXPECT_EQ(Expression->Type.Kind, ObjectPackage::EValueKind::HardReference);
+			const auto Name = std::is_same_v<T, DMaterial> ? "GraphPresentation" : "Presentation";
+			const auto Owner = std::is_same_v<T, DMaterial> ? "Durin::DMaterial" : "Durin::DMaterialFunction";
+			const auto Schema = std::ranges::find(Tables.Schemas, Owner, &ObjectPackage::FSerializedSchema::QualifiedName);
+			ASSERT_NE(Schema, Tables.Schemas.end());
+			EXPECT_EQ(std::ranges::contains(Schema->Fields, Name, &ObjectPackage::FSerializedField::Name), !bResaved);
 		};
-		CheckVersion(SourcePath);
+		CheckVersion(SourcePath, false);
+		if (std::string_view(Name) == "MetalCopy")
+		{
+			ASSERT_EQ(BeforeLayout.size(), 4u);
+			for (size_t Index = 0; Index < BeforeLayout.size(); ++Index)
+			{
+				EXPECT_EQ(BeforeLayout[Index].X, 0);
+				EXPECT_EQ(BeforeLayout[Index].Y, static_cast<int32>(Index) * 240);
+			}
+		}
 		if constexpr (std::is_same_v<T, DMaterialFunction>)
 			EXPECT_TRUE(std::ranges::any_of(Before.Sources, [](const FGuid& Id) { return Id.IsValid(); }));
 		auto* Package = CreatePackage(Path);
@@ -713,6 +809,7 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 		ASSERT_TRUE(Copy);
 		auto* Asset = *Copy;
 		EXPECT_EQ(CaptureExpressions(*Asset), Before);
+		EXPECT_EQ(ReadLayout(*Asset), BeforeLayout);
 		const auto CheckMaterial = [&](const DMaterial& Candidate) {
 			if constexpr (std::is_same_v<T, DMaterial>)
 			{
@@ -733,6 +830,14 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 			MovedNode = Graph->FindNode(Asset->GetExpressionCollection().Expressions.front()->Id)->GetView().Presentation;
 			MovedNode->X += 24;
 			ASSERT_TRUE(Graph->MoveNodes(std::span(&*MovedNode, 1), ETransactionMode::NotTransactable));
+			auto Layout = ReadLayout(*Asset);
+			const auto Position = std::ranges::find(Layout, MovedNode->NodeId, &FMaterialGraphNodePresentation::NodeId);
+			ASSERT_NE(Position, Layout.end());
+			Position->DisplayName = "Saved node label";
+			if constexpr (std::is_same_v<T, DMaterial>)
+				ASSERT_EQ(Asset->SetMaterialGraphPresentation({.Nodes = std::move(Layout)}), EMaterialGraphPresentationResult::Changed);
+			else
+				ASSERT_TRUE(Asset->SetFunctionPresentation({.Nodes = std::move(Layout)}));
 		}
 		if constexpr (std::is_same_v<T, DMaterial>)
 		{
@@ -742,12 +847,14 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 			Asset->SetRootPosition(X + 24, Y);
 			ASSERT_TRUE(Asset->CompileEdits());
 		}
+		const auto SavedLayout = ReadLayout(*Asset);
 		ASSERT_TRUE(SavePackage(Package));
 		ASSERT_TRUE(UnloadPackage(Path));
 		auto* Reopened = LoadObject<T>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		ASSERT_TRUE(Reopened);
-		CheckVersion(Path);
+		CheckVersion(Path, true);
 		EXPECT_EQ(CaptureExpressions(*Reopened), Before);
+		EXPECT_EQ(ReadLayout(*Reopened), SavedLayout);
 		if (MovedNode)
 		{
 			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Reopened));

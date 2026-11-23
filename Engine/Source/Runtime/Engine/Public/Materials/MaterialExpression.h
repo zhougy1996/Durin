@@ -16,6 +16,26 @@ namespace Durin
 		class FEmitter;
 	}
 
+	DSTRUCT()
+	struct FMaterialExpressionLayout
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		bool bAuthored = false;
+
+		DPROPERTY()
+		int32 X = 0;
+
+		DPROPERTY()
+		int32 Y = 0;
+
+		DPROPERTY()
+		std::string DisplayName;
+
+		auto operator==(const FMaterialExpressionLayout&) const -> bool = default;
+	};
+
 	// Package-internal expression identity. Family-specific state lives in derived types.
 	DCLASS(Abstract, NoClassDefaultObject)
 	class DMaterialExpression : public DObject
@@ -26,6 +46,10 @@ namespace Durin
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 #if DURIN_WITH_EDITORONLY_DATA
+		// Authored presentation. An unset layout uses the graph's default position.
+		DPROPERTY(EditorOnly)
+		FMaterialExpressionLayout EditorLayout;
+
 		virtual auto CanRenameNode() const -> bool { return false; }
 		virtual auto GetEditableName() const -> std::string { return {}; }
 		// Changes authored name only. The editor owns validation, transactions and publication.
@@ -43,7 +67,7 @@ namespace Durin
 
 	};
 
-	// Compare authored fields across independently owned graphs using node identities.
+	// Compare semantic fields across independently owned graphs using node identities.
 	ENGINE_API auto HaveSameMaterialExpressionFields(DMaterialExpression& Left, DMaterialExpression& Right) -> bool;
 
 	inline auto FindMaterialExpression(std::span<const TObjectPtr<DMaterialExpression>> Nodes, const FGuid& Id) -> DMaterialExpression*

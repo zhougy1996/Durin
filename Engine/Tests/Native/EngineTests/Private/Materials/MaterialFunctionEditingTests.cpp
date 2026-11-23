@@ -248,8 +248,7 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	const auto AddedInput = AuthoringGraph->AddPort(false, Input, {}, -200, 0).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(AddedInput);
 	for (const auto& Expression : Function->GetExpressionCollection().Expressions)
-		EXPECT_NE(std::ranges::find(Function->GetFunctionPresentation().Nodes, Expression->Id,
-			&FMaterialGraphNodePresentation::NodeId), Function->GetFunctionPresentation().Nodes.end());
+		EXPECT_TRUE(Expression->EditorLayout.bAuthored);
 	const auto Terminal = std::ranges::find(Function->GetExpressionCollection().Expressions, AddedInput.value(),
 		[](const auto& Expression) { return Expression->Id; });
 	ASSERT_NE(Terminal, Function->GetExpressionCollection().Expressions.end());

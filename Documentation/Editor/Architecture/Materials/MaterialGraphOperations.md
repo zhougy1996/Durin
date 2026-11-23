@@ -209,15 +209,15 @@ waits for a new invalidation or explicit request instead of retrying every frame
 An unavailable output displays diagnostics without presenting an earlier wrapper
 as the selected result.
 
-`DMaterial::GraphPresentation` is a separate `EditorOnly` reflected value. It
-contains schema version 2, exactly one integral graph-space position for every
-live node GUID, including the material output node. New material and
-node creation establish those positions before publication. Sanitization retains
-the first valid record and removes duplicate, dangling, invalid, and out-of-range
-entries. Read-only inspection supplies deterministic fallback positions for
-missing records without persisting them. Presentation is copied by ordinary
-reflection but is excluded from program validation, normalized IR, compile
-snapshots, shader-map identity, derived data, and the cooked DMAT payload.
+Each expression owns its integral graph-space coordinates and display label in
+the reflected `EditorLayout` field. The material retains its root coordinates.
+Material and function package loading migrates the former GUID-keyed layouts
+into the matching expressions. Sanitization keeps the first valid record and
+drops duplicate, dangling, invalid and out-of-range entries. Saving writes
+expression layouts through ordinary reflection. Read-only inspection computes
+fallback positions for expressions without authored layout. The editor-only
+fields are excluded from program validation, normalized IR, compile snapshots,
+shader-map identity, derived data and the cooked DMAT payload.
 
 MaterialEditor owns transient pan, zoom, hover, selection, marquee, link drag,
 and the graph session state. These interaction values are transient.
@@ -618,8 +618,8 @@ with `DObject::Modify(false)` in one `FScopedTransaction`. Link and numeric defa
 No-op and invalid requests return before marking the package dirty. Successful replay publishes the settled collection through the owner's graph change source.
 
 A structural edit records the material or function before changing its ordered
-`ExpressionCollection` and presentation. It calls `Modify(false)` on changed
-expressions and on each expression before marking it as garbage. Compound edits
+`ExpressionCollection`. It calls `Modify(false)` on changed expressions and on
+each expression before marking it as garbage. Compound edits
 may validate provisional fields and restore them before recording the baseline.
 These temporary values end with the command. The shared transaction buffer owns
 the undo data, including the liveness transition and hard references across GC.
@@ -632,8 +632,11 @@ The Details panel binds scalar and vector constant expressions to the shared
 through the expression's property notification. Graph commands coordinate type
 adaptation, expression membership and shared parameter references within one
 validated publication and compensation boundary.
-Sparse GUID-keyed presentation gestures preserve unrelated positions/labels;
-parameter gestures replay through the owner's expression-backed parameter setter.
+Layout gestures keep draft coordinates on the canvas. A completed gesture
+records only the moved objects. Whole-object replay restores the moved
+expression's historical fields and preserves later changes on stationary
+expressions. Parameter gestures replay through the owner's expression-backed
+parameter setter.
 
 Material-instance color overrides and graph color defaults share the color picker
 and its popup lifetime. Both preview while the popup is open and commit one undo
@@ -754,7 +757,9 @@ query keys. Each canvas owns its results and clears invalidation after rebuildin
 `DMaterialGraph` owns copy, cut, paste and duplicate for material and function
 drafts. Cut composes copy and removal. Duplicate copies the selection and pastes
 it at the requested offset in one history step. Catalog lookup and search belong
-to private Material Editor code. `MoveNodes` accepts the projected material root alongside expressions. A single coordinate change record restores all moved positions. It writes root coordinates on the material and expression coordinates in the presentation table.
+to private Material Editor code. `MoveNodes` accepts the projected material root
+alongside expressions. A single scoped transaction groups the changed
+expressions and the material when its root moved.
 `DMaterialGraph::CalculateLayout` reads node sizes from the current graph and follows
 stored expression inputs, including hidden root properties. It returns a detached presentation. `Layout` applies the
 calculated positions in one transaction. The canvas captures stable IDs from the returned nodes for its selection.

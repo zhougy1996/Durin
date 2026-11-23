@@ -178,6 +178,8 @@ namespace Durin::MaterialEditor
 		auto CalculateLayoutPositions(std::span<const FGuid> NodeIds, const FMaterialGraphPresentation& Presentation,
 			std::vector<FMaterialGraphNodePresentation>& Positions, std::string* OutError) const -> bool;
 		friend class FMaterialGraphMoveSession;
+		auto CommitPositions(std::span<const FMaterialGraphNodePresentation> Positions,
+			DTransactor* Transactions, bool bAuthorDefaultPositions, std::string_view Description, std::string* OutError) const -> bool;
 		auto MoveNodesInternal(std::span<const FMaterialGraphNodePresentation> Positions,
 			DTransactor* Transactions, std::string* OutError) const -> bool;
 		friend class FMaterialGraphReadModel;

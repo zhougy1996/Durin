@@ -43,6 +43,12 @@ namespace Durin
 		Super::PostLoad();
 		bSignatureCached = false;
 #if DURIN_WITH_EDITORONLY_DATA
+		if (WasDeprecatedPropertyLoaded(FName("Presentation_DEPRECATED")))
+		{
+			if (Presentation_DEPRECATED.SchemaVersion == CurrentMaterialFunctionPresentationSchemaVersion)
+				Private::ApplyExpressionLayout(ExpressionCollection, {.Nodes = std::move(Presentation_DEPRECATED.Nodes)});
+			Presentation_DEPRECATED = {};
+		}
 		for (const auto& Expression : ExpressionCollection.Expressions)
 			if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get())) Call->UpdateFromFunctionResource(false);
 		GraphChanges.Publish(*this);
@@ -136,10 +142,10 @@ namespace Durin
 			Input->Id = InputNodeId; Input->Port = {.Id = InputId, .Type = EMaterialProgramValueType::MaterialAttributes,
 				.Name = "Surface", .Default = {.Kind = EMaterialFunctionDefaultKind::MaterialAttributes}};
 			Output->Id = OutputNodeId; Output->Port = {.Id = OutputId, .Type = EMaterialProgramValueType::MaterialAttributes, .Name = "Surface"}; Output->Source = {Input};
+			Input->EditorLayout = {.bAuthored = true};
+			Output->EditorLayout = {.bAuthored = true, .X = 320};
 			ExpressionCollection.Expressions = {Input, Output};
 		}
-
-		Presentation.Nodes = {{InputNodeId, 0, 0}, {OutputNodeId, 320, 0}};
 #endif
 	}
 
@@ -158,17 +164,16 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA
+	auto DMaterialFunction::GetFunctionPresentation() const -> FMaterialFunctionPresentation
+	{
+		return {.Nodes = Private::CollectExpressionLayout(ExpressionCollection).Nodes};
+	}
+
 	auto DMaterialFunction::SetFunctionPresentation(FMaterialFunctionPresentation Candidate) -> bool
 	{
 		check(IsInGameThread());
 		if (Candidate.SchemaVersion != CurrentMaterialFunctionPresentationSchemaVersion) return false;
-		std::vector<FGuid> Ids;
-		for (const auto& Expression : ExpressionCollection.Expressions) if (Expression) Ids.push_back(Expression->Id);
-		FMaterialGraphPresentation Positions;
-		Positions.Nodes = std::move(Candidate.Nodes);
-		Candidate.Nodes = SanitizeMaterialGraphPresentation(Positions, Ids).Nodes;
-		if (Candidate == Presentation) return true;
-		Presentation = std::move(Candidate);
+		if (!Private::ApplyExpressionLayout(ExpressionCollection, {.Nodes = std::move(Candidate.Nodes)})) return true;
 		MarkPackageDirty();
 		GraphChanges.PublishPresentation(*this);
 		return true;
@@ -178,8 +183,7 @@ namespace Durin
 	auto DMaterialFunction::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		if ((Event.Origin == EPropertyChangeOrigin::Undo || Event.Origin == EPropertyChangeOrigin::Redo)
-			&& Event.MemberProperty && (Event.MemberProperty->NamePrivate == FName("ExpressionCollection")
-				|| Event.MemberProperty->NamePrivate == FName("Presentation"))) return;
+			&& Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("ExpressionCollection")) return;
 		Super::PostEditChangeProperty(Event);
 #if DURIN_WITH_EDITORONLY_DATA
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("ExpressionCollection"))

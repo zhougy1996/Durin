@@ -32,8 +32,7 @@ namespace Durin
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		ENGINE_API auto GetExpressionBody() const -> MIR::FFunctionBody;
 		[[nodiscard]] ENGINE_API auto SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
-		auto GetFunctionPresentation() const -> const FMaterialFunctionPresentation&
-			{ return Presentation; }
+		ENGINE_API auto GetFunctionPresentation() const -> FMaterialFunctionPresentation;
 		// Position-only edits never advance the semantic dependency revision.
 		ENGINE_API auto SetFunctionPresentation(FMaterialFunctionPresentation Candidate) -> bool;
 #endif
@@ -61,8 +60,9 @@ namespace Durin
 		DPROPERTY(EditorOnly, AlwaysSerialize, MetaData="ValidateTransactionSource=true")
 		FMaterialExpressionCollection ExpressionCollection;
 
-		DPROPERTY(EditorOnly)
-		FMaterialFunctionPresentation Presentation;
+		// Load-only field for packages authored before expression-owned layout.
+		DPROPERTY(Deprecated)
+		FMaterialFunctionPresentation Presentation_DEPRECATED;
 #endif
 
 		uint64 Revision = 1;

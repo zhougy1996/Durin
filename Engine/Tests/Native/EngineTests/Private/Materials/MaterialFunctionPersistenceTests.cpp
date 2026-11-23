@@ -155,6 +155,22 @@ namespace
 	};
 }
 
+TEST_F(FMaterialFunctionDocumentTests, LayoutOnlyApplyPreservesExpressionsAndFunctionRevision)
+{
+	ASSERT_FALSE(Source->GetExpressionCollection().Expressions.empty());
+	const auto* Original = Source->GetExpressionCollection().Expressions.front().Get();
+	const auto Revision = Source->GetFunctionRevision();
+	const FMaterialFunctionPresentation Layout{.Nodes = {{Original->Id, 120, -70, "Function input"}}};
+	ASSERT_TRUE(Document().Function()->SetFunctionPresentation(Layout));
+	EXPECT_NE(Source->GetFunctionPresentation(), Layout);
+	std::string Error;
+	ASSERT_TRUE(Document().Publish(Error)) << Error;
+	EXPECT_FALSE(Document().IsDirty());
+	EXPECT_EQ(Source->GetExpressionCollection().Expressions.front().Get(), Original);
+	EXPECT_EQ(Source->GetFunctionPresentation(), Layout);
+	EXPECT_EQ(Source->GetFunctionRevision(), Revision);
+}
+
 TEST_F(FMaterialFunctionDocumentTests, EditorGraphFollowsTheFunctionSessionLifetime)
 {
 	auto* Graph = Document().Graph.Get();

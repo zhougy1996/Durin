@@ -1,4 +1,5 @@
 #include "Materials/MaterialExpressionBuild.h"
+#include "Materials/MaterialGraphChanges.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/PropertyChange.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
@@ -140,6 +141,7 @@ namespace Durin
 		{
 			bool Equal = true, HasFields = false;
 			Type.ForEachProperty([&](FProperty* Field) {
+				if (Field->NamePrivate == FName("EditorLayout")) return;
 				HasFields = true;
 				for (uint32 I = 0; Equal && I < Field->GetArrayDim(); ++I) Equal = SameField(*Field, Left, Right, I);
 			});
@@ -326,6 +328,13 @@ namespace Durin
 		auto* Owner = GetOuter();
 		if (Owner && (Owner->IsA(DMaterial::StaticClass()) || Owner->IsA(DMaterialFunction::StaticClass())))
 		{
+#if DURIN_WITH_EDITORONLY_DATA
+			if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("EditorLayout"))
+			{
+				GetMaterialGraphChangeSource(*Owner).PublishPresentation(*Owner);
+				return;
+			}
+#endif
 			auto OwnerEvent = Event;
 			OwnerEvent.MemberProperty = Owner->GetClass()->FindPropertyByName("ExpressionCollection");
 			Owner->PostEditChangeProperty(OwnerEvent);

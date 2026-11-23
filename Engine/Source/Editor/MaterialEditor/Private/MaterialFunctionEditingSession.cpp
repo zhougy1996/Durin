@@ -66,15 +66,17 @@ namespace Durin::MaterialEditor
 			|| std::ranges::any_of(Closure, [&](const auto& Entry) { return Entry.AssetPath == Original->GetObjectPath(); }))
 		{ Error = "Apply requires valid, non-recursive function dependencies."; return false; }
 		const auto Presentation = Working->GetFunctionPresentation();
-		if (Presentation.SchemaVersion != CurrentMaterialFunctionPresentationSchemaVersion)
-		{ Error = "The function presentation schema is unsupported."; return false; }
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Working->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 		const auto WorkingRevision = WorkingPackage->GetEditRevision();
 		struct FPublishScope { bool& Flag; explicit FPublishScope(bool& Value) : Flag(Value) { Flag = true; } ~FPublishScope() { Flag = false; } } Scope(bPublishing);
-		if (!Original->SetFunctionExpressions(Expressions))
+		const bool bLayoutOnly = std::ranges::equal(Expressions, Original->GetExpressionCollection().Expressions,
+			[](DMaterialExpression* Draft, const auto& Current) {
+				return Draft && Current && HaveSameMaterialExpressionFields(*Draft, *Current);
+			});
+		if (bLayoutOnly) (void)Original->SetFunctionPresentation(Presentation);
+		else if (!Original->SetFunctionExpressions(Expressions))
 		{ Error = "The function changes could not be applied to the source."; return false; }
-		(void)Original->SetFunctionPresentation(Presentation);
 		if (Transactor.IsValid()) Transactor.Get()->InvalidateSavedState(*Original->GetPackage());
 		// Notification listeners may edit the draft; those newer edits remain unpublished.
 		if (WorkingPackage->GetEditRevision() == WorkingRevision)

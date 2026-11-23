@@ -148,11 +148,6 @@ namespace Durin::MaterialEditor
 		FMaterialGraphView Result;
 		std::unordered_map<const DClass*, std::vector<const FMaterialGraphCatalogEntry*>> BaseShapes;
 		for (const auto& Entry : Catalog) BaseShapes[Entry.ExpressionClass].push_back(&Entry);
-		const auto& Layout = Material ? Material->GetMaterialGraphPresentation().Nodes : Function->GetFunctionPresentation().Nodes;
-		std::unordered_map<FGuid, const FMaterialGraphNodePresentation*> Positions;
-		Positions.reserve(Nodes ? Selected.size() : Layout.size());
-		for (const auto& Position : Layout)
-			if (!Nodes || Selected.contains(Position.NodeId)) Positions.emplace(Position.NodeId, &Position);
 		for (size_t Ordinal = 0; Ordinal < Expressions.size(); ++Ordinal)
 		{
 			auto* Expression = Expressions[Ordinal].Get();
@@ -197,9 +192,10 @@ namespace Durin::MaterialEditor
 				Node.Opcode = Input ? EMaterialProgramOpcode::FunctionInput : EMaterialProgramOpcode::FunctionOutput;
 				Node.ResultType = Input ? Input->Port.Type : Output->Port.Type;
 			}
-			const auto Position = Positions.find(Node.Id);
-			FMaterialGraphNodeView View{.Node = Node, .Presentation = Position != Positions.end()
-				? *Position->second : DefaultNodePresentation(Node, Ordinal)};
+			const auto& Layout = Expression->EditorLayout;
+			FMaterialGraphNodeView View{.Node = Node, .Presentation = Layout.bAuthored
+				? FMaterialGraphNodePresentation{Node.Id, Layout.X, Layout.Y, Layout.DisplayName}
+				: DefaultNodePresentation(Node, Ordinal)};
 			const FMaterialGraphCatalogEntry* Shape = nullptr;
 			const auto ShapeIt = BaseShapes.find(Expression->GetClass());
 			if (ShapeIt != BaseShapes.end())

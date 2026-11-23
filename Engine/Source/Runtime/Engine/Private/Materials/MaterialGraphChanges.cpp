@@ -94,6 +94,7 @@ namespace Durin
 				Node.Class = Expression->GetClass();
 				if (const auto* Texture = Cast<DMaterialExpressionTextureParameter>(Expression.Get())) Node.TextureDimension = Texture->DefaultValue.Dimension;
 				Node.Class->ForEachProperty([&](FProperty* Property) {
+					if (Property->NamePrivate == FName("EditorLayout")) return;
 					for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 					{
 						FPropertyValueSnapshotPayload Payload;

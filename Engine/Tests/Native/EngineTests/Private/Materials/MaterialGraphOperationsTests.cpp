@@ -413,10 +413,11 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->GetRootPosition().first,
 		OriginalRoot.first);
+	const auto CurrentPresentation = Material->GetMaterialGraphPresentation();
 	const auto PreservedNode = std::ranges::find(
-		Material->GetMaterialGraphPresentation().Nodes,
+		CurrentPresentation.Nodes,
 		UnrelatedPosition.NodeId, &FMaterialGraphNodePresentation::NodeId);
-	ASSERT_NE(PreservedNode, Material->GetMaterialGraphPresentation().Nodes.end());
+	ASSERT_NE(PreservedNode, CurrentPresentation.Nodes.end());
 	EXPECT_EQ(*PreservedNode, UnrelatedPosition);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Material->GetRootPosition().first, 520);
@@ -3196,8 +3197,7 @@ TEST(FMaterialGraphOperationsTests, OwnerPublishesCompleteCommandAndHistoryOnce)
 		Events.push_back(Change);
 		for (const auto& Node : Change.Nodes)
 			if ((Node.Flags & EMaterialGraphNodeChange::Added) != EMaterialGraphNodeChange::None)
-				EXPECT_NE(std::ranges::find(Material->GetMaterialGraphPresentation().Nodes, Node.NodeId,
-					&FMaterialGraphNodePresentation::NodeId), Material->GetMaterialGraphPresentation().Nodes.end());
+				EXPECT_TRUE(FindMaterialExpression(Material->GetExpressionCollection().Expressions, Node.NodeId)->EditorLayout.bAuthored);
 	});
 	const auto Created = Testing::CreateGraphConstant(*AuthoringGraph, .25f, 123, 456, Durin::ETransactionMode::Record);
 	ASSERT_TRUE(Created);
@@ -4074,6 +4074,11 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		const auto Other = Testing::CreateGraphConstant(*AuthoringGraph, .7f, 200, 80);
 		ASSERT_TRUE(Created); ASSERT_TRUE(Other);
 		const auto Id = Created.value(), OtherId = Other.value();
+		const auto SemanticRevision = [&]() -> uint64 {
+			if (const auto* Material = Cast<DMaterial>(Owner.Get())) return Material->GetMaterialCompileDebugInfo().AuthoredRevision;
+			return Cast<DMaterialFunction>(Owner.Get())->GetFunctionRevision();
+		};
+		const auto Revision = SemanticRevision();
 		const auto Read = [&] { return GraphEditInternals::ReadGraphPresentation(*Owner.Get()); };
 		const auto Write = [&](FMaterialGraphPresentation P) {
 			ASSERT_NE(GraphEditInternals::WriteGraphPresentation(*Owner.Get(), std::move(P)), EMaterialGraphPresentationResult::Rejected);
@@ -4097,6 +4102,8 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
 		ASSERT_TRUE(Move.Commit());
 		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 1u);
+		ASSERT_NE(Transactions->GetTransaction(0), nullptr);
+		EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 1u);
 		EXPECT_EQ(AuthoringGraph->FindNode(Id)->GetView().Presentation.DisplayName, "Renamed");
 		auto Later = Read();
 		std::ranges::find(Later.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)->DisplayName = "After move";
@@ -4104,10 +4111,13 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		Write(Later);
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(AuthoringGraph->FindNode(Id)->GetView().Presentation.X, 40);
-		EXPECT_EQ(AuthoringGraph->FindNode(Id)->GetView().Presentation.DisplayName, "After move");
+		// Replay restores the moved expression's baseline and leaves the other expression alone.
+		EXPECT_EQ(AuthoringGraph->FindNode(Id)->GetView().Presentation.DisplayName, "Renamed");
 		EXPECT_EQ(AuthoringGraph->FindNode(OtherId)->GetView().Presentation.X, 1100);
+		EXPECT_EQ(SemanticRevision(), Revision);
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_EQ(Read(), Later);
+		EXPECT_EQ(SemanticRevision(), Revision);
 		Transactions->Reset();
 		ASSERT_TRUE(Move.Begin(*AuthoringGraph, std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
@@ -4187,7 +4197,7 @@ TEST(FMaterialGraphOperationsTests, SharedMoveRejectsInvalidDraftsAndStaleOwners
 		ASSERT_TRUE(Transactions->Undo());
 		const auto Restored = AuthoringGraph->FindNode(Id)->GetView().Presentation;
 		EXPECT_EQ(Restored.X, Fallback.X); EXPECT_EQ(Restored.Y, Fallback.Y);
-		EXPECT_EQ(Restored.DisplayName, "New label");
+		EXPECT_EQ(Restored.DisplayName, Fallback.DisplayName);
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_EQ(GraphEditInternals::ReadGraphPresentation(*Owner.Get()), Labeled);
 	}
@@ -4864,23 +4874,6 @@ TEST(FMaterialGraphOperationsTests, ParameterReplayRetainsMessageAndAllowsRepair
 	ASSERT_TRUE(Record.Apply(true, EPropertyChangeOrigin::Undo));
 	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .25f);
 	EXPECT_EQ(Failed.error(), Message);
-}
-
-TEST(FMaterialGraphOperationsTests, PresentationReplayReportsExpiredTarget)
-{
-	InitializeDObjectSystem();
-	auto* Material = NewObject<DMaterial>(nullptr, "ExpiredPresentationOwner");
-	const auto NodeId = FGuid::NewGuid();
-	FMaterialRecordTestAccess::Record Record(GraphEditInternals::MakeMaterialGraphPresentationTransaction(
-		*Material, {{NodeId, 10, 20, 30, 40, true}}, "Move expired owner"));
-	MarkAsGarbage(Material);
-	CollectGarbage(Durin::EObjectFlags::Standalone);
-	const auto Failed = Record.Apply(true, EPropertyChangeOrigin::Undo);
-	ASSERT_FALSE(Failed);
-	EXPECT_EQ(Failed.error(), "The custom transaction target is unavailable.");
-	const auto Redo = Record.Apply(false, EPropertyChangeOrigin::Redo);
-	ASSERT_FALSE(Redo);
-	EXPECT_EQ(Redo.error(), Failed.error());
 }
 
 TEST(FMaterialGraphOperationsTests, ResetAndReenableConstantsRetainValuesAndUndoState)

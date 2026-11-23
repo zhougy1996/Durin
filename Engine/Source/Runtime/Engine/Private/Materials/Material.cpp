@@ -1,4 +1,5 @@
 #include "MaterialParameterMutation.h"
+#include "MaterialExpressionOwnership.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/ObjectCacheContext.h"
@@ -88,14 +89,16 @@ namespace Durin
 
 
 
+	auto DMaterial::GetMaterialGraphPresentation() const -> FMaterialGraphPresentation
+	{
+		return Private::CollectExpressionLayout(ExpressionCollection);
+	}
+
 	auto DMaterial::SetMaterialGraphPresentation(
 		FMaterialGraphPresentation InPresentation) -> EMaterialGraphPresentationResult
 	{
-		std::vector<FGuid> Ids;
-		for (const auto& Expression : ExpressionCollection.Expressions) if (Expression) Ids.push_back(Expression->Id);
-		InPresentation = SanitizeMaterialGraphPresentation(InPresentation, Ids);
-		if (GraphPresentation == InPresentation) return EMaterialGraphPresentationResult::NoChange;
-		GraphPresentation = std::move(InPresentation);
+		if (!Private::ApplyExpressionLayout(ExpressionCollection, InPresentation))
+			return EMaterialGraphPresentationResult::NoChange;
 		MarkPackageDirty();
 		GraphChanges.PublishPresentation(*this);
 		return EMaterialGraphPresentationResult::Changed;
@@ -109,36 +112,29 @@ namespace Durin
 			|| Positions.size() > MaterialProgramMaxNodeCount)
 			return EMaterialGraphPresentationResult::Rejected;
 		std::unordered_set<FGuid> RequestedNodes;
-		RequestedNodes.reserve(Positions.size());
-		for (const FMaterialGraphNodePresentation& Position : Positions)
+		std::vector<DMaterialExpression*> Targets;
+		Targets.reserve(Positions.size());
+		for (const auto& Position : Positions)
 		{
-			if (!Position.NodeId.IsValid()
-				|| !RequestedNodes.insert(Position.NodeId).second
-				|| Position.X < -MaterialGraphPresentationCoordinateLimit
-				|| Position.X > MaterialGraphPresentationCoordinateLimit
-				|| Position.Y < -MaterialGraphPresentationCoordinateLimit
-				|| Position.Y > MaterialGraphPresentationCoordinateLimit
-				|| !std::ranges::any_of(ExpressionCollection.Expressions,
-					[&](const auto& Expression) { return Expression && Expression->Id == Position.NodeId; }))
+			auto* Expression = FindMaterialExpression(ExpressionCollection.Expressions, Position.NodeId);
+			if (!Position.NodeId.IsValid() || !Expression || !RequestedNodes.insert(Position.NodeId).second
+				|| Position.X < -MaterialGraphPresentationCoordinateLimit || Position.X > MaterialGraphPresentationCoordinateLimit
+				|| Position.Y < -MaterialGraphPresentationCoordinateLimit || Position.Y > MaterialGraphPresentationCoordinateLimit)
 				return EMaterialGraphPresentationResult::Rejected;
+			Targets.push_back(Expression);
 		}
 
 		bool bChanged = false;
-		for (const FMaterialGraphNodePresentation& Position : Positions)
+		for (size_t Index = 0; Index < Positions.size(); ++Index)
 		{
-			auto It = std::ranges::lower_bound(
-				GraphPresentation.Nodes, Position.NodeId, {},
-				&FMaterialGraphNodePresentation::NodeId);
-			if (It == GraphPresentation.Nodes.end() || It->NodeId != Position.NodeId)
-			{
-				GraphPresentation.Nodes.insert(It, Position);
-				bChanged = true;
-			}
-			else if (It->X != Position.X || It->Y != Position.Y)
-			{
-				It->X = Position.X; It->Y = Position.Y;
-				bChanged = true;
-			}
+			const auto& Position = Positions[Index];
+			auto& Layout = Targets[Index]->EditorLayout;
+			if (Layout.bAuthored && Layout.X == Position.X && Layout.Y == Position.Y) continue;
+			if (!Layout.bAuthored) Layout.DisplayName = Position.DisplayName;
+			Layout.bAuthored = true;
+			Layout.X = Position.X;
+			Layout.Y = Position.Y;
+			bChanged = true;
 		}
 		if (!bChanged) return EMaterialGraphPresentationResult::NoChange;
 		MarkPackageDirty();
@@ -486,6 +482,11 @@ namespace Durin
 			return;
 		}
 #if DURIN_WITH_EDITORONLY_DATA
+		if (WasDeprecatedPropertyLoaded(FName("GraphPresentation_DEPRECATED")))
+		{
+			Private::ApplyExpressionLayout(ExpressionCollection, GraphPresentation_DEPRECATED);
+			GraphPresentation_DEPRECATED = {};
+		}
 		for (const auto& Expression : ExpressionCollection.Expressions)
 			if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get())) Call->UpdateFromFunctionResource(false);
 		const auto SchemaValidation = DeriveExpressionParameterSchema(ExpressionCollection, ParameterSchema);
@@ -504,9 +505,6 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Message);
 			return;
 		}
-		std::vector<FGuid> Ids;
-		for (const auto& Expression : ExpressionCollection.Expressions) if (Expression) Ids.push_back(Expression->Id);
-		GraphPresentation = SanitizeMaterialGraphPresentation(GraphPresentation, Ids);
 		AdvanceRevision(MaterialProgramRevision);
 		RequestProgramCompile();
 		PublishMaterialRenderProxyState();
@@ -521,8 +519,7 @@ namespace Durin
 		const FPropertyChangedEvent& Event) -> void
 	{
 		if ((Event.Origin == EPropertyChangeOrigin::Undo || Event.Origin == EPropertyChangeOrigin::Redo)
-			&& Event.MemberProperty && (Event.MemberProperty->NamePrivate == FName("ExpressionCollection")
-				|| Event.MemberProperty->NamePrivate == FName("GraphPresentation"))) return;
+			&& Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("ExpressionCollection")) return;
 #if DURIN_WITH_EDITORONLY_DATA
 		FObjectCacheContext Context;
 		Super::PostEditChangePropertyWithContext(Event, Context);

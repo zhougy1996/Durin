@@ -308,8 +308,9 @@ A command that needs both forms of replay captures the owner before binding its
 change. Commands that report affected objects without binding an owner leave
 those participants eligible for later ordinary edits, including single-participant
 commands. This permits sparse domain changes and staged graph edits to compose
-with ordinary changes without forcing an extra owner serialization. Material graph,
-presentation, parameter and configuration commands use this participant contract.
+with ordinary changes without forcing an extra owner serialization. Material
+parameter and configuration commands use this participant contract. Material
+layout records the moved expressions and the material root through `Modify`.
 Transactional CallInEditor targets and ordinary Actor/root edits use virtual Modify.
 NonTransactional CallInEditor targets can still execute without gaining history.
 
@@ -319,7 +320,6 @@ The remaining custom commands have domain responsibilities beyond a field load:
 | --- | --- |
 | Transform gizmo | Declared target objects; arbitrary `ITransformGizmoTarget` also permits native-only targets and fallible transform setters, so the adapter retains gesture replay. |
 | Material semantic graph | Owner, changed expressions and added/removed nodes; connection/type adaptation, synchronized parameter references, membership and one validated publication/rollback boundary. Local member snapshots are domain compensation, not the property UI's history backend. |
-| Material presentation | Material owner; GUID-keyed sparse position/label changes preserve unrelated presentation entries. |
 | Material parameter gesture | Material owner; a stable parameter ID updates synchronized expression-backed values through the owner's `SetParameterValue` publication boundary, rather than one reflected owner scalar. Texture values are collector dependencies. |
 
 Each custom change separately enumerates collector dependencies and owned bytes.
