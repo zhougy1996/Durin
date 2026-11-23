@@ -140,16 +140,18 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 		ASSERT_NE(Pixels[0], Pixels[1]);
 		ASSERT_EQ(Capture(0, Pixels[2]), ERenderViewResult::Success);
 		EXPECT_EQ(Pixels[0], Pixels[2]);
-		Settings.Waves = {{{0, 2}, .9f, 1.8f}};
+		Settings.Amplitude = .15f;
+		Settings.Waves.assign(MaxWaterWaves, {});
+		Settings.Waves.back() = {{0, 2}, .9f, 1.8f};
 		ASSERT_TRUE(Component->SetSettings(Settings));
 		ASSERT_EQ(Capture(.75, Pixels[2]), ERenderViewResult::Success);
 		EXPECT_NE(Pixels[1], Pixels[2]);
-		Settings.Waves.clear(); Settings.Elevation = .6f;
+		Settings.Waves.clear();
 		ASSERT_TRUE(Component->SetSettings(Settings));
 		EXPECT_TRUE(std::ranges::equal(std::span(Component->GetCustomPrimitiveData().Values).first(FWaterWaveData{}.size()),
 			PackWaterWaveData(Settings)));
 		const auto Query = Component->QuerySurface({0, 0, 0}, .75);
-		ASSERT_TRUE(Query); EXPECT_NEAR(Query->Position.z, .6, 1.e-6);
+		ASSERT_TRUE(Query); EXPECT_NEAR(Query->Position.z, Settings.Elevation, 1.e-6);
 		ASSERT_EQ(Capture(.75, Pixels[3]), ERenderViewResult::Success);
 		EXPECT_NE(Pixels[2], Pixels[3]);
 		Component->UnregisterComponent();
@@ -160,6 +162,11 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 		EXPECT_EQ(Pixels[3], Pixels[5]);
 
 		auto* SharedWaves = NewObject<DWaterWaves>(nullptr, NAME_None);
+		// Keep both spectra within the clip volume of this 1.5 m test surface.
+		auto VisibleSpectrum = SharedWaves->GetGeneratorSettings();
+		VisibleSpectrum.MinAmplitude = .003f;
+		VisibleSpectrum.MaxAmplitude = .009f;
+		ASSERT_TRUE(SharedWaves->SetGeneratorSettings(VisibleSpectrum));
 		auto* SecondActor = Level->SpawnActor<AWaterSurfaceActor>();
 		ASSERT_NE(SecondActor, nullptr);
 		ASSERT_TRUE(SecondActor->SetActorLocation({100, 0, 0}));
@@ -178,7 +185,7 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 		const auto OriginalSettings = SharedWaves->GetGeneratorSettings();
 		auto ChangedSettings = OriginalSettings;
 		++ChangedSettings.Seed;
-		ChangedSettings.MinAmplitude = ChangedSettings.MaxAmplitude = .075f;
+		ChangedSettings.MinAmplitude = ChangedSettings.MaxAmplitude = .012f;
 		ASSERT_TRUE(SharedWaves->SetGeneratorSettings(ChangedSettings));
 
 		EXPECT_NE(OriginalData, Component->GetCustomPrimitiveData());

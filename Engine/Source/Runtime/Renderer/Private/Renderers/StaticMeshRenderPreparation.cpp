@@ -301,6 +301,7 @@ namespace Durin
 		FMeshCollectionContext Context;
 		Context.PrimitiveId = SceneInfo.GetId();
 		Context.CustomPrimitiveData = SceneInfo.GetProxy().GetCustomPrimitiveData();
+		Context.CustomInstanceData = SceneInfo.GetProxy().GetDefaultInstanceCustomData();
 		Context.LocalToWorld = SceneInfo.GetProxy().GetLocalToWorld();
 		Context.WorldBounds = SceneInfo.GetWorldBounds();
 		Context.PreparedLOD = LOD;
@@ -448,6 +449,7 @@ namespace Durin
 				Context.PreparedLOD = ViewFact->LOD;
 				Context.PrimitiveId = SceneInfo->GetId();
 				Context.CustomPrimitiveData = SceneInfo->GetProxy().GetCustomPrimitiveData();
+				Context.CustomInstanceData = SceneInfo->GetProxy().GetDefaultInstanceCustomData();
 				Context.LocalToWorld = SceneInfo->GetProxy().GetLocalToWorld();
 				Context.WorldBounds = SceneInfo->GetWorldBounds();
 				Context.NormalizedScreenSize = ProjectedSize.NormalizedScreenSize;

@@ -270,7 +270,7 @@ namespace Durin::MaterialEditor
 			if (It != Description->Shapes.end()) Shape = &*It;
 		}
 		const auto& Layout = Expression->EditorLayout;
-		auto Label = Description ? std::string(Description->Name) : "Unknown";
+		auto Label = Description ? std::string(Description->Name) : std::string(Expression->GetClass()->GetDisplayName());
 		if (Shape && Node.Opcode == EMaterialProgramOpcode::Parameter)
 			Label = Node.ResultType == EMaterialProgramValueType::Float ? "Scalar Parameter" : "Vector Parameter";
 		View = {.Node = std::move(Node), .PrimaryLabel = std::move(Label)};
@@ -496,7 +496,13 @@ namespace Durin::MaterialEditor
 	{
 		auto* Expression = MaterialExpression.Get();
 		const auto& Node = View.Node;
-		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
+		if (const auto Outputs = Expression->GetOutputs(); !Outputs.empty())
+		{
+			for (size_t Index = 0; Index < Outputs.size(); ++Index)
+				View.Outputs.push_back({.SourceIndex = static_cast<int32>(Index), .OutputIndex = static_cast<uint8>(Index),
+					.Name = std::string(Outputs[Index].Name), .Type = Outputs[Index].Type});
+		}
+		else if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
 		{
 			std::unordered_map<FGuid, int32> Slots;
 			for (int32 Index = 0; Index < static_cast<int32>(Call->FunctionOutputs.size()); ++Index)

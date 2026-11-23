@@ -16,15 +16,26 @@ namespace Durin
 		DPROPERTY(Edit)
 		uint32 Seed = 0;
 		DPROPERTY(Edit)
-		uint32 NumWaves = 3;
+		uint32 NumWaves = 16;
 		DPROPERTY(Edit)
-		float MinWavelength = 8.f;
+		float MinWavelength = 5.21f;
 		DPROPERTY(Edit)
-		float MaxWavelength = 16.f;
+		float MaxWavelength = 60.f;
 		DPROPERTY(Edit)
-		float MinAmplitude = .02f;
+		float MinAmplitude = .04f;
 		DPROPERTY(Edit)
-		float MaxAmplitude = .05f;
+		float MaxAmplitude = .8f;
+
+		DPROPERTY(Edit)
+		float Randomness = 0.f;
+		DPROPERTY(Edit)
+		float WavelengthFalloff = 2.f;
+		DPROPERTY(Edit)
+		float AmplitudeFalloff = 2.f;
+		DPROPERTY(Edit)
+		float WindAngleDeg = 0.f;
+		DPROPERTY(Edit)
+		float DirectionAngularSpreadDeg = 1325.f;
 
 		auto operator==(const FWaterWavesSettings&) const -> bool = default;
 	};

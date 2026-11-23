@@ -49,6 +49,8 @@ namespace Durin
 		virtual auto GetKind() const -> EPrimitiveSceneProxyKind { return EPrimitiveSceneProxyKind::Generic; }
 		virtual auto GetLocalBounds() const -> FBox = 0;
 		virtual auto CanBeOccluded() const -> bool { return false; }
+		// Instance payload for a primitive using the ordinary single-instance draw path.
+		virtual auto GetDefaultInstanceCustomData() const -> FPrimitiveCustomData { return {}; }
 		// Null describes the ordinary single instance; an empty snapshot draws none.
 		virtual auto GetInstanceSceneDataBuffers() const -> std::shared_ptr<const FInstanceSceneDataBuffers> { return {}; }
 		// Optional value snapshot for threshold-based LOD preparation. Capture and

@@ -10,9 +10,11 @@ namespace Durin
 {
 	inline constexpr uint32 WaterWaveDataStart = 4;
 	inline constexpr uint32 WaterWaveDataStride = 4;
-	// Keep the unrolled default material within its authored graph node limit.
-	inline constexpr uint32 MaxWaterWaves = 5;
-	using FWaterWaveData = std::array<float, WaterWaveDataStart + WaterWaveDataStride * MaxWaterWaves>;
+	inline constexpr uint32 PrimitiveWaterWaves = 7;
+	inline constexpr uint32 MaxWaterWaves = 16;
+	inline constexpr uint32 InstanceWaterWaveStride = 3;
+	using FWaterInstanceWaveData = std::array<float, (MaxWaterWaves - PrimitiveWaterWaves) * InstanceWaterWaveStride>;
+	using FWaterWaveData = std::array<float, WaterWaveDataStart + WaterWaveDataStride * PrimitiveWaterWaves>;
 
 	DSTRUCT()
 	struct FWaterWave
@@ -39,7 +41,7 @@ namespace Durin
 		DPROPERTY(Edit)
 		float Elevation = 0;
 		DPROPERTY(Edit)
-		float Amplitude = .15f;
+		float Amplitude = 0;
 		DPROPERTY(Edit)
 		float Wavelength = 8;
 		DPROPERTY(Edit)
@@ -47,7 +49,9 @@ namespace Durin
 		DPROPERTY(Edit)
 		float Steepness = .3f;
 		DPROPERTY(Edit)
-		std::vector<FWaterWave> Waves = {{{1, 0}, .6f, 1.f}, {{.6, .8}, .3f, 1.37f}, {{-.8, .6}, .1f, .73f}};
+		std::vector<FWaterWave> Waves;
+
+		WATER_API FWaterSurfaceSettings();
 
 		auto operator==(const FWaterSurfaceSettings&) const -> bool = default;
 	};
@@ -70,6 +74,7 @@ namespace Durin
 	WATER_API auto ValidateWaterSurface(const FWaterSurfaceSettings& Settings) -> std::expected<void, std::string>;
 	// Packs validated settings for the default material. Inactive slots are zero.
 	WATER_API auto PackWaterWaveData(const FWaterSurfaceSettings& Settings) -> FWaterWaveData;
+	WATER_API auto PackWaterInstanceWaveData(const FWaterSurfaceSettings& Settings) -> FWaterInstanceWaveData;
 	// Parametric evaluation requires validated settings and finite coordinates/time.
 	WATER_API auto EvaluateWaterSurface(const FWaterSurfaceSettings& Settings, FVector2 UndisplacedXY, double Seconds) -> FWaterSurfaceSample;
 	// Outside the deformed rectangle, invalid settings/coordinates/time: no surface.

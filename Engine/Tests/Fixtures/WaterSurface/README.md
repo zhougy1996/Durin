@@ -33,6 +33,7 @@ The feature probe supports:
   asset identity and queries in either runtime variant.
 - `material`: Editor-only comparison of the saved source material graph against
   the CPU waves, queries, normals and bounds.
+- `author-waves OUTPUT`: regenerate the Gerstner function with its existing public ports.
 - `author-material OUTPUT`: Editor-only regeneration of the source material.
 - `author-demo-level`: Editor-only creation, save and reopen of
   `/Game/Levels/SingleLayerWaterDemo`. Run in the disposable fixture project

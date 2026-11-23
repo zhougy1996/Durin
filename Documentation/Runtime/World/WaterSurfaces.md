@@ -31,12 +31,17 @@ need no RHI resources. Water creates no collision or physics body.
 ## Reusable Water Waves assets
 
 In the Content Browser, choose **Create → Water Waves**. Open the asset
-to edit Seed, Num Waves, Min/Max Wavelength and Min/Max Amplitude. Wavelength
-and amplitude are in the same local units as the water component. A seed
-reproduces the same directions, wavelengths and amplitudes for the same settings.
-Use 0..5 waves, a wavelength range inside 2..512 whose maximum is at most
-32 times its minimum, and an amplitude range inside 0..2. Generated amplitudes
-may sum to at most 2. A group with no waves or zero amplitude is flat.
+to edit the simple Gerstner generator. Defaults follow UE 5.8: 16 waves,
+seed 0, wavelength 5.21..60 m, amplitude 0.04..0.8 m, quadratic wavelength
+and amplitude falloffs, randomness 0, dominant wind angle 0 degrees and angular
+spread 1325 degrees. Wave zero follows the wind. Later directions use the
+seeded angular spread. At index i the falloffs use alpha = 1 - i/NumWaves,
+plus optional seeded jitter up to Randomness/NumWaves, clamped to 0..1.
+
+Durin accepts 0..16 waves, wavelengths inside 2..512 m with a maximum at
+most 32 times the minimum, and per-wave amplitude inside 0..2 m. A group with
+no waves or zero amplitude is flat. Horizontal displacement uses the component
+steepness. The inverse query and grid limits below apply to the result.
 
 Assign the asset in the component's **Water Waves Asset** field. Multiple
 components and Levels can reference the same asset. Each component keeps its
@@ -65,9 +70,8 @@ P.z  = elevation + sum(A * sin(theta))
 N    = normalize(cross(dP/dp.x, dP/dp.y))
 ```
 
-`Settings.Waves` accepts up to five waves. The default group, also used when
-an older Level has no saved wave group, has directions (1,0), (0.6,0.8),
-(-0.8,0.6), amplitude ratios 0.6/0.3/0.1 and wavenumber ratios 1/1.37/0.73.
+New water components use the same spectrum as a new Water Waves asset.
+Explicitly saved local wave records retain their directions and ratios.
 An empty group gives a flat surface. Each direction is normalized for
 evaluation, A is the surface amplitude times the wave amplitude ratio, and
 k is the wave wavenumber ratio times 2*pi/wavelength. Omega is
@@ -78,8 +82,8 @@ and queried normal. Edges move freely.
 | --- | --- | --- |
 | Extent, full local XY dimensions | 32, 32 | 1..128 on each axis |
 | Elevation, local Z | 0 | -10000..10000 |
-| Amplitude | 0.15 | 0..2 |
-| Wavelength | 8 | 2..512 |
+| Amplitude (sum of generated amplitudes) | 5.08125 | 0..32 |
+| Wavelength (base for wave ratios) | 8 | 2..512 |
 | Speed | 1 | 0..4 |
 | Steepness | 0.3 | 0..1 |
 
@@ -157,10 +161,13 @@ Its two outputs are world-space displacement and a tangent-space analytic normal
 DefaultWater connects these to World Position Offset and Normal. Other water
 appearances can call the same function to match component queries.
 
-The function reads the component wave convention. Primitive custom
-data slots 0..3 hold amplitude, wavelength, speed and steepness. Slots 4..23
-hold five groups of four floats in order: normalized direction X and Y,
-amplitude ratio, wavenumber ratio. Unused slots in this range read as zero.
+The Water expression reads the component's per-draw coefficients.
+Primitive custom data slots 0..3 hold amplitude, wavelength, speed and
+steepness. Slots 4..31 hold seven records of normalized direction X and Y,
+amplitude ratio and wavenumber ratio. The default instance payload holds the
+remaining nine records as direction angle in radians, amplitude ratio and
+wavenumber ratio. Inactive records have zero amplitude. The scene proxy
+publishes both sets with its grid and uses the ordinary retained mesh path.
 Read local p from UV0 and transform the computed local WPO direction to World.
 The flat mesh tangent basis permits the analytic local normal to feed the
 Tangent/Normal terminal through a spatially classified identity swizzle. See

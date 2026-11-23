@@ -25,10 +25,10 @@ namespace Durin
 			|| !std::isfinite(S.Wavelength) || !std::isfinite(S.Speed) || !std::isfinite(S.Steepness))
 			return std::unexpected("Water parameters must be finite.");
 		if (S.Extent.x < 1 || S.Extent.y < 1 || S.Extent.x > 128 || S.Extent.y > 128
-			|| std::abs(S.Elevation) > 10000 || S.Amplitude < 0 || S.Amplitude > 2
+			|| std::abs(S.Elevation) > 10000 || S.Amplitude < 0 || S.Amplitude > 2 * MaxWaterWaves
 			|| S.Wavelength < 2 || S.Wavelength > 512 || S.Speed < 0 || S.Speed > 4
 			|| S.Steepness < 0 || S.Steepness > 1)
-			return std::unexpected("Water bounds: extent 1..128, elevation +/-10000, amplitude 0..2, wavelength 2..512, speed 0..4, steepness 0..1.");
+			return std::unexpected("Water bounds: extent 1..128, elevation +/-10000, amplitude 0..32, wavelength 2..512, speed 0..4, steepness 0..1.");
 		if (S.Waves.size() > MaxWaterWaves)
 			return std::unexpected(std::format("Water supports at most {} Gerstner waves.", MaxWaterWaves));
 
@@ -73,7 +73,7 @@ namespace Durin
 	auto PackWaterWaveData(const FWaterSurfaceSettings& S) -> FWaterWaveData
 	{
 		FWaterWaveData Data{S.Amplitude, S.Wavelength, S.Speed, S.Steepness};
-		for (size_t Index = 0; Index < S.Waves.size(); ++Index)
+		for (size_t Index = 0; Index < std::min<size_t>(PrimitiveWaterWaves, S.Waves.size()); ++Index)
 		{
 			const auto& Wave = S.Waves[Index];
 			if (Wave.AmplitudeRatio == 0) continue;
@@ -83,6 +83,21 @@ namespace Durin
 			Data[Slot + 1] = Direction.y;
 			Data[Slot + 2] = Wave.AmplitudeRatio;
 			Data[Slot + 3] = Wave.WavenumberRatio;
+		}
+		return Data;
+	}
+
+	auto PackWaterInstanceWaveData(const FWaterSurfaceSettings& S) -> FWaterInstanceWaveData
+	{
+		FWaterInstanceWaveData Data{};
+		for (size_t Index = PrimitiveWaterWaves; Index < S.Waves.size(); ++Index)
+		{
+			const auto& Wave = S.Waves[Index];
+			if (Wave.AmplitudeRatio == 0) continue;
+			const size_t Slot = (Index - PrimitiveWaterWaves) * InstanceWaterWaveStride;
+			Data[Slot] = float(std::atan2(Wave.Direction.y, Wave.Direction.x));
+			Data[Slot + 1] = Wave.AmplitudeRatio;
+			Data[Slot + 2] = Wave.WavenumberRatio;
 		}
 		return Data;
 	}

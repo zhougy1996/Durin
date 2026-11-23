@@ -37,12 +37,18 @@ namespace Durin
 		class FWaterSceneProxy final : public FStaticMeshSceneProxy
 		{
 		public:
-			FWaterSceneProxy(std::shared_ptr<FStaticMeshRenderData> Geometry, FMaterialRenderProxyRef Material)
-				: FStaticMeshSceneProxy(Geometry.get(), std::vector{std::move(Material)}), Owner(std::move(Geometry)) {}
+			FWaterSceneProxy(std::shared_ptr<FStaticMeshRenderData> Geometry, FMaterialRenderProxyRef Material, const FWaterInstanceWaveData& Data)
+				: FStaticMeshSceneProxy(Geometry.get(), std::vector{std::move(Material)}), Owner(std::move(Geometry))
+			{
+				static_assert(FWaterInstanceWaveData{}.size() <= PrimitiveCustomDataFloatCount);
+				verify(InstanceData.Set(0, Data));
+			}
+			auto GetDefaultInstanceCustomData() const -> FPrimitiveCustomData override { return InstanceData; }
 		private:
 			// The ordinary StaticMesh proxy borrows geometry. Retain it through removal
 			// so edits and unregister never retire resources still used by a draw.
 			std::shared_ptr<FStaticMeshRenderData> Owner;
+			FPrimitiveCustomData InstanceData;
 		};
 	}
 
@@ -171,7 +177,8 @@ namespace Durin
 		if (!Geometry) SynchronizeSurface();
 		if (!Geometry) return {};
 		auto Proxy = ResolveMaterial();
-		return Proxy ? std::make_unique<FWaterSceneProxy>(Geometry, std::move(Proxy)) : nullptr;
+		if (!Proxy) return {};
+		return std::make_unique<FWaterSceneProxy>(Geometry, std::move(Proxy), PackWaterInstanceWaveData(*EffectiveSettings));
 	}
 
 	auto DWaterSurfaceComponent::OnRegister() -> void

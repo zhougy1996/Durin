@@ -3,5 +3,5 @@
   "LinkType": "Shared",
   "PCH": "SharedPCH_DObject",
   "PublicDependencies": ["Engine"],
-  "ReflectHeaders": ["Public/WaterSurfaceTypes.h", "Public/WaterWaves.h", "Public/WaterSurfaceComponent.h", "Public/WaterSurfaceActor.h"]
+  "ReflectHeaders": ["Public/MaterialExpressionGerstnerWaves.h", "Public/WaterSurfaceTypes.h", "Public/WaterWaves.h", "Public/WaterSurfaceComponent.h", "Public/WaterSurfaceActor.h"]
 }

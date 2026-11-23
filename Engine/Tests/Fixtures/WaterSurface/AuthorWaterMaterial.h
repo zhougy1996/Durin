@@ -13,8 +13,43 @@
 #include "DObject/Package.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialFunction.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
+#include "MaterialExpressionGerstnerWaves.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Misc/FileHelper.h"
+
+inline auto AuthorWaterWaveFunction(const std::filesystem::path& Destination) -> void
+{
+	using namespace Durin;
+	FSoftObjectPath Path;
+	if (!FSoftObjectPath::TryCreate("/Plugins/Water/Materials/GerstnerWaves.GerstnerWaves", Path)
+		|| !RefreshAssetRegistry()) throw std::runtime_error("Invalid Water function path.");
+	auto* Function = LoadObject<DMaterialFunction>(Path);
+	if (!Function) throw std::runtime_error("Could not load Water function signature.");
+	auto* Waves = NewObject<DMaterialExpressionGerstnerWaves>(nullptr, NAME_None);
+	Waves->Id = {0x57415452u, 0x57415645u, 2, 1};
+	Waves->EditorLayout = {true, -320, 0};
+	std::vector<DMaterialExpression*> Nodes{Waves};
+	std::vector<TStrongObjectPtr<DMaterialExpression>> Owners;
+	Owners.emplace_back(Waves);
+	for (const auto& Port : Function->GetFunctionSignature().Outputs)
+	{
+		auto* Terminal = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
+		Terminal->Port = Port;
+		const bool bNormal = Port.Id == FGuid{0x57415452u, 0x504f5254u, 1, 2};
+		Terminal->Id = {0x57415452u, 0x57415645u, 2, bNormal ? 3u : 2u};
+		Terminal->Source = FMaterialExpressionInput{Waves, bNormal ? 1 : 0};
+		Terminal->EditorLayout = {true, 0, bNormal ? 180 : 0};
+		Nodes.push_back(Terminal);
+		Owners.emplace_back(Terminal);
+	}
+	if (Nodes.size() != 3) throw std::runtime_error("Expected two Gerstner function outputs.");
+	if (auto Result = Function->SetFunctionExpressions(Nodes); !Result)
+		throw std::runtime_error(Result.Diagnostics.front().Message);
+	FByteBuffer Bytes;
+	if (!SerializeAssetPackageBytes(Function->GetPackage(), Bytes) || !FFileHelper::SaveArrayToFileAtomically(Bytes, Destination))
+		throw std::runtime_error("Failed to save Gerstner wave function.");
+}
 
 // Explicit source-asset authoring utility. Cook only reads the saved graph.
 inline auto AuthorWaterMaterial(const std::filesystem::path& Destination) -> void

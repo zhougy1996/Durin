@@ -66,10 +66,29 @@ namespace Durin::WaterMaterialRecipe
 		uint32 DX = Zero, DY = Zero, DZ = Zero, TXX = One, TXY = Zero, TXZ = Zero, TYY = One, TYZ = Zero;
 		for (uint32 I = 0; I < MaxWaterWaves; ++I)
 		{
-			const uint32 Slot = WaterWaveDataStart + I * WaterWaveDataStride;
-			const auto DirectionX = ReadParameter(Slot), DirectionY = ReadParameter(Slot + 1);
-			const auto A = B.B(Op::Multiply, Parameters[0], ReadParameter(Slot + 2));
-			const auto K = B.B(Op::Multiply, BaseK, ReadParameter(Slot + 3));
+			uint32 DirectionX, DirectionY, Weight, Frequency;
+			if (I < PrimitiveWaterWaves)
+			{
+				const uint32 Slot = WaterWaveDataStart + I * WaterWaveDataStride;
+				DirectionX = ReadParameter(Slot);
+				DirectionY = ReadParameter(Slot + 1);
+				Weight = ReadParameter(Slot + 2);
+				Frequency = ReadParameter(Slot + 3);
+			}
+			else
+			{
+				const uint32 Slot = (I - PrimitiveWaterWaves) * InstanceWaterWaveStride;
+				auto Instance = [&](uint32 Index) {
+					return B.Add({.Opcode = Op::InstanceCustomData, .Payload = MIR::FCustomDataRead{Index}});
+				};
+				const auto Angle = Instance(Slot);
+				DirectionX = B.U(Op::Cosine, Angle);
+				DirectionY = B.U(Op::Sine, Angle);
+				Weight = Instance(Slot + 1);
+				Frequency = Instance(Slot + 2);
+			}
+			const auto A = B.B(Op::Multiply, Parameters[0], Weight);
+			const auto K = B.B(Op::Multiply, BaseK, Frequency);
 			const auto QA = B.B(Op::Multiply, Parameters[3], A);
 			const auto Dot = B.B(Op::Add, B.B(Op::Multiply, X, DirectionX), B.B(Op::Multiply, Y, DirectionY));
 			const auto Omega = B.B(Op::Multiply, Parameters[2], B.U(Op::Sqrt, B.B(Op::Multiply, Gravity, K)));

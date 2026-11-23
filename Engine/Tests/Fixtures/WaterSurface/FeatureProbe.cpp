@@ -124,6 +124,7 @@ namespace
 	{
 		std::vector<FVector4f> V;
 		const auto Parameters = PackWaterWaveData(S);
+		const auto Instance = PackWaterInstanceWaveData(S);
 		for (const auto& N : Input.IR.Nodes)
 		{
 			auto A = [&](uint32 I) -> FVector4f { return V.at(N.Inputs.at(I)); };
@@ -133,6 +134,7 @@ namespace
 			case EMaterialProgramOpcode::Constant: { const auto C = N.GetLiteral(); R = {C.X, C.Y, C.Z, C.W}; break; }
 			case EMaterialProgramOpcode::UVChannel: R = {float(P.x), float(P.y), 0, 0}; break;
 			case EMaterialProgramOpcode::Time: R.x = float(Time); break;
+			case EMaterialProgramOpcode::InstanceCustomData: R.x = Instance.at(std::get<MIR::FCustomDataRead>(N.Payload).Index); break;
 			case EMaterialProgramOpcode::PrimitiveCustomData: R.x = Parameters.at(std::get<MIR::FCustomDataRead>(N.Payload).Index); break;
 			case EMaterialProgramOpcode::Swizzle: { const auto Sw = N.GetSwizzle(); for (uint8 I = 0; I < Sw.Length; ++I) R[I] = A(0)[Sw.Components[I]]; break; }
 			case EMaterialProgramOpcode::Splat3: R = FVector4f(A(0).x); break;
@@ -162,14 +164,21 @@ namespace
 
 	auto CheckQueries(const MIR::FCompilerInput& Input = WaterMaterialRecipe::BuildInput()) -> void
 	{
-		std::array<FWaterSurfaceSettings, 7> Cases;
+		std::array<FWaterSurfaceSettings, 8> Cases;
+		Require(Cases[0].Waves.size() == 16, "Default water must have sixteen waves.");
+		Cases[7].Waves.assign(MaxWaterWaves, {});
+		Cases[7].Waves.back() = {{-.6, .8}, .75f, 1.f};
+		Cases[7].Amplitude = .15f;
+		Cases[2].Waves = Cases[3].Waves = {{{1, 0}, .6f, 1.f}, {{.6, .8}, .3f, 1.37f}, {{-.8, .6}, .1f, .73f}};
+		Cases[4].Amplitude = Cases[5].Amplitude = .15f;
 		Cases[1].Amplitude = 0;
 		Cases[2].Extent = {128, 128}; Cases[2].Wavelength = 64; Cases[2].Amplitude = 2; Cases[2].Steepness = 1;
 		Cases[3].Extent = {8, 8}; Cases[3].Wavelength = 2; Cases[3].Amplitude = .29f; Cases[3].Steepness = .5f; Cases[3].Speed = 4;
 		Cases[4].Waves = {{{2, -1}, .75f, .8f}, {{0, 1}, .25f, 1.4f}};
+		Cases[5].Wavelength = 20.f;
 		Cases[5].Waves.resize(MaxWaterWaves);
 		for (uint32 I = 0; I < MaxWaterWaves; ++I)
-			Cases[5].Waves[I] = {{1, double(I) - 3}, .125f, .25f + .2f * I};
+			Cases[5].Waves[I] = {{1, double(I) - 3}, 1.f / MaxWaterWaves, .25f + .2f * I};
 		Cases[6].Waves.clear();
 		for (const auto& S : Cases)
 		{
@@ -220,7 +229,7 @@ namespace
 		Invalid = Cases[0]; Invalid.Waves.front().AmplitudeRatio = 1;
 		Require(!ValidateWaterSurface(Invalid), "Excessive total wave weight accepted.");
 		auto* Component = NewObject<DWaterSurfaceComponent>(nullptr, NAME_None);
-		auto S = Cases[0]; S.Elevation = 3;
+		auto S = Cases[0]; S.Elevation = 3; S.Amplitude = .15f;
 		Require(bool(Component->SetSettings(S)), "Component settings failed.");
 		Require(Component->QuerySurface({0, 0, 0}, .75).has_value(), "Component query failed.");
 		struct FTestWaveGenerator final : IWaterWaveGenerator
@@ -299,6 +308,17 @@ namespace
 	{
 		auto* Asset = NewObject<DWaterWaves>(nullptr, NAME_None);
 		auto* Copy = NewObject<DWaterWaves>(nullptr, NAME_None);
+		const auto& Default = Asset->GetWaveGroup();
+		const FWaterSurfaceSettings Local;
+		Require(Default && Default->Waves.size() == 16 && Default->Waves == Local.Waves
+			&& Default->BaseAmplitude == Local.Amplitude && Default->BaseWavelength == Local.Wavelength,
+			"Component and asset default spectra differ.");
+		Require(Default->Waves[0].Direction == FVector2(1, 0)
+			&& std::abs(Local.Amplitude - 5.08125f) < 1.e-5f
+			&& std::abs(Local.Wavelength / Local.Waves[0].WavenumberRatio - 60.f) < 1.e-5f
+			&& std::abs(Local.Waves[1].Direction.x + .664813) < 1.e-5
+			&& std::abs(Local.Waves[1].Direction.y - .747010) < 1.e-5,
+			"Default spectrum differs from the UE simple generator reference.");
 		auto Settings = SavedWaveSettings();
 		Require(bool(Asset->SetGeneratorSettings(Settings)) && bool(Copy->SetGeneratorSettings(Settings)), "Valid wave asset settings rejected.");
 		const auto Initial = Asset->GetWaveGroup();
@@ -412,6 +432,11 @@ int main(int Argc, char** Argv)
 					== Recipe.IR.Nodes.at(Expected.ExpressionIndex).GetLiteral(), "Saved Water optical coefficients differ from the recipe.");
 			}
 			CheckQueries(Snapshot.Snapshot->Input);
+		}
+		else if (Mode == "author-waves")
+		{
+			Require(Argc == 4, "Expected wave function destination.");
+			AuthorWaterWaveFunction(Argv[3]);
 		}
 		else if (Mode == "author-material")
 		{

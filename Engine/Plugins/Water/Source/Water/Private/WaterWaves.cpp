@@ -19,30 +19,46 @@ namespace Durin
 				|| Settings.MinAmplitude < 0.f || Settings.MinAmplitude > Settings.MaxAmplitude || Settings.MaxAmplitude > 2.f)
 				return std::unexpected("Amplitudes must form an ordered range within 0..2.");
 
-			// Use a specified integer-to-unit conversion rather than a standard
-			// distribution whose mapping can differ between implementations.
-			std::mt19937 Random(Settings.Seed);
-			const auto Unit = [&] { return float(Random() >> 8) * (1.f / 16777216.f); };
-			constexpr double Tau = 6.2831853071795864769;
-			const float BaseWavelength = std::min(512.f, Settings.MinWavelength * 4.f);
+			if (!std::isfinite(Settings.Randomness) || Settings.Randomness < 0
+				|| !std::isfinite(Settings.WavelengthFalloff) || Settings.WavelengthFalloff < 0
+				|| !std::isfinite(Settings.AmplitudeFalloff) || Settings.AmplitudeFalloff < 0
+				|| !std::isfinite(Settings.WindAngleDeg) || !std::isfinite(Settings.DirectionAngularSpreadDeg)
+				|| Settings.DirectionAngularSpreadDeg < 0)
+				return std::unexpected("Wave falloffs, randomness and spread must be finite and nonnegative, and wind angle finite.");
+			// FRandomStream consumes one sample for alpha even with zero randomness.
+			uint32 State = Settings.Seed;
+			auto SignedUnit = [&] {
+				State = State * 196314165u + 907633515u;
+				return float(State >> 9) * (2.f / 8388608.f) - 1.f;
+			};
+			// Keep the component's historical base wavelength wherever all ratios fit.
+			const float BaseWavelength = std::clamp(8.f, Settings.MaxWavelength * .125f, Settings.MinWavelength * 4.f);
 			FWaterWaveGroup Group{0.f, BaseWavelength, {}};
 			Group.Waves.reserve(Settings.NumWaves);
 			double TotalAmplitude = 0;
 			for (uint32 Index = 0; Index < Settings.NumWaves; ++Index)
 			{
-				const float Wavelength = std::lerp(Settings.MinWavelength, Settings.MaxWavelength, Unit());
-				const float Amplitude = std::lerp(Settings.MinAmplitude, Settings.MaxAmplitude, Unit());
-				const double Angle = Tau * Unit();
+				const float Alpha = std::clamp(1.f - float(Index) / Settings.NumWaves
+					+ SignedUnit() * (Settings.Randomness / Settings.NumWaves), 0.f, 1.f);
+				const float Wavelength = std::lerp(Settings.MinWavelength, Settings.MaxWavelength, std::pow(Alpha, Settings.WavelengthFalloff));
+				const float Amplitude = std::lerp(Settings.MinAmplitude, Settings.MaxAmplitude, std::pow(Alpha, Settings.AmplitudeFalloff));
+				const double Angle = (double(Settings.WindAngleDeg) + (Index ? double(SignedUnit()) * Settings.DirectionAngularSpreadDeg : 0.)) * (3.141592653589793 / 180.);
 				Group.Waves.push_back({{std::cos(Angle), std::sin(Angle)}, Amplitude, BaseWavelength / Wavelength});
 				TotalAmplitude += Amplitude;
 			}
-			if (TotalAmplitude > 2.)
-				return std::unexpected("Generated wave amplitudes sum to more than 2. Reduce the amplitude range or wave count.");
 			Group.BaseAmplitude = float(TotalAmplitude);
 			if (TotalAmplitude > 0)
 				for (auto& Wave : Group.Waves) Wave.AmplitudeRatio = float(Wave.AmplitudeRatio / TotalAmplitude);
 			return Group;
 		}
+	}
+
+	FWaterSurfaceSettings::FWaterSurfaceSettings()
+	{
+		static const auto Default = GenerateWaveGroup(FWaterWavesSettings{}).value();
+		Wavelength = Default.BaseWavelength;
+		Amplitude = Default.BaseAmplitude;
+		Waves = Default.Waves;
 	}
 
 	DWaterWaves::DWaterWaves(const FObjectInitializer& Initializer) : Super(Initializer) {}

@@ -147,7 +147,7 @@ namespace Durin
 			if (Dirty == static_cast<uint8>(EGPUSceneDirtyState::PrimitiveCustomData)) { RefreshPrimitive(); return; }
 			const auto Source = Info.GetProxy().GetInstanceSceneDataBuffers();
 			std::vector<FInstanceSceneDataBuffers::FInstance> Default;
-			if (!Source) Default.push_back({{}, FMatrix(1.0), Info.GetLocalBounds(), {}});
+			if (!Source) Default.push_back({{}, FMatrix(1.0), Info.GetLocalBounds(), Info.GetProxy().GetDefaultInstanceCustomData()});
 			auto Sorted = Source ? Source->Instances : std::move(Default);
 			std::ranges::sort(Sorted, {}, [](const auto& Item) { return Item.Id.Id; });
 			if (Source && (Sorted.size() > MaximumStaticMeshRenderInstances
