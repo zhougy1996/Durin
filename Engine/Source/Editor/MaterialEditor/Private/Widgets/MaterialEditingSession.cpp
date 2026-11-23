@@ -1,89 +1,17 @@
 #include "Widgets/MaterialEditingSession.h"
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraph.h"
-#include "Materials/MaterialExpressionInputs.h"
-#include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionIO.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/Package.h"
 #include "DObject/ObjectLifecycle.h"
-#include "DObject/Property.h"
-#include "DObject/Class.h"
 #include "Transactions/Transactor.h"
 #include "Misc/MountPaths.h"
 
 namespace Durin::MaterialEditor
 {
-	auto FMaterialEditingSession::FAuthoredState::Matches(const DMaterial& Material, bool bIncludeLayout) const -> bool
-	{
-		const auto& Current = Material.GetExpressionCollection().Expressions;
-		if (Domain != Material.GetDomain() || Properties != Material.GetStaticProperties()
-			|| RootBindings.UseMaterialAttributes != Material.UsesMaterialAttributes() || Expressions.size() != Current.size()) return false;
-		if (bIncludeLayout && (RootPosition != Material.GetRootPosition()
-			|| Presentation != Material.GetMaterialGraphPresentation())) return false;
-		const auto& Packed = *Material.GetExpressionInputForProperty(EMaterialProperty::MP_MaterialAttributes);
-		if (RootBindings.AttributeSource != Packed.GetExpressionId() || RootBindings.AttributeOutputIndex != Packed.OutputIndex)
-			return false;
-		if (!std::ranges::equal(RootBindings.Properties, FMaterialAttributeDefinitionMap::GetDefinitions(),
-			[&](const auto& Saved, const auto& Field) {
-				const auto Live = Material.GetNumericInputForProperty(Field.Property);
-				return Saved.Source == Live->Connection.GetExpressionId() && Saved.OutputIndex == Live->Connection.OutputIndex
-					&& Saved.UseConstant == Live->UseConstant && std::ranges::equal(Saved.Constant, Live->Constant);
-			})) return false;
-		// Compare detached snapshot fields against references in this particular copy of the asset.
-		std::unordered_map<FGuid, DMaterialExpression*> Nodes;
-		for (const auto& Node : Current) Nodes.emplace(Node->Id, Node.Get());
-		struct FResetConnections
-		{
-			const decltype(Connections)& Fields;
-			~FResetConnections() { for (const auto& [Input, Id] : Fields) Input->Expression.Reset(); }
-		} Reset{Connections};
-		for (const auto& [Input, Id] : Connections)
-		{
-			const auto Found = Nodes.find(Id);
-			if (Found == Nodes.end()) return false;
-			Input->Expression = Found->second;
-		}
-		for (size_t Index = 0; Index < Expressions.size(); ++Index)
-		{
-			const auto* Before = Expressions[Index].Get();
-			const auto* After = Current[Index].Get();
-			if (!Before || !After || Before->GetClass() != After->GetClass()) return false;
-			bool bIdentical = true;
-			Before->GetClass()->ForEachProperty([&](FProperty* Property) {
-				if (Property->NamePrivate == FName("EditorLayout")) return;
-				for (uint32 Element = 0; bIdentical && Element < Property->GetArrayDim(); ++Element)
-					bIdentical = ArePropertyValuesIdentical(Property, Before, Element, After, Element);
-			});
-			if (!bIdentical) return false;
-		}
-		return true;
-	}
-
-	auto FMaterialEditingSession::Capture(const DMaterial& Material, FAuthoredState& OutState) -> std::expected<void, FObjectGraphError>
-	{
-		FAuthoredState Candidate;
-		Candidate.Properties = Material.GetStaticProperties();
-		Candidate.Domain = Material.GetDomain();
-		Candidate.RootPosition = Material.GetRootPosition();
-		Candidate.RootBindings = CaptureMaterialOutputBindings(Material);
-		Candidate.Presentation = Material.GetMaterialGraphPresentation();
-		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
-		{
-			const auto Duplicated = DuplicateObject(Expression.Get(), nullptr, NAME_None);
-			if (!Duplicated) return std::unexpected(Duplicated.error());
-			auto* Copy = Duplicated.value();
-			VisitStoredMaterialInputs(*Copy, [&](FMaterialExpressionInput& Input) {
-				if (!Input.Expression) return;
-				Candidate.Connections.emplace_back(&Input, Input.GetExpressionId());
-				Input.Expression.Reset();
-			});
-			Candidate.Expressions.emplace_back(Copy);
-		}
-		OutState = std::move(Candidate);
-		return {};
-	}
-
 	namespace
 	{
 		auto CopyExpressions(DMaterial& Destination, const DMaterial& Source) -> FMaterialProgramValidationResult
@@ -115,12 +43,7 @@ namespace Durin::MaterialEditor
 		}
 		Source = &InSource;
 		Transactor = InTransactor;
-		SourceRevision = Source->GetPackage()->GetEditRevision();
-		if (const auto Captured = Capture(InSource, Applied); !Captured)
-		{
-			Error = ToString(Captured.error());
-			return false;
-		}
+		SourceRevision = Source->GetGraphChanges().GetEditRevision();
 		FPackagePath Path;
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Source->GetPackage()->GetPackagePath());
 		if (!Mount)
@@ -136,7 +59,7 @@ namespace Durin::MaterialEditor
 		Working = NewObject<DMaterial>(DMaterial::StaticClass(), WorkingPackage.Get(),
 			InSource.GetFName(), EObjectFlags::Transient);
 		Working->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-		if (const auto Configuration = Working->SetMaterialConfiguration({Applied.Domain, Applied.Properties}); !Configuration)
+		if (const auto Configuration = Working->SetMaterialConfiguration({InSource.GetDomain(), InSource.GetStaticProperties()}); !Configuration)
 		{
 			Error = FormatMaterialProgramDiagnostics(Configuration.Diagnostics);
 			return false;
@@ -146,7 +69,8 @@ namespace Durin::MaterialEditor
 			Error = "The source material's authored state is invalid.";
 			return false;
 		}
-		Working->SetRootPosition(Applied.RootPosition.first, Applied.RootPosition.second);
+		const auto [X, Y] = InSource.GetRootPosition();
+		Working->SetRootPosition(X, Y);
 		Working->CompileEdits();
 		Working->SetEditCompileMode(Mode);
 		Graph = DMaterialGraph::Create(*Working);
@@ -157,25 +81,33 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialEditingSession::HasUnappliedChanges() const -> bool
 	{
-		if (!Working || !WorkingPackage) return false;
-		const uint64 Revision = WorkingPackage->GetEditRevision();
-		if (ObservedWorkingRevision != Revision)
-		{
-			ObservedWorkingRevision = Revision;
-			bHasChanges = !Applied.Matches(*Working);
-		}
-		return bHasChanges;
+		return WorkingPackage && WorkingPackage->IsDirty();
+	}
+
+	auto FMaterialEditingSession::HasSemanticChanges() const -> bool
+	{
+		return Source->GetDomain() != Working->GetDomain()
+			|| Source->GetStaticProperties() != Working->GetStaticProperties()
+			|| CaptureMaterialOutputBindings(*Source) != CaptureMaterialOutputBindings(*Working)
+			|| !std::ranges::equal(Source->GetExpressionCollection().Expressions, Working->GetExpressionCollection().Expressions,
+				[](const auto& Original, const auto& Draft) {
+					return Original && Draft && HaveSameMaterialExpressionFields(*Original, *Draft);
+				});
 	}
 
 	auto FMaterialEditingSession::CheckSource(std::string& Error) const -> bool
 	{
+		if (bPublishing)
+		{
+			Error = "Material publication is in progress.";
+			return false;
+		}
 		if (!Source || !Working || !Source->GetPackage())
 		{
 			Error = "The source material is no longer available.";
 			return false;
 		}
-		if (Source->GetPackage()->GetEditRevision() != SourceRevision
-			&& !Applied.Matches(*Source))
+		if (Source->GetGraphChanges().GetEditRevision() != SourceRevision)
 		{
 			Error = "The source material changed outside this document. Discard or reopen before applying.";
 			return false;
@@ -187,7 +119,7 @@ namespace Durin::MaterialEditor
 	{
 		if (!CheckSource(Error)) return false;
 		if (!HasUnappliedChanges()) return true;
-		if (Applied.Matches(*Working, false))
+		if (!HasSemanticChanges())
 		{
 			bApplyPending = false;
 			return ApplyCurrent(Error);
@@ -218,7 +150,7 @@ namespace Durin::MaterialEditor
 		bApplyPending = false;
 		if (!CheckSource(Error)) return false;
 		if (!HasUnappliedChanges()) return true;
-		if (Applied.Matches(*Working, false)) return ApplyCurrent(Error);
+		if (!HasSemanticChanges()) return ApplyCurrent(Error);
 		const auto Status = Working->GetMaterialCompileStatus();
 		if (Status.HasUnsubmittedEdits() || (!Status.IsCurrent() && Working->IsCompilationFinished()))
 			Working->CompileEdits();
@@ -230,59 +162,61 @@ namespace Durin::MaterialEditor
 	{
 		if (!CheckSource(Error)) return false;
 		if (!HasUnappliedChanges()) return true;
-		if (Applied.Matches(*Working, false))
+		const bool bSemantic = HasSemanticChanges();
+		const FMaterialConfiguration Configuration{Working->GetDomain(), Working->GetStaticProperties()};
+		if (bSemantic)
 		{
-			Applied.RootPosition = Working->GetRootPosition();
-			Applied.Presentation = Working->GetMaterialGraphPresentation();
+			if (!Working->GetMaterialCompileStatus().IsCurrent())
+			{
+				Error = "Apply requires a successful compilation of the current preview. Compile the latest edits and retry.";
+				return false;
+			}
+			if (const auto Validation = ValidateMaterialConfiguration(Configuration.Domain, Configuration.Properties); !Validation)
+			{
+				Error = Validation.error();
+				return false;
+			}
+		}
+		const auto [X, Y] = Working->GetRootPosition();
+		const auto WorkingRevision = WorkingPackage->GetEditRevision();
+		struct FPublishScope
+		{
+			bool& Flag;
+			explicit FPublishScope(bool& InFlag) : Flag(InFlag) { Flag = true; }
+			~FPublishScope() { Flag = false; }
+		} Publishing(bPublishing);
+		{
 			FScopedMaterialGraphChange GraphBatch(*Source);
-			Source->SetRootPosition(Applied.RootPosition.first, Applied.RootPosition.second);
-			Source->SetMaterialGraphPresentation(Applied.Presentation);
-			if (Transactor.IsValid()) Transactor->InvalidateSavedState(*Source->GetPackage());
-			SourceRevision = Source->GetPackage()->GetEditRevision();
-			ObservedWorkingRevision = 0;
-			return true;
+			if (bSemantic)
+			{
+				const auto PreviousMode = Source->GetEditCompileMode();
+				Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+				const auto Result = CopyExpressions(*Source, *Working);
+				if (!Result)
+				{
+					Source->SetEditCompileMode(PreviousMode);
+					Error = "The material changes could not be applied to the source.";
+					return false;
+				}
+				require(Source->SetMaterialConfiguration(Configuration));
+				if (Source->GetMaterialCompileStatus().HasUnsubmittedEdits()) Source->CompileEdits();
+				Source->SetEditCompileMode(PreviousMode);
+			}
+			else
+			{
+				Source->SetMaterialGraphPresentation(Working->GetMaterialGraphPresentation());
+			}
+			Source->SetRootPosition(X, Y);
+			if (Transactor.IsValid() && Source->GetGraphChanges().GetEditRevision() != SourceRevision)
+				Transactor->InvalidateSavedState(*Source->GetPackage());
+			SourceRevision = Source->GetGraphChanges().GetEditRevision();
 		}
-		if (!Working->GetMaterialCompileStatus().IsCurrent())
+		// Publication listeners can edit the draft while the source is being updated.
+		if (WorkingPackage->GetEditRevision() == WorkingRevision)
 		{
-			Error = "Apply requires a successful compilation of the current preview. Compile the latest edits and retry.";
-			return false;
+			if (Transactor.IsValid()) Transactor->MarkSaved(*WorkingPackage);
+			else WorkingPackage->ClearDirty();
 		}
-		FAuthoredState Candidate;
-		if (const auto Captured = Capture(*Working, Candidate); !Captured)
-		{
-			Error = ToString(Captured.error());
-			return false;
-		}
-		if (const auto Validation = ValidateMaterialConfiguration(Candidate.Domain, Candidate.Properties); !Validation)
-		{
-			Error = Validation.error();
-			return false;
-		}
-		const auto PreviousMode = Source->GetEditCompileMode();
-		Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-		FScopedMaterialGraphChange GraphBatch(*Source);
-		const auto Result = CopyExpressions(*Source, *Working);
-		if (!Result)
-		{
-			Source->SetEditCompileMode(PreviousMode);
-			Error = "The material changes could not be applied to the source.";
-			return false;
-		}
-		// The complete candidate configuration passed admission before publication.
-		(void)Source->SetMaterialConfiguration({Candidate.Domain, Candidate.Properties});
-		Source->SetRootPosition(Candidate.RootPosition.first, Candidate.RootPosition.second);
-		if (Source->GetMaterialCompileStatus().HasUnsubmittedEdits()) Source->CompileEdits();
-		Source->SetEditCompileMode(PreviousMode);
-		if (Transactor.IsValid()) Transactor->InvalidateSavedState(*Source->GetPackage());
-		Applied = std::move(Candidate);
-		SourceRevision = Source->GetPackage()->GetEditRevision();
-		ObservedWorkingRevision = 0;
 		return true;
-	}
-
-	auto FMaterialEditingSession::MarkSaved() -> void
-	{
-		if (WorkingPackage) WorkingPackage->ClearDirty();
-		if (WorkingPackage && Transactor.IsValid()) Transactor->MarkSaved(*WorkingPackage);
 	}
 }

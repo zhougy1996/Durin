@@ -1,6 +1,7 @@
 #include "MaterialGraphPinTestSupport.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "Graph/MaterialGraphCommands.h"
+#include "Graph/MaterialEditingOperations.h"
 #include "MaterialGraph.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -436,10 +437,11 @@ TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossA
 	ASSERT_TRUE(Source->SetMaterialExpressions(Inputs, Outputs));
 	Package->ClearDirty();
 	TObjectPtr<DMaterialExpression> RetiredDraftExpression;
+	Tests::FTestEditorTransactorOwner Transactions;
 	{
 		FMaterialEditingSession Session;
 		std::string Error;
-		ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error)) << Error;
+		ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error, Transactions.Get())) << Error;
 		auto* Draft = Session.GetWorkingMaterial();
 		auto* Original = Cast<DMaterialExpressionScalarParameter>(Source->GetExpressionCollection().Expressions[0].Get());
 		auto* Edited = Cast<DMaterialExpressionScalarParameter>(Draft->GetExpressionCollection().Expressions[0].Get());
@@ -465,13 +467,10 @@ TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossA
 		EXPECT_FLOAT_EQ(Applied->DefaultValue, 0.64f);
 		EXPECT_EQ(Applied->Metadata.DisplayName, "Edited parameter");
 		EXPECT_FALSE(Session.HasUnappliedChanges());
-		Edited->DefaultValue = 0.91f;
-		Edited->MarkPackageDirty();
-		Edited->PostEditChangeProperty({});
+		ASSERT_TRUE(MaterialEditing::SetParameterValue(*Draft, Edited->Metadata.Id, FMaterialParameterValue::MakeScalar(0.91f)));
 		EXPECT_TRUE(Session.HasUnappliedChanges());
-		Edited->DefaultValue = 0.64f;
-		Edited->MarkPackageDirty();
-		Edited->PostEditChangeProperty({});
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_FLOAT_EQ(Edited->DefaultValue, 0.64f);
 		EXPECT_FALSE(Session.HasUnappliedChanges());
 		RetiredDraftExpression = Edited;
 	}
@@ -654,6 +653,69 @@ TEST_F(FMaterialEditingSessionTests, ExternalSourceChangeRejectsApplyWithoutOver
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 }
 
+TEST_F(FMaterialEditingSessionTests, FailedSourcePublicationLeavesDraftDirtyAndSourceIntact)
+{
+	Tests::FTestEditorTransactorOwner Transactions;
+	FMaterialEditingSession Session;
+	std::string Error;
+	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error, Transactions.Get())) << Error;
+	auto* Draft = Session.GetWorkingMaterial();
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
+	ASSERT_TRUE(Draft->GetMaterialCompileStatus().IsCurrent());
+
+	// Introduce an invalid retained link after preview compilation.
+	const auto Original = Source->CaptureRootInputs();
+	auto Invalid = Draft->CaptureRootInputs();
+	Invalid.Get(EMaterialProperty::MP_Roughness).Connection.OutputIndex = -1;
+	ASSERT_TRUE(FMaterialExpressionEditing::SetRootInputs(*Draft, std::move(Invalid)));
+	Draft->MarkPackageDirty();
+	const auto SourceRevision = Package->GetEditRevision();
+	const auto SourceCompile = Source->GetMaterialCompileDebugInfo();
+	const auto SourceMode = Source->GetEditCompileMode();
+	EXPECT_FALSE(Session.FinishAndApply(Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_EQ(Source->CaptureRootInputs(), Original);
+	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().AuthoredRevision, SourceCompile.AuthoredRevision);
+	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().RequestId, SourceCompile.RequestId);
+	EXPECT_EQ(Source->GetEditCompileMode(), SourceMode);
+	EXPECT_EQ(Package->GetEditRevision(), SourceRevision);
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_TRUE(Session.HasUnappliedChanges());
+	EXPECT_FALSE(Transactions->CanUndo());
+
+	ASSERT_TRUE(FMaterialExpressionEditing::SetRootInputs(*Draft, Original));
+	Edit(*Draft, 0.61f);
+	Error.clear();
+	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
+	EXPECT_FALSE(Session.HasUnappliedChanges());
+	EXPECT_FLOAT_EQ(Source->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0], 0.61f);
+}
+
+TEST_F(FMaterialEditingSessionTests, ApplyPreservesDraftEditsMadeDuringSourcePublication)
+{
+	Tests::FTestEditorTransactorOwner Transactions;
+	FMaterialEditingSession Session;
+	std::string Error;
+	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error, Transactions.Get())) << Error;
+	auto* Draft = Session.GetWorkingMaterial();
+	Edit(*Draft, 0.31f);
+	bool bEditedDuringApply = false;
+	auto& Changes = Source->GetGraphChanges();
+	const auto Handle = Changes.Subscribe(*Source, [&](const FMaterialGraphChangeSet&) {
+		if (!std::exchange(bEditedDuringApply, true)) Edit(*Draft, 0.72f);
+	});
+	const bool bApplied = Session.FinishAndApply(Error);
+	Changes.Unsubscribe(Handle);
+	ASSERT_TRUE(bApplied) << Error;
+	EXPECT_TRUE(bEditedDuringApply);
+	EXPECT_TRUE(Session.HasUnappliedChanges());
+	EXPECT_FLOAT_EQ(Source->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0], 0.31f);
+	EXPECT_FLOAT_EQ(Draft->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0], 0.72f);
+	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
+	EXPECT_FALSE(Session.HasUnappliedChanges());
+	EXPECT_FLOAT_EQ(Source->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0], 0.72f);
+}
+
 TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChangingSource)
 {
 	Tests::FTestEditorTransactorOwner Transactions;
@@ -674,10 +736,14 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_TRUE(Session.HasUnappliedChanges());
 		ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
-		Session.MarkSaved();
+		EXPECT_FALSE(Session.HasUnappliedChanges());
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_TRUE(Session.HasUnappliedChanges());
 		EXPECT_NE(Source->CaptureRootInputs(), Original);
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_FALSE(Session.HasUnappliedChanges());
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_TRUE(Session.HasUnappliedChanges());
 	}
 	EXPECT_FALSE(RetiredDraft.IsValid());
 	EXPECT_FALSE(Transactions->CanUndo());

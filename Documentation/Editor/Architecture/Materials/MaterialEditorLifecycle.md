@@ -73,8 +73,8 @@ Reopening or package replacement creates a fresh working copy with the preferenc
 Apply requests compilation if necessary and publishes after the current preview
 has compiled successfully. Editing again while Apply is waiting cancels that
 publication intent. A failed or canceled compilation leaves the source unchanged.
-Apply refuses to overwrite authored source changes made outside the document;
-relocation or sibling-package edits with unchanged source values are allowed.
+Apply checks the source material's authored publication revision for conflicts.
+Package relocation and edits to sibling assets leave that revision unchanged.
 Publication updates the existing source through material mutation boundaries and
 submits its changed root and loaded dependent variants together. Scene references
 keep their identity and runtime compilation retains its last-good failure policy.
@@ -82,11 +82,11 @@ Apply does not save the package to disk. Layout-only Apply copies positions and
 labels onto the current source expressions and preserves their identity. It does
 not request a compile or advance the material or function semantic revision.
 
-Working-copy checkpoints include Domain as well as static properties, expression
-children, roots and presentation. Initialization installs the complete configuration
-before copying the graph, so PostProcess scene reads compile in their own domain.
-A domain-only change is an unapplied edit and participates in external-source
-conflict checks. Apply validates domain/model/blend admission, copies the current
+The working package's native transaction state tracks unapplied edits to domain,
+static properties, expression children, roots and presentation. Initialization
+installs the complete configuration before copying the graph, so PostProcess scene
+reads compile in their own domain. A domain-only change also advances the source
+revision when published. Apply validates domain/model/blend admission, copies the current
 graph and complete configuration in a graph-notification batch, and compiles the
 resulting source generation. Save then persists that source; reopening reconstructs
 the same domain, model, retained roots and selected shader contract. Preview and
@@ -169,9 +169,10 @@ transient package under the source mount. The transient material is not a
 top-level asset export. That package supplies isolated transaction revisions;
 the source asset supplies the Toolkit's resource identity. Undo/Redo edits the
 working copy, including after Apply, and does not implicitly republish to the
-source. Apply invalidates the source's saved checkpoint; successful Save marks
-both source and working checkpoints. Closing or resetting the working copy
-forgets its transaction records and cancels its compile jobs before retirement.
+source. Successful Apply advances the working package's native saved revision
+and leaves the source dirty until Save. A draft edited during Apply remains
+dirty. Closing or resetting the working copy forgets its transaction records
+and cancels its compile jobs before retirement.
 
 Each `FMaterialFunctionEditingSession` owns a transient duplicate of the source
 function and its working package, canvas, and derived preview. The session

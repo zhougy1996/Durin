@@ -40,8 +40,11 @@ namespace Durin
 		auto Has(EMaterialGraphChange Change) const -> bool { return (Flags & Change) != EMaterialGraphChange::None; }
 	};
 
-	// Owning-thread observation. Checkpoints exist only while subscribed, contain
-	// exact reflected values, and do not retain graph/resource objects.
+	// Called after asset replacement has committed and rewritten external references.
+	ENGINE_API auto RefreshMaterialGraphObservers() -> void;
+
+	// Owning-thread observation. Comparison data exists only while subscribed, contains
+	// exact reflected values, and does not retain graph or resource objects.
 	class FMaterialGraphChangeSource
 	{
 	public:
@@ -54,16 +57,18 @@ namespace Durin
 		// Called only after successful owner publication; no-op publications are silent.
 		ENGINE_API auto Publish(DObject& Owner) -> void;
 		ENGINE_API auto PublishPresentation(DObject& Owner) -> void;
+		// Starts tracking authored publications even without a graph observer.
+		ENGINE_API auto GetEditRevision() -> uint64;
 		ENGINE_API auto BeginBatch() -> void;
 		ENGINE_API auto EndBatch(DObject& Owner) -> void;
 	private:
+		friend ENGINE_API auto RefreshMaterialGraphObservers() -> void;
+		auto Refresh(DObject& Owner) -> void;
 		auto Flush(DObject& Owner) -> void;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};
 
-	// Called after asset replacement has committed and rewritten external references.
-	ENGINE_API auto RefreshMaterialGraphObservers() -> void;
 	ENGINE_API auto GetMaterialGraphChangeSource(DObject& Owner) -> FMaterialGraphChangeSource&;
 	class FScopedMaterialGraphChange
 	{

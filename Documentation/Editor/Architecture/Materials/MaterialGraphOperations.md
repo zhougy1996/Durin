@@ -92,10 +92,12 @@ its authored state to the existing package-owned source material. Graph commands
 remain reusable against either owner and never implicitly select a source asset.
 Working-copy initialization and Apply duplicate concrete expression children through
 `SetMaterialExpressions`, including call bindings and typed terminal defaults.
-Source and preview never share mutable expression children. The applied checkpoint
-retains independent expression copies and compares their reflected authored fields,
-domain, static properties, outputs and presentation. A changed callee with unchanged node
-IDs is still an unapplied edit. Invalid candidates leave the source unchanged.
+Source and preview own independent expression children. The working package's
+native transaction state determines whether it has unapplied changes. Apply
+compares the current source and draft to identify layout-only changes. The
+comparison includes expression fields, root bindings, domain and static properties.
+A changed callee with unchanged node IDs still requires semantic publication.
+Invalid candidates leave the source unchanged.
 Semantic commands preserve storage identity and parameter-definition consistency;
 numeric type mismatches and missing required values remain compiler diagnostics.
 Missing expression references, invalid source pins selected by a connection command,
@@ -480,8 +482,8 @@ or transaction history. Unknown expression-property changes conservatively
 invalidate that node's content, interface, and inputs.
 
 Observation uses exact reflected property payloads without retaining expression
-or resource objects. Checkpoints exist only while subscribers are attached;
-ordinary setters and reflected property edits compare after publication, so
+or resource objects. Comparison data exists while subscribers are attached.
+Ordinary setters and reflected property edits compare after publication, so
 rejected changes and identical observations emit nothing. Position setters compare
 presentation only, without recapturing expression properties. Compilation and
 render-state changes are not graph notifications.
@@ -748,18 +750,14 @@ use the shortcut's implicit-derivative texture sample. Specular, Clear Coat and
 Clear Coat Roughness accept scalar parameters and use R for the texture shortcut. Each shortcut
 commits node placement, expressions and the root connection in one transaction.
 
-One user-visible command produces one global editor transaction. Semantic
-commands retain changed reflected member values and necessary structural state; presentation-only
-commands retain only changed node positions; parameter-only
-commands retain only the parameter GUID and before/after values. Every custom
-change reports its owned native allocations to the bounded transaction buffer.
-Undo and Redo restore semantic state through the ordinary material mutation
-boundary, so semantic restores follow the current compile policy while presentation-only and
-parameter-only restores do not. Activating an editable asset document establishes
-its package's saved revision checkpoint, and a successful save advances that
-checkpoint. Undoing back to the open or most recently saved revision therefore
-clears the package dirty state and removes the unsaved marker; Redo marks it dirty
-again when it moves away from that checkpoint.
+One user-visible command records the changed objects in one global editor
+transaction. Native object replay restores authored fields, membership and
+liveness. The ordinary material publication boundary determines the compile
+refresh for semantic changes. Presentation and parameter preview updates follow
+their own publication paths. Opening a working document establishes a native
+saved revision for its package. Apply advances that revision after a successful
+publication. Undo or Redo returns the draft to clean state when it reaches that
+revision, while disk Save tracks the source package independently.
 
 Material and function node movement use `FMaterialGraphMoveSession`. Pointer-down
 captures the selection and semantic revision; drag samples validate detached position

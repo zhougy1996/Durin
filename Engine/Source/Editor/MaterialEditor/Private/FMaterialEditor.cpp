@@ -50,6 +50,7 @@ namespace Durin::MaterialEditor
 		TStrongObjectPtr<DMaterial> Replacement;
 		TStrongObjectPtr<DMaterialFunction> FunctionReplacement;
 		uint64 WorkingRevision = 0;
+		uint64 ReplacementRevision = 0;
 		bool bCommitted = false;
 	public:
 		explicit FMaterialEditorReloadParticipant(std::shared_ptr<FMaterialEditor> InOwner) : Owner(std::move(InOwner)) {}
@@ -79,10 +80,12 @@ namespace Durin::MaterialEditor
 			}
 			if (Material)
 			{
+				if (Material->bPublishing) return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Busy});
 				Replacement = Cast<DMaterial>(Entry->Replacement);
 				if (!Replacement) return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::UnmappedReference});
 				MaterialSession = Material;
 				WorkingRevision = Material->WorkingPackage->GetEditRevision();
+				ReplacementRevision = Replacement->GetGraphChanges().GetEditRevision();
 			}
 			return {};
 		}
@@ -95,7 +98,9 @@ namespace Durin::MaterialEditor
 					&& FunctionSession->WorkingPackage->GetEditRevision() == WorkingRevision))
 				&& (!MaterialSession || (Owner->EditingSession == MaterialSession
 					&& FObjectKey(MaterialSession->GetSourceMaterial()) == Previous
-					&& MaterialSession->WorkingPackage->GetEditRevision() == WorkingRevision));
+					&& !MaterialSession->bPublishing
+					&& MaterialSession->WorkingPackage->GetEditRevision() == WorkingRevision
+					&& Replacement->GetGraphChanges().GetEditRevision() == ReplacementRevision));
 		}
 		auto CoversNativeReferences(const DObject&) const -> bool override { return false; }
 		auto GetStrongReferenceCount(const DObject& Object) const -> uint32 override
@@ -105,7 +110,7 @@ namespace Durin::MaterialEditor
 			if (MaterialSession)
 			{
 				MaterialSession->Source = std::move(Replacement);
-				MaterialSession->SourceRevision = MaterialSession->Source->GetPackage()->GetEditRevision();
+				MaterialSession->SourceRevision = ReplacementRevision;
 			}
 			if (FunctionSession)
 			{
@@ -349,9 +354,7 @@ namespace Durin::MaterialEditor
 			}
 			if (!IsEditorOpen() || EditingSession != Session || Session->GetSourceMaterial() != Source) return false;
 		}
-		if (!EditorSession.Save(Source, {}, [this](std::string Message) { SetError(std::move(Message)); })) return false;
-		if (Session && EditingSession == Session) Session->MarkSaved();
-		return true;
+		return EditorSession.Save(Source, {}, [this](std::string Message) { SetError(std::move(Message)); });
 	}
 
 	auto FMaterialEditor::OnCanUndo() const -> bool

@@ -47,6 +47,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	auto* Draft = Session.GetWorkingMaterial();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
 	const auto Original = Source->CaptureRootInputs();
+	const auto SourceRevision = Source->GetMaterialCompileDebugInfo().AuthoredRevision;
 	auto Outputs = Original;
 	Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.132711f});
 	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
@@ -59,6 +60,8 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	EXPECT_FALSE(Session.IsApplyPending());
 	EXPECT_EQ(Source->CaptureRootInputs(), Original);
 	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_TRUE(Session.HasUnappliedChanges());
+	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().AuthoredRevision, SourceRevision);
 
 	Error.clear();
 	Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.242713f});

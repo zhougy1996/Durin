@@ -1350,7 +1350,7 @@ TEST(FMaterialGraphPersistenceTests, Stage4WorkingCopyAppliesDomainAndModelAcros
 			ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 			EXPECT_FALSE(Session.HasUnappliedChanges()); EXPECT_EQ(Source->GetDomain(),Configuration.Domain); EXPECT_EQ(Source->GetStaticProperties(),Configuration.Properties);
 			ASSERT_TRUE(Source->GetAcceptedCompiledProgram()); EXPECT_EQ(Source->GetAcceptedCompiledProgram()->GetShaderMap().Domain,Configuration.Domain);
-			ASSERT_TRUE(SavePackage(Source->GetPackage())); Session.MarkSaved();
+			ASSERT_TRUE(SavePackage(Source->GetPackage()));
 		}
 		ASSERT_TRUE(UnloadPackage(Path)); Source=LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path)); ASSERT_TRUE(Source);
 		EXPECT_EQ(Source->GetDomain(),Configuration.Domain); EXPECT_EQ(Source->GetStaticProperties(),Configuration.Properties); EXPECT_EQ(CaptureMaterialOutputBindings(*Source), ExpectedBindings);

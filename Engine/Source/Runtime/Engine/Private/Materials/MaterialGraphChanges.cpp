@@ -172,7 +172,8 @@ namespace Durin
 	{
 		TMulticastDelegate<void(const FMaterialGraphChangeSet&)> Changed;
 		std::vector<std::pair<FDelegateHandle, std::shared_ptr<bool>>> Listeners;
-		FGraphState Checkpoint;
+		FGraphState Observed;
+		uint64 EditRevision = 0;
 		uint32 BatchDepth = 0;
 		bool bPending = false;
 		bool bGraphPending = false;
@@ -188,7 +189,7 @@ namespace Durin
 		if (!Impl) Impl = std::make_unique<FImpl>();
 		if (!Impl->Changed.IsBound())
 		{
-			Impl->Checkpoint = Capture(Owner);
+			Impl->Observed = Capture(Owner);
 			Impl->Owner = &Owner;
 			std::erase_if(ObservedOwners, [](const auto& Entry) { return !Entry.IsValid(); });
 			ObservedOwners.emplace_back(&Owner);
@@ -214,13 +215,24 @@ namespace Durin
 		Impl->Changed.Remove(Handle);
 		if (!Impl->Changed.IsBound())
 		{
-			Impl->Checkpoint = {};
+			Impl->Observed = {};
 			std::erase_if(ObservedOwners, [&](const auto& Entry) { return Entry.GetKey() == Impl->Owner.GetKey() || !Entry.IsValid(); });
 		}
+	}
+	auto FMaterialGraphChangeSource::GetEditRevision() -> uint64
+	{
+		check(IsInGameThread());
+		if (!Impl) Impl = std::make_unique<FImpl>();
+		return Impl->EditRevision;
 	}
 	auto FMaterialGraphChangeSource::Publish(DObject& Owner) -> void
 	{
 		check(IsInGameThread());
+		if (Impl) ++Impl->EditRevision;
+		Refresh(Owner);
+	}
+	auto FMaterialGraphChangeSource::Refresh(DObject& Owner) -> void
+	{
 		if (!Impl || !Impl->Changed.IsBound()) return;
 		Impl->bGraphPending = true;
 		Impl->bPending = true;
@@ -229,6 +241,7 @@ namespace Durin
 	auto FMaterialGraphChangeSource::PublishPresentation(DObject& Owner) -> void
 	{
 		check(IsInGameThread());
+		if (Impl) ++Impl->EditRevision;
 		if (!Impl || !Impl->Changed.IsBound()) return;
 		Impl->bPending = true;
 		Flush(Owner);
@@ -249,8 +262,8 @@ namespace Durin
 			if (std::exchange(Impl->bGraphPending, false))
 			{
 				auto Current = Capture(Owner);
-				Changes = Difference(Impl->Checkpoint, Current);
-				Impl->Checkpoint = std::move(Current);
+				Changes = Difference(Impl->Observed, Current);
+				Impl->Observed = std::move(Current);
 			}
 			else
 			{
@@ -260,13 +273,13 @@ namespace Durin
 				{
 					Current = Material->GetMaterialGraphPresentation();
 					const auto Position = Material->GetRootPosition();
-					if (Impl->Checkpoint.RootPosition != Position) Changes.MarkGraph(G::RootPosition);
-					Impl->Checkpoint.RootPosition = Position;
+					if (Impl->Observed.RootPosition != Position) Changes.MarkGraph(G::RootPosition);
+					Impl->Observed.RootPosition = Position;
 				}
 				else Current.Nodes = Cast<DMaterialFunction>(&Owner)->GetFunctionPresentation().Nodes;
 #endif
-				Changes.Merge(DifferencePresentation(Impl->Checkpoint.Presentation, Current));
-				Impl->Checkpoint.Presentation = std::move(Current);
+				Changes.Merge(DifferencePresentation(Impl->Observed.Presentation, Current));
+				Impl->Observed.Presentation = std::move(Current);
 			}
 			if (!Changes.IsEmpty()) Impl->Changed.Broadcast(Changes);
 		}
@@ -287,7 +300,7 @@ namespace Durin
 		check(IsInGameThread());
 		const auto Owners = ObservedOwners;
 		for (const auto& Entry : Owners)
-			if (auto* Owner = Entry.Get()) GetMaterialGraphChangeSource(*Owner).Publish(*Owner);
+			if (auto* Owner = Entry.Get()) GetMaterialGraphChangeSource(*Owner).Refresh(*Owner);
 	}
 	auto GetMaterialGraphChangeSource(DObject& Owner) -> FMaterialGraphChangeSource&
 	{
