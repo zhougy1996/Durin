@@ -21,7 +21,12 @@ namespace Durin
 	class FCopySceneColorFragmentShader;
 	class FFXAAFragmentShader;
 	class FBloomFragmentShader;
-	enum class EBloomStage : uint32 { Extract, Downsample, Upsample };
+	enum class EBloomStage : uint32 { Extract, Downsample, Upsample, ExtractQuarter };
+
+	constexpr auto IsBloomExtractStage(EBloomStage Stage) -> bool
+	{
+		return Stage == EBloomStage::Extract || Stage == EBloomStage::ExtractQuarter;
+	}
 	struct FPreparedBloom
 	{
 		TShaderMapRef<FBloomFragmentShader> FragmentShader;

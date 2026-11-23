@@ -317,7 +317,7 @@ namespace Durin
 
 		const FVector2f InvSourceSize(1.0f / Source->GetSizeX(), 1.0f / Source->GetSizeY());
 		const FBloomPassUniform Uniform{
-			Stage == EBloomStage::Extract ? GetViewRectUV(View, InvSourceSize) : FVector4f{0, 0, 1, 1},
+			IsBloomExtractStage(Stage) ? GetViewRectUV(View, InvSourceSize) : FVector4f{0, 0, 1, 1},
 			InvSourceSize, DisplayMapping::CalculateExposureScale(View.Settings.PostProcess.ExposureEV),
 			static_cast<uint32>(Stage)};
 		FBloomFragmentShader::FParameters Parameters;

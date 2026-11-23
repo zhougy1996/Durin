@@ -56,7 +56,8 @@ becomes zero.
 The graphics copy and FXAA shaders both own the required display transform.
 The copy path maps its center sample. The FXAA path maps every sampled scene
 value before luma, direction, and resolve calculations, so FXAA operates on
-bounded display-linear RGB. This fused route adds no display-sized
+bounded display-linear RGB. Low-contrast neighborhoods return the mapped
+center color before directional sampling. This fused route adds no display-sized
 intermediate. FXAA keeps the mapped center alpha.
 
 All scene draws and optional contact-shadow composition finish in HDR. Display
@@ -72,15 +73,17 @@ not color processing.
 ## Bloom
 
 `FSceneViewPostProcessSettings::bEnableBloom` opts a view in. The Level Editor
-exposes the setting under **Post Processing > Bloom**. It defaults to off,
-and diagnostic outputs bypass the effect.
+exposes the setting under **Post Processing > Bloom** and exposes its resolution
+under **Bloom Resolution**. The Material Editor preview exposes both controls.
+Bloom defaults to off, and diagnostic outputs bypass the effect.
 
-RDG extracts highlights from the fitted view into a half-resolution HDR
-target. The filter uses exposed luminance with a threshold of 1.0 and a soft
-knee of 0.5 while preserving scene-linear RGB in the pyramid. Up to five
-levels of downsampling and the corresponding upsampling combine broad and
-narrow highlights. The levels are frame-transient and stop growing in count
-once both dimensions reach one pixel.
+RDG extracts highlights from the fitted view into a half-resolution HDR target
+by default. The quarter-resolution option uses a wider extraction footprint
+and starts one level lower, with both options ending at up to 1/32 resolution
+before upsampling. The filter uses exposed luminance with a threshold of 1.0
+and a soft knee of 0.5 while preserving scene-linear RGB in the pyramid. The
+levels are frame-transient and stop growing in count once both dimensions
+reach one pixel.
 
 The display pass samples the reconstructed result at 0.15 strength and adds
 it to scene RGB before applying exposure and the ACES fit. The Copy and FXAA

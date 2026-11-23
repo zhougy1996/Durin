@@ -69,6 +69,11 @@ namespace Durin::LevelEditor
 			TViewportModeOption{EGroundTruthAmbientOcclusionQuality::FullResolution, "Full Resolution"}
 		};
 
+		constexpr std::array BloomResolutionOptions = {
+			TViewportModeOption{EBloomResolution::Half, "Half Resolution"},
+			TViewportModeOption{EBloomResolution::Quarter, "Quarter Resolution"}
+		};
+
 		constexpr std::array VolumetricCloudQualityOptions = {
 			TViewportModeOption{EVolumetricCloudQuality::Performance, "Performance"},
 			TViewportModeOption{EVolumetricCloudQuality::High, "High (Default)"},
@@ -1099,6 +1104,18 @@ namespace Durin::LevelEditor
 					auto Settings = RenderSettingsClient->GetViewSettings();
 					Settings.PostProcess.bEnableBloom = bEnableBloom;
 					RenderSettingsClient->SetViewSettings(Settings);
+				}
+				if (ImGui::BeginMenu("Bloom Resolution", bEnableBloom))
+				{
+					DrawModeOptions(
+						RenderSettingsClient->GetViewSettings().PostProcess.BloomResolution,
+						BloomResolutionOptions,
+						[RenderSettingsClient](EBloomResolution Resolution) {
+							auto Settings = RenderSettingsClient->GetViewSettings();
+							Settings.PostProcess.BloomResolution = Resolution;
+							RenderSettingsClient->SetViewSettings(Settings);
+						});
+					ImGui::EndMenu();
 				}
 				if (ImGui::BeginMenu("FXAA"))
 				{

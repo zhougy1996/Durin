@@ -132,6 +132,9 @@ namespace Durin
 			const FSceneView& View, const FPostProcessPassParameters& PostProcess) -> FRDGTextureParameter
 		{
 			constexpr uint32 MaxLevels = 5;
+			const bool bQuarter = View.Settings.PostProcess.BloomResolution == EBloomResolution::Quarter;
+			const uint32 LevelLimit = bQuarter ? MaxLevels - 1 : MaxLevels;
+			const EBloomStage ExtractStage = bQuarter ? EBloomStage::ExtractQuarter : EBloomStage::Extract;
 			constexpr FRHITextureSubresourceRange ColorRange{ERHITextureAspect::Color, 0, 1, 0, 1};
 			const auto AddPass = [&](std::string Name, EBloomStage Stage, FIntPoint Extent,
 				FRDGTextureParameter Source, std::optional<FRDGTextureParameter> Detail = std::nullopt)
@@ -145,7 +148,7 @@ namespace Durin
 				Parameters->Source = Source;
 				Parameters->Detail = Detail;
 				Parameters->Output = {Output, ColorRange, ERHIRenderTargetLoadAction::Clear};
-				if (Stage == EBloomStage::Extract)
+				if (IsBloomExtractStage(Stage))
 				{
 					Parameters->SceneColor = PostProcess.SceneColor;
 					Parameters->CloudComposite = PostProcess.Resources.CloudComposite;
@@ -173,13 +176,14 @@ namespace Durin
 			FIntPoint Extent(static_cast<int32>(View.ViewportWidth), static_cast<int32>(View.ViewportHeight));
 			FRDGTextureParameter Result = *PostProcess.Resources.SceneColor;
 			uint32 NumLevels = 0;
-			for (; NumLevels < MaxLevels; ++NumLevels)
+			for (; NumLevels < LevelLimit; ++NumLevels)
 			{
-				Extent = {(Extent.x + 1) / 2, (Extent.y + 1) / 2};
+				const int32 Divisor = NumLevels == 0 && bQuarter ? 4 : 2;
+				Extent = {(Extent.x + Divisor - 1) / Divisor, (Extent.y + Divisor - 1) / Divisor};
 				Extents[NumLevels] = Extent;
 				const bool bExtract = NumLevels == 0;
 				Result = AddPass(bExtract ? "Scene.Bloom.Extract" : "Scene.Bloom.Downsample." + std::to_string(NumLevels),
-					bExtract ? EBloomStage::Extract : EBloomStage::Downsample, Extent, Result);
+					bExtract ? ExtractStage : EBloomStage::Downsample, Extent, Result);
 				Levels[NumLevels] = Result;
 				if (Extent.x == 1 && Extent.y == 1)
 				{

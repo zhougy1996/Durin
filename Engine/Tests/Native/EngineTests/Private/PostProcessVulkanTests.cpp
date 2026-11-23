@@ -69,7 +69,8 @@ namespace Durin
 		} Cleanup{Lifecycle, Scene};
 		Scene = Renderer.CreateScene();
 		auto Prepare = [&](bool FXAA, EPixelFormat Format, FByteBuffer* Pixels = nullptr,
-			bool Bloom = false, float Brightness = 0.0f, FRDGCapture* Capture = nullptr) {
+			bool Bloom = false, float Brightness = 0.0f, FRDGCapture* Capture = nullptr,
+			EBloomResolution BloomResolution = EBloomResolution::Half) {
 			FTextureRHIRef Output;
 			const auto Preparation = FRenderResourcePreparation::Create();
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
@@ -89,6 +90,7 @@ namespace Durin
 					View.Settings.Mode.RenderMode = ERenderMode::Unlit;
 					View.Settings.PostProcess.bEnableFXAA = FXAA;
 					View.Settings.PostProcess.bEnableBloom = Bloom;
+					View.Settings.PostProcess.BloomResolution = BloomResolution;
 					const auto DrawsBefore = Commands.GetNumRecordedDrawCommands();
 					Renderer.PrepareViewResources(Commands, {Scene.get(), View, Output, false, {}}, Preparation);
 					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), DrawsBefore);
@@ -113,6 +115,7 @@ namespace Durin
 					View.Settings.Mode.RenderMode = ERenderMode::Unlit;
 					View.Settings.PostProcess.bEnableFXAA = FXAA;
 					View.Settings.PostProcess.bEnableBloom = Bloom;
+					View.Settings.PostProcess.BloomResolution = BloomResolution;
 					EXPECT_EQ(Renderer.RenderView(Commands, {Scene.get(), View, Output, false, {}, nullptr, Capture}), ERenderViewResult::Success);
 					EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, *Pixels));
 					GDynamicRHI->RHIEndFrame_RenderThread(Commands);
@@ -148,10 +151,11 @@ namespace Durin
 		for (const bool FXAA : {false, true})
 		{
 			SCOPED_TRACE(FXAA);
-			FByteBuffer Disabled, Enabled, DimDisabled, DimEnabled;
-			FRDGCapture DisabledGraph, EnabledGraph;
+			FByteBuffer Disabled, Enabled, Quarter, DimDisabled, DimEnabled;
+			FRDGCapture DisabledGraph, EnabledGraph, QuarterGraph;
 			Prepare(FXAA, EPixelFormat::SRGBA8_UNORM, &Disabled, false, 1.75f, &DisabledGraph);
 			Prepare(FXAA, EPixelFormat::SRGBA8_UNORM, &Enabled, true, 1.75f, &EnabledGraph);
+			Prepare(FXAA, EPixelFormat::SRGBA8_UNORM, &Quarter, true, 1.75f, &QuarterGraph, EBloomResolution::Quarter);
 			Prepare(FXAA, EPixelFormat::SRGBA8_UNORM, &DimDisabled, false, 0.25f);
 			Prepare(FXAA, EPixelFormat::SRGBA8_UNORM, &DimEnabled, true, 0.25f);
 			ASSERT_EQ(Enabled.size(), 32u * 32u * 4u);
@@ -159,9 +163,18 @@ namespace Durin
 			EXPECT_GT(std::to_integer<int>(Enabled[0]), std::to_integer<int>(Disabled[0]));
 			EXPECT_EQ(Enabled[3], Disabled[3]);
 			EXPECT_EQ(DimEnabled, DimDisabled);
+			EXPECT_EQ(Quarter, Enabled);
 			const auto IsBloom = [](const FRDGPassCapture& Pass) { return Pass.Name.starts_with("Scene.Bloom."); };
 			EXPECT_EQ(std::ranges::count_if(DisabledGraph.Passes, IsBloom), 0);
 			EXPECT_EQ(std::ranges::count_if(EnabledGraph.Passes, IsBloom), 9);
+			EXPECT_EQ(std::ranges::count_if(QuarterGraph.Passes, IsBloom), 7);
+			const auto CheckExtractExtent = [](const FRDGCapture& Graph, int32 Size) {
+				const auto Extract = std::ranges::find(Graph.Resources, "Scene.Bloom.Extract.Color", &FRDGResourceCapture::Name);
+				ASSERT_NE(Extract, Graph.Resources.end());
+				EXPECT_EQ(Extract->TextureExtent, FIntPoint(Size, Size));
+			};
+			CheckExtractExtent(EnabledGraph, 16);
+			CheckExtractExtent(QuarterGraph, 8);
 			const auto LastUpsample = std::ranges::find(EnabledGraph.Passes, "Scene.Bloom.Upsample.0", &FRDGPassCapture::Name);
 			const auto Display = std::ranges::find(EnabledGraph.Passes, "Scene.PostProcess", &FRDGPassCapture::Name);
 			ASSERT_NE(Display, EnabledGraph.Passes.end());

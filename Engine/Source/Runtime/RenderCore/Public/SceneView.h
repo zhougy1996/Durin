@@ -126,10 +126,13 @@ namespace Durin
 		bool bEnableOcclusionCulling = true;
 	};
 
+	enum class EBloomResolution : uint8 { Half, Quarter };
+
 	struct FSceneViewPostProcessSettings
 	{
 		bool bEnableFXAA = true;
 		bool bEnableBloom = false;
+		EBloomResolution BloomResolution = EBloomResolution::Half;
 		// Manual display exposure in EV stops. Renderer canonicalizes non-finite
 		// values to zero and clamps authored values to the display contract range.
 		float ExposureEV = 0.0f;

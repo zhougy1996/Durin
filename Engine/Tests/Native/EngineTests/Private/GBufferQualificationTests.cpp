@@ -126,7 +126,8 @@ namespace
 		const Durin::FVector3& BaseColor,
 		float Metallic = 0.0f,
 		float Roughness = 0.5f,
-		float Opacity = 1.0f) -> Durin::DMaterialInstance*
+		float Opacity = 1.0f,
+		double EmissiveScale = 1.0) -> Durin::DMaterialInstance*
 	{
 		static Durin::FObjectKey RootHandle;
 		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectKey(RootHandle));
@@ -153,7 +154,7 @@ namespace
 		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
 		if (ShadingModel == Durin::EMaterialShadingModel::Unlit)
 			EXPECT_TRUE(Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(),
-				Durin::FVector3(std::clamp(BaseColor.x, 0.0, 1.0), std::clamp(BaseColor.y, 0.0, 1.0), std::clamp(BaseColor.z, 0.0, 1.0))));
+				Durin::FVector3(std::clamp(BaseColor.x, 0.0, 1.0), std::clamp(BaseColor.y, 0.0, 1.0), std::clamp(BaseColor.z, 0.0, 1.0)) * EmissiveScale));
 		EXPECT_TRUE(Material->SetVectorParameterValue(
 			Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), BaseColor));
 		EXPECT_TRUE(Material->SetScalarParameterValue(
@@ -2236,4 +2237,160 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
+}
+
+TEST(FGBufferQualificationTests, ProfilesBloomAlongSubpixelCameraTrack)
+{
+	using namespace Durin;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+	GIsGameThreadIdInitialized = true;
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(Tests::GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("BloomCameraTrack");
+	Lifecycle.Start(Renderer);
+
+	auto Quad = MakeStaticQuad();
+	FSceneTestOwner Scene;
+	struct FCleanup
+	{
+		FSceneTestOwner& Scene;
+		FStaticMeshRenderData& Quad;
+		FModuleTestHarness& Lifecycle;
+		~FCleanup()
+		{
+			Scene.Reset();
+			EnqueueRenderCommand<FGBufferQualificationCommand>([this](FRHICommandListImmediate&) {
+				Quad.ReleaseResources();
+			});
+			FlushRenderingCommands();
+			Lifecycle.Shutdown();
+			ShutdownRenderingThread();
+			FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+			RHIExit();
+		}
+	} Cleanup{Scene, *Quad, Lifecycle};
+	EnqueueRenderCommand<FGBufferQualificationCommand>([&](FRHICommandListImmediate& Commands) {
+		ASSERT_TRUE(Quad->InitResources(Commands));
+	});
+	FlushRenderingCommands();
+
+	auto* Emissive = MakeMaterial("BloomCameraTrackEmissive", EMaterialBlendMode::Opaque,
+		EMaterialShadingModel::Unlit, {1.0, 0.72, 0.38}, 0.0f, 0.5f, 1.0f, 12.0);
+	auto* DimEdge = MakeMaterial("BloomCameraTrackDimEdge", EMaterialBlendMode::Opaque,
+		EMaterialShadingModel::Unlit, {0.048, 0.048, 0.048});
+	ASSERT_NE(Emissive, nullptr);
+	ASSERT_NE(DimEdge, nullptr);
+	const auto AddQuad = [&](uint64 Id, DMaterialInstance& Material, double X, double Y, double Size) {
+		const auto Transform = Math::TranslationMatrix(FVector3{2.0 * X / TimingWidth, 2.0 * Y / TimingHeight, 0.0})
+			* Math::ScaleMatrix(FVector3{2.0 * Size / TimingWidth, 2.0 * Size / TimingHeight, 1.0});
+		FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
+			std::make_unique<FStaticMeshSceneProxy>(Quad.get(),
+				std::vector<FMaterialRenderProxyRef>{Material.GetRenderProxy()}), Transform);
+	};
+	AddQuad(1, *Emissive, -28.0, -2.0, 3.0);
+	AddQuad(2, *Emissive, 20.0, -2.0, 6.0);
+	AddQuad(3, *DimEdge, -12.0, 16.0, 24.0);
+	FlushRenderingCommands();
+
+	constexpr uint32 CaptureFrames = 17;
+	constexpr uint32 CropSize = 128;
+	const char* EvidenceDirectory = std::getenv("DURIN_BLOOM_EVIDENCE_DIR");
+	const auto OutputDirectory = EvidenceDirectory
+		? std::filesystem::path(EvidenceDirectory) : Testing::GetTestWorkDirectory();
+	std::filesystem::create_directories(OutputDirectory);
+
+	struct FRoute { const char* Name; bool bBloom; EBloomResolution Resolution; };
+	constexpr FRoute Routes[]{
+		{"off", false, EBloomResolution::Half},
+		{"half", true, EBloomResolution::Half},
+		{"quarter", true, EBloomResolution::Quarter}
+	};
+	for (const FRoute& Route : Routes)
+	{
+		SCOPED_TRACE(Route.Name);
+		std::vector<FGPUTimingQueryRHIRef> ViewQueries, DisplayQueries;
+		std::array<FByteBuffer, CaptureFrames> Frames;
+		EnqueueRenderCommand<FGBufferQualificationCommand>([&](FRHICommandListImmediate& Commands) {
+			const auto Desc = FRHITextureCreateDesc::Create2D(
+				"BloomCameraTrack", TimingWidth, TimingHeight, EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource
+					| ETextureCreateFlags::SourceCopy);
+			const auto Target = GDynamicRHI->RHICreateTexture(Commands, Desc);
+			ASSERT_TRUE(Target);
+			FSceneView View;
+			View.ViewportWidth = TimingWidth;
+			View.ViewportHeight = TimingHeight;
+			View.ClearColor = {0.04f, 0.04f, 0.04f, 1.0f};
+			View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.PostProcess.bEnableBloom = Route.bBloom;
+			View.Settings.PostProcess.BloomResolution = Route.Resolution;
+			ASSERT_TRUE(Tests::PrepareQualificationView(Renderer, Commands, {Scene.Get(), View, Target, false, {}}));
+			const auto RenderFrame = [&](uint32 Pose, FByteBuffer* Pixels) {
+				const double Offset = double(Pose) / 4.0 - 2.0;
+				View.ViewMatrix = Math::TranslationMatrix(FVector3{2.0 * Offset / TimingWidth, Offset / TimingHeight, 0.0});
+				View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+				Renderer.BeginFrame_RenderThread(Commands);
+				EXPECT_EQ(Renderer.RenderView(Commands, {Scene.Get(), View, Target, false, {}}), ERenderViewResult::Success);
+				if (Pixels) ReadColorTexture(Commands, Target, *Pixels);
+				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+			};
+			for (uint32 Frame = 0; Frame < WarmupFrames; ++Frame)
+				RenderFrame(Frame % CaptureFrames, nullptr);
+			Renderer.SetViewGPUTimingSink_RenderThread([&](FGPUTimingQueryRHIRef Query) {
+				ViewQueries.push_back(std::move(Query));
+			});
+			GPostProcessTimingQueries = &DisplayQueries;
+			SetPostProcessTimingQuerySink(CapturePostProcessTiming);
+			for (uint32 Frame = 0; Frame < MeasuredFrames; ++Frame)
+				RenderFrame(Frame % CaptureFrames, nullptr);
+			SetPostProcessTimingQuerySink(nullptr);
+			GPostProcessTimingQueries = nullptr;
+			Renderer.SetViewGPUTimingSink_RenderThread({});
+			for (uint32 Frame = 0; Frame < CaptureFrames; ++Frame)
+				RenderFrame(Frame, &Frames[Frame]);
+		});
+		FlushRenderingCommands();
+		const auto Summarize = [&](const auto& Queries, const char* Region) {
+			ASSERT_EQ(Queries.size(), MeasuredFrames);
+			std::vector<uint64> Durations;
+			for (const auto& Query : Queries)
+			{
+				const auto Timing = Query->GetResult();
+				ASSERT_EQ(Timing.State, ERHIGPUTimingResultState::Ready);
+				Durations.push_back(Timing.DurationNanoseconds);
+			}
+			std::ofstream Samples(OutputDirectory / std::format("bloom-{}-{}.csv", Route.Name, Region));
+			Samples << "gpu_ns\n";
+			for (uint64 Duration : Durations)
+				Samples << Duration << '\n';
+			ASSERT_TRUE(Samples);
+			std::ranges::sort(Durations);
+			std::cout << "BLOOM_CAMERA_TRACK route=" << Route.Name << " region=" << Region
+				<< " median_ns=" << Durations[MeasuredFrames / 2]
+				<< " p95_ns=" << Durations[MeasuredFrames * 95 / 100 - 1] << '\n';
+		};
+		Summarize(ViewQueries, "view");
+		Summarize(DisplayQueries, "display");
+		for (uint32 Frame = 0; Frame < CaptureFrames; ++Frame)
+		{
+			const auto& Pixels = Frames[Frame];
+			ASSERT_EQ(Pixels.size(), TimingWidth * TimingHeight * 4u);
+			std::ofstream Capture(OutputDirectory / std::format("bloom-{}-{:02}.ppm", Route.Name, Frame), std::ios::binary);
+			Capture << "P6\n" << CropSize << ' ' << CropSize << "\n255\n";
+			for (uint32 Row = (TimingHeight - CropSize) / 2; Row < (TimingHeight + CropSize) / 2; ++Row)
+			{
+				for (uint32 Column = (TimingWidth - CropSize) / 2; Column < (TimingWidth + CropSize) / 2; ++Column)
+				{
+					const size_t Offset = (size_t(Row) * TimingWidth + Column) * 4;
+					Capture.write(reinterpret_cast<const char*>(Pixels.data() + Offset), 3);
+				}
+			}
+			ASSERT_TRUE(Capture);
+		}
+	}
 }

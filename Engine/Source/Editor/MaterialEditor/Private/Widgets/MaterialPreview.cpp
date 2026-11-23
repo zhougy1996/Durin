@@ -284,6 +284,17 @@ namespace Durin::MaterialEditor
 				Settings.PostProcess.bEnableBloom = bEnableBloom;
 				ViewportClient->SetViewSettings(Settings);
 			}
+			if (bEnableBloom)
+			{
+				auto Settings = ViewportClient->GetViewSettings();
+				int Resolution = Settings.PostProcess.BloomResolution == EBloomResolution::Quarter ? 1 : 0;
+				const char* const Options[] = {"Half Resolution", "Quarter Resolution"};
+				if (ImGui::Combo("Bloom Resolution", &Resolution, Options, IM_ARRAYSIZE(Options)))
+				{
+					Settings.PostProcess.BloomResolution = Resolution == 1 ? EBloomResolution::Quarter : EBloomResolution::Half;
+					ViewportClient->SetViewSettings(Settings);
+				}
+			}
 			UpdateScene(Material);
 			if (IsPostProcessMaterial(Material)) ImGui::TextUnformatted("PostProcess: studio scene before tone mapping");
 			if (!SceneStatus.empty())

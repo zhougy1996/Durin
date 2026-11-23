@@ -103,10 +103,13 @@ static float3 BloomTap(float2 uv, bool extract)
 [shader("fragment")]
 float4 BloomFragmentMain(VSOutput input) : SV_Target
 {
-    const bool extract = BloomPass.Stage == 0;
+    const bool extractQuarter = BloomPass.Stage == 3;
+    const bool extract = BloomPass.Stage == 0 || extractQuarter;
     const bool upsample = BloomPass.Stage == 2;
     const float2 uv = BloomPass.SourceRect.xy + input.uv * BloomPass.SourceRect.zw;
-    const float2 offset = BloomPass.InvSourceSize * (upsample ? 0.75 : 0.5);
+    // At 4:1, four bilinear taps cover the aligned 4x4 source footprint.
+    const float tapRadius = extractQuarter ? 1.0 : (upsample ? 0.75 : 0.5);
+    const float2 offset = BloomPass.InvSourceSize * tapRadius;
     float3 color = 0.25 * BloomTap(uv + float2(-offset.x, -offset.y), extract)
         + 0.25 * BloomTap(uv + float2(offset.x, -offset.y), extract)
         + 0.25 * BloomTap(uv + float2(-offset.x, offset.y), extract)
@@ -203,6 +206,7 @@ float4 FXAAFragmentMain(VSOutput input) : SV_Target
     float3 rgbSE = SampleDisplay(input.uv + texel * float2( 1.0,  1.0));
     float4 center = SceneColor.Sample(SceneColorSampler, input.uv);
     float3 centerDisplay = DisplaySample(center.rgb, input.uv);
+    const float alpha = DisplayAlpha(center.a);
 
     float lumaNW = Luma(rgbNW);
     float lumaNE = Luma(rgbNE);
@@ -212,6 +216,9 @@ float4 FXAAFragmentMain(VSOutput input) : SV_Target
 
     float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
     float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+    const float contrastThreshold = max(1.0 / 32.0, lumaMax * (1.0 / 8.0));
+    if (lumaMax - lumaMin < contrastThreshold)
+        return float4(centerDisplay, alpha);
 
     float2 direction;
     direction.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
@@ -230,5 +237,5 @@ float4 FXAAFragmentMain(VSOutput input) : SV_Target
 
     float lumaB = Luma(rgbB);
     float3 resolved = (lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB;
-    return float4(resolved, DisplayAlpha(center.a));
+    return float4(resolved, alpha);
 }
