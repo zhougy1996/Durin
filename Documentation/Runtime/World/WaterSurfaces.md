@@ -1,7 +1,7 @@
 # Finite Water Surfaces
 
 Summary: The opt-in Water plugin renders finite Gerstner surfaces through ordinary StaticMesh and material facilities and exposes matching CPU queries.
-Modules: Water, Engine
+Modules: Water, WaterEditor, Engine
 
 Last reviewed: 2026-11-23
 
@@ -16,7 +16,7 @@ qualified platform is Win64; the descriptor excludes other platforms.
 `AWaterSurfaceActor` owns a `DWaterSurfaceComponent` root. Generic reflected
 editing exposes its `Settings` and optional `Material`. Full XY dimensions,
 local elevation, amplitude, base wavelength, speed, steepness and the wave
-group persist with the Level. No Water editor module is required. Positive uniform scale,
+group persist with the Level. Positive uniform scale,
 translation and rotation are supported; use Extent for independent dimensions.
 Nonuniform, zero, negative or mirrored scale produces a local diagnostic and
 no render proxy or component query surface.
@@ -27,6 +27,31 @@ the complete horizontal and vertical displacement envelope plus floating-point
 padding. Old proxies retain their own geometry until scene removal; resource
 initialization and retirement follow render-command order. Query-only worlds
 need no RHI resources. Water creates no collision or physics body.
+
+## Reusable Water Waves assets
+
+In the Content Browser, choose **Create → Water Waves**. Open the asset
+to edit Seed, Num Waves, Min/Max Wavelength and Min/Max Amplitude. Wavelength
+and amplitude are in the same local units as the water component. A seed
+reproduces the same directions, wavelengths and amplitudes for the same settings.
+Use 0..5 waves, a wavelength range inside 2..512 whose maximum is at most
+32 times its minimum, and an amplitude range inside 0..2. Generated amplitudes
+may sum to at most 2. A group with no waves or zero amplitude is flat.
+
+Assign the asset in the component's **Water Waves Asset** field. Multiple
+components and Levels can reference the same asset. Each component keeps its
+own extent, elevation, speed and steepness. Clearing the reference restores
+its saved local amplitude, wavelength and wave group. The local C++ generator
+can be applied after clearing the reference.
+
+Asset edits and transaction replay refresh every registered component that
+references the asset. Each component publishes its effective wave parameters
+with its replacement geometry and uses that same snapshot for CPU queries.
+If a shared asset change exceeds a particular surface's mesh or steepness
+limits, that surface reports a local diagnostic and becomes unavailable for
+rendering and querying until the settings are compatible. Other referencing
+surfaces can continue to use the asset. The saved references retain the asset
+through ordinary Cook reachability.
 
 ## Wave and query contract
 

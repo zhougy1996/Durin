@@ -25,11 +25,12 @@ The feature probe supports:
 
 - `queries`: inverse height/normal queries, outside/invalid inputs, finite
   differences, Float32 material agreement through one hour, finite grid error,
-  parameter updates, and world transforms. Available in both variants.
+  parameter updates, world transforms, and seeded wave asset generation.
+  Available in both variants.
 - `persist`: Editor-only creation, save, unload and reopen of a Level containing
-  a water actor with nondefault dimensions/elevation/waves.
-- `load`: load that saved Level and verify water composition, parameters and
-  queries in either runtime variant.
+  manual water and two actors referencing a separate shared Water Waves asset.
+- `load`: load that saved Level and verify water composition, parameters, shared
+  asset identity and queries in either runtime variant.
 - `material`: Editor-only comparison of the saved source material graph against
   the CPU waves, queries, normals and bounds.
 - `author-material OUTPUT`: Editor-only regeneration of the source material.
@@ -64,9 +65,9 @@ prepares the proof's material programs and global Shader library under ignored
 `DURIN_WATER_PROOF_DIR` selects another proof directory;
 `DURIN_WATER_COOK_DIR` selects another component Cook directory. The
 target covers the independent one-wave path and the actual plugin component,
-including Lit output, animation replay, settings changes, unregister/register,
-and Editor hit proxies. Without the fixture, the target retains the independent
-proof and does not link or build Water.
+including Lit output, animation replay, settings changes, shared wave asset
+edits and undo, unregister/register, and Editor hit proxies. Without the fixture,
+the target retains the independent proof and does not link or build Water.
 
 For workspace Cook closure, build `WorkspaceContentProbe` in Game and copy it
 beside the corresponding source-free delivery Runtime binaries. It deliberately

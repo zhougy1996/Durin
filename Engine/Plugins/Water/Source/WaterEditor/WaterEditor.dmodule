@@ -1,0 +1,6 @@
+{
+  "ModuleName": "WaterEditor",
+  "LinkType": "Shared",
+  "PCH": "Self",
+  "PrivateDependencies": ["AssetTools", "ContentBrowser", "Core", "DurinEd", "Water"]
+}

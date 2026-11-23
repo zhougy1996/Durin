@@ -5,6 +5,7 @@
 #include "WaterSurfaceComponent.h"
 #include "WaterSurfaceResources.h"
 #include "WaterMaterialRecipe.h"
+#include "WaterWaves.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "DObject/DObjectGlobals.h"
@@ -265,6 +266,61 @@ namespace
 		Require(!Component->QuerySurface({0, 0, 0}, 0), "Unsupported nonuniform transform produced a query surface.");
 		std::cout << "Water queries: inversion, normals, material agreement, bounds, edits passed\n";
 	}
+
+	auto SavedWaveSettings() -> FWaterWavesSettings
+	{
+		FWaterWavesSettings Settings;
+		Settings.Seed = 42;
+		Settings.NumWaves = 4;
+		Settings.MinWavelength = 10.f;
+		Settings.MaxWavelength = 26.f;
+		Settings.MinAmplitude = .03f;
+		Settings.MaxAmplitude = .07f;
+		return Settings;
+	}
+
+	auto CheckSavedWaveAsset(const DLevel& Level) -> void
+	{
+		Require(Level.GetActors().size() == 3, "Saved shared water actors did not load.");
+		auto* First = Cast<AWaterSurfaceActor>(Level.GetActors()[1].Get());
+		auto* Second = Cast<AWaterSurfaceActor>(Level.GetActors()[2].Get());
+		Require(First && Second, "Saved wave asset owners did not load.");
+		auto* Asset = First->GetWaterComponent()->GetWaveAsset();
+		Require(Asset && Asset == Second->GetWaterComponent()->GetWaveAsset(), "Saved water actors did not resolve the same wave asset.");
+		Require(Asset->GetGeneratorSettings() == SavedWaveSettings(), "Saved wave generator settings changed.");
+		const auto FirstQuery = First->GetWaterComponent()->QuerySurface({0, 0, 0}, .75);
+		const auto SecondQuery = Second->GetWaterComponent()->QuerySurface({0, 0, 0}, .75);
+		Require(FirstQuery && SecondQuery && FirstQuery->Position == SecondQuery->Position && FirstQuery->Normal == SecondQuery->Normal,
+			"Saved shared water surfaces disagree.");
+	}
+
+	auto CheckWaveAssetGeneration() -> void
+	{
+		auto* Asset = NewObject<DWaterWaves>(nullptr, NAME_None);
+		auto* Copy = NewObject<DWaterWaves>(nullptr, NAME_None);
+		auto Settings = SavedWaveSettings();
+		Require(bool(Asset->SetGeneratorSettings(Settings)) && bool(Copy->SetGeneratorSettings(Settings)), "Valid wave asset settings rejected.");
+		const auto Initial = Asset->GetWaveGroup();
+		const auto& Other = Copy->GetWaveGroup();
+		Require(Initial && Other && Initial->Waves.size() == Settings.NumWaves && Initial->Waves == Other->Waves
+			&& Initial->BaseAmplitude == Other->BaseAmplitude && Initial->BaseWavelength == Other->BaseWavelength,
+			"Identical inputs did not generate identical waves.");
+		for (const auto& Wave : Initial->Waves)
+		{
+			const float Wavelength = Initial->BaseWavelength / Wave.WavenumberRatio;
+			const float Amplitude = Initial->BaseAmplitude * Wave.AmplitudeRatio;
+			Require(Wavelength >= Settings.MinWavelength - 1.e-5f && Wavelength <= Settings.MaxWavelength + 1.e-5f
+				&& Amplitude >= Settings.MinAmplitude - 1.e-6f && Amplitude <= Settings.MaxAmplitude + 1.e-6f,
+				"Generated waves were outside the authored ranges.");
+		}
+		++Settings.Seed;
+		Require(bool(Asset->SetGeneratorSettings(Settings)) && Asset->GetWaveGroup()->Waves != Initial->Waves,
+			"Changing the seed did not regenerate the wave group.");
+		auto Invalid = Settings;
+		Invalid.MaxAmplitude = -1.f;
+		Require(!Asset->SetGeneratorSettings(Invalid) && Asset->GetGeneratorSettings() == Settings,
+			"Invalid generator settings changed the asset.");
+	}
 }
 
 int main(int Argc, char** Argv)
@@ -294,7 +350,11 @@ int main(int Argc, char** Argv)
 		const bool NeedsAssetCompilers = Cooked || Mode == "author-demo-level";
 		if (NeedsAssetCompilers) InitializeAssetCompilingManager();
 		Require(Projects.LoadModulesForProject(ELoadingPhase::Providers), Projects.GetLastError());
-		if (Mode == "queries") CheckQueries();
+		if (Mode == "queries")
+		{
+			CheckQueries();
+			CheckWaveAssetGeneration();
+		}
 		else if (Mode == "load" || Mode == "load-cooked")
 		{
 			std::optional<Durin::UnifiedError::FError> LoadedError;
@@ -303,7 +363,8 @@ int main(int Argc, char** Argv)
 			const auto Loaded = LoadPackage(Path, nullptr, &LoadedError);
 			Require(bool(Loaded), Loaded ? "" : LoadedError->ToString());
 			auto* Level = Cast<DLevel>(Loaded->FindTopLevelAsset("WaterSurfaceLevel"));
-			Require(Level && Level->GetActors().size() == 1, "Saved water level did not load.");
+			Require(Level, "Saved water level did not load.");
+			CheckSavedWaveAsset(*Level);
 			auto* Actor = Cast<AWaterSurfaceActor>(Level->GetActors()[0].Get());
 			Require(Actor && Actor->GetRootComponent() == Actor->GetWaterComponent(), "Saved water actor composition changed.");
 			auto Expected = FWaterSurfaceSettings{}; Expected.Extent = {24, 20}; Expected.Elevation = 2.5f; Expected.Amplitude = .2f;
@@ -363,6 +424,10 @@ int main(int Argc, char** Argv)
 		}
 		else if (Mode == "persist")
 		{
+			if (!Projects.LoadModulesForProject(ELoadingPhase::EngineReady)
+				|| !Projects.LoadModulesForProject(ELoadingPhase::EditorReady))
+				throw std::runtime_error(Projects.GetLastError());
+			Require(Modules.IsModuleLoaded("WaterEditor"), "Water Waves editor provider did not load.");
 			std::optional<Durin::UnifiedError::FError> LoadedError;
 			FPackagePath Path; Require(FPackagePath::TryCreate("/Game/WaterSurfaceLevel", Path), "Invalid level path.");
 			auto* Package = CreatePackage(Path);
@@ -372,13 +437,25 @@ int main(int Argc, char** Argv)
 			auto S = Water->GetWaterComponent()->GetSettings(); S.Extent = {24, 20}; S.Elevation = 2.5f; S.Amplitude = .2f;
 			S.Waves = {{{1, 2}, .7f, 1.1f}, {{-3, 1}, .3f, .6f}};
 			Require(bool(Water->GetWaterComponent()->SetSettings(S)), "Settings mutation failed.");
+			FPackagePath WavesPath;
+			Require(FPackagePath::TryCreate("/Game/SharedWaterWaves", WavesPath), "Invalid wave asset path.");
+			auto* WavesPackage = CreatePackage(WavesPath);
+			auto* Asset = NewObject<DWaterWaves>(WavesPackage, "SharedWaterWaves", EObjectFlags::Public);
+			Require(bool(Asset->SetGeneratorSettings(SavedWaveSettings())), "Wave asset settings mutation failed.");
+			Require(bool(SavePackage(WavesPackage)), "Wave asset save failed.");
+			for (const auto* Name : {"WaterA", "WaterB"})
+			{
+				auto* SharedWater = Level->SpawnActor<AWaterSurfaceActor>(Name);
+				Require(SharedWater && bool(SharedWater->GetWaterComponent()->SetWaveAsset(Asset)), "Wave asset assignment failed.");
+			}
 			Require(bool(SavePackage(Package)), "Level save failed.");
 			const auto Unloaded = CollectPackageExports(std::array{TWeakObjectPtr<DPackage>(Package)});
 			Require(bool(Unloaded.Admission) && Unloaded.CollectedCount > 0, "Level unload failed.");
 			const auto Loaded = LoadPackage(Path, nullptr, &LoadedError);
 			Require(bool(Loaded), Loaded ? "" : LoadedError->ToString());
 			auto* Reloaded = Cast<DLevel>(Loaded->FindTopLevelAsset("WaterSurfaceLevel"));
-			Require(Reloaded && Reloaded->GetActors().size() == 1, "Level actor did not reopen.");
+			Require(Reloaded, "Level did not reopen.");
+			CheckSavedWaveAsset(*Reloaded);
 			auto* Actor = Cast<AWaterSurfaceActor>(Reloaded->GetActors()[0].Get());
 			Require(Actor && Actor->GetWaterComponent()->GetSettings() == S, "Water settings did not persist.");
 			Require(Actor->GetRootComponent() == Actor->GetWaterComponent(), "Actor component ownership changed after load.");

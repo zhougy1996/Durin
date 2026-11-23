@@ -4,13 +4,17 @@
 #if DURIN_WATER_PLUGIN_TESTS
 #include "WaterSurfaceActor.h"
 #include "WaterSurfaceComponent.h"
+#include "WaterWaves.h"
 #include "WaterRenderingTestSupport.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "EngineTestSupport.h"
 #include "AssetRegistry/Scan.h"
+#include "DObject/Class.h"
+#include "DObject/Property.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "LightSceneTestSupport.h"
+#include "Math/Operations.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/FileHelper.h"
 #include "Misc/MountPathTestSupport.h"
@@ -154,6 +158,55 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 		Component->RegisterComponent();
 		ASSERT_EQ(Capture(.75, Pixels[5]), ERenderViewResult::Success) << Component->GetDiagnostic();
 		EXPECT_EQ(Pixels[3], Pixels[5]);
+
+		auto* SharedWaves = NewObject<DWaterWaves>(nullptr, NAME_None);
+		auto* SecondActor = Level->SpawnActor<AWaterSurfaceActor>();
+		ASSERT_NE(SecondActor, nullptr);
+		ASSERT_TRUE(SecondActor->SetActorLocation({100, 0, 0}));
+		auto* Second = SecondActor->GetWaterComponent();
+		ASSERT_TRUE(Second->SetSettings(Settings));
+		ASSERT_TRUE(Second->IsRegistered());
+		ASSERT_TRUE(Component->SetWaveAsset(SharedWaves));
+		ASSERT_TRUE(Second->SetWaveAsset(SharedWaves));
+
+		const auto OriginalData = Component->GetCustomPrimitiveData();
+		EXPECT_EQ(OriginalData, Second->GetCustomPrimitiveData());
+		const auto OriginalQuery = Component->QuerySurface({0, 0, 0}, .75);
+		ASSERT_TRUE(OriginalQuery);
+		FByteBuffer OriginalWavePixels, ChangedWavePixels, RestoredWavePixels;
+		ASSERT_EQ(Capture(.75, OriginalWavePixels), ERenderViewResult::Success);
+		const auto OriginalSettings = SharedWaves->GetGeneratorSettings();
+		auto ChangedSettings = OriginalSettings;
+		++ChangedSettings.Seed;
+		ChangedSettings.MinAmplitude = ChangedSettings.MaxAmplitude = .075f;
+		ASSERT_TRUE(SharedWaves->SetGeneratorSettings(ChangedSettings));
+
+		EXPECT_NE(OriginalData, Component->GetCustomPrimitiveData());
+		EXPECT_EQ(Component->GetCustomPrimitiveData(), Second->GetCustomPrimitiveData());
+		const auto FirstChanged = Component->QuerySurface({0, 0, 0}, .75);
+		const auto SecondChanged = Second->QuerySurface({100, 0, 0}, .75);
+		ASSERT_TRUE(FirstChanged && SecondChanged);
+		EXPECT_NE(FirstChanged->Position.z, OriginalQuery->Position.z);
+		EXPECT_NEAR(FirstChanged->Position.z, SecondChanged->Position.z, 1.e-8);
+		EXPECT_NEAR(Math::Dot(FirstChanged->Normal, SecondChanged->Normal), 1., 1.e-8);
+		ASSERT_EQ(Capture(.75, ChangedWavePixels), ERenderViewResult::Success);
+		EXPECT_NE(OriginalWavePixels, ChangedWavePixels);
+
+		// Transaction replay restores reflected data before dispatching PostEditUndo.
+		const auto* GeneratorProperty = SharedWaves->GetClass()->FindPropertyByName("Settings");
+		ASSERT_NE(GeneratorProperty, nullptr);
+		*GeneratorProperty->ContainerPtrToValuePtr<FWaterWavesSettings>(SharedWaves) = OriginalSettings;
+		SharedWaves->PostEditUndo();
+		EXPECT_EQ(OriginalData, Component->GetCustomPrimitiveData());
+		EXPECT_EQ(OriginalData, Second->GetCustomPrimitiveData());
+		ASSERT_EQ(Capture(.75, RestoredWavePixels), ERenderViewResult::Success);
+		EXPECT_EQ(OriginalWavePixels, RestoredWavePixels);
+
+		ASSERT_TRUE(Component->SetWaveAsset(nullptr));
+		const auto ManualData = Component->GetCustomPrimitiveData();
+		ASSERT_TRUE(SharedWaves->SetGeneratorSettings(ChangedSettings));
+		EXPECT_EQ(ManualData, Component->GetCustomPrimitiveData());
+		EXPECT_NE(OriginalData, Second->GetCustomPrimitiveData());
 		if (const char* Evidence = std::getenv("DURIN_WATER_PROOF_DIR"))
 		{
 			const auto Directory = std::filesystem::path(Evidence) / (DURIN_WITH_EDITOR ? "Editor" : "Cooked");

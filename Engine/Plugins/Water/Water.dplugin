@@ -6,6 +6,7 @@
   "Platforms": ["Win64"],
   "Content": "Content",
   "Modules": [
-    {"Name": "Water", "Path": "Source/Water", "Host": "Runtime", "Phase": "Providers"}
+    {"Name": "Water", "Path": "Source/Water", "Host": "Runtime", "Phase": "Providers"},
+    {"Name": "WaterEditor", "Path": "Source/WaterEditor", "Host": "Editor", "Phase": "EditorReady"}
   ]
 }
