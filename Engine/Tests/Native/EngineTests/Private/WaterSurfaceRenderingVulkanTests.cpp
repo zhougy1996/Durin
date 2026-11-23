@@ -695,6 +695,18 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	EXPECT_NEAR(Offset, 26.8772f, .05f);
 	EXPECT_NEAR(ReadChannel(Refraction, 160, 195, 0), Offset * 25.0f / 30.0f, .1f);
 	EXPECT_NEAR(ReadChannel(Refraction, 315, 120, 0), 3.95f, .05f);
+	// The same deep bed extends beyond this water strip. Depth alone accepts it
+	// on both sides, but a lookup outside the visible water must fall back.
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(713));
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(714));
+	Add(713, 0.0, 0.0, 6.0, .4, Water);
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	ASSERT_FALSE(HasFailure());
+	EXPECT_NEAR(ReadChannel(Refraction, 147, 120, 0), Offset, .05f);
+	EXPECT_FLOAT_EQ(ReadChannel(Refraction, 160, 120, 0), 0.0f);
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(713));
+	Add(713, 0.0, 0.0, 6.0, 6.0, Water);
+	Add(714, 0.0, -.1, 1.0, 1.0, Water);
 	Input.IR.GetAttribute(P::MP_Normal).Literal = {.5f, 0, .8660254f};
 	PublishWater();
 	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
