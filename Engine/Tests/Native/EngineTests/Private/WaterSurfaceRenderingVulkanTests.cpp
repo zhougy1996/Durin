@@ -592,12 +592,12 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	constexpr double Aspect = 320.0 / 240.0;
 	const double VerticalFov = 2.0 * std::atan(std::tan(Math::DegreesToRadians(30.0)) / Aspect)
 		* (180.0 / std::numbers::pi);
-	const auto Target = FRHITextureCreateDesc::Create2D("WaterVolumeHDR", 320, 240, EPixelFormat::SRGBA8_UNORM)
-		.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
 	const auto Evidence = std::filesystem::path(FPaths::RootDir()) / "Build/SingleLayerWater/Stage3";
 	std::filesystem::create_directories(Evidence);
 	static FByteBuffer* Sink = nullptr;
 	const auto CaptureHDR = [&](FByteBuffer& HDR, EWaterVolumeReadback Readback = EWaterVolumeReadback::None) {
+		const auto Target = FRHITextureCreateDesc::Create2D("WaterVolumeHDR", View.ViewportWidth, View.ViewportHeight, EPixelFormat::SRGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
 		const auto Result = RenderPreparedGeometryView(Renderer, *Scene, View, Target, [&] {
 			Sink = &HDR;
 			SetHDRSceneColorCaptureSink(+[](FRHICommandListImmediate& Commands, FRHITexture* Color, FRHITexture*) {
@@ -607,11 +607,11 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 		SetHDRSceneColorCaptureSink(nullptr);
 		Sink = nullptr;
 		ASSERT_EQ(Result, ERenderViewResult::Success);
-		ASSERT_EQ(HDR.size(), 320u * 240u * 8u);
+		ASSERT_EQ(HDR.size(), View.ViewportWidth * View.ViewportHeight * 8u);
 	};
-	const auto ReadChannel = [](const FByteBuffer& HDR, uint32 X, uint32 Y, uint32 Channel) -> float {
+	const auto ReadChannel = [&](const FByteBuffer& HDR, uint32 X, uint32 Y, uint32 Channel) -> float {
 		uint16 Half = 0;
-		std::memcpy(&Half, HDR.data() + (Y * 320 + X) * 8 + Channel * 2, sizeof(Half));
+		std::memcpy(&Half, HDR.data() + (Y * View.ViewportWidth + X) * 8 + Channel * 2, sizeof(Half));
 		return glm::unpackHalf2x16(Half).x;
 	};
 	const auto CheckColor = [&](const FByteBuffer& HDR, uint32 X, uint32 Y, FVector3f Expected) {
@@ -718,6 +718,41 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	CheckColor(HDR, Offset > 0 ? 319u : 0u, 120, FVector3f(1.0f));
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(716));
 
+	// Track an actual underwater landmark in the shaded HDR image with the camera locked.
+	Add(718, 0.0, -.6, 1.0, .18, Foreground);
+	for (uint32 Scale : {1u, 2u})
+	{
+		View.ViewportWidth = 320 * Scale;
+		View.ViewportHeight = 240 * Scale;
+		std::array<float, 2> StripeCenter{};
+		for (uint32 Enabled : {0u, 1u})
+		{
+			Input.StaticProperties.RefractionMethod = Enabled ? EMaterialRefractionMethod::IndexOfRefractionFromF0
+				: EMaterialRefractionMethod::None;
+			PublishWater();
+			CaptureHDR(HDR);
+			ASSERT_FALSE(HasFailure());
+			const auto File = std::format("refraction-{}x{}-{}.rgba16f", View.ViewportWidth, View.ViewportHeight, Enabled);
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(HDR, Evidence / File));
+			uint32 Count = 0;
+			for (uint32 X = 0; X < View.ViewportWidth; ++X)
+			{
+				const auto Y = View.ViewportHeight / 2;
+				if (ReadChannel(HDR, X, Y, 1) - ReadChannel(HDR, X, Y, 0) > .5f)
+				{
+					StripeCenter[Enabled] += float(X) + .5f;
+					++Count;
+				}
+			}
+			ASSERT_GT(Count, 0u);
+			StripeCenter[Enabled] /= float(Count);
+		}
+		EXPECT_NEAR((StripeCenter[0] - StripeCenter[1]) / float(Scale), Offset, 1.0f);
+	}
+	View.ViewportWidth = 320;
+	View.ViewportHeight = 240;
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(718));
+
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::None;
 	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, 0, 1};
 	Input.IR.GetAttribute(P::MP_Specular).Literal = {};
@@ -743,6 +778,46 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	CaptureHDR(HDR);
 	ASSERT_FALSE(HasFailure());
 	CheckColor(HDR, 160, 120, FVector3f(.135335f + .632121f * .079577f));
+
+	// Transparent water retains the dielectric highlight without adding diffuse base color.
+	Input.IR.GetAttribute(P::MP_WaterScattering).Literal = {};
+	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {1.f, 1.f, 1.f};
+	Input.IR.GetAttribute(P::MP_Specular).Literal = {.5f};
+	Input.IR.GetAttribute(P::MP_Roughness).Literal = {.5f};
+	Input.IR.GetAttribute(P::MP_BaseColor).Literal = {};
+	PublishWater();
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	const float Highlight = ReadChannel(HDR, 160, 120, 0);
+	EXPECT_GT(Highlight, 0.0f);
+	Input.IR.GetAttribute(P::MP_BaseColor).Literal = {1, 0, 0};
+	PublishWater();
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	for (uint32 Channel = 0; Channel < 3; ++Channel)
+		EXPECT_FLOAT_EQ(ReadChannel(HDR, 160, 120, Channel), Highlight);
+	Input.IR.GetAttribute(P::MP_Opacity).Literal = {1};
+	PublishWater();
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	EXPECT_GT(ReadChannel(HDR, 160, 120, 0), Highlight + .1f);
+	EXPECT_FLOAT_EQ(ReadChannel(HDR, 160, 120, 1), Highlight);
+
+	Input.IR.GetAttribute(P::MP_Opacity).Literal = {};
+	Input.IR.GetAttribute(P::MP_BaseColor).Literal = {};
+	Input.IR.GetAttribute(P::MP_Specular).Literal = {};
+	Input.IR.GetAttribute(P::MP_WaterScattering).Literal = {.2f, .2f, .2f};
+	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {};
+	for (float Phase : {-1.f, -.97f, .97f, 1.f})
+	{
+		Input.IR.GetAttribute(P::MP_WaterPhaseG).Literal = {Phase};
+		PublishWater();
+		CaptureHDR(HDR);
+		ASSERT_FALSE(HasFailure());
+		const float Scattered = ReadChannel(HDR, 160, 120, 0);
+		EXPECT_GT(Scattered, 0.0f) << Phase;
+		EXPECT_TRUE(std::isfinite(Scattered)) << Phase;
+	}
 }
 
 TEST(FWaterRenderingPathVulkanTests, WaterSkyReflectionCompositesOnlyTheNearestCoveredSurface)

@@ -38,11 +38,11 @@ public float3 EvaluateSurfaceDirectionalLighting(
     FSurfaceLightingFrame frame,
     float3 toLight,
     float3 radiance,
-    float shadowAttenuation, float clearCoat = 0.0, float clearCoatRoughness = 0.1)
+    float shadowAttenuation, float clearCoat = 0.0, float clearCoatRoughness = 0.1, float diffuseWeight = 1.0)
 {
     return EvaluatePBRDirectLighting(
         baseColor, metallic, specular, roughness, frame.normal,
-        toLight, frame.toView, radiance, clearCoat, clearCoatRoughness) * shadowAttenuation;
+        toLight, frame.toView, radiance, clearCoat, clearCoatRoughness, diffuseWeight) * shadowAttenuation;
 }
 
 public float3 EvaluateSurfaceLocalLighting(

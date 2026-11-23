@@ -174,7 +174,7 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
         if (dot(ray, ray) > 0.0)
             incoming += radiance * shadow.attenuation * WaterSchlickPhase(surface.waterPhaseG, dot(lightDirection, ray));
         direct = EvaluateSurfaceDirectionalLighting(surface.baseColor, surface.metallic, surface.specular, roughness,
-            frame, -lightDirection, radiance, shadow.attenuation);
+            frame, -lightDirection, radiance, shadow.attenuation, 0.0, 0.1, surface.opacity);
     }
     float f0 = 0.08 * surface.specular;
     float2 brdf = EnvironmentBrdfLut.SampleLevel(EnvironmentSampler, float2(frame.NoV, roughness), 0).rg;

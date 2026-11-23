@@ -26,7 +26,7 @@ public float3 EvaluatePBRDirectLighting(
     float3 normal,
     float3 toLight,
     float3 toView,
-    float3 lightRadiance, float clearCoat = 0.0, float clearCoatRoughness = 0.1)
+    float3 lightRadiance, float clearCoat = 0.0, float clearCoatRoughness = 0.1, float diffuseWeight = 1.0)
 {
     float3 halfVector = SafeNormalize(toLight + toView);
     float NoL = saturate(dot(normal, toLight));
@@ -49,7 +49,7 @@ public float3 EvaluatePBRDirectLighting(
     float3 fresnel = f0 + (1.0 - f0) * pow(1.0 - VoH, 5.0);
     float3 diffuse = (1.0 - fresnel) * (1.0 - metallic)
         * baseColor / Pi;
-    float3 base = (diffuse + distribution * visibility * fresnel) * lightRadiance * NoL;
+    float3 base = (diffuse * diffuseWeight + distribution * visibility * fresnel) * lightRadiance * NoL;
     float c = saturate(clearCoat);
     if (c == 0.0) return base;
     float rc = clamp(clearCoatRoughness, 0.045, 1.0);

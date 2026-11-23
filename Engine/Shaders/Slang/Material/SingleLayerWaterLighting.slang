@@ -114,18 +114,19 @@ public float WaterIor(float specular)
 public float2 WaterRefractionOffsetInPixels(float2 normal, float ior, float2 viewSize,
     float projectionScale, float separationCm, float depthBiasCm, bool open)
 {
-    float aspect = viewSize.x / viewSize.y;
     float bias = -depthBiasCm;
     float range = max(1.0, clamp(abs(bias) * 0.5, 0.0, 50.0));
     float fade = open ? 4.0 : 4.0 * saturate(separationCm / range + bias) * saturate(separationCm / 30.0);
-    // For offset in texels, the backing extent cancels the V/B factor.
-    return normal * (ior - 1.0) * viewSize * viewSize
-        * float2(projectionScale, -aspect * projectionScale) * (0.00023 * fade);
+    // Preserve the calibrated distortion at 320 pixels wide in normalized viewport coordinates.
+    const float distortionScale = 320.0 * 0.00023;
+    float2 offsetUv = normal * float2(1.0, -1.0) * ((ior - 1.0) * projectionScale * distortionScale * fade);
+    return offsetUv * viewSize;
 }
 
 public float WaterSchlickPhase(float g, float rayLightCosine)
 {
-    float k = 1.55 * g - 0.55 * g * g * g;
+    // The cubic overshoots unity near either endpoint. Bound the directional peak as well.
+    float k = clamp(1.55 * g - 0.55 * g * g * g, -0.99, 0.99);
     float denominator = max(abs(1.0 + k * rayLightCosine), 1.0e-4);
     return (1.0 - k * k) / (12.5663706144 * denominator * denominator);
 }
