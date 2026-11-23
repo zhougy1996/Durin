@@ -43,12 +43,6 @@ namespace Durin
 		Super::PostLoad();
 		bSignatureCached = false;
 #if DURIN_WITH_EDITORONLY_DATA
-		if (WasDeprecatedPropertyLoaded(FName("Presentation_DEPRECATED")))
-		{
-			if (Presentation_DEPRECATED.SchemaVersion == CurrentMaterialFunctionPresentationSchemaVersion)
-				Private::ApplyExpressionLayout(ExpressionCollection, {.Nodes = std::move(Presentation_DEPRECATED.Nodes)});
-			Presentation_DEPRECATED = {};
-		}
 		for (const auto& Expression : ExpressionCollection.Expressions)
 			if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get())) Call->UpdateFromFunctionResource(false);
 		GraphChanges.Publish(*this);

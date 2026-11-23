@@ -216,6 +216,7 @@ def test_selected_asset_command_grammar_is_frozen() -> None:
 
 @pytest.mark.parametrize("command,selection", [
     ("resave", ["/Game/Example"]),
+    ("resave", ["/Plugins/Water/Materials/DefaultWater", "--plugin-content", "Water"]),
     ("material-template", ["/Game/Materials/Example"]),
     ("material-functions", []),
 ])
@@ -237,6 +238,7 @@ def test_cli_asset_write_intent_reaches_native_host(tmp_path: Path, command: str
                      stdout=io.StringIO(), stderr=io.StringIO(),
                      executable_resolver=lambda *_: executable, command_runner=runner) == 0
     assert len(calls) == 1
+    assert ("--plugin-content=Water" in calls[0]) == ("--plugin-content" in selection)
     assert ("--apply" in calls[0]) == (not dry_run)
     assert "--dry-run" not in calls[0]
 

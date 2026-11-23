@@ -187,12 +187,6 @@ namespace Durin
 		static auto DeriveExpressionParameterSchema(const FMaterialExpressionCollection& Collection,
 			std::vector<FMaterialParameterDefinition>& OutDefinitions, const FMaterialParameterDefinition* SharedParameter = nullptr) -> FMaterialProgramValidationResult;
 
-#if DURIN_WITH_EDITORONLY_DATA
-		// Load-only field for packages authored before expression-owned layout.
-		DPROPERTY(Deprecated)
-		FMaterialGraphPresentation GraphPresentation_DEPRECATED;
-#endif
-
 		// Detached code checkpoint classifies reflected default/metadata edits without retaining resources.
 		FXxHash128 ObservedExpressionCode;
 

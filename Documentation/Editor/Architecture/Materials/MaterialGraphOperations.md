@@ -40,8 +40,10 @@ the visible read model is not the authority for connection admission. Schema
 contains no ImGui or workspace navigation services.
 
 `DMaterial` and `DMaterialFunction` own concrete `DMaterialExpression` children.
-Expression connections use stable GUIDs and output indices; presentation stores
-GUID-keyed positions and labels separately from expression payloads. Material instances never own or edit a graph.
+Expression connections use stable GUIDs and output indices. Each expression
+stores its editor coordinates and label in `EditorLayout`. The editor assembles
+the GUID-keyed presentation from the expressions. Material instances never own
+or edit a graph.
 Each base material owns its root input fields, packed connection, mode and root
 position. Its expression collection holds the body. `SetMaterialExpressions`
 validates the candidate and remaps every body and root connection against the

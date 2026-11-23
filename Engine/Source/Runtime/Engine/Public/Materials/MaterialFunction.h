@@ -59,10 +59,6 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly, AlwaysSerialize, MetaData="ValidateTransactionSource=true")
 		FMaterialExpressionCollection ExpressionCollection;
-
-		// Load-only field for packages authored before expression-owned layout.
-		DPROPERTY(Deprecated)
-		FMaterialFunctionPresentation Presentation_DEPRECATED;
 #endif
 
 		uint64 Revision = 1;

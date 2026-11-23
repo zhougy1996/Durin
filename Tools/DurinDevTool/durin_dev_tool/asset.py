@@ -225,6 +225,8 @@ def _run_scoped_operation(
         arguments.append("--all")
     if bool(getattr(namespace, "recompress_texture_sources", False)):
         arguments.append("--recompress-texture-sources")
+    if (plugin_content := getattr(namespace, "plugin_content", None)) is not None:
+        arguments.append(f"--plugin-content={plugin_content}")
     # The native host previews by default; DevTool action commands execute by default.
     if not namespace.dry_run:
         arguments.append("--apply")

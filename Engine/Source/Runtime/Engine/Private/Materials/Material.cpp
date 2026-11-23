@@ -498,11 +498,6 @@ namespace Durin
 			return;
 		}
 #if DURIN_WITH_EDITORONLY_DATA
-		if (WasDeprecatedPropertyLoaded(FName("GraphPresentation_DEPRECATED")))
-		{
-			Private::ApplyExpressionLayout(ExpressionCollection, GraphPresentation_DEPRECATED);
-			GraphPresentation_DEPRECATED = {};
-		}
 		for (const auto& Expression : ExpressionCollection.Expressions)
 			if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get())) Call->UpdateFromFunctionResource(false);
 		const auto SchemaValidation = DeriveExpressionParameterSchema(ExpressionCollection, ParameterSchema);

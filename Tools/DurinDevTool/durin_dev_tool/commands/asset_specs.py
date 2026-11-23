@@ -97,6 +97,11 @@ COMMAND_SPEC = CommandSpec(
                 ),
                 DRY_RUN,
                 argument(
+                    "--plugin-content",
+                    metavar="ID",
+                    help="allow resaving explicit scopes inside the named active plugin",
+                ),
+                argument(
                     "--recompress-texture-sources",
                     action="store_true",
                     help="recompress texture sources with Zstd, including current packages",

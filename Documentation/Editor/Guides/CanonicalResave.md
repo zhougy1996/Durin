@@ -2,7 +2,7 @@
 
 Summary: Canonicalize reflected identities without reimporting source data.
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-23
 
 Use canonical resave when the Project Asset Upgrade window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
@@ -54,6 +54,15 @@ Project selection is explicit: the default command does not enumerate sibling
 projects. Repeat with `--project` for each project descriptor; shared Engine
 content needs only one pass. Project modules are loaded before schema capture
 so project-defined asset classes participate in inspection and resave.
+
+Plugin maintainers can resave source packages from an active plugin by naming
+its ID and supplying scopes under its content root. The asset tool enables
+writes for that mount in the current process. Omit `--all` and use a project
+with the plugin enabled and built.
+
+```powershell
+.\DevTool.bat asset resave /Plugins/Water/Materials/DefaultWater --plugin-content Water --project Sandbox/Sandbox.dproject --dry-run
+```
 
 The `asset material-functions` command validates the shipped reusable
 functions and initializes missing DefaultMaterial. It preserves function implementation

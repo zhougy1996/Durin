@@ -46,6 +46,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Project/Project.h"
+#include "ProjectDescriptor.h"
 #include "Interfaces/IProjectManager.h"
 #include "Plugins/PluginResources.h"
 #include "Plugins/PluginCook.h"
@@ -114,6 +115,7 @@ namespace
 		DryRun = 1 << 10,
 		RecompressTextures = 1 << 11,
         TargetReceipt = 1 << 12,
+		PluginContent = 1 << 13,
 	};
 
 	constexpr auto OptionBit(EOption Option) -> uint16
@@ -156,6 +158,7 @@ namespace
 		case EOption::NoIncremental: return "--no-incremental";
 		case EOption::DryRun: return "--dry-run";
 		case EOption::RecompressTextures: return "--recompress-texture-sources";
+		case EOption::PluginContent: return "--plugin-content";
 		}
 		return "option";
 	}
@@ -163,6 +166,7 @@ namespace
 	struct FOptions
 	{
 		std::string Project;
+		std::string PluginContent;
 		EOperation Operation = EOperation::Check;
 		EOutputFormat Format = EOutputFormat::Human;
 		bool bHelp = false;
@@ -188,6 +192,7 @@ namespace
 			<< "  DurinAssetTool resave --project=<project.dproject> <scope>... [--apply] [--json]\n"
 			<< "  DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]\n"
 			<< "  resave option: --recompress-texture-sources (includes current packages)\n"
+			<< "  resave option: --plugin-content=<id> (only scopes inside the named active plugin)\n"
 			<< "  DurinAssetTool storage-inventory --project=<project.dproject>\n"
 			<< "  DurinAssetTool identity-audit --project=<project.dproject>\n"
 			<< "  DurinAssetTool material-template --project=<project.dproject> <package-path> [--apply]\n"
@@ -222,7 +227,8 @@ namespace
 
 		constexpr uint16 Check = OptionBit(EOption::Project) | OptionBit(EOption::Json);
 		constexpr uint16 Resave = Check | OptionBit(EOption::All)
-								  | OptionBit(EOption::Apply) | OptionBit(EOption::Scope) | OptionBit(EOption::RecompressTextures);
+								  | OptionBit(EOption::Apply) | OptionBit(EOption::Scope) | OptionBit(EOption::RecompressTextures)
+								  | OptionBit(EOption::PluginContent);
 		constexpr uint16 Storage = OptionBit(EOption::Project);
 		constexpr uint16 Cook = Check | OptionBit(EOption::Output)
 								| OptionBit(EOption::Target) | OptionBit(EOption::Profile)
@@ -281,6 +287,18 @@ namespace
 			return true;
 		}
 		if (Options.Operation != EOperation::Resave) return true;
+		if ((Options.SpecifiedOptions & OptionBit(EOption::PluginContent)) != 0)
+		{
+			const auto Root = std::format("/Plugins/{}", Options.PluginContent);
+			if (Options.PluginContent.empty() || Options.bWholeProject || Options.Scopes.empty()
+				|| !std::ranges::all_of(Options.Scopes, [&](const std::string& Scope) {
+					return Scope == Root || Scope.starts_with(Root + "/");
+				}))
+			{
+				OutError = "--plugin-content requires explicit scopes inside the named plugin.";
+				return false;
+			}
+		}
 		if (Options.Scopes.empty() && !Options.bWholeProject)
 		{
 			OutError = std::format("{} requires at least one scope or --all.",
@@ -363,6 +381,11 @@ namespace
 				if (!MarkOptionOnce(OutOptions, EOption::RecompressTextures, OutError)) return false;
 				OutOptions.bRecompressTextures = true;
 			}
+			else if (const std::string_view Prefix = "--plugin-content="; Argument.starts_with(Prefix))
+			{
+				if (!MarkOptionOnce(OutOptions, EOption::PluginContent, OutError)) return false;
+				OutOptions.PluginContent = Argument.substr(Prefix.size());
+			}
 			else if (Argument == "--json")
 			{
 				if (!MarkOptionOnce(OutOptions, EOption::Json, OutError)) return false;
@@ -417,6 +440,23 @@ namespace
 			}
 		}
 		return ValidateOptions(OutOptions, OutError);
+	}
+
+	auto EnablePluginContentResave(std::string_view Plugin, std::string& OutError) -> bool
+	{
+		const auto Root = std::format("/Plugins/{}/", Plugin);
+		auto PluginMounts = Durin::GetActivePluginResources().ContentMounts;
+		const auto Mount = std::ranges::find(PluginMounts, Root, &Durin::FMountPoint::VirtualRoot);
+		if (Mount == PluginMounts.end())
+		{
+			OutError = std::format("Active plugin '{}' has no content mount.", Plugin);
+			return false;
+		}
+		Mount->bContentWritable = true;
+		auto Mounts = Durin::IProjectManager::Get().GetCurrentProject()->Mounts;
+		Mounts.insert(Mounts.end(), PluginMounts.begin(), PluginMounts.end());
+		Durin::FMountPaths::SetProjectMountDefinitions(std::move(Mounts));
+		return true;
 	}
 
 	struct FQualificationDescriptor
@@ -1037,7 +1077,8 @@ int main(int ArgC, char** ArgV)
     if (const auto* Project = Durin::GetCurrentProject()) ConfigLayers.emplace_back(std::filesystem::path(Project->ProjectDir) / "Configs" / VariantConfig);
     ConfigLayers.emplace_back(std::filesystem::path(Durin::FPaths::LaunchConfigsDir()) / VariantConfig);
     if (!Durin::LoadAppConfigLayers(ConfigLayers, Error)) { std::cerr << "Error: " << Error << '\n'; return 1; }
-	if (!Durin::FMountPaths::InitDefaultMountPoints(&Error, Options.Operation != EOperation::Cook))
+	if ((!Options.PluginContent.empty() && !EnablePluginContentResave(Options.PluginContent, Error))
+		|| !Durin::FMountPaths::InitDefaultMountPoints(&Error, Options.Operation != EOperation::Cook))
 	{
 		std::cerr << "Error: " << Error << '\n';
 		return 1;
