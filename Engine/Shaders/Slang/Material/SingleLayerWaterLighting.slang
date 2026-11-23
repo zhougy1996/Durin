@@ -114,16 +114,28 @@ public float WaterIor(float specular)
     return 2.0 / (1.0 - sqrt(min(f0, 0.99))) - 1.0;
 }
 
-public float2 WaterRefractionOffsetInPixels(float2 normal, float ior, float2 viewSize,
-    float projectionScale, float separationCm, float depthBiasCm, bool open)
+public float2 WaterRefractionOffsetInPixels(FWaterViewUniform view, float4 viewport, float2 pixel,
+    float3 surfaceInView, float3 normal, float3 viewForward, float ior,
+    float separation, float depthBiasCm)
 {
+    // Without a finite receiver there is no hit distance for a screen-space lookup.
+    if (ior <= 0.0 || ior == 1.0 || separation <= 0.0) return 0.0;
+    bool perspective = dot(view.Projection[3].xyz, view.Projection[3].xyz) > 1.0e-12;
+    float3 incident = perspective ? normalize(surfaceInView) : viewForward;
+    float3 ray = refract(incident, dot(incident, normal) > 0.0 ? -normal : normal, 1.0 / ior);
+    float forward = dot(ray, viewForward);
+    if (!all(isfinite(ray)) || forward <= 1.0e-5) return 0.0;
+
+    float4 hit = float4(surfaceInView + ray * (separation / forward), 1.0);
+    float w = dot(view.Projection[3], hit);
+    if (w <= 1.0e-6) return 0.0;
+    float2 ndc = float2(dot(view.Projection[0], hit), dot(view.Projection[1], hit)) / w;
+    float2 offset = (ndc - WaterNdc(pixel, viewport)) * (0.5 * viewport.zw);
+    float separationCm = separation * 100.0;
     float bias = -depthBiasCm;
     float range = max(1.0, clamp(abs(bias) * 0.5, 0.0, 50.0));
-    float fade = open ? 4.0 : 4.0 * saturate(separationCm / range + bias) * saturate(separationCm / 30.0);
-    // Preserve the calibrated distortion at 320 pixels wide in normalized viewport coordinates.
-    const float distortionScale = 320.0 * 0.00023;
-    float2 offsetUv = normal * float2(1.0, -1.0) * ((ior - 1.0) * projectionScale * distortionScale * fade);
-    return offsetUv * viewSize;
+    float fade = saturate(separationCm / range + bias) * saturate(separationCm / 30.0);
+    return offset * fade;
 }
 
 public float WaterSchlickPhase(float g, float rayLightCosine)

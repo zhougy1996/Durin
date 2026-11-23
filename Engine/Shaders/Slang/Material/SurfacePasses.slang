@@ -131,12 +131,9 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
     authoredIor = surface.refraction;
 #endif
     float3 viewNormal = normalize(mul((float3x3)MaterialView.WorldToView, normal));
-    float3 right = WaterView.Projection[0].xyz - dot(WaterView.Projection[0].xyz, viewForward) * viewForward;
-    float3 down = WaterView.Projection[1].xyz - dot(WaterView.Projection[1].xyz, viewForward) * viewForward;
-    float2 normalXY = float2(dot(viewNormal, normalize(right)), -dot(viewNormal, normalize(down)));
-    offset = WaterRefractionOffsetInPixels(normalXY, authoredIor, viewport.zw, length(right),
-        max(background.depth - surfaceDepth, 0.0) * 100.0,
-        asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)), background.open);
+    offset = WaterRefractionOffsetInPixels(WaterView, viewport, input.pos.xy, surfaceInView, viewNormal,
+        viewForward, authoredIor, background.valid && !background.open ? background.depth - surfaceDepth : 0.0,
+        asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)));
     FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
         viewport, input.pos.xy + offset, viewForward, surfaceDepth, slopeTolerance);
     if (refracted.valid) background = refracted;

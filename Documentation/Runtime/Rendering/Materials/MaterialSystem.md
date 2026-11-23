@@ -27,8 +27,10 @@ Disconnected inputs use zero coefficients, PhaseG zero and white scale. Water
 Opacity controls surface versus volume contributions independently of Opacity
 Mask, which controls coverage. The refraction method can disable distortion,
 derive the index of refraction from dielectric F0, or use an authored index.
-The refracted coordinate honors the material's refraction depth bias and the
-active view rectangle. The compiler retains the water roots and passes in
+Above water, the renderer refracts the camera ray toward the local surface normal
+and projects it at the sampled opaque depth. The offset fades near contact,
+honors the material's refraction depth bias and stays within the active view.
+Open background uses the original pixel. The compiler retains the water roots and passes in
 source-free Cook payloads. Numeric instance coefficients follow ordinary
 parameter update rules.
 

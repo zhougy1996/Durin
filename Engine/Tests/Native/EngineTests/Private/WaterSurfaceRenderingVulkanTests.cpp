@@ -690,8 +690,9 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
 	ASSERT_FALSE(HasFailure());
 	const float Offset = ReadChannel(Refraction, 160, 120, 0);
-	EXPECT_NEAR(std::abs(Offset), 26.8772f, .1f);
-	EXPECT_NEAR(std::abs(ReadChannel(Refraction, 160, 195, 0)), 26.8772f * (25.0f / 30.0f), .1f);
+	// Snell transmission through the tilted normal, projected onto the 1 m and 25 cm beds.
+	EXPECT_NEAR(Offset, -9.659f, .1f);
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 195, 0), -2.593f, .1f);
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefraction;
 	Input.IR.GetAttribute(P::MP_Refraction).Literal = {1.0f};
 	PublishWater();
@@ -719,7 +720,7 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(716));
 
 	// Track an actual underwater landmark in the shaded HDR image with the camera locked.
-	Add(718, 0.0, -.6, 1.0, .18, Foreground);
+	Add(718, 0.0, -.999, 1.0, .18, Foreground);
 	for (uint32 Scale : {1u, 2u})
 	{
 		View.ViewportWidth = 320 * Scale;
@@ -754,6 +755,10 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(718));
 
 	// Distinguish the exposed pier (green), submerged pier (blue), and bed (white).
+	// A single bed at the foot of the pier leaves its entire face visible.
+	for (uint32 Id : {710u, 711u, 712u})
+		FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(Id));
+	Add(721, 0.0, -2.0, 8.0, 8.0, Bed);
 	const auto TopDownView = View;
 	const auto AddPierFace = [&](uint32 Id, double CenterZ, const FMaterialRenderProxyRef& Material) {
 		FMatrix Transform(1.0);
@@ -791,12 +796,30 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 		ASSERT_FALSE(HasFatalFailure());
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(HDR, Evidence / "oblique-pier.rgba16f"));
 		CheckColor(HDR, 160, 100, {0, 1, 0});
-		for (uint32 Y = 121; Y <= 191; ++Y)
-			CheckColor(HDR, 160, Y, {0, 0, 1});
+		// The submerged face must be continuous from the waterline down to its apparent foot.
+		uint32 End = 120;
+		while (End < View.ViewportHeight && ReadChannel(HDR, 160, End, 2) - ReadChannel(HDR, 160, End, 0) > .5f)
+			++End;
+		EXPECT_GT(End, 130u);
+		ASSERT_LT(End, View.ViewportHeight);
+		for (uint32 Y = End; Y < View.ViewportHeight; ++Y)
+			EXPECT_LE(ReadChannel(HDR, 160, Y, 2) - ReadChannel(HDR, 160, Y, 0), .5f) << Y;
+		Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::None;
+		PublishWater();
+		CaptureHDR(HDR);
+		ASSERT_FALSE(HasFatalFailure());
+		EXPECT_GT(ReadChannel(HDR, 160, End, 2) - ReadChannel(HDR, 160, End, 0), .5f)
+			<< "Above-water refraction should raise the apparent foot of the pier";
+		Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
+		PublishWater();
 	}
 	View = TopDownView;
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(719));
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(720));
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(721));
+	Add(710, -1.0, -.25, 1.0, 6.0, Bed);
+	Add(711, 0.0, -1.0, 1.0, 6.0, Bed);
+	Add(712, 1.0, -2.0, 1.0, 6.0, Bed);
 
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::None;
 	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, 0, 1};
