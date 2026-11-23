@@ -314,6 +314,11 @@ namespace Durin::MaterialEditor
 		}
 		if (Entry.AcceptedInputTypes.size() != Expression->GetAuthoredInputCount())
 			return std::unexpected(RejectCommand("The catalog input shape is stale."));
+		// Water uses defaults for unconnected coefficients. The compiler checks
+		// the required Water connections when compiling the shading model.
+		const bool bAllowsDisconnectedInputs = Entry.Opcode == EMaterialProgramOpcode::MakeMaterialAttributes
+			|| Entry.Opcode == EMaterialProgramOpcode::SetMaterialAttributes
+			|| Entry.Opcode == EMaterialProgramOpcode::SingleLayerWaterOutput;
 		std::optional<uint32> InvalidInput;
 		if (auto* Blend = Cast<DMaterialExpressionBlendMaterialAttributes>(Expression.Get())) Blend->B = FirstInput;
 		VisitMaterialExpressionInputs(*Expression, [&](uint32 Index, FMaterialExpressionInput& Input) {
@@ -327,8 +332,7 @@ namespace Durin::MaterialEditor
 			if ((Entry.Opcode == EMaterialProgramOpcode::QualitySwitch
 				|| Entry.Opcode == EMaterialProgramOpcode::FeatureLevelSwitch)
 				&& Index > 0) return;
-			if (Entry.Opcode != EMaterialProgramOpcode::MakeMaterialAttributes && Entry.Opcode != EMaterialProgramOpcode::SetMaterialAttributes
-				&& !FindMaterialNumericInput(*Expression, Input) && !Input.IsConnected())
+			if (!bAllowsDisconnectedInputs && !FindMaterialNumericInput(*Expression, Input) && !Input.IsConnected())
 				if (!InvalidInput) InvalidInput = Index;
 		});
 		if (InvalidInput) return std::unexpected(RejectCommand("Create this node from a compatible texture or Surface output."));

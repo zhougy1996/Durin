@@ -1170,9 +1170,23 @@ TEST(FMaterialGraphOperationsTests, CatalogShapesCreateExpectedNodesAndAgreeWith
 			ASSERT_FALSE(Entry.AcceptedInputTypes.front().empty());
 			FirstType = Entry.AcceptedInputTypes.front().front();
 		}
-		if (FirstType == Type::MaterialAttributes || FirstType == Type::Texture2D || FirstType == Type::TextureCube)
+		const bool bWaterOutput = Entry.Opcode == EMaterialProgramOpcode::SingleLayerWaterOutput;
+		if (bWaterOutput)
 		{
-			const auto Opcode = FirstType == Type::MaterialAttributes ? EMaterialProgramOpcode::MakeMaterialAttributes : EMaterialProgramOpcode::TextureParameter;
+			const auto Blank = Testing::CreateGraphCatalogNode(*AuthoringGraph, Entry, 0, 0, {}, ETransactionMode::NotTransactable);
+			ASSERT_TRUE(Blank) << FormatMaterialGraphCommandResult(Blank);
+			ASSERT_EQ(Blank->size(), 1u);
+			const auto* Node = AuthoringGraph->FindNode(Blank->front());
+			ASSERT_TRUE(Node);
+			ASSERT_EQ(Node->GetView().Inputs.size(), Entry.AcceptedInputTypes.size());
+			for (const auto& Input : Node->GetView().Inputs)
+				EXPECT_FALSE(Input.Link.SourceNodeId.IsValid());
+			ASSERT_TRUE(Material->SetMaterialExpressions({}, {}));
+		}
+		if (bWaterOutput || FirstType == Type::MaterialAttributes || FirstType == Type::Texture2D || FirstType == Type::TextureCube)
+		{
+			const auto Opcode = bWaterOutput ? EMaterialProgramOpcode::Constant
+				: FirstType == Type::MaterialAttributes ? EMaterialProgramOpcode::MakeMaterialAttributes : EMaterialProgramOpcode::TextureParameter;
 			const auto Found = std::ranges::find_if(Catalog, [&](const auto& Entry) { return Entry.Opcode == Opcode && Entry.ResultType == FirstType; });
 			ASSERT_NE(Found, Catalog.end());
 			const auto Created = Testing::CreateGraphCatalogNode(*AuthoringGraph, *Found, 0, 0, {}, Durin::ETransactionMode::NotTransactable);
@@ -1186,6 +1200,13 @@ TEST(FMaterialGraphOperationsTests, CatalogShapesCreateExpectedNodesAndAgreeWith
 		auto* Original = Node->GetMaterialExpression();
 		ASSERT_NE(Original, nullptr);
 		ASSERT_NO_FATAL_FAILURE(ExpectCatalogNodeView(Entry, *Material, *AuthoringGraph, *Original));
+		if (bWaterOutput)
+		{
+			ASSERT_FALSE(Node->GetView().Inputs.empty());
+			EXPECT_EQ(Node->GetView().Inputs.front().Link, Prerequisite);
+			for (const auto& Input : Node->GetView().Inputs | std::views::drop(1))
+				EXPECT_FALSE(Input.Link.SourceNodeId.IsValid());
+		}
 		if (Entry.AcceptedInputTypes.empty()) continue;
 		// Static selectors have an authoring-only condition or optional exact
 		// branches with Default fallback; their semantic matrix is covered by
