@@ -9,6 +9,7 @@
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialParameterValues.h"
 #include "Materials/MaterialCompiledLayout.h"
+#include "Materials/MaterialCustomOutput.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/ShaderCompilerCore.h"
@@ -21,7 +22,7 @@ namespace Durin
 
 	namespace MIR
 	{
-		inline constexpr uint32 CurrentVersion = 15;
+		inline constexpr uint32 CurrentVersion = 16;
 	}
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
@@ -253,6 +254,14 @@ namespace Durin
 			bool bAggregateAttributes = false;
 			uint32 AggregateAttributesIndex = 0;
 			std::vector<FAttributeRoot> AttributeRoots;
+			std::vector<FAttributeRoot> CustomOutputRoots;
+			auto GetRoots() const
+			{
+				using Span = std::span<const FAttributeRoot>;
+				return std::array{Span(AttributeRoots), Span(CustomOutputRoots)} | std::views::join;
+			}
+			ENGINE_API auto GetCustomOutput(FGuid Id) -> FAttributeRoot&;
+			ENGINE_API auto GetCustomOutput(FGuid Id) const -> const FAttributeRoot&;
 			ENGINE_API FModule();
 			ENGINE_API auto GetAttribute(EMaterialProperty Property) -> FAttributeRoot&;
 			ENGINE_API auto GetAttribute(EMaterialProperty Property) const -> const FAttributeRoot&;

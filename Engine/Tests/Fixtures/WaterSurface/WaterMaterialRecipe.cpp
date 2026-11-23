@@ -106,15 +106,15 @@ namespace Durin::WaterMaterialRecipe
 		const auto Encoded = B.B(Op::Add, B.B(Op::Multiply, XY, Half, Type::Float2), Half, Type::Float2);
 		auto& Root = B.Input.IR.GetAttribute(EMaterialProperty::MP_Normal);
 		Root.bExpression = true; Root.ExpressionIndex = B.U(Op::DecodeNormalRG, Encoded, Type::Float3);
-		auto SetWaterOutput = [&](EMaterialProperty Property, Type ResultType, FMaterialProgramLiteral Value) {
-			auto& Output = B.Input.IR.GetAttribute(Property);
+		auto SetWaterOutput = [&](FGuid Slot, Type ResultType, FMaterialProgramLiteral Value) {
+			auto& Output = B.Input.IR.GetCustomOutput(Slot);
 			Output.bExpression = true;
 			Output.ExpressionIndex = B.Add({.Opcode = Op::Constant, .ResultType = ResultType, .Payload = Value});
 		};
-		SetWaterOutput(EMaterialProperty::MP_WaterScattering, Type::Float3, {.00035f, .00065f, .0009f});
-		SetWaterOutput(EMaterialProperty::MP_WaterAbsorption, Type::Float3, {.004f, .0012f, .00065f});
-		SetWaterOutput(EMaterialProperty::MP_WaterPhaseG, Type::Float, {.2f});
-		SetWaterOutput(EMaterialProperty::MP_WaterColorScale, Type::Float3, {1.f, 1.f, 1.f});
+		SetWaterOutput(SingleLayerWater::Scattering, Type::Float3, {.00035f, .00065f, .0009f});
+		SetWaterOutput(SingleLayerWater::Absorption, Type::Float3, {.004f, .0012f, .00065f});
+		SetWaterOutput(SingleLayerWater::PhaseG, Type::Float, {.2f});
+		SetWaterOutput(SingleLayerWater::ColorScale, Type::Float3, {1.f, 1.f, 1.f});
 		return std::move(B.Input);
 	}
 

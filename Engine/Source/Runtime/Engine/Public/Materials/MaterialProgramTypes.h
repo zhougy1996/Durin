@@ -245,7 +245,6 @@ namespace Durin
 		MP_AmbientOcclusion = 4, MP_EmissiveColor = 5, MP_Opacity = 6, MP_OpacityMask = 7,
 		MP_WorldPositionOffset = 8, MP_Specular = 9, MP_ClearCoat = 10, MP_ClearCoatRoughness = 11,
 		MP_Refraction = 12,
-		MP_WaterScattering = 13, MP_WaterAbsorption = 14, MP_WaterPhaseG = 15, MP_WaterColorScale = 16,
 		MP_MaterialAttributes = 255,
 	};
 

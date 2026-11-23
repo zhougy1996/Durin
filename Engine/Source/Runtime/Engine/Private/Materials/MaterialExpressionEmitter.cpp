@@ -4,6 +4,37 @@
 
 namespace Durin::MIR
 {
+	auto FEmitter::IsCompilingMaterial() const -> bool { return Builder.bCompileReachableOnly; }
+
+	auto FEmitter::SetCustomOutputs(std::string_view Name, std::span<const std::optional<FValue>> Args,
+		EMaterialEvaluationStage Frequency) -> void
+	{
+		if (!Builder.Result.Diagnostics.empty()) return;
+		const auto Families = GetMaterialCustomOutputs();
+		const auto Family = std::ranges::find(Families, Name, &FMaterialCustomOutputDefinition::FunctionName);
+		if (Family == Families.end() || Family->Outputs.size() != Args.size())
+			return Fail(std::format("Unknown custom output group or invalid arity for {}.", Name));
+		auto& IR = Builder.Result.IR;
+		for (size_t Index = 0; Index < Args.size(); ++Index)
+		{
+			const auto& Slot = Family->Outputs[Index];
+			if (Slot.Semantics.Stages != Frequency)
+				return Fail(std::format("{} has the wrong output frequency.", Name));
+			if (std::ranges::contains(IR.CustomOutputRoots, Slot.Id, &FModule::FAttributeRoot::AttributeID))
+				return Fail(std::format("Duplicate custom output {}.", Name));
+			auto& Root = IR.GetCustomOutput(Slot.Id);
+			if (!Args[Index]) continue;
+			const auto* Value = Args[Index]->GetIndex();
+			if (!Value || *Value >= IR.Nodes.size()) return Fail("Custom output requires an emitted numeric value.");
+			const auto Actual = GetNode(*Value).GetSemantics();
+			if (Actual.Type != Slot.Semantics.Type || Actual.Kind != Slot.Semantics.Kind || Actual.Space != Slot.Semantics.Space
+				|| !MaterialStagesContain(Actual.Stages, Frequency))
+				return Fail(std::format("{} requires {}.", Slot.Name, GetMaterialValueSemanticsName(Slot.Semantics)));
+			Root.bExpression = true;
+			Root.ExpressionIndex = *Value;
+		}
+	}
+
 	auto FEmitter::Output(int32 Index, FValue Value) -> void
 	{
 		if (!Builder.Result.Diagnostics.empty()) return;

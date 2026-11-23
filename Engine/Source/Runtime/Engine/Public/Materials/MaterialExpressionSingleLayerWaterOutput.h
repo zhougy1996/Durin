@@ -1,7 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionCustomOutput.h"
+#include "Materials/MaterialCustomOutput.h"
 
 #include "MaterialExpressionSingleLayerWaterOutput.gen.h"
 
@@ -9,7 +10,7 @@ namespace Durin
 {
 	// Material output terminal. Its inputs become independent pixel roots.
 	DCLASS()
-	class DMaterialExpressionSingleLayerWaterOutput : public DMaterialExpression
+	class DMaterialExpressionSingleLayerWaterOutput : public DMaterialExpressionCustomOutput
 	{
 		GENERATED_BODY()
 	public:
@@ -25,7 +26,11 @@ namespace Durin
 		DPROPERTY()
 		FMaterialExpressionInput ColorScaleBehindWater;
 
+		auto GetFunctionName() const -> std::string_view override { return SingleLayerWater::GetOutputDefinition().FunctionName; }
+		auto GetDisplayName() const -> std::string_view override { return SingleLayerWater::GetOutputDefinition().DisplayName; }
+		auto GetNumOutputs() const -> int32 override { return static_cast<int32>(SingleLayerWater::GetOutputDefinition().Outputs.size()); }
 		auto GetAuthoredInputCount() const -> uint32 override { return 4; }
-		auto Build(MIR::FEmitter&) const -> void override {}
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+
 	};
 }

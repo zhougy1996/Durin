@@ -96,6 +96,9 @@ namespace Durin
 		public:
 			FEmitter(const FEmitter&) = delete;
 			auto operator=(const FEmitter&) -> FEmitter& = delete;
+			ENGINE_API auto SetCustomOutputs(std::string_view Name, std::span<const std::optional<FValue>> Args,
+				EMaterialEvaluationStage Frequency) -> void;
+			ENGINE_API auto IsCompilingMaterial() const -> bool;
 			ENGINE_API auto Output(int32 Index, FValue Value) -> void;
 			ENGINE_API auto Resolve(const FMaterialExpressionInput& Input) -> FValue;
 			ENGINE_API auto ResolveIndex(const FMaterialExpressionInput& Input) -> uint32;

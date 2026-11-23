@@ -27,6 +27,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Threading/TaskRuntime.h"
 #include "AuthorWaterMaterial.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 
 #if DURIN_WITH_EDITOR
 #include "Actors/CameraActor.h"
@@ -396,14 +397,17 @@ int main(int Argc, char** Argv)
 			Require(bool(Loaded), Loaded ? "" : LoadedError->ToString());
 			const auto Snapshot = SnapshotMaterialCompilerInput(*Loaded, {});
 			Require(bool(Snapshot), FormatMaterialProgramDiagnostics(Snapshot.Diagnostics));
+			Require(std::ranges::any_of(Snapshot.Snapshot->FunctionOwners, [](const auto& Owner) {
+				return Owner.AssetPath == "/Plugins/Water/Materials/GerstnerWaves.GerstnerWaves";
+			}), "DefaultWater must evaluate the Water plugin wave function.");
 			const auto Recipe = WaterMaterialRecipe::BuildInput();
 			const auto& Input = Snapshot.Snapshot->Input;
 			Require(Input.StaticProperties == Recipe.StaticProperties, "Saved Water material static properties differ from the recipe.");
 			Require(Input.IR.GetAttribute(EMaterialProperty::MP_Opacity).Literal.X == 0.f, "Saved Water opacity changed.");
-			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions())
+			for (const auto& Definition : SingleLayerWater::GetOutputDefinition().Outputs)
 			{
-				const auto& Actual = Input.IR.GetAttribute(Definition.Property);
-				const auto& Expected = Recipe.IR.GetAttribute(Definition.Property);
+				const auto& Actual = Input.IR.GetCustomOutput(Definition.Id);
+				const auto& Expected = Recipe.IR.GetCustomOutput(Definition.Id);
 				Require(Actual.bExpression && Input.IR.Nodes.at(Actual.ExpressionIndex).GetLiteral()
 					== Recipe.IR.Nodes.at(Expected.ExpressionIndex).GetLiteral(), "Saved Water optical coefficients differ from the recipe.");
 			}

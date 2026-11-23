@@ -1,5 +1,6 @@
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialCustomOutput.h"
 
 namespace Durin
 {
@@ -160,9 +161,9 @@ namespace Durin
 			break;
 		case EMaterialProgramOpcode::SingleLayerWaterOutput:
 			if (ResultType != Type::Float) return std::nullopt;
-			Signature.InputCount = 4;
+			Signature.InputCount = static_cast<uint8>(SingleLayerWater::GetOutputDefinition().Outputs.size());
 			for (uint8 Index = 0; Index < Signature.InputCount; ++Index)
-				Signature.Inputs[Index] = One(FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions()[Index].Semantics.Type);
+				Signature.Inputs[Index] = One(SingleLayerWater::GetOutputDefinition().Outputs[Index].Semantics.Type);
 			break;
 		case EMaterialProgramOpcode::GetMaterialAttributes:
 		case EMaterialProgramOpcode::SetMaterialAttributes:

@@ -5,8 +5,8 @@ as `/Plugins/Water/Materials/DefaultWater.DefaultWater`. It contains no compiled
 platform programs. Editor uses the normal material compiler; Game loads the
 ordinary cooked material package from its Cook generation.
 
-The graph uses the Single Layer Water shading model with the plugin's analytic
-normals and Gerstner displacement. See the [water material settings](../../../../Documentation/Runtime/World/WaterSurfaces.md#material-resources).
+The graph uses the Single Layer Water shading model and calls the plugin's
+`Materials/GerstnerWaves.dasset` function for world displacement and tangent-space normals. See the [water material settings](../../../../Documentation/Runtime/World/WaterSurfaces.md#material-resources).
 
 Saved water components serialize the default soft reference explicitly so Cook
 can discover it even when the value matches the class default. Projects that

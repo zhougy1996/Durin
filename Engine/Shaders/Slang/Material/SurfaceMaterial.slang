@@ -16,10 +16,6 @@ public struct FMaterialSurface
     public float opacity;
     public float opacityMask;
     public float refraction;
-    public float3 waterScattering;
-    public float3 waterAbsorption;
-    public float waterPhaseG;
-    public float3 waterColorScale;
 };
 
 public struct FMaterialNormalFrame
@@ -56,12 +52,12 @@ public float3 BlendSurfaceNormalsRNM(float3 baseNormal, float3 detailNormal)
         first * dot(first, second) / max(first.z, 1.0e-5) - second);
 }
 
-internal float FiniteSurfaceValue(float value, float fallback)
+public float FiniteSurfaceValue(float value, float fallback)
 {
     return isfinite(value) ? value : fallback;
 }
 
-internal float3 FiniteSurfaceColor(float3 value, float fallback)
+public float3 FiniteSurfaceColor(float3 value, float fallback)
 {
     return float3(FiniteSurfaceValue(value.x, fallback),
         FiniteSurfaceValue(value.y, fallback),
@@ -86,10 +82,6 @@ public FMaterialSurface EvaluateMaterialSurface(FMaterialSurface result)
     result.opacity = saturate(FiniteSurfaceValue(result.opacity, 1.0));
     result.opacityMask = saturate(FiniteSurfaceValue(result.opacityMask, 1.0));
     result.refraction = FiniteSurfaceValue(result.refraction, 1.0);
-    result.waterScattering = max(FiniteSurfaceColor(result.waterScattering, 0.0), 0.0);
-    result.waterAbsorption = max(FiniteSurfaceColor(result.waterAbsorption, 0.0), 0.0);
-    result.waterPhaseG = clamp(FiniteSurfaceValue(result.waterPhaseG, 0.0), -1.0, 1.0);
-    result.waterColorScale = max(FiniteSurfaceColor(result.waterColorScale, 1.0), 0.0);
     return result;
 }
 

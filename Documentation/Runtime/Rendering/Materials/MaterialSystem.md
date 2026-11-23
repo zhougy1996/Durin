@@ -20,8 +20,12 @@ render boundary accepts only material-specific layout v5 data. Built-in role kno
 ## Single Layer Water
 
 Surface materials with Opaque or Masked blend mode can select Single Layer
-Water. Connect at least one input on the required Single Layer Water Output
-terminal. It supplies RGB scattering and absorption per centimeter, scalar
+Water. The Single Layer Water terminal implements `DMaterialExpressionCustomOutput`.
+The terminal's `Build(MIR::FEmitter&)` publishes its four values together
+through `SetCustomOutputs`. MIR stores these roots separately from surface
+properties. The water color pass requests this group. Depth and ordinary
+surface passes generate only their own evaluation code.
+Connect scattering, absorption or PhaseG to enable the water volume. The terminal supplies RGB scattering and absorption per centimeter, scalar
 PhaseG and RGB Color Scale Behind Water.
 Disconnected inputs use zero coefficients, PhaseG zero and white scale. Water
 Opacity controls surface versus volume contributions independently of Opacity
@@ -1439,7 +1443,7 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 29, MIR 15, layout 5, pass contract 28,
+Current compatibility versions are DMAT 29, MIR 16, layout 5, pass contract 28,
 and material Cook class-schema version 7. The independent compile adapter is version 26;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.

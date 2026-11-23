@@ -62,9 +62,9 @@ namespace Durin::MIR
 		template<typename RootOwner>
 		auto FinishSurface(const RootOwner& Outputs, EMaterialDomain Domain = EMaterialDomain::Surface,
 			const std::set<EMaterialProperty>* Demanded = nullptr,
-			bool bSingleLayerWater = false) -> FBuildResult;
+			std::optional<EMaterialShadingModel> Model = {}) -> FBuildResult;
 	private:
-		auto BuildSingleLayerWaterOutputs(bool bRequired) -> void;
+		auto BuildCustomOutputs(std::optional<EMaterialShadingModel> Model) -> void;
 		friend class FEmitter;
 		auto AttributeLiteral(EMaterialProperty Property, const FMaterialProgramLiteral& Value) -> uint32;
 		struct FSharedState

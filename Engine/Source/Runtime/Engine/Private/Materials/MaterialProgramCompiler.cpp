@@ -474,6 +474,15 @@ namespace Durin
 		MIR::FModule IR;
 		IR.Domain = Input.IR.Domain;
 		IR.AttributeRoots = Input.IR.AttributeRoots;
+		for (const auto& Family : GetMaterialCustomOutputs())
+			if (Family.ShadingModel == Input.StaticProperties.ShadingModel)
+				for (const auto& Slot : Family.Outputs)
+				{
+					auto& Root = IR.GetCustomOutput(Slot.Id);
+					const auto& Sources = Input.IR.CustomOutputRoots;
+					const auto Source = std::ranges::find(Sources, Slot.Id, &MIR::FModule::FAttributeRoot::AttributeID);
+					if (Source != Sources.end()) Root = *Source;
+				}
 		IR.bAggregateAttributes = Input.IR.bAggregateAttributes;
 		IR.AggregateAttributesIndex = Input.IR.AggregateAttributesIndex;
 		std::function<uint32(uint32)> Emit = [&](uint32 Index) -> uint32 {
@@ -503,7 +512,7 @@ namespace Durin
 		{
 			const auto Demanded = GetMaterialCompilationProperties(IR.Domain, Input.StaticProperties, Input.Environment);
 			for (auto& Root : IR.AttributeRoots)
-				if (const auto* Definition = FMaterialAttributeDefinitionMap::FindCompilerRoot(Root.AttributeID);
+				if (const auto* Definition = FMaterialAttributeDefinitionMap::Find(Root.AttributeID);
 					Definition && !Demanded.contains(Definition->Property))
 				{
 					Root.bExpression = false;
@@ -511,15 +520,18 @@ namespace Durin
 				}
 
 			IR.AggregateAttributesIndex = 0;
-			std::ranges::sort(IR.AttributeRoots, {}, &MIR::FModule::FAttributeRoot::AttributeID);
-			for (auto& Root : IR.AttributeRoots)
+			for (auto* Roots : {&IR.AttributeRoots, &IR.CustomOutputRoots})
 			{
-				if (Root.bExpression) { Root.ExpressionIndex = Emit(Root.ExpressionIndex); Root.Literal = {}; }
-				else
+				std::ranges::sort(*Roots, {}, &MIR::FModule::FAttributeRoot::AttributeID);
+				for (auto& Root : *Roots)
 				{
-					Root.ExpressionIndex = 0;
-					const std::array Components{&Root.Literal.X, &Root.Literal.Y, &Root.Literal.Z, &Root.Literal.W};
-					for (uint32 Index = static_cast<uint32>(Root.Type) + 1; Index < 4; ++Index) *Components[Index] = 0.f;
+					if (Root.bExpression) { Root.ExpressionIndex = Emit(Root.ExpressionIndex); Root.Literal = {}; }
+					else
+					{
+						Root.ExpressionIndex = 0;
+						const std::array Components{&Root.Literal.X, &Root.Literal.Y, &Root.Literal.Z, &Root.Literal.W};
+						for (uint32 Index = static_cast<uint32>(Root.Type) + 1; Index < 4; ++Index) *Components[Index] = 0.f;
+					}
 				}
 			}
 		}
@@ -643,32 +655,37 @@ namespace Durin
 			OutBytes.clear();
 			return std::unexpected("Material IR aggregate Surface Root expression is invalid.");
 		}
-		auto Roots = IR.AttributeRoots;
-		if (Roots.size() != FMaterialAttributeDefinitionMap::GetDefinitions().size()
-			+ FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions().size())
+		if (IR.AttributeRoots.size() != FMaterialAttributeDefinitionMap::GetDefinitions().size())
 		{
 			OutBytes.clear();
 			return std::unexpected("Material IR attribute schema is incomplete.");
 		}
-		std::ranges::sort(Roots, {}, &MIR::FModule::FAttributeRoot::AttributeID);
-		std::unordered_set<FGuid> Seen;
-		AppendLittleEndian(OutBytes, uint32(Roots.size()));
-		for (const auto& Input : Roots)
+		for (const auto* Group : {&IR.AttributeRoots, &IR.CustomOutputRoots})
 		{
-			const auto* Definition = FMaterialAttributeDefinitionMap::FindCompilerRoot(Input.AttributeID);
-			if (!Definition || !Seen.insert(Input.AttributeID).second || Input.GetSemantics() != Definition->Semantics
-				|| !std::isfinite(Input.Literal.X) || !std::isfinite(Input.Literal.Y)
-				|| !std::isfinite(Input.Literal.Z) || !std::isfinite(Input.Literal.W)
-				|| (Input.bExpression && (Input.ExpressionIndex >= IR.Nodes.size() || IR.Nodes[Input.ExpressionIndex].ResultType != Input.Type)))
-			{ OutBytes.clear(); return std::unexpected("Material IR attribute root is invalid."); }
-			AppendGuid(OutBytes, Input.AttributeID);
-			AppendLittleEndian(OutBytes, static_cast<uint8>(Input.bExpression));
-			AppendLittleEndian(OutBytes, Input.ExpressionIndex);
-			AppendLittleEndian(OutBytes, Input.Type);
-			AppendLittleEndian(OutBytes, Input.LegalStages);
-			AppendLittleEndian(OutBytes, Input.SpatialKind);
-			AppendLittleEndian(OutBytes, Input.CoordinateSpace);
-			AppendLiteral(OutBytes, Input.Literal);
+			auto Roots = *Group;
+			const bool Custom = Group == &IR.CustomOutputRoots;
+			std::ranges::sort(Roots, {}, &MIR::FModule::FAttributeRoot::AttributeID);
+			std::unordered_set<FGuid> Seen;
+			AppendLittleEndian(OutBytes, uint32(Roots.size()));
+			for (const auto& Input : Roots)
+			{
+				const auto* Field = FMaterialAttributeDefinitionMap::Find(Input.AttributeID);
+				const auto* Slot = FindMaterialCustomOutputSlot(Input.AttributeID);
+				const auto* Semantics = Custom ? (Slot ? &Slot->Semantics : nullptr) : (Field ? &Field->Semantics : nullptr);
+				if (!Semantics || !Seen.insert(Input.AttributeID).second || Input.GetSemantics() != *Semantics
+					|| !std::isfinite(Input.Literal.X) || !std::isfinite(Input.Literal.Y)
+					|| !std::isfinite(Input.Literal.Z) || !std::isfinite(Input.Literal.W)
+					|| (Input.bExpression && (Input.ExpressionIndex >= IR.Nodes.size() || IR.Nodes[Input.ExpressionIndex].ResultType != Input.Type)))
+				{ OutBytes.clear(); return std::unexpected("Material IR attribute root is invalid."); }
+				AppendGuid(OutBytes, Input.AttributeID);
+				AppendLittleEndian(OutBytes, static_cast<uint8>(Input.bExpression));
+				AppendLittleEndian(OutBytes, Input.ExpressionIndex);
+				AppendLittleEndian(OutBytes, Input.Type);
+				AppendLittleEndian(OutBytes, Input.LegalStages);
+				AppendLittleEndian(OutBytes, Input.SpatialKind);
+				AppendLittleEndian(OutBytes, Input.CoordinateSpace);
+				AppendLiteral(OutBytes, Input.Literal);
+			}
 		}
 
 		if (OutBytes.size() > MaterialProgramMaxCanonicalBytes)

@@ -165,7 +165,7 @@ namespace Durin
             if (IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) return;
             for (const auto Child : IR.Nodes[Index].Inputs) VisitPixel(Child);
         };
-        for (const auto& Root : IR.AttributeRoots) if (Root.bExpression && Root.LegalStages == EMaterialEvaluationStage::Pixel) VisitPixel(Root.ExpressionIndex);
+        for (const auto& Root : IR.GetRoots()) if (Root.bExpression && Root.LegalStages == EMaterialEvaluationStage::Pixel) VisitPixel(Root.ExpressionIndex);
         bool PixelNeedsPrimitiveData = false;
         for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
         {
@@ -324,10 +324,31 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				if (IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).bExpression) Visit(IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).ExpressionIndex);
 				for (const auto Index : Interpolators) Visit(IR.Nodes[Index].Inputs[0]);
 			}
-			else for (const auto& Root : IR.AttributeRoots) if (Root.bExpression && Root.LegalStages == EMaterialEvaluationStage::Pixel) Visit(Root.ExpressionIndex);
+			else for (const auto& Root : IR.GetRoots()) if (Root.bExpression && Root.LegalStages == EMaterialEvaluationStage::Pixel) Visit(Root.ExpressionIndex);
+			auto CustomOutputs = GetMaterialCustomOutputs() | std::views::filter([&](const auto& Family) {
+				return std::ranges::any_of(IR.CustomOutputRoots, [&](const auto& Root) {
+					return std::ranges::contains(Family.Outputs, Root.AttributeID, &FMaterialCustomOutputSlot::Id);
+				});
+			});
+			const bool EmitCustom = !bVertex && !CustomOutputs.empty();
+			if (EmitCustom)
+			{
+				for (const auto& Family : CustomOutputs)
+					OutSource += std::format("#define DURIN_NUM_{} {}\n", Family.FunctionName, Family.Outputs.size());
+				OutSource += "struct FMaterialCustomOutputs\n{\n";
+				for (const auto& Family : CustomOutputs)
+					for (size_t Slot = 0; Slot < Family.Outputs.size(); ++Slot)
+					{
+						const auto Type = SlangType(Family.Outputs[Slot].Semantics.Type);
+						OutSource += std::format("    {0} value_{1}{2};\n    {0} {1}{2}() {{ return value_{1}{2}; }}\n",
+							Type, Family.FunctionName, Slot);
+					}
+				OutSource += "};\n";
+			}
 			OutSource += bVertex
 				? "VSOutput EvaluateGeneratedVertex(VSOutput input, MaterialPrimitiveUniform MaterialPrimitive, out float3 offset)\n{\n"
-				: "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)\n{\n";
+				: !EmitCustom ? "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)\n{\n"
+				: "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input, out FMaterialCustomOutputs customOutputs)\n{\n";
             if (!bVertex && PixelNeedsPrimitiveData) OutSource += "    MaterialPrimitiveUniform MaterialPrimitive = TranslateMaterialPrimitive(GetMaterialPrimitiveData(input.sceneInstanceId), MaterialView);\n";
 			std::vector<std::string> Expressions(IR.Nodes.size());
 			uint32 LocalIndex = 0;
@@ -607,11 +628,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					std::pair{P::MP_Opacity, "opacity"}, std::pair{P::MP_OpacityMask, "opacityMask"},
 					std::pair{P::MP_Specular, "specular"}, std::pair{P::MP_ClearCoat, "clearCoat"},
 					std::pair{P::MP_ClearCoatRoughness, "clearCoatRoughness"},
-					std::pair{P::MP_Refraction, "refraction"},
-					std::pair{P::MP_WaterScattering, "waterScattering"},
-					std::pair{P::MP_WaterAbsorption, "waterAbsorption"},
-					std::pair{P::MP_WaterPhaseG, "waterPhaseG"},
-					std::pair{P::MP_WaterColorScale, "waterColorScale"}
+					std::pair{P::MP_Refraction, "refraction"}
 				};
 				OutSource += "    FMaterialSurface result;\n";
 				for (const auto& [Property, Field] : Fields)
@@ -622,8 +639,19 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					const auto Value = Root.bExpression ? Expressions[Root.ExpressionIndex] : LiteralExpression(Root.Type, Root.Literal);
 					OutSource += std::format("    result.{} = {};\n", Field, Value);
 				}
+				for (const auto& Family : CustomOutputs)
+					for (size_t Slot = 0; Slot < Family.Outputs.size(); ++Slot)
+					{
+						const auto& Field = Family.Outputs[Slot];
+						const auto It = std::ranges::find(IR.CustomOutputRoots, Field.Id, &MIR::FModule::FAttributeRoot::AttributeID);
+						const auto Value = It == IR.CustomOutputRoots.end() ? LiteralExpression(Field.Semantics.Type, Field.DefaultValue)
+							: It->bExpression ? Expressions.at(It->ExpressionIndex) : LiteralExpression(It->Type, It->Literal);
+						OutSource += std::format("    customOutputs.value_{}{} = {};\n", Family.FunctionName, Slot, Value);
+					}
 				OutSource += "#if DURIN_MATERIAL_SHADING_MODEL != 2\n    result.clearCoat = 0.0;\n#endif\n";
 				OutSource += IR.Domain == EMaterialDomain::PostProcess ? "    return result;\n}\n" : "    return EvaluateMaterialSurface(result);\n}\n";
+				if (EmitCustom) OutSource += "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)\n{\n"
+					"    FMaterialCustomOutputs unused;\n    return EvaluateGeneratedMaterial(input, unused);\n}\n";
 			}
 		} // Stage-specific expression closures.
 		if (IR.Domain == EMaterialDomain::PostProcess) OutSource += "#define DURIN_GENERATED_MATERIAL_POSTPROCESS 1\n#include \"Material/PostProcessPass.slang\"\n";
@@ -729,7 +757,8 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			Result.Diagnostics.push_back(MakeDiagnostic(std::move(Message)));
 		};
 		std::vector<uint32> Depth(IR.Nodes.size(), 1);
-		uint32 LinkCount = IR.bAggregateAttributes ? 1u : static_cast<uint32>(
+		uint32 LinkCount = static_cast<uint32>(std::ranges::count(IR.CustomOutputRoots, true, &MIR::FModule::FAttributeRoot::bExpression));
+		LinkCount += IR.bAggregateAttributes ? 1u : static_cast<uint32>(
 			std::ranges::count(IR.AttributeRoots, true, &MIR::FModule::FAttributeRoot::bExpression));
 		for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
 		{
@@ -897,20 +926,14 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					}
 			}
 		}
-		std::unordered_set<FGuid> AttributeIDs;
-		for (const auto& Input : IR.AttributeRoots)
+		for (const auto& Input : IR.GetRoots())
 		{
-			const auto* Definition = FMaterialAttributeDefinitionMap::FindCompilerRoot(Input.AttributeID);
-			if (!Definition || !AttributeIDs.insert(Input.AttributeID).second
-				|| Input.GetSemantics() != Definition->Semantics)
-			{
-				Fail("Material IR surface root requires a Pixel value with the exact attribute semantics.");
-				return Result;
-			}
-			if (!IR.bAggregateAttributes && Input.bExpression)
+			const auto* Definition = FMaterialAttributeDefinitionMap::Find(Input.AttributeID);
+			if (Definition && IR.bAggregateAttributes) continue;
+			if (Input.bExpression)
 			{
 				const auto Actual = IR.Nodes[Input.ExpressionIndex].GetSemantics();
-				if (Definition->Property == EMaterialProperty::MP_WorldPositionOffset
+				if (Definition && Definition->Property == EMaterialProperty::MP_WorldPositionOffset
 					? !IsMaterialWorldPositionOffsetSemantics(Actual)
 					: (Actual.Type != Input.Type || Actual.Kind != Input.SpatialKind
 					|| Actual.Space != Input.CoordinateSpace
@@ -920,7 +943,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					return Result;
 				}
 			}
-			if (!IR.bAggregateAttributes && !Input.bExpression)
+			if (!Input.bExpression)
 			{
 				const std::array Values{Input.Literal.X, Input.Literal.Y, Input.Literal.Z, Input.Literal.W};
 				if (!std::ranges::all_of(Values | std::views::take(static_cast<uint32>(Input.Type) + 1),
@@ -1155,9 +1178,15 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			if (!Vertex)
 				for (auto& Root : Projected.AttributeRoots)
 				{
-					const auto* Definition = FMaterialAttributeDefinitionMap::FindCompilerRoot(Root.AttributeID);
+					const auto* Definition = FMaterialAttributeDefinitionMap::Find(Root.AttributeID);
 					if (!std::ranges::contains(Demanded, Definition->Property)) { Root.bExpression = false; Root.Literal = Definition->DefaultValue; }
 				}
+			std::erase_if(Projected.CustomOutputRoots, [&](const auto& Root) {
+				for (const auto& Family : GetMaterialCustomOutputs())
+					if (Family.Entry == Descriptor->Entry && std::ranges::contains(Family.Outputs, Root.AttributeID, &FMaterialCustomOutputSlot::Id))
+						return false;
+				return true;
+			});
 			auto Request = Base;
 			if (!GenerateMaterialProgramSlangImpl(Projected, Translation.Layout, Translation.ActiveCollections, Request.Source,
 				Vertex ? EMaterialEvaluationStage::Vertex : EMaterialEvaluationStage::Pixel, Descriptor->VertexFactory ? Descriptor->VertexFactory() : nullptr)) return {};

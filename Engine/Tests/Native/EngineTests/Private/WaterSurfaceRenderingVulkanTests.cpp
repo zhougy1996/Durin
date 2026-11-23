@@ -540,7 +540,7 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	Input.IR.GetAttribute(P::MP_Specular).Literal = {.25f};
 	Input.IR.GetAttribute(P::MP_Roughness).Literal = {.1f};
 	Input.IR.GetAttribute(P::MP_Opacity).Literal = {};
-	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {.01f, .01f, .01f};
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {.01f, .01f, .01f};
 	auto Water = MakeRefCount<FMaterialRenderProxy>();
 	const auto PublishWater = [&] {
 		const auto Program = MIR::Compile(Input);
@@ -648,13 +648,13 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 
 	// Keep the same bed geometry and vary one material input at a time.
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::None;
-	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {};
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {};
 	PublishWater();
 	FByteBuffer HDR;
 	CaptureHDR(HDR);
 	ASSERT_FALSE(HasFailure());
 	CheckColor(HDR, 160, 195, FVector3f(1.0f));
-	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {.01f, .005f, 0.0f};
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {.01f, .005f, 0.0f};
 	View.ClearColor = {.2f, .4f, .6f, 1.0f};
 	PublishWater();
 	CaptureHDR(HDR);
@@ -667,14 +667,14 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	ASSERT_FALSE(HasFailure());
 	CheckColor(HDR, 160, 195, FVector3f(0.0f));
 	Input.IR.GetAttribute(P::MP_Opacity).Literal = {};
-	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {};
-	Input.IR.GetAttribute(P::MP_WaterColorScale).Literal = {.5f, .5f, .5f};
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {};
+	Input.IR.GetCustomOutput(SingleLayerWater::ColorScale).Literal = {.5f, .5f, .5f};
 	PublishWater();
 	CaptureHDR(HDR);
 	ASSERT_FALSE(HasFailure());
 	CheckColor(HDR, 160, 195, FVector3f(.75f));
-	Input.IR.GetAttribute(P::MP_WaterColorScale).Literal = {1.0f, 1.0f, 1.0f};
-	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {.01f, .01f, .01f};
+	Input.IR.GetCustomOutput(SingleLayerWater::ColorScale).Literal = {1.0f, 1.0f, 1.0f};
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {.01f, .01f, .01f};
 	Add(715, 0.0, -.00005, .12, 1.0, Bed);
 	PublishWater();
 	CaptureHDR(HDR);
@@ -684,7 +684,7 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
 	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, .5f, .8660254f};
-	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {};
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {};
 	PublishWater();
 	FByteBuffer Refraction;
 	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
@@ -880,8 +880,8 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::None;
 	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, 0, 1};
 	Input.IR.GetAttribute(P::MP_Specular).Literal = {};
-	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {.005f, .005f, .005f};
-	Input.IR.GetAttribute(P::MP_WaterScattering).Literal = {.005f, .005f, .005f};
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {.005f, .005f, .005f};
+	Input.IR.GetCustomOutput(SingleLayerWater::Scattering).Literal = {.005f, .005f, .005f};
 	FDirectionalLightSceneData Sun;
 	Sun.Direction = {std::sqrt(.75), 0.0, -.5};
 	Sun.Intensity = 1.0f;
@@ -889,23 +889,23 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(*Scene, FLightComponentId(717), Sun), nullptr);
 	for (const auto& [Phase, Expected] : std::array{std::pair{-.5f, .095317f}, std::pair{0.0f, .079577f}, std::pair{.5f, .021784f}})
 	{
-		Input.IR.GetAttribute(P::MP_WaterPhaseG).Literal = {Phase};
+		Input.IR.GetCustomOutput(SingleLayerWater::PhaseG).Literal = {Phase};
 		PublishWater();
 		CaptureHDR(HDR);
 		ASSERT_FALSE(HasFailure());
 		CheckColor(HDR, 160, 120, FVector3f(.135335f + .316060f * Expected));
 	}
-	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {};
-	Input.IR.GetAttribute(P::MP_WaterScattering).Literal = {.01f, .01f, .01f};
-	Input.IR.GetAttribute(P::MP_WaterPhaseG).Literal = {};
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {};
+	Input.IR.GetCustomOutput(SingleLayerWater::Scattering).Literal = {.01f, .01f, .01f};
+	Input.IR.GetCustomOutput(SingleLayerWater::PhaseG).Literal = {};
 	PublishWater();
 	CaptureHDR(HDR);
 	ASSERT_FALSE(HasFailure());
 	CheckColor(HDR, 160, 120, FVector3f(.135335f + .632121f * .079577f));
 
 	// Transparent water retains the dielectric highlight without adding diffuse base color.
-	Input.IR.GetAttribute(P::MP_WaterScattering).Literal = {};
-	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {1.f, 1.f, 1.f};
+	Input.IR.GetCustomOutput(SingleLayerWater::Scattering).Literal = {};
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {1.f, 1.f, 1.f};
 	Input.IR.GetAttribute(P::MP_Specular).Literal = {.5f};
 	Input.IR.GetAttribute(P::MP_Roughness).Literal = {.5f};
 	Input.IR.GetAttribute(P::MP_BaseColor).Literal = {};
@@ -930,11 +930,11 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	Input.IR.GetAttribute(P::MP_Opacity).Literal = {};
 	Input.IR.GetAttribute(P::MP_BaseColor).Literal = {};
 	Input.IR.GetAttribute(P::MP_Specular).Literal = {};
-	Input.IR.GetAttribute(P::MP_WaterScattering).Literal = {.2f, .2f, .2f};
-	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {};
+	Input.IR.GetCustomOutput(SingleLayerWater::Scattering).Literal = {.2f, .2f, .2f};
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {};
 	for (float Phase : {-1.f, -.97f, .97f, 1.f})
 	{
-		Input.IR.GetAttribute(P::MP_WaterPhaseG).Literal = {Phase};
+		Input.IR.GetCustomOutput(SingleLayerWater::PhaseG).Literal = {Phase};
 		PublishWater();
 		CaptureHDR(HDR);
 		ASSERT_FALSE(HasFailure());

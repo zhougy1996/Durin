@@ -229,8 +229,8 @@ program. Optimized stages may retain no bindings when their entire parameter
 closure is unused; required-resource validation follows the accepted per-entry
 contract rather than a blanket nonempty-binding rule.
 
-Pass contract 28, DMAT 29 and detached translation schema 18 carry this
-contract. Normalization/generator revisions 19/30, compile adapter 26 and the
+Pass contract 28, DMAT 29 and detached translation schema 19 carry this
+contract. Normalization/generator revisions 20/31, compile adapter 26 and the
 ShaderBuild compile algorithm revision 7 invalidate earlier producer artifacts.
 Generic parameter schemas/allocation envelopes use version 2, DSHD uses version 7
 and shared ShaderBuild output uses version 8. These codecs retain resource shape

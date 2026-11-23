@@ -90,6 +90,7 @@ float SingleLayerWaterDepthFragmentMain(VSOutput input) : SV_Target0
     return 1.0;
 }
 
+#if DURIN_NUM_GetSingleLayerWaterMaterialOutput
 struct SingleLayerWaterMaterialOutput
 {
     float4 sceneColor : SV_Target0;
@@ -105,7 +106,12 @@ struct SingleLayerWaterMaterialOutput
 SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool isFrontFace : SV_IsFrontFace)
 {
     int3 pixel = int3(int2(input.pos.xy), 0);
-    FMaterialSurface surface = EvaluateGeneratedMaterial(input);
+    FMaterialCustomOutputs customOutputs;
+    FMaterialSurface surface = EvaluateGeneratedMaterial(input, customOutputs);
+    float3 scattering = max(FiniteSurfaceColor(customOutputs.GetSingleLayerWaterMaterialOutput0(), 0.0), 0.0);
+    float3 absorption = max(FiniteSurfaceColor(customOutputs.GetSingleLayerWaterMaterialOutput1(), 0.0), 0.0);
+    float phaseG = clamp(FiniteSurfaceValue(customOutputs.GetSingleLayerWaterMaterialOutput2(), 0.0), -1.0, 1.0);
+    float3 colorScale = max(FiniteSurfaceColor(customOutputs.GetSingleLayerWaterMaterialOutput3(), 1.0), 0.0);
     FResolvedGeneratedSurfaceShading shading = ResolveGeneratedSurfaceShading(input, surface, isFrontFace);
     float3 viewForward = WaterViewForward(WaterView);
     float3 surfaceInView = mul(MaterialView.WorldToView, float4(input.worldPosition, 1.0)).xyz;
@@ -152,9 +158,9 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
 #endif
     if (!background.valid) background.depth = surfaceDepth;
     float thicknessCm = max(background.depth - surfaceDepth, 0.0) * 100.0;
-    float3 extinction = surface.waterScattering + surface.waterAbsorption;
+    float3 extinction = scattering + absorption;
     float3 transmission = WaterTransmission(extinction, thicknessCm, background.open);
-    float3 scatterWeight = WaterIntegratedScattering(surface.waterScattering, extinction, transmission);
+    float3 scatterWeight = WaterIntegratedScattering(scattering, extinction, transmission);
     float3 bedLight = 1.0;
     if (background.valid && !background.open)
     {
@@ -163,7 +169,7 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
         bedLight = exp(-extinction * (max(input.worldPosition.z - bedInWorld.z, 0.0) * 100.0));
     }
     float shoreline = background.open ? 1.0 : saturate(thicknessCm * 0.02);
-    float3 behind = background.radiance * bedLight * lerp(1.0, surface.waterColorScale, shoreline);
+    float3 behind = background.radiance * bedLight * lerp(1.0, colorScale, shoreline);
 
     float3 rotatedNormal = normal + 2.0 * cross(Lighting.EnvironmentRotation.xyz,
         cross(Lighting.EnvironmentRotation.xyz, normal) + Lighting.EnvironmentRotation.w * normal);
@@ -181,7 +187,7 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
             Lighting.DirectionalShadowCascades, DirectionalShadowTexture, DirectionalShadowSampler);
         float3 ray = refract(-frame.toView, normal, 1.0 / waterIor);
         if (dot(ray, ray) > 0.0)
-            incoming += radiance * shadow.attenuation * WaterSchlickPhase(surface.waterPhaseG, dot(lightDirection, ray));
+            incoming += radiance * shadow.attenuation * WaterSchlickPhase(phaseG, dot(lightDirection, ray));
         direct = EvaluateSurfaceDirectionalLighting(surface.baseColor, surface.metallic, surface.specular, roughness,
             frame, -lightDirection, radiance, shadow.attenuation, 0.0, 0.1, surface.opacity);
     }
@@ -198,6 +204,7 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
     result.specularF0 = float4(float3(f0), 0.0);
     return result;
 }
+#endif
 #endif
 
 [shader("fragment")]

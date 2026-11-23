@@ -1,6 +1,7 @@
 #include "MaterialExpressionParameters.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpressionCustomOutput.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
@@ -314,11 +315,10 @@ namespace Durin::MaterialEditor
 		}
 		if (Entry.AcceptedInputTypes.size() != Expression->GetAuthoredInputCount())
 			return std::unexpected(RejectCommand("The catalog input shape is stale."));
-		// Water uses defaults for unconnected coefficients. The compiler checks
-		// the required Water connections when compiling the shading model.
+		// Custom terminals validate required connections when compiling their shading model.
 		const bool bAllowsDisconnectedInputs = Entry.Opcode == EMaterialProgramOpcode::MakeMaterialAttributes
 			|| Entry.Opcode == EMaterialProgramOpcode::SetMaterialAttributes
-			|| Entry.Opcode == EMaterialProgramOpcode::SingleLayerWaterOutput;
+			|| Cast<DMaterialExpressionCustomOutput>(Expression.Get()) != nullptr;
 		std::optional<uint32> InvalidInput;
 		if (auto* Blend = Cast<DMaterialExpressionBlendMaterialAttributes>(Expression.Get())) Blend->B = FirstInput;
 		VisitMaterialExpressionInputs(*Expression, [&](uint32 Index, FMaterialExpressionInput& Input) {

@@ -4,7 +4,7 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionSwitch.h"
-#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
+#include "Materials/MaterialExpressionCustomOutput.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Asset/Asset.h"
 
@@ -15,65 +15,37 @@
 
 namespace Durin
 {
-	auto MIR::FGraphBuilderImpl::BuildSingleLayerWaterOutputs(bool bRequired) -> void
+	auto MIR::FGraphBuilderImpl::BuildCustomOutputs(std::optional<EMaterialShadingModel> Model) -> void
 	{
-		const DMaterialExpressionSingleLayerWaterOutput* Output = nullptr;
+		std::set<std::string_view> Seen;
 		for (const auto& [Id, Expression] : Expressions)
-			if (const auto* Candidate = Cast<DMaterialExpressionSingleLayerWaterOutput>(Expression))
-			{
-				if (Output) { Fail("A material may contain only one Single Layer Water output."); return; }
-				Output = Candidate;
-			}
-		if (bValidateAuthoring) AuthoringCodeHash.UpdateValue(Output != nullptr);
-		if (!Output)
 		{
-			if (bRequired) Fail("Single Layer Water requires a Single Layer Water output.");
-			return;
+			const auto* Output = Cast<DMaterialExpressionCustomOutput>(Expression);
+			if (!Output) continue;
+			const auto Name = Output->GetFunctionName();
+			if (!Seen.insert(Name).second) { Fail(std::format("Duplicate custom material output {}.", Name)); return; }
+			if (bValidateAuthoring) AuthoringCodeHash.UpdateValue(Id);
+			const auto Families = GetMaterialCustomOutputs();
+			const auto Family = std::ranges::find(Families, Name, &FMaterialCustomOutputDefinition::FunctionName);
+			if (Family == Families.end()) { Fail(std::format("Unknown custom material output {}.", Name)); return; }
+			if (Model && Family->ShadingModel != *Model)
+			{ Fail(std::format("{} is incompatible with the selected shading model.", Name)); return; }
+			if (Output->GetNumOutputs() != static_cast<int32>(Family->Outputs.size()))
+			{ Fail(std::format("{} declares an incompatible number of outputs.", Name)); return; }
+			BuildExpression(*Output);
+			if (!Result.Diagnostics.empty()) return;
+			for (const auto& Slot : Family->Outputs)
+				if (!std::ranges::contains(Result.IR.CustomOutputRoots, Slot.Id, &FModule::FAttributeRoot::AttributeID))
+				{ Fail(std::format("{} did not emit {}.", Name, Slot.Name)); return; }
 		}
-		if (bCompileReachableOnly && !bRequired)
-		{
-			Fail("Single Layer Water output requires the Surface Single Layer Water shading model.");
-			return;
-		}
-		const std::array Inputs{&Output->ScatteringCoefficients, &Output->AbsorptionCoefficients,
-			&Output->PhaseG, &Output->ColorScaleBehindWater};
-		if (bRequired && !std::ranges::any_of(std::span(Inputs).first<3>(),
-			[](const auto* Input) { return Input->IsConnected(); }))
-		{
-			Fail("No inputs to Single Layer Water Material.");
-			return;
-		}
-		const auto Definitions = FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions();
-		SourceStack.push_back(Output->Id);
-		for (size_t Slot = 0; Slot < Inputs.size() && Result.Diagnostics.empty(); ++Slot)
-		{
-			const auto& Input = *Inputs[Slot];
-			if (!Input.IsConnected())
-			{
-				if (Input.OutputIndex != 0) Fail("Disconnected Single Layer Water input has an output selector.");
-				continue;
-			}
-			const auto Index = ResolveIndex(Input);
-			if (Index == MIR::InvalidIndex) break;
-			const auto& Definition = Definitions[Slot];
-			const auto Actual = GetNode(Index).GetSemantics();
-			if (Actual.Type != Definition.Semantics.Type || Actual.Kind != EMaterialSpatialKind::None
-				|| !MaterialStagesContain(Actual.Stages, EMaterialEvaluationStage::Pixel))
-			{
-				Fail(std::format("{} requires a numeric pixel input of type {}.", Definition.Name,
-					GetMaterialValueSemanticsName(Definition.Semantics)));
-				break;
-			}
-			auto& Root = Result.IR.GetAttribute(Definition.Property);
-			Root.bExpression = true;
-			Root.ExpressionIndex = Index;
-		}
-		SourceStack.pop_back();
+		for (const auto& Family : GetMaterialCustomOutputs())
+			if (Model == Family.ShadingModel && !Seen.contains(Family.FunctionName))
+				Fail(std::format("The selected shading model requires {}.", Family.FunctionName));
 	}
 
 	template<typename RootOwner>
 	auto MIR::FGraphBuilderImpl::FinishSurface(const RootOwner& Outputs,
-		EMaterialDomain Domain, const std::set<EMaterialProperty>* Demanded, bool bSingleLayerWater)
+		EMaterialDomain Domain, const std::set<EMaterialProperty>* Demanded, std::optional<EMaterialShadingModel> Model)
 		-> MIR::FBuildResult
 	{
 		Result.IR.Domain = Domain;
@@ -148,7 +120,7 @@ namespace Durin
 			Root.bExpression = true; Root.ExpressionIndex = Index;
 		}
 
-		if (Result.Diagnostics.empty()) BuildSingleLayerWaterOutputs(bSingleLayerWater);
+		if (Result.Diagnostics.empty()) BuildCustomOutputs(Model);
 		return Finish({});
 	}
 
@@ -201,7 +173,7 @@ namespace Durin
 			}
 			Hash.UpdateValue(Built.IR.bAggregateAttributes);
 			Hash.UpdateValue(Built.IR.AggregateAttributesIndex);
-			for (const auto& Input : Built.IR.AttributeRoots)
+			for (const auto& Input : Built.IR.GetRoots())
 			{
 				Hash.UpdateValue(Input.AttributeID);
 				Hash.UpdateValue(Input.bExpression); Hash.UpdateValue(Input.ExpressionIndex);
@@ -336,7 +308,7 @@ namespace Durin
 		}, .Quality = Environment.Quality, .FeatureLevel = Environment.FeatureLevel,
 			.StaticBools = Environment.StaticBools}, ForCompilation);
 		auto Built = Context.FinishSurface(*Owner, Domain, Demanded ? &*Demanded : nullptr,
-			ForCompilation && Properties.ShadingModel == EMaterialShadingModel::SingleLayerWater);
+			ForCompilation ? std::optional{Properties.ShadingModel} : std::nullopt);
 		if (!Built)
 		{
 			Result.Diagnostics = std::move(Built.Diagnostics);
@@ -416,7 +388,7 @@ namespace Durin
 		const auto& Snapshot = Capture.Snapshot->Input;
 		std::vector<uint32> Pending;
 		if (Snapshot.IR.bAggregateAttributes) Pending.push_back(Snapshot.IR.AggregateAttributesIndex);
-		else for (const auto& Input : Snapshot.IR.AttributeRoots)
+		for (const auto& Input : Snapshot.IR.GetRoots())
 			if (Input.bExpression) Pending.push_back(Input.ExpressionIndex);
 		std::vector<bool> Visited(Snapshot.IR.Nodes.size());
 		while (!Pending.empty())

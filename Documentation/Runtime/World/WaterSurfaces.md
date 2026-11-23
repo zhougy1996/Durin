@@ -152,7 +152,12 @@ references material assets, and [material Cook preparation](https://dev.epicgame
 prepares platform data before serialization. This is an architectural comparison
 against public Epic documentation, not a claim of source equivalence.
 
-An assigned material must implement the same wave convention. Primitive custom
+The Water plugin's `GerstnerWaves` material function owns GPU wave evaluation.
+Its two outputs are world-space displacement and a tangent-space analytic normal.
+DefaultWater connects these to World Position Offset and Normal. Other water
+appearances can call the same function to match component queries.
+
+The function reads the component wave convention. Primitive custom
 data slots 0..3 hold amplitude, wavelength, speed and steepness. Slots 4..23
 hold five groups of four floats in order: normalized direction X and Y,
 amplitude ratio, wavenumber ratio. Unused slots in this range read as zero.

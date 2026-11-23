@@ -22,10 +22,7 @@ namespace Durin
 		if (Entry == EMaterialShaderEntry::GBuffer && Properties.ShadingModel == EMaterialShadingModel::Unlit) return {};
 		auto Result = FMaterialAttributeDefinitionMap::GetActiveProperties(EMaterialDomain::Surface, Properties);
 		std::erase(Result, P::MP_WorldPositionOffset);
-		if (Entry == EMaterialShaderEntry::SingleLayerWater)
-			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions())
-				Result.push_back(Definition.Property);
-		else
+		if (Entry != EMaterialShaderEntry::SingleLayerWater)
 			std::erase(Result, P::MP_Refraction);
 		return Result;
 	}
@@ -78,6 +75,15 @@ namespace Durin
 					Requirements.bUsesWPO = Root.bExpression || Root.Literal != FMaterialProgramLiteral{};
 				if (Property == EMaterialProperty::MP_OpacityMask) Requirements.bUsesMask = true;
 			}
+			for (const auto& Family : GetMaterialCustomOutputs())
+				if (Family.Entry == Descriptor.Entry)
+					for (const auto& Slot : Family.Outputs)
+					{
+						Requirements.AttributeIDs.push_back(Slot.Id);
+						// Cooked admission reconstructs the pass contract without expression roots.
+						const auto Root = std::ranges::find(IR.CustomOutputRoots, Slot.Id, &MIR::FModule::FAttributeRoot::AttributeID);
+						if (Root != IR.CustomOutputRoots.end() && Root->bExpression) Visit(Root->ExpressionIndex);
+					}
 			// A shared geometry entry transports interpolators demanded by its selected
 			// pixel passes. Pixel closures stop at the explicit interpolation boundary.
 			if (Vertex)
@@ -92,6 +98,8 @@ namespace Durin
 					if (FindMaterialShaderEntry(PixelEntry)->Frequency == EShaderFrequency::Fragment)
 						for (const auto Property : GetMaterialEntryProperties(FindMaterialShaderEntry(PixelEntry)->Entry, Properties))
 							if (const auto& Root = IR.GetAttribute(Property); Root.bExpression) VisitPixel(Root.ExpressionIndex);
+				for (const auto& Root : IR.CustomOutputRoots)
+					if (Root.bExpression) VisitPixel(Root.ExpressionIndex);
 				for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
 					if (Pixel[Index] && IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) Visit(Index);
 			}

@@ -112,7 +112,7 @@ TEST(FMaterialAttributeContractTests, DetachedRootsRejectMalformedSchemaBeforeIn
 {
 	using namespace Durin;
 	const auto Base = MakeSyntheticMaterialCompilerInput();
-	for (uint32 Case = 0; Case < 5; ++Case)
+	for (uint32 Case = 0; Case < 7; ++Case)
 	{
 		auto Input = Base;
 		if (Case == 0) Input.IR.AttributeRoots.pop_back();
@@ -120,6 +120,8 @@ TEST(FMaterialAttributeContractTests, DetachedRootsRejectMalformedSchemaBeforeIn
 		if (Case == 2) Input.IR.AttributeRoots.front().AttributeID = {99,98,97,96};
 		if (Case == 3) Input.IR.AttributeRoots.front().Type = EMaterialProgramValueType::Float;
 		if (Case == 4) Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).LegalStages = EMaterialEvaluationStage::Pixel;
+		if (Case == 5) Input.IR.CustomOutputRoots.push_back(Input.IR.AttributeRoots.front());
+		if (Case == 6) Input.IR.GetCustomOutput(SingleLayerWater::Scattering).Type = EMaterialProgramValueType::Float;
 		const auto Before = Input.IR;
 		const auto Invalid = MIR::Normalize(Input);
 		EXPECT_FALSE(Invalid);
@@ -3784,10 +3786,22 @@ TEST(FMaterialSingleLayerWaterTests, CompilesTypedWaterOutputAndReplaysCookedEnt
 		const auto Capture = SnapshotMaterialCompilerInput(*Material, Environment);
 		ASSERT_TRUE(Capture) << FormatMaterialProgramDiagnostics(Capture.Diagnostics);
 		const auto& IR = Capture.Snapshot->Input.IR;
-		EXPECT_EQ(IR.GetAttribute(P::MP_WaterScattering).Literal, FMaterialProgramLiteral{});
-		EXPECT_EQ(IR.GetAttribute(P::MP_WaterPhaseG).Literal, FMaterialProgramLiteral{});
-		EXPECT_EQ(IR.GetAttribute(P::MP_WaterColorScale).Literal, (FMaterialProgramLiteral{1, 1, 1}));
-		EXPECT_TRUE(IR.GetAttribute(P::MP_WaterAbsorption).bExpression);
+		EXPECT_EQ(IR.GetCustomOutput(SingleLayerWater::Scattering).Literal, FMaterialProgramLiteral{});
+		EXPECT_EQ(IR.GetCustomOutput(SingleLayerWater::PhaseG).Literal, FMaterialProgramLiteral{});
+		EXPECT_EQ(IR.GetCustomOutput(SingleLayerWater::ColorScale).Literal, (FMaterialProgramLiteral{1, 1, 1}));
+		EXPECT_TRUE(IR.GetCustomOutput(SingleLayerWater::Absorption).bExpression);
+		EXPECT_EQ(IR.CustomOutputRoots.size(), 4u);
+		EXPECT_FALSE(std::ranges::contains(IR.AttributeRoots, SingleLayerWater::Absorption, &MIR::FModule::FAttributeRoot::AttributeID));
+		const auto Translation = MaterialBuildPrivate::TranslateMaterialInput(Capture.Snapshot->Input, false);
+		ASSERT_TRUE(Translation);
+		const auto Jobs = MakeMaterialShaderStageRequests(Translation, false);
+		ASSERT_FALSE(Jobs.empty());
+		for (const auto& Job : Jobs)
+		{
+			ASSERT_EQ(Job.EntryPoints.size(), 1u);
+			const bool WaterColor = Job.EntryPoints[0] == "SingleLayerWaterFragmentMain";
+			EXPECT_EQ(Job.Source.contains("FMaterialCustomOutputs"), WaterColor) << Job.EntryPoints[0];
+		}
 		EXPECT_EQ(IR.GetAttribute(P::MP_Opacity).Literal.X, .2f);
 		EXPECT_EQ(IR.GetAttribute(P::MP_Refraction).Literal.X, Blend == EMaterialBlendMode::Masked ? 1.25f : 1.0f);
 		const auto Compiled = MIR::Compile(Capture.Snapshot->Input);

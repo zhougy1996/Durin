@@ -7,7 +7,7 @@
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionSwitch.h"
-#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
+#include "Materials/MaterialExpressionCustomOutput.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "MaterialExpressionGraphBuilder.h"
@@ -198,9 +198,9 @@ namespace Durin::MIR
 	auto FGraphBuilderImpl::BuildExpression(const DMaterialExpression& Expression) -> void
 	{
 		if (!Result.Diagnostics.empty() || Built.contains(Expression.Id)) return;
-		if (Signature && Cast<DMaterialExpressionSingleLayerWaterOutput>(&Expression))
+		if (Signature && Cast<DMaterialExpressionCustomOutput>(&Expression))
 		{
-			Fail("Functions cannot declare a Single Layer Water output.");
+			Fail("Functions cannot declare a custom material output.");
 			return;
 		}
 		if (Active.size() >= MaterialProgramMaxDepth || !Active.insert(Expression.Id).second)

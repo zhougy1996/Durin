@@ -12,7 +12,7 @@ namespace Durin
 				.Literal = Definition.DefaultValue});
 		};
 		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions()) AddRoot(Definition);
-		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions()) AddRoot(Definition);
+
 	}
 	auto MIR::FModule::GetAttribute(EMaterialProperty Property) -> FAttributeRoot&
 	{
@@ -21,9 +21,6 @@ namespace Durin
 	auto MIR::FModule::GetAttribute(EMaterialProperty Property) const -> const FAttributeRoot&
 	{
 		auto ID = FMaterialAttributeDefinitionMap::GetID(Property);
-		if (!ID.IsValid())
-			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions())
-				if (Definition.Property == Property) { ID = Definition.AttributeID; break; }
 		for (const auto& Root : AttributeRoots) if (Root.AttributeID == ID) return Root;
 		check(false);
 		return AttributeRoots.front();
@@ -50,28 +47,9 @@ namespace Durin
 		};
 		return Definitions;
 	}
-	auto FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions() -> std::span<const FMaterialAttributeDefinition>
-	{
-		using P = EMaterialProperty;
-		using T = EMaterialProgramValueType;
-		using S = EMaterialEvaluationStage;
-		static constexpr std::array Definitions{
-			FMaterialAttributeDefinition{{0x4d415454,0x52505250,1,14}, P::MP_WaterScattering, "Scattering Coefficients", {T::Float3,S::Pixel}, {}},
-			FMaterialAttributeDefinition{{0x4d415454,0x52505250,1,15}, P::MP_WaterAbsorption, "Absorption Coefficients", {T::Float3,S::Pixel}, {}},
-			FMaterialAttributeDefinition{{0x4d415454,0x52505250,1,16}, P::MP_WaterPhaseG, "Phase G", {T::Float,S::Pixel}, {}},
-			FMaterialAttributeDefinition{{0x4d415454,0x52505250,1,17}, P::MP_WaterColorScale, "Color Scale Behind Water", {T::Float3,S::Pixel}, {1,1,1}},
-		};
-		return Definitions;
-	}
 	auto FMaterialAttributeDefinitionMap::Find(FGuid ID) -> const FMaterialAttributeDefinition*
 	{
 		for (const auto& Definition : GetDefinitions()) if (Definition.AttributeID == ID) return &Definition;
-		return nullptr;
-	}
-	auto FMaterialAttributeDefinitionMap::FindCompilerRoot(FGuid ID) -> const FMaterialAttributeDefinition*
-	{
-		if (const auto* Definition = Find(ID)) return Definition;
-		for (const auto& Definition : GetWaterOutputDefinitions()) if (Definition.AttributeID == ID) return &Definition;
 		return nullptr;
 	}
 	auto FMaterialAttributeDefinitionMap::Find(EMaterialProperty Property) -> const FMaterialAttributeDefinition*

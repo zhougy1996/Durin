@@ -52,7 +52,9 @@ namespace Durin
 				FMaterialExpressionAuthoringShape Shape{Type, {}, {}};
 				for (uint8 Index = 0; Index < Signature->InputCount; ++Index)
 				{
-					if (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes)
+					if constexpr (std::is_same_v<Expression, DMaterialExpressionSingleLayerWaterOutput>)
+						Shape.InputNames.emplace_back(SingleLayerWater::GetOutputDefinition().Outputs[Index].Name);
+					else if (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes)
 						Shape.InputNames.emplace_back(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name);
 					else Shape.InputNames.emplace_back(InputNames[Index] ? InputNames[Index] : "Value");
 					Shape.AcceptedInputTypes.emplace_back(Signature->Inputs[Index].begin(), Signature->Inputs[Index].end());
@@ -107,8 +109,7 @@ namespace Durin
 				Describe<DMaterialExpressionWorldPosition>(EMaterialProgramOpcode::WorldPosition, "World Position",
 					"Surface position relative to the current view origin (Float3).", {}, ""),
 				Describe<DMaterialExpressionSingleLayerWaterOutput>(EMaterialProgramOpcode::SingleLayerWaterOutput,
-					"Single Layer Water Material", "Sets the pixel inputs for the Single Layer Water shading model.",
-					{"Scattering Coefficients", "Absorption Coefficients", "Phase G", "Color Scale Behind Water"},
+					SingleLayerWater::GetOutputDefinition().DisplayName, "Sets the pixel inputs for the Single Layer Water shading model.", {},
 					"water refraction volume", EMaterialProgramValueType::Float),
 				Describe<DMaterialExpressionPrimitiveCustomData>(EMaterialProgramOpcode::PrimitiveCustomData, "Custom Primitive Data",
 					"Reads indexed numeric channels shared by the primitive's instances.", {}, "CPD"),

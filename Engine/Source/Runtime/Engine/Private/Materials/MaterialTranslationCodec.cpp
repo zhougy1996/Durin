@@ -78,6 +78,7 @@ namespace Durin::MaterialBuildPrivate
 				Value(IR.Version); Value(IR.Domain); Sequence(IR.Nodes, MaterialFunctionMaxExpandedNodes, [&](auto& V) { Node(V); });
 				Value(IR.bAggregateAttributes); Value(IR.AggregateAttributesIndex);
 				Sequence(IR.AttributeRoots, 64, [&](auto& Input) { Surface(Input); });
+				Sequence(IR.CustomOutputRoots, 64, [&](auto& Input) { Surface(Input); });
 			}
 			template<class T> auto Parameters(T& Items) -> void
 			{ Sequence(Items, MaterialRenderMaxFieldCount, [&](auto& V) { Value(V.Id); Value(V.Type); Value(V.TextureDimension); }); }

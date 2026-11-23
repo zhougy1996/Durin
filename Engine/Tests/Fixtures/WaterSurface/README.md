@@ -45,6 +45,7 @@ The feature probe supports:
 The plugin default is an ordinary source `DMaterial` asset. To regenerate the
 committed authored graph, run the Editor probe with `author-material` and the
 absolute `Engine/Plugins/Water/Content/Materials/DefaultWater.dasset` filename.
+The command references the authored GerstnerWaves function in the Water plugin.
 This explicit authoring operation writes source only; neither builds nor Cook
 rewrite plugin content.
 
