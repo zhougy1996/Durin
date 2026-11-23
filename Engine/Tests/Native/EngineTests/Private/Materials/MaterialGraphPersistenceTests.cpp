@@ -750,7 +750,7 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 	Testing::RegisterMountPointForTests("/ShippedGraphs/", Scratch.generic_string(), false);
 	const auto Scan = RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Scan) << (Scan.Errors.empty() ? "Asset scan failed" : Durin::FormatAssetRegistryError(Scan.Errors.front()));
-	const auto CheckCopy = []<class T>(const char* Original, const char* Name) {
+	const auto CheckCopy = []<class T>(const char* Original, const char* Name, bool bExpectLegacyLayout = false) {
 		FPackagePath SourcePath, Path;
 		ASSERT_TRUE(FPackagePath::TryCreate(Original, SourcePath));
 		ASSERT_TRUE(FPackagePath::TryCreate(std::string("/ShippedGraphs/") + Name, Path));
@@ -764,7 +764,7 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 			else return Asset.GetFunctionPresentation().Nodes;
 		};
 		const auto BeforeLayout = ReadLayout(*Source);
-		const auto CheckVersion = [](const FPackagePath& PackagePath, bool bResaved) {
+		const auto CheckVersion = [](const FPackagePath& PackagePath, bool bHasLegacyLayout) {
 			const auto Data = FindPackageExact(PackagePath);
 			ASSERT_TRUE(Data);
 			const auto Bytes = FFileHelper::LoadFileToArray(Data->PhysicalPath);
@@ -789,9 +789,9 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 			const auto Owner = std::is_same_v<T, DMaterial> ? "Durin::DMaterial" : "Durin::DMaterialFunction";
 			const auto Schema = std::ranges::find(Tables.Schemas, Owner, &ObjectPackage::FSerializedSchema::QualifiedName);
 			ASSERT_NE(Schema, Tables.Schemas.end());
-			EXPECT_EQ(std::ranges::contains(Schema->Fields, Name, &ObjectPackage::FSerializedField::Name), !bResaved);
+			EXPECT_EQ(std::ranges::contains(Schema->Fields, Name, &ObjectPackage::FSerializedField::Name), bHasLegacyLayout);
 		};
-		CheckVersion(SourcePath, false);
+		CheckVersion(SourcePath, bExpectLegacyLayout);
 		if (std::string_view(Name) == "MetalCopy")
 		{
 			ASSERT_EQ(BeforeLayout.size(), 4u);
@@ -852,7 +852,7 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 		ASSERT_TRUE(UnloadPackage(Path));
 		auto* Reopened = LoadObject<T>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		ASSERT_TRUE(Reopened);
-		CheckVersion(Path, true);
+		CheckVersion(Path, false);
 		EXPECT_EQ(CaptureExpressions(*Reopened), Before);
 		EXPECT_EQ(ReadLayout(*Reopened), SavedLayout);
 		if (MovedNode)
@@ -870,7 +870,7 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 		ASSERT_TRUE(UnloadPackage(Path));
 	};
 	CheckCopy.operator()<DMaterial>("/Engine/Materials/DefaultMaterial", "MaterialCopy");
-	CheckCopy.operator()<DMaterial>("/Plugins/Water/Materials/DefaultWater", "WaterCopy");
+	CheckCopy.operator()<DMaterial>("/Plugins/Water/Materials/DefaultWater", "WaterCopy", /*bExpectLegacyLayout=*/true);
 	CheckCopy.operator()<DMaterial>("/Game/Materials/Metal/M_MetalRust", "MetalCopy");
 	CheckCopy.operator()<DMaterialFunction>("/Engine/Materials/Functions/SampleNormal", "NormalCopy");
 	CheckCopy.operator()<DMaterialFunction>("/Engine/Materials/Functions/SampleORM", "OrmCopy");
