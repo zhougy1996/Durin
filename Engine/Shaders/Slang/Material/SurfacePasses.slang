@@ -131,9 +131,23 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
     authoredIor = surface.refraction;
 #endif
     float3 viewNormal = normalize(mul((float3x3)MaterialView.WorldToView, normal));
-    ResolveWaterRefraction(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView, viewport,
-        input.pos.xy, surfaceInView, viewNormal, viewForward, surfaceDepth, slopeTolerance, authoredIor,
-        asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)), background, offset);
+    if (background.valid && !background.open)
+    {
+        FWaterRefractionCandidate candidate = FindWaterRefractionCandidate(WaterBackgroundDepth, WaterCoverage,
+            WaterView, viewport, input.pos.xy, surfaceInView, viewNormal, viewForward, surfaceDepth,
+            slopeTolerance, authoredIor, asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)), background.depth);
+        if (candidate.depth > 0.0)
+        {
+            FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage,
+                WaterView, viewport, input.pos.xy + candidate.offset, viewForward, surfaceDepth, slopeTolerance, candidate.depth);
+            // Keep the original pixel's background if the refracted footprint has no valid taps.
+            if (refracted.valid)
+            {
+                background = refracted;
+                offset = candidate.offset;
+            }
+        }
+    }
 #endif
     if (!background.valid) background.depth = surfaceDepth;
     float thicknessCm = max(background.depth - surfaceDepth, 0.0) * 100.0;

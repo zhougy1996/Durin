@@ -48,7 +48,9 @@ public FWaterBackground SampleWaterBackground(
     float3 bedColor = 0.0;
     float3 skyColor = 0.0;
     float depth = 0.0;
-    float receiverTolerance = max(0.001, 2.0 * slopeTolerance);
+    const float minLayerDepthTolerance = 0.001;
+    const float layerDepthSlopeScale = 2.0;
+    float layerDepthTolerance = max(minLayerDepthTolerance, layerDepthSlopeScale * slopeTolerance);
     [unroll]
     for (uint tap = 0; tap < 4; ++tap)
     {
@@ -75,7 +77,7 @@ public FWaterBackground SampleWaterBackground(
             continue;
         float tapDepth = dot(viewPosition, viewForward);
         if (tapDepth + slopeTolerance < surfaceDepth) continue;
-        if (selectedDepth > 0.0 && abs(tapDepth - selectedDepth) > receiverTolerance) continue;
+        if (selectedDepth > 0.0 && abs(tapDepth - selectedDepth) > layerDepthTolerance) continue;
         finiteWeight += weight;
         depth += tapDepth * weight;
         bedColor += sceneColor.Load(pixel).rgb * weight;
@@ -155,7 +157,7 @@ float2 ProjectWaterRefraction(FWaterRefractionRay ray, float separation, float d
 
 // A silhouette has two distinct depths. Interpolating them would create a
 // receiver between surfaces. Filter color only after the ray has picked a layer.
-public float WaterReceiverDepth(Texture2D<float> sceneDepth, Texture2D<float> coverage,
+float WaterReceiverDepth(Texture2D<float> sceneDepth, Texture2D<float> coverage,
     FWaterViewUniform view, float4 viewport, float2 samplePixel, float3 forward)
 {
     int3 texel = int3(int2(ClampWaterPixel(samplePixel, viewport)), 0);
@@ -168,44 +170,56 @@ public float WaterReceiverDepth(Texture2D<float> sceneDepth, Texture2D<float> co
     return dot(position, forward);
 }
 
-public void ResolveWaterRefraction(Texture2D<float4> sceneColor, Texture2D<float> sceneDepth,
+public struct FWaterRefractionCandidate
+{
+    public float2 offset;
+    // Zero means no candidate. A positive depth can be the best available
+    // sample when the search ends before the ray converges.
+    public float depth;
+};
+
+public FWaterRefractionCandidate FindWaterRefractionCandidate(Texture2D<float> sceneDepth,
     Texture2D<float> coverage, FWaterViewUniform view, float4 viewport, float2 pixel, float3 surfaceInView,
     float3 normal, float3 viewForward, float surfaceDepth, float slopeTolerance, float ior, float depthBias,
-    inout FWaterBackground background, out float2 offset)
+    float sourceDepth)
 {
-    offset = 0.0;
-    if (!background.valid || background.open || background.depth <= surfaceDepth) return;
+    const uint maxSearchSteps = 16;
+    const float initialSpanSegments = 6.0;
+    const float minStridePixels = 4.0;
+    const float crossingConvergencePixels = 0.25;
+    const float minRayDepthTolerance = 0.001;
+    const float rayDepthSlopeScale = 2.0;
+    FWaterRefractionCandidate candidate = (FWaterRefractionCandidate)0;
+    if (sourceDepth <= surfaceDepth) return candidate;
     FWaterRefractionRay ray = BuildWaterRefractionRay(view, viewport, pixel, surfaceInView, normal, viewForward, ior);
-    float distance = background.depth - surfaceDepth;
+    float distance = sourceDepth - surfaceDepth;
     float2 probe = ProjectWaterRefraction(ray, distance, depthBias);
     float span = max(abs(probe.x), abs(probe.y));
-    if (span == 0.0) return;
-    float stride = max(4.0, span / 6.0);
+    if (span == 0.0) return candidate;
+    float stride = max(minStridePixels, span / initialSpanSegments);
     float marchStep = distance * min(1.0, stride / span);
     distance = marchStep;
     probe = ProjectWaterRefraction(ray, distance, depthBias);
     float nearDistance = 0.0;
     float farDistance = -1.0;
-    float depthTolerance = max(0.001, 2.0 * slopeTolerance);
-    float bestDepth = 0.0;
+    float rayDepthTolerance = max(minRayDepthTolerance, rayDepthSlopeScale * slopeTolerance);
     float bestError = 1.0e20;
-    float2 bestProbe = 0.0;
     // The source texel supplies only a first estimate. At a silhouette it can
     // belong to the bed while the refracted ray hits the pier, or vice versa.
     [loop]
-    for (uint step = 0; step < 16; ++step)
+    for (uint step = 0; step < maxSearchSteps; ++step)
     {
         float depth = WaterReceiverDepth(sceneDepth, coverage, view, viewport,
             pixel + probe, viewForward);
         bool validReceiver = depth > 0.0 && depth + slopeTolerance >= surfaceDepth;
         float receiver = max(depth - surfaceDepth, 0.0);
         float error = receiver - distance;
-        if (validReceiver && error >= -depthTolerance && abs(error) < bestError)
+        if (validReceiver && error >= -rayDepthTolerance && abs(error) < bestError)
         {
-            bestDepth = depth;
+            candidate.depth = depth;
             bestError = abs(error);
-            bestProbe = probe;
-            if (bestError <= depthTolerance) break;
+            candidate.offset = probe;
+            if (bestError <= rayDepthTolerance) break;
         }
         // An opaque silhouette can hide the receiver without intersecting the
         // transmitted ray. Advance beyond holes in the visible water coverage.
@@ -223,7 +237,7 @@ public void ResolveWaterRefraction(Texture2D<float4> sceneColor, Texture2D<float
             ? receiver : 0.5 * (nearDistance + farDistance);
         float2 next = ProjectWaterRefraction(ray, nextDistance, depthBias);
         float2 delta = abs(next - probe);
-        if (all(delta < 0.25) && farDistance >= 0.0)
+        if (all(delta < crossingConvergencePixels) && farDistance >= 0.0)
         {
             // A crossing that cannot converge in depth is a jump between
             // surfaces in the depth buffer. Continue looking for a receiver.
@@ -240,16 +254,7 @@ public void ResolveWaterRefraction(Texture2D<float4> sceneColor, Texture2D<float
         distance = nextDistance;
         probe = ProjectWaterRefraction(ray, distance, depthBias);
     }
-    if (bestDepth > 0.0)
-    {
-        FWaterBackground refracted = SampleWaterBackground(sceneColor, sceneDepth, coverage,
-            view, viewport, pixel + bestProbe, viewForward, surfaceDepth, slopeTolerance, bestDepth);
-        if (refracted.valid)
-        {
-            background = refracted;
-            offset = bestProbe;
-        }
-    }
+    return candidate;
 }
 
 public float WaterSchlickPhase(float g, float rayLightCosine)
