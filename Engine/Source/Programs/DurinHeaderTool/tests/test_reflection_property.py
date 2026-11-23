@@ -367,6 +367,16 @@ class TestReflectionProperties:
         assert "Durin::EPropertyFlags::Transient" in flags
         assert "Durin::EPropertyFlags::NonTransactional" in flags
 
+    @pytest.mark.parametrize("similar_flag", ["ReadOnlyForTest", "NonTransactionalForTest"])
+    def test_script_read_write_conflicts_require_exact_flags(self, similar_flag):
+        annotation = "DPROPERTY, Edit, ScriptReadWrite"
+        flags = property_parser._property_flags_from_annotation(annotation)
+        prop = ReflectedPropertyInfo(
+            "Value", "int32", "Int32", flags=f"{flags} | Durin::EPropertyFlags::{similar_flag}"
+        )
+
+        property_parser._apply_property_annotation(prop, annotation, "DPROPERTY 'Value'")
+
     def test_deprecated_property_route_is_inferred_from_the_member_name(self):
         actor = next(info for info in self.header_info.classes if info.short_name == "ASampleActor")
         prop = next(item for item in actor.properties if item.name == "Value_DEPRECATED")
@@ -735,6 +745,15 @@ class TestReflectionProperties:
         assert "Durin::EPropertyFlags::Transient" in direct_definition
         assert "::Durin::Z_Construct_DClass_DObject" in direct_definition
 
+
+    def test_weak_object_requires_exact_transient_flag(self):
+        prop = ReflectedPropertyInfo(
+            "Value", "Durin::TWeakObjectPtr<Durin::DObject>", "WeakObject",
+            flags="Durin::EPropertyFlags::TransientForTest",
+        )
+
+        with pytest.raises(ValueError, match=r"\[DHT-WEAK007\].*must be explicitly Transient"):
+            property_parser._apply_property_annotation(prop, "DPROPERTY", "DPROPERTY 'Value'")
 
     @pytest.mark.parametrize(
         ("spelling", "diagnostic"),

@@ -382,7 +382,7 @@ def _apply_property_annotation(
     _validate_property_specifiers(annotation, location)
     if prop:
         script = script_exposure(_annotation_entries(annotation), {"ScriptReadOnly", "ScriptReadWrite", "ScriptName", "ScriptNoExport"}, location)
-        if script.get("ScriptReadWrite") and ("Durin::EPropertyFlags::ReadOnly" in prop.flags or "Durin::EPropertyFlags::NonTransactional" in prop.flags):
+        if script.get("ScriptReadWrite") and (prop.has_flag("ReadOnly") or prop.has_flag("NonTransactional")):
             raise ValueError(f"{location}: ScriptReadWrite conflicts with ReadOnly/NonTransactional")
         prop.metadata = _property_metadata_from_annotation(annotation)
         if "ScriptName" in script:
@@ -390,7 +390,7 @@ def _apply_property_annotation(
         prop.legacy_names = _string_list_metadata_from_annotation(annotation, "LegacyNames")
         prop.typed_metadata = _typed_metadata_from_annotation(prop, annotation, location)
         prop.deprecation = _deprecation_from_annotation(prop, annotation, location)
-        if _property_contains_kind(prop, "WeakObject") and "Durin::EPropertyFlags::Transient" not in prop.flags:
+        if _property_contains_kind(prop, "WeakObject") and not prop.has_flag("Transient"):
             raise ValueError(
                 f"[DHT-WEAK007] {location}: weak object properties must be explicitly Transient"
             )
