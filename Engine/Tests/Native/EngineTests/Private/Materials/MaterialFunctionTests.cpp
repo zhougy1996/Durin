@@ -1,5 +1,5 @@
 #include "MaterialGraph.h"
-#include "Graph/MaterialGraphEditSession.h"
+#include "Graph/MaterialGraphCommands.h"
 #include "AssetDeleteModel.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"

@@ -11,7 +11,7 @@
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/Material.h"
 #include "MaterialGraphEditInternals.h"
-#include "MaterialGraphEditSession.h"
+#include "MaterialGraphCommands.h"
 #include "Materials/MaterialExpressionInputs.h"
 
 namespace Durin::MaterialEditor
@@ -53,15 +53,16 @@ namespace Durin::MaterialEditor
 			return It == Expressions.end() ? nullptr : It->Get();
 		}
 
-		auto FindInput(DMaterialExpression* Expression, const FMaterialGraphPinAddress& Address, FGraphEditSession* Compound = nullptr) -> FEditableInput
+		auto FindInput(DMaterialExpression* Expression, const FMaterialGraphPinAddress& Address, FMaterialRootInputs* Root = nullptr,
+			std::vector<FMaterialExpressionFunctionInputBinding>* DraftBindings = nullptr) -> FEditableInput
 		{
 			if (Address.IsMaterialRoot())
 			{
-				if (!Address.HasValidRootAddress() || Expression || !Compound || Compound->bFunction)
+				if (!Address.HasValidRootAddress() || Expression || !Root)
 					return {.Message = "The material output input address is invalid."};
 				if (Address.Property == EMaterialProperty::MP_MaterialAttributes)
-					return {.Source = Compound->EditRootInput(Address.Property)};
-				auto* Numeric = Compound->EditNumericRoot(Address.Property);
+					return {.Source = &Root->Attributes};
+				auto* Numeric = Root->Properties.Find(Address.Property);
 				if (!Numeric) return {.Message = "The material property is unavailable."};
 				return {.Source = &Numeric->Connection, .Default = &Numeric->Constant,
 					.RootProperty = Address.Property, .Numeric = Numeric};
@@ -69,7 +70,6 @@ namespace Durin::MaterialEditor
 			const auto Index = Address.Index;
 			const auto PortId = Address.PortId;
 			if (!Expression) return {.Message = "The input owner is unavailable."};
-			if (Compound) Compound->Modify(*Expression);
 			if (PortId.IsValid())
 			{
 				auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
@@ -81,12 +81,12 @@ namespace Durin::MaterialEditor
 				{
 					return {.Message = "The function input port is not numeric."};
 				}
-				auto Input = std::ranges::find(Call->FunctionInputs, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
-				if (Input == Call->FunctionInputs.end())
+				auto& Bindings = DraftBindings ? *DraftBindings : Call->FunctionInputs;
+				auto Input = std::ranges::find(Bindings, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+				if (Input == Bindings.end())
 				{
-					if (!Compound) return {.Message = "The function input has no binding."};
-					Call->FunctionInputs.push_back({PortId, Port->Type});
-					Input = std::prev(Call->FunctionInputs.end());
+					if (!DraftBindings) return {.Message = "The function input has no binding."};
+					Input = Bindings.emplace(Bindings.end(), PortId, Port->Type);
 				}
 				return {&Input->Input, &Input->InputDefault};
 			}
@@ -111,6 +111,25 @@ namespace Durin::MaterialEditor
 				}
 			}
 			return Result;
+		}
+
+		auto CommitInputLink(DObject& Owner, DTransactor* Transactions, std::string Description,
+			FMaterialExpressionCollection& Candidate, FMaterialRootInputs* Root,
+			DMaterialExpression* Expression, FMaterialExpressionInput& Slot, FMaterialExpressionInput Next,
+			std::vector<FMaterialExpressionFunctionInputBinding>& Bindings) -> FMaterialGraphCommandResult
+		{
+			if (Root)
+			{
+				Slot = Next;
+				return CommitGraphEdit(Owner, Transactions, std::move(Description), Candidate, Root);
+			}
+			if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
+			{
+				Slot = Next;
+				return CommitGraphEdit(Owner, Transactions, std::move(Description), Candidate, nullptr, {}, {},
+					{Call}, [&] { Call->FunctionInputs.swap(Bindings); });
+			}
+			return CommitGraphEdit(Owner, Transactions, std::move(Description), Candidate, nullptr, {{&Slot, Next}});
 		}
 
 		auto MakeConstant(std::span<const float> Value, bool bTangentSpaceNormal) -> TStrongObjectPtr<DMaterialExpression>
@@ -151,8 +170,8 @@ namespace Durin::MaterialEditor
 		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		auto* Expression = FindExpression(FMaterialExpressionEditing::GetExpressions(*Owner), Pin.NodeId);
 		if (!Expression && !Pin.IsMaterialRoot()) return RejectCommand("The input owner is unavailable.");
-		std::optional<FGraphEditSession> RootEdit;
-		if (Pin.IsMaterialRoot() && Cast<DMaterial>(Owner)) RootEdit.emplace(*Owner);
+		std::optional<FMaterialRootInputs> RootEdit;
+		if (const auto* Material = Cast<DMaterial>(Owner); Material && Pin.IsMaterialRoot()) RootEdit = Material->CaptureRootInputs();
 		const auto Input = FindInput(Expression, Pin, RootEdit ? &*RootEdit : nullptr);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.Numeric || !Input.SupportsDefault()) return RejectCommand("This input does not support an editable constant.");
@@ -160,7 +179,8 @@ namespace Durin::MaterialEditor
 		if (RootEdit)
 		{
 			Input.Numeric->UseConstant = Enabled;
-			return RootEdit->Commit("Set Material Input Constant", Transactions);
+			FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
+			return CommitGraphEdit(*Owner, Transactions, "Set Material Input Constant", Candidate, &*RootEdit);
 		}
 		auto Next = *Input.Numeric;
 		Next.UseConstant = Enabled;
@@ -177,11 +197,13 @@ namespace Durin::MaterialEditor
 		if (Pin.IsMaterialRoot() && (!Pin.HasValidRootAddress() || Pin.Property == EMaterialProperty::MP_MaterialAttributes))
 			return RejectCommand("Invalid material property address.");
 		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		std::optional<FGraphEditSession> BindingEdit;
-		if (Pin.IsMaterialRoot() || Pin.PortId.IsValid()) BindingEdit.emplace(*Owner);
+		std::optional<FMaterialRootInputs> Root;
+		if (const auto* Material = Cast<DMaterial>(Owner); Material && Pin.IsMaterialRoot()) Root = Material->CaptureRootInputs();
 		auto* Expression = FindExpression(FMaterialExpressionEditing::GetExpressions(*Owner), Pin.NodeId);
 		if (!Expression && !Pin.IsMaterialRoot()) return RejectCommand("The input owner is unavailable.");
-		const auto Input = FindInput(Expression, Pin, BindingEdit ? &*BindingEdit : nullptr);
+		auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
+		auto Bindings = Call ? Call->FunctionInputs : std::vector<FMaterialExpressionFunctionInputBinding>{};
+		const auto Input = FindInput(Expression, Pin, Root ? &*Root : nullptr, Call ? &Bindings : nullptr);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault()) return RejectCommand("This input does not support an inline numeric value.");
 		std::vector<float> Components;
@@ -193,10 +215,13 @@ namespace Durin::MaterialEditor
 		else if (Value.Kind != EMaterialInputDefaultKind::None) return RejectCommand("The input default is not numeric.");
 		if (Input.Numeric && Components.empty() && !Input.Numeric->UseConstant) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (Input.Read() == Components && (!Input.Numeric || Input.Numeric->UseConstant == !Components.empty())) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (BindingEdit)
+		if (Root || Call)
 		{
 			if (!Input.Write(Components)) return RejectCommand("The input default has an incompatible width.");
-			return BindingEdit->Commit("Edit Input Default", Transactions);
+			FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
+			if (Root) return CommitGraphEdit(*Owner, Transactions, "Edit Input Default", Candidate, &*Root);
+			return CommitGraphEdit(*Owner, Transactions, "Edit Input Default", Candidate, nullptr, {}, {},
+				{Call}, [&] { Call->FunctionInputs.swap(Bindings); });
 		}
 		auto Next = *Input.Numeric;
 		if (Components.empty()) Next.UseConstant = false;
@@ -248,26 +273,33 @@ namespace Durin::MaterialEditor
 		auto Created = MakeParameterExpression(Definition);
 		if (!Created) return std::unexpected(RejectCommand(std::move(Created.Message)));
 		auto& Parameter = *Created.Expression;
-		FGraphEditSession State(*Material);
-		auto Destination = FindInput(Node->GetMaterialExpression(), Target, &State);
+		auto Candidate = Material->GetExpressionCollection();
+		std::optional<FMaterialRootInputs> Root;
+		if (Target.IsMaterialRoot()) Root = Material->CaptureRootInputs();
+		auto* Expression = Node->GetMaterialExpression();
+		auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
+		auto Bindings = Call ? Call->FunctionInputs : std::vector<FMaterialExpressionFunctionInputBinding>{};
+		auto Destination = FindInput(Expression, Target, Root ? &*Root : nullptr, Call ? &Bindings : nullptr);
 		if (!Destination.Source) return std::unexpected(RejectCommand(std::move(Destination.Message)));
 		if (Destination.Source->IsConnected()) return std::unexpected(RejectCommand("The input is already connected."));
 		const bool NeedsMask = Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3;
 		const auto X = View.Presentation.X - 320;
 		const auto Y = View.Presentation.Y;
 		std::vector<FGuid> Generated{Parameter.Id};
-		State.Expressions.emplace_back(&Parameter);
-		State.Presentation.Nodes.push_back({Parameter.Id, NeedsMask ? X - 320 : X, Y});
-		*Destination.Source = {&Parameter};
+		Candidate.Expressions.emplace_back(&Parameter);
+		SetNodeLayout(Parameter, NeedsMask ? X - 320 : X, Y);
+		FMaterialExpressionInput Next{&Parameter};
+		TStrongObjectPtr<DMaterialExpression> Mask;
 		if (NeedsMask)
 		{
-			auto Mask = MakeParameterMask(Parameter, Type);
-			*Destination.Source = {Mask.Get()};
-			State.Expressions.emplace_back(Mask.Get());
-			State.Presentation.Nodes.push_back({Mask->Id, X, Y});
+			Mask = MakeParameterMask(Parameter, Type);
+			Next = {Mask.Get()};
+			Candidate.Expressions.emplace_back(Mask.Get());
+			SetNodeLayout(*Mask, X, Y);
 			Generated.push_back(Mask->Id);
 		}
-		auto Result = State.Commit("Promote Input Parameter", *Admission);
+		auto Result = CommitInputLink(*Material, *Admission, "Promote Input Parameter", Candidate, Root ? &*Root : nullptr,
+			Expression, *Destination.Source, Next, Bindings);
 		if (!Result) return std::unexpected(std::move(Result));
 		return GetCreatedNodes(Generated);
 	}
@@ -280,8 +312,13 @@ namespace Durin::MaterialEditor
 		auto* Graph = ResolveInputGraph(Pin);
 		auto* Expression = GetMaterialExpression();
 		if (!Graph || (!Expression && !Pin.IsMaterialRoot())) return std::unexpected(RejectCommand("The input pin is unavailable."));
-		FGraphEditSession State(*Graph->GetMaterialOrFunction());
-		const auto Input = FindInput(Expression, Pin, &State);
+		auto& Owner = *Graph->GetMaterialOrFunction();
+		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(Owner)};
+		std::optional<FMaterialRootInputs> Root;
+		if (const auto* Material = Cast<DMaterial>(&Owner); Material && Pin.IsMaterialRoot()) Root = Material->CaptureRootInputs();
+		auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
+		auto Bindings = Call ? Call->FunctionInputs : std::vector<FMaterialExpressionFunctionInputBinding>{};
+		const auto Input = FindInput(Expression, Pin, Root ? &*Root : nullptr, Call ? &Bindings : nullptr);
 		if (!Input.Message.empty()) return std::unexpected(RejectCommand(Input.Message));
 		const bool bRootNormal = Input.RootProperty == EMaterialProperty::MP_Normal;
 		const auto Value = Input.Read();
@@ -289,11 +326,11 @@ namespace Durin::MaterialEditor
 			return std::unexpected(RejectCommand("Only an unconnected numeric literal can be extracted."));
 		auto Constant = MakeConstant(Value, bRootNormal);
 		if (!Constant) return std::unexpected(RejectCommand("The input default has an unsupported width."));
-		*Input.Source = {Constant.Get()};
-		State.Presentation.Nodes.push_back({Constant->Id, View.Presentation.X - 320, View.Presentation.Y});
+		SetNodeLayout(*Constant, View.Presentation.X - 320, View.Presentation.Y);
 		const auto Id = Constant->Id;
-		State.Expressions.emplace_back(Constant.Get());
-		auto Result = State.Commit("Extract Input Node", Transactions);
+		Candidate.Expressions.emplace_back(Constant.Get());
+		auto Result = CommitInputLink(Owner, Transactions, "Extract Input Node", Candidate, Root ? &*Root : nullptr,
+			Expression, *Input.Source, {Constant.Get()}, Bindings);
 		if (!Result) return std::unexpected(std::move(Result));
 		return Graph->GetCreatedNode(Id);
 	}
@@ -306,33 +343,61 @@ namespace Durin::MaterialEditor
 		auto* Graph = ResolveInputGraph(Pin);
 		auto* Expression = GetMaterialExpression();
 		if (!Graph || (!Expression && !Pin.IsMaterialRoot())) return RejectCommand("The input pin is unavailable.");
-		FGraphEditSession State(*Graph->GetMaterialOrFunction());
-		const auto Input = FindInput(Expression, Pin, &State);
+		auto& Owner = *Graph->GetMaterialOrFunction();
+		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(Owner)};
+		std::optional<FMaterialRootInputs> Root;
+		if (const auto* Material = Cast<DMaterial>(&Owner); Material && Pin.IsMaterialRoot()) Root = Material->CaptureRootInputs();
+		auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
+		auto Bindings = Call ? Call->FunctionInputs : std::vector<FMaterialExpressionFunctionInputBinding>{};
+		const auto Input = FindInput(Expression, Pin, Root ? &*Root : nullptr, Call ? &Bindings : nullptr);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault() || Input.Source->OutputIndex != 0)
 			return RejectCommand("This source cannot be represented by an inline binding.");
 		const auto* Source = Input.Source->Expression.Get();
-		if (!Source || !std::ranges::contains(State.Expressions, Source, [](const auto& Member) { return Member.Get(); }))
+		if (!Source || !std::ranges::contains(Candidate.Expressions, Source, [](const auto& Member) { return Member.Get(); }))
 			return RejectCommand("The source expression is unavailable.");
 		const auto Value = ReadConstant(Source);
 		if (Value.empty()) return RejectCommand("Only numeric constants can be inlined; parameter exposure remains an explicit node.");
-		if (!Input.Write(Value)) return RejectCommand("The constant has an incompatible width.");
-		*Input.Source = {};
-		bool RootConsumer = false;
-		if (!State.bFunction)
+		const auto* LiveLink = Root ? nullptr : FindInput(Expression, Pin).Source;
+		std::optional<FMaterialNumericInput> Numeric;
+		if (Root || Call)
+		{
+			if (!Input.Write(Value)) return RejectCommand("The constant has an incompatible width.");
+			*Input.Source = {};
+		}
+		else
+		{
+			Numeric = *Input.Numeric;
+			Numeric->SetConstant(Value);
+			Numeric->Connection = {};
+		}
+		bool bRetained = false;
+		if (!Root)
+			if (const auto* Material = Cast<DMaterial>(&Owner)) Root = Material->CaptureRootInputs();
+		if (Root)
 		{
 			const auto UsesSource = [&](EMaterialProperty Property) {
-				return State.GetRootInput(Property)->Expression.Get() == Source;
+				return Root->GetExpressionInputForProperty(Property)->Expression.Get() == Source;
 			};
-			RootConsumer = UsesSource(EMaterialProperty::MP_MaterialAttributes)
+			bRetained = UsesSource(EMaterialProperty::MP_MaterialAttributes)
 				|| std::ranges::any_of(FMaterialAttributeDefinitionMap::GetDefinitions(), [&](const auto& Field) { return UsesSource(Field.Property); });
 		}
-		if (!RootConsumer && !Graph->HasExpressionConsumer(*Source))
-		{
-			std::erase_if(State.Expressions, [&](const auto& Expression) { return Expression.Get() == Source; });
-			std::erase_if(State.Presentation.Nodes, [&](const auto& Position) { return Position.NodeId == Source->Id; });
-		}
-		return State.Commit("Inline Input Node", Transactions);
+		for (const auto& Node : Candidate.Expressions)
+			VisitStoredMaterialInputs(*Node, [&](const FMaterialExpressionInput& Link) {
+				bRetained |= &Link != LiveLink && Link.Expression.Get() == Source;
+			});
+		if (!bRetained)
+			std::erase_if(Candidate.Expressions, [&](const auto& Node) { return Node.Get() == Source; });
+		FProposedLinks Links;
+		if (LiveLink) Links.emplace(LiveLink, FMaterialExpressionInput{});
+		FProposedNumerics Numerics;
+		if (Numeric) Numerics.emplace(Input.Numeric, *Numeric);
+		const auto Apply = [&] {
+			if (Call) Call->FunctionInputs.swap(Bindings);
+			else if (Numeric) *Input.Numeric = std::move(*Numeric);
+		};
+		return CommitGraphEdit(Owner, Transactions, "Inline Input Node", Candidate, Root ? &*Root : nullptr,
+			std::move(Links), {}, Call ? std::vector<DMaterialExpression*>{Call} : std::vector<DMaterialExpression*>{}, Apply, Numerics);
 	}
 
 }

@@ -7,7 +7,7 @@
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Graph/MaterialGraphCanvas.h"
 #include "Graph/MaterialEditingOperations.h"
-#include "MaterialGraphEditSession.h"
+#include "MaterialGraphCommands.h"
 #include "MaterialGraphEditInternals.h"
 
 #include "Transactions/Transaction.h"

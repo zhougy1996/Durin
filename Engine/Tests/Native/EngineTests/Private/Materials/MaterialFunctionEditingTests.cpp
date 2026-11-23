@@ -1,4 +1,4 @@
-#include "Graph/MaterialGraphEditSession.h"
+#include "Graph/MaterialGraphCommands.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "MaterialGraph.h"
 #include "Materials/MaterialExpressionFunctionIO.h"

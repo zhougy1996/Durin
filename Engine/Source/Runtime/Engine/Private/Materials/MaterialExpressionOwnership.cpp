@@ -147,7 +147,14 @@ namespace Durin
 
 	auto FMaterialExpressionEditing::ValidateStorage(DObject& Owner) -> FMaterialProgramValidationResult
 	{
-		const auto& Expressions = GetExpressions(Owner);
+		const auto* Material = Cast<DMaterial>(&Owner);
+		return ValidateStorage(Owner, Material ? Material->GetExpressionCollection() : Cast<DMaterialFunction>(&Owner)->GetExpressionCollection());
+	}
+
+	auto FMaterialExpressionEditing::ValidateStorage(const DObject& Owner, const FMaterialExpressionCollection& Collection,
+		const FMaterialParameterDefinition* SharedParameter) -> FMaterialProgramValidationResult
+	{
+		const auto& Expressions = Collection.Expressions;
 		const auto Fail = [](std::string Message) -> FMaterialProgramValidationResult {
 			return {.Diagnostics = {{.Message = std::move(Message)}}};
 		};
@@ -165,7 +172,7 @@ namespace Durin
 		{
 			if (GetMaterialDomainInputProperties(Material->Domain).empty()) return Fail("Unsupported material domain.");
 			std::vector<FMaterialParameterDefinition> Schema;
-			return DMaterial::DeriveExpressionParameterSchema(Material->ExpressionCollection, Schema);
+			return DMaterial::DeriveExpressionParameterSchema(Collection, Schema, SharedParameter);
 		}
 		std::vector<DMaterialExpression*> Nodes;
 		for (const auto& E : Expressions)

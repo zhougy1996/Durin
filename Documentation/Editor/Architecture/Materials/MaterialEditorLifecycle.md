@@ -4,7 +4,7 @@ Summary: Define material preview resources, compilation controls, Apply and Save
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-23
 
 Expression ownership and command publication are defined in
 [Material Graph Operations](MaterialGraphOperations.md#ownership). Panels and
@@ -16,7 +16,10 @@ instance owns its document model, profiles, errors and preview state. Materials
 and material functions edit isolated transient working graphs. Function Apply
 validates and publishes the selected graph to the original function; Save applies
 before persisting its source package. Function preview materials remain transient
-shader-compilation consumers. Family toolkit IDs,
+shader-compilation consumers. A preview rebuild validates detached expressions,
+dependent functions and output bindings before publishing its new graph.
+Closing the document cancels its pending compilation and retires the preview.
+Family toolkit IDs,
 layout versions (material 4, function 5), profile hashes and existing settings
 files remain stable across the controller consolidation.
 

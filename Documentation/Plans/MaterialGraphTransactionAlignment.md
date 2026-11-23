@@ -4,8 +4,8 @@ Summary: Align material and function editing with UE 5.8 by recording authored o
 
 Last reviewed: 2026-11-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-23
 
 ## Current Status
 
@@ -32,6 +32,10 @@ Layout validation on base `ccf0dacdd` used Win64-Debug-DurinEditor. MaterialEdit
 Stage 3 parameter commands record every declaration expression that shares the parameter GUID. Gesture commit captures the pre-gesture value without republishing the preview, and cancellation restores the preview without recording. Material configuration records `DMaterial` and refreshes the settled state on replay. A transaction containing configuration and root changes advances one compile generation per replay direction. The MaterialEditor source audit found no remaining `StoreUndo` calls or material-specific replay commands. The provisional graph edit session remains for stage 4.
 
 Validation on base `8c83f5737` used Win64-Debug-DurinEditor. The seven focused stage 3 cases passed, covering multi-node movement, parameter cancel and retry, two shared declarations across GC, anonymous configuration, and mixed root and configuration replay in both orders. The broader run passed 47 persistence, 31 function, 8 package, and 81 interaction cases. One optional Vulkan proof was skipped because `DURIN_WATER_PREVIEW_PROOF_DIR` was unset. MaterialGraphEditingTests passed 118 of 119 cases. The existing Single Layer Water catalog failure reproduced.
+
+Stage 4 migrated creation, clipboard, function bindings, replacement, and preview callers. Commands preflight their prospective expression membership, links and typed values, then use `Modify()` on the affected owners and expressions before writeback. The workspace audit across Engine, Sandbox and RoadWeaver found no uses of the retired transaction builders or generic graph replay. Parameter and configuration commands use the object records from stage 3. Temporary preview values belong to their gestures, and the editor refreshes through the existing graph change notification. Durin retains command-specific admission of incomplete graphs, explicit working copies and previews, and directional source validation on history replay.
+
+Stage 4 validation on base `b2f3cf9c5` used Win64-Debug-DurinEditor. The 16 focused graph/function cases and four focused editor interaction cases passed. The broader run passed 47 persistence, 31 function, 8 package, and 81 editor interaction cases, with one optional Vulkan proof skipped because `DURIN_WATER_PREVIEW_PROOF_DIR` was unset. MaterialGraphEditingTests passed 118 of 119 cases, with the same Single Layer Water catalog failure recorded in stage 3. The property and asset detail targets passed 79 and 3 cases. CoreTransactionContractTests passed 20 and AssetEditorFamilyTests passed six focused cases for material and function toolkits. DurinAssetTool built successfully. The `EditorOperationTests` executable could not link because its copy of `EditorInitialization.cpp` references the private `DEditorEngine::LoadEditorMap` symbol.
 
 ### Stage 2 prerequisite contracts
 
@@ -81,6 +85,6 @@ UE paths below are relative to `Engine/Source/Editor` in the local UE 5.8 source
 
 ### Stage 4: Remove generic graph replay and verify editor consumers
 
-- [ ] Migrate remaining preview, creation, clipboard and tool callers. Remove `FGraphEditSession`, its per-member snapshots and `FGraphObjectChange` after the preceding gates pass. Search all workspace projects for both retired builders, equivalent write queues and generic material replay. Record the final disposition of any specialized commands from stage 3.
-- [ ] Verify material and function working copies, Apply, Save, reopen, undo/redo, external replacement and preview cancellation through their normal editor entry points. Refresh the implemented [graph operations](../Editor/Architecture/Materials/MaterialGraphOperations.md) and [editor lifecycle](../Editor/Architecture/Materials/MaterialEditorLifecycle.md) contracts.
-- [ ] Build the owning and affected consumer targets. Run MaterialGraphEditingTests, MaterialEditorInteractionTests and MaterialEditingPersistenceTests, plus the affected property, transaction and tool cases selected through the [test workflow](../Agents/Testing.md). Record revision, configuration, results and remaining UE differences before closing the plan.
+- [x] Migrate remaining preview, creation, clipboard and tool callers. Remove `FGraphEditSession`, its per-member snapshots and `FGraphObjectChange` after the preceding gates pass. Search all workspace projects for both retired builders, equivalent write queues and generic material replay. Record the final disposition of any specialized commands from stage 3.
+- [x] Verify material and function working copies, Apply, Save, reopen, undo/redo, external replacement and preview cancellation through their normal editor entry points. Refresh the implemented [graph operations](../Editor/Architecture/Materials/MaterialGraphOperations.md) and [editor lifecycle](../Editor/Architecture/Materials/MaterialEditorLifecycle.md) contracts.
+- [x] Build the owning and affected consumer targets. Run MaterialGraphEditingTests, MaterialEditorInteractionTests and MaterialEditingPersistenceTests, plus the affected property, transaction and tool cases selected through the [test workflow](../Agents/Testing.md). Record revision, configuration, results and remaining UE differences before closing the plan.

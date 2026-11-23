@@ -1,5 +1,5 @@
 #include "MaterialGraph.h"
-#include "Graph/MaterialGraphEditSession.h"
+#include "Graph/MaterialGraphCommands.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Graph/MaterialGraphInteraction.h"
 #include "Graph/MaterialGraphCatalog.h"
@@ -2264,9 +2264,9 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 
 	TStrongObjectPtr<DMaterialGraph> DocumentCommandGraph(DMaterialGraph::Create(*Owner));
 	{
-		GraphEditInternals::FGraphEditSession Initial(*Owner);
-		for (auto& Position : Initial.Presentation.Nodes) { Position.X = 1800; Position.Y = 1200; }
-		ASSERT_TRUE(Initial.Commit("Arrange fixture", nullptr));
+		auto Positions = GraphEditInternals::ReadGraphPresentation(*Owner).Nodes;
+		for (auto& Position : Positions) { Position.X = 1800; Position.Y = 1200; }
+		ASSERT_TRUE(DocumentCommandGraph->MoveNodes(Positions, ETransactionMode::NotTransactable));
 	}
 	auto Source = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
 	auto Previous = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();

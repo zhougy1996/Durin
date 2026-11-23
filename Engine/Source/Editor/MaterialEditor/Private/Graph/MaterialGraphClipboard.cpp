@@ -6,7 +6,7 @@
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/Material.h"
 #include "MaterialGraphEditInternals.h"
-#include "MaterialGraphEditSession.h"
+#include "MaterialGraphCommands.h"
 #include "Materials/MaterialExpressionInputs.h"
 
 namespace Durin::MaterialEditor
@@ -79,11 +79,11 @@ namespace Durin::MaterialEditor
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
-		FGraphEditSession State(*Owner.Get());
+		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner.Get())};
 		if (Payload.SchemaVersion != CurrentMaterialGraphClipboardSchemaVersion)
 			return std::unexpected(RejectCommand("The material graph clipboard schema version is unsupported."));
 		if (Payload.Nodes.empty() || Payload.Nodes.size() > MaterialProgramMaxNodeCount
-			|| State.Expressions.size() + Payload.Nodes.size() > MaterialProgramMaxNodeCount)
+			|| Candidate.Expressions.size() + Payload.Nodes.size() > MaterialProgramMaxNodeCount)
 			return std::unexpected(RejectCommand("Pasting would exceed the material graph node bounds."));
 		const bool bSameRoot = Payload.SourceRoot.Get() == Owner.Get();
 		if (std::ranges::any_of(Payload.Nodes, [&](const auto& Node) {
@@ -93,7 +93,7 @@ namespace Durin::MaterialEditor
 		std::unordered_set<FGuid> ClipboardIds;
 		std::unordered_set<DMaterialExpression*> ExternalSources;
 		std::unordered_set<FGuid> UsedIds;
-		for (const auto& Expression : State.Expressions)
+		for (const auto& Expression : Candidate.Expressions)
 		{
 			if (bSameRoot) ExternalSources.insert(Expression.Get());
 			UsedIds.insert(Expression->Id);
@@ -131,7 +131,7 @@ namespace Durin::MaterialEditor
 				return Terminal ? &Terminal->Port : nullptr;
 			};
 			std::unordered_set<std::string> Names;
-			for (const auto& Expression : State.Expressions)
+			for (const auto& Expression : Candidate.Expressions)
 				if (const auto* Port = GetPort(Expression.Get())) Names.insert(Port->Name);
 			for (const auto& Node : Payload.Nodes)
 			{
@@ -167,7 +167,7 @@ namespace Durin::MaterialEditor
 			if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 			{
 				Parameter->Metadata.Id = FGuid::NewGuid();
-				if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error) return std::unexpected(Error);
+				if (const auto Error = ResolveParameterExpression(*Owner.Get(), Candidate.Expressions, *Parameter); !Error) return std::unexpected(Error);
 			}
 			Copies.emplace(Entry.Expression.Get(), Expression.Get());
 			const int64 PositionX = static_cast<int64>(X) + Entry.RelativeX, PositionY = static_cast<int64>(Y) + Entry.RelativeY;
@@ -175,8 +175,8 @@ namespace Durin::MaterialEditor
 				|| PositionY < -MaterialGraphPresentationCoordinateLimit || PositionY > MaterialGraphPresentationCoordinateLimit)
 				return std::unexpected(RejectCommand("Pasting would place a material graph node outside the supported coordinate range."));
 			Generated.push_back(Expression->Id);
-			State.Presentation.Nodes.push_back({Expression->Id, static_cast<int32>(PositionX), static_cast<int32>(PositionY), Entry.DisplayName});
-			State.Expressions.emplace_back(Expression.Get());
+			SetNodeLayout(*Expression, static_cast<int32>(PositionX), static_cast<int32>(PositionY), Entry.DisplayName);
+			Candidate.Expressions.emplace_back(Expression.Get());
 		}
 		for (const auto& [SourceExpression, Copy] : Copies)
 		{
@@ -189,13 +189,18 @@ namespace Durin::MaterialEditor
 			});
 			if (!Valid) return std::unexpected(RejectCommand("The material graph clipboard references an unavailable external input."));
 		}
+		std::optional<FMaterialRootInputs> Root;
 		if (Payload.AggregateSurface.IsConnected())
 		{
 			const auto Source = Copies.find(Payload.AggregateSurface.Expression.Get());
 			if (Source == Copies.end()) return std::unexpected(RejectCommand("The aggregate Surface clipboard source is missing from the selection."));
-			if (!State.bFunction) State.EditRootInput(EMaterialProperty::MP_MaterialAttributes)->Connect(Payload.AggregateSurface.OutputIndex, Source->second);
+			if (const auto* Material = Cast<DMaterial>(Owner.Get()))
+			{
+				Root = Material->CaptureRootInputs();
+				Root->Attributes.Connect(Payload.AggregateSurface.OutputIndex, Source->second);
+			}
 		}
-		auto Result = State.Commit("Paste Graph Nodes", Transactions);
+		auto Result = CommitGraphEdit(*Owner.Get(), Transactions, "Paste Graph Nodes", Candidate, Root ? &*Root : nullptr);
 		if (!Result) return std::unexpected(std::move(Result));
 		return GetCreatedNodes(Generated);
 	}

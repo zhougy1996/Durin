@@ -9,7 +9,7 @@
 #include "Materials/Material.h"
 #include "MaterialFunctionPreview.h"
 #include "MaterialGraphEditInternals.h"
-#include "MaterialGraphEditSession.h"
+#include "MaterialGraphCommands.h"
 
 namespace Durin::MaterialEditor
 {
@@ -74,16 +74,14 @@ namespace Durin::MaterialEditor
 		const std::array<DMaterialFunctionInterface*, 1> Roots{&Function};
 		auto Validation = ValidateMaterialFunctionDependencies(Roots, Closure);
 		if (!Validation) return RejectCommand("The function cannot be previewed.", std::move(Validation.Diagnostics));
-		FGraphEditSession State(Preview);
-		State.Expressions.clear();
-		State.Presentation = {};
+		FMaterialExpressionCollection Candidate;
+		FMaterialRootInputs Root;
 		const auto Add = [&]<typename Expression>() -> Expression* {
 			auto* Value = NewObject<Expression>(nullptr, NAME_None);
 			Value->Id = FGuid::NewGuid();
-			State.Expressions.emplace_back(Value);
+			Candidate.Expressions.emplace_back(Value);
 			return Value;
 		};
-		State.ResetRoot();
 		std::array<FMaterialExpressionInput, static_cast<size_t>(Type::MaterialAttributes) + 1> RequiredValues;
 		auto* Call = Add.operator()<DMaterialExpressionFunctionCall>();
 		if (!Call->SetMaterialFunction(&Function)) return RejectCommand("The preview function is unavailable.");
@@ -125,8 +123,8 @@ namespace Durin::MaterialEditor
 		FMaterialStaticProperties Properties;
 		if (Output->Type == Type::MaterialAttributes)
 		{
-			State.SetRootMode(true);
-			*State.EditRootInput(EMaterialProperty::MP_MaterialAttributes) = Value;
+			Root.bUseMaterialAttributes = true;
+			Root.Attributes = Value;
 		}
 		else
 		{
@@ -158,13 +156,13 @@ namespace Durin::MaterialEditor
 				auto* Mask = Add.operator()<DMaterialExpressionSwizzle>();
 				Mask->Input = Value; Mask->Components = {0, 1, 2}; Value = {Mask};
 			}
-			*State.EditRootInput(EMaterialProperty::MP_EmissiveColor) = Value;
+			Root.Get(EMaterialProperty::MP_EmissiveColor).Connection = Value;
 		}
-		for (size_t Index = 0; Index < State.Expressions.size(); ++Index)
-			State.Presentation.Nodes.push_back({State.Expressions[Index]->Id, static_cast<int32>(Index % 4) * 320,
-				static_cast<int32>(Index / 4) * 240});
+		for (size_t Index = 0; Index < Candidate.Expressions.size(); ++Index)
+			SetNodeLayout(*Candidate.Expressions[Index], static_cast<int32>(Index % 4) * 320,
+				static_cast<int32>(Index / 4) * 240);
 
-		auto Result = State.Commit("Build Function Preview", nullptr);
+		auto Result = CommitGraphEdit(Preview, nullptr, "Build Function Preview", Candidate, &Root);
 		if (Result)
 			if (const auto Applied = Preview.SetStaticProperties(Properties); !Applied)
 				return RejectCommand("The preview properties are invalid. " + Applied.error());

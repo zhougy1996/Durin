@@ -614,15 +614,21 @@ path; their Commit never redirects to a replacement editor. Working-copy checkpo
 ownership and explicit low-level gesture bindings are separate from command modes.
 
 Same-class constant edits, ordinary pin defaults and constant toggles, swizzle masks, function port rename/reorder, and ordinary single or bulk link edits record the authored expressions
-with `DObject::Modify(false)` in one `FScopedTransaction`. Link and numeric default edits determine affected inputs, downstream widths and retained defaults from the proposed values before recording. Creating or removing a function binding keeps the compound edit path.
+with `DObject::Modify(false)` in one `FScopedTransaction`. Link and numeric
+default edits determine affected inputs, downstream widths and retained
+defaults from the proposed values before recording. Creating a function
+binding prepares the new endpoint binding and records each affected call or
+consumer before publishing the connection.
 No-op and invalid requests return before marking the package dirty. Successful replay publishes the settled collection through the owner's graph change source.
 
 A structural edit records the material or function before changing its ordered
 `ExpressionCollection`. It calls `Modify(false)` on changed expressions and on
-each expression before marking it as garbage. Compound edits
-may validate provisional fields and restore them before recording the baseline.
-These temporary values end with the command. The shared transaction buffer owns
-the undo data, including the liveness transition and hard references across GC.
+each expression before marking it as garbage. Creation, paste and replacement
+prepare detached expressions, candidate membership and affected bindings before
+recording. Validation checks ownership, node and parameter identity, retained
+links and function dependencies against the candidate graph. The shared
+transaction buffer owns the undo data, including liveness transitions and hard
+references across GC.
 Native completion repairs expression ownership before graph observers read it.
 An external bulk replacement retires the old children. History requiring a
 retired child fails preflight even when its replacement carries the same GUID.
@@ -659,10 +665,9 @@ after all objects have been restored. Shader-affecting changes schedule a
 compile generation. Parameter defaults and pipeline-only settings refresh
 render data through their respective publication paths.
 
-Abandoned or rejected edit scopes restore local writes without revisions or
-notifications. This domain compensation does not change generic `Modify()` or
-`Cancel()` semantics. Presentation-only changes skip semantic publication;
-presentation replacement includes labels so replay can restore an empty name.
+Rejected commands leave authored values, graph revisions and notifications
+untouched. Presentation-only changes skip semantic publication. Expressions
+record their labels, so Undo can restore an empty name.
 
 Structural and expression changes share the global object transaction. `CreateParameter`, `RenameParameter`
 and `DeleteParameter` share the live editing boundary with numeric promotion,
@@ -678,11 +683,10 @@ command result directly. Parameter creation returns an owned expression or a
 failure message; a failed creation publishes no expression. Definition and value
 validation remain typed in Engine and are formatted at the editor boundary.
 
-Failed graph history admission restores the original graph without publishing
-revisions. A subsequent valid commit can be undone. Assignment retains scope
-rollback, including after a valid retry following a class mismatch. Snapshot,
-property-copy and history admission failures include their underlying formatted
-explanation. After admission and a successful model write, scope destruction
+Rejected graph commands leave the authored graph and revisions intact. A
+subsequent valid command can be undone. Same-class replacement validates the
+draft and updates the original object, preserving its identity and layout.
+After admission and a successful model write, scope destruction
 publishes history. A publication failure leaves the authored graph edit applied
 and is reported by the transactor.
 
@@ -750,8 +754,8 @@ the transaction captures its displayed coordinates before writing. Undo removes 
 new position entry, or restores those coordinates if a later label needs the entry. Escape, document
 switch, deactivation, discard, close, destruction, or stale owner discards the draft
 without changing the asset or unrelated presentation edits. Each document owns a
-distinct canvas and move session. Structural and label edits retain full presentation
-state through the graph edit session.
+distinct canvas and move session. Structural edits preserve the layout of
+surviving expressions, and label edits record the labeled expression.
 
 Creation-menu results have one local invalidation flag, set when their catalog or
 recent-entry ordering changes. Search text and source output type remain explicit
@@ -773,8 +777,8 @@ A position command with no changes leaves undo history untouched.
 Move, layout and selection copy return success as a boolean. Callers that display
 errors can supply an optional error string, which is empty on success. Layout
 calculation and copy return their data through the existing output parameters.
-Copy clears the payload on entry and retains any nodes duplicated before a failure. Rejected
-paste restores the unfinished edit scope and adds no history entry. Failed moves
+Copy clears the payload on entry and retains any nodes duplicated before a failure.
+Rejected paste leaves the destination and its history untouched. Failed moves
 do not publish positions. Failed layout calculations retain the current authored
 presentation after valid-owner resolution; successful calculation remains detached
 from live authored positions.

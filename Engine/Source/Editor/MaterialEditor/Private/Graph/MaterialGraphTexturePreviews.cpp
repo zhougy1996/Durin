@@ -2,7 +2,7 @@
 #include "Materials/MaterialExpressionTextureParameter.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "RenderResource.h"
-#include "MaterialGraphEditSession.h"
+#include "MaterialGraphCommands.h"
 #include "Asset/Asset.h"
 #include "Preview/TexturePreview.h"
 #include "Asset/AssetDragDrop.h"
@@ -94,7 +94,7 @@ namespace Durin::MaterialEditor
 				DTexture2D* Texture = nullptr;
 				if (FSoftObjectPath::TryCreate(Asset.AssetPath.data(), Path) && (Texture = LoadObject<DTexture2D>(Path)))
 				{
-					GraphEditInternals::FGraphEditSession State(Material);
+					auto Candidate = Material.GetExpressionCollection();
 					{
 						TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Expression(
 							NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
@@ -110,11 +110,11 @@ namespace Durin::MaterialEditor
 						if (Texture->GetUsage() == ETextureUsage::Normal)
 							Expression->DefaultValue.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
 						const auto Id = Expression->Id;
-						State.Expressions.emplace_back(Expression.Get());
+						Candidate.Expressions.emplace_back(Expression.Get());
 						const auto Mouse = ImGui::GetMousePos();
-						State.Presentation.Nodes.push_back({Id, static_cast<int32>((Mouse.x - CanvasMinimum.x - Pan.x) / Zoom),
-							static_cast<int32>((Mouse.y - CanvasMinimum.y - Pan.y) / Zoom)});
-						const auto Result = State.Commit("Add Texture Sample Parameter", &Transactions);
+						GraphEditInternals::SetNodeLayout(*Expression, static_cast<int32>((Mouse.x - CanvasMinimum.x - Pan.x) / Zoom),
+							static_cast<int32>((Mouse.y - CanvasMinimum.y - Pan.y) / Zoom));
+						const auto Result = GraphEditInternals::CommitGraphEdit(Material, &Transactions, "Add Texture Sample Parameter", Candidate);
 						if (CheckCommand(Result)) SelectedNodes = {Id};
 					}
 				}

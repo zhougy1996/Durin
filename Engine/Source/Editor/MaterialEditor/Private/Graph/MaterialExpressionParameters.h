@@ -18,9 +18,9 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		-> FParameterExpressionResult;
 	// Resolves a new/rebound node by name, or synchronizes an existing shared definition.
 	// Live edits register synchronized peers before writing their shared definition.
-	class FGraphEditSession;
-	auto ResolveParameterExpression(FGraphEditSession& State, DMaterialExpressionParameter& Parameter,
-		const DMaterialExpressionParameter* Previous = nullptr) -> FMaterialGraphCommandResult;
+	auto ResolveParameterExpression(DObject& Owner, std::span<const TObjectPtr<DMaterialExpression>> Expressions,
+		DMaterialExpressionParameter& Parameter,
+		const DMaterialExpressionParameter* Previous = nullptr, std::vector<DMaterialExpression*>* Peers = nullptr) -> FMaterialGraphCommandResult;
 }
 
 namespace Durin::MaterialEditor::GraphEditInternals

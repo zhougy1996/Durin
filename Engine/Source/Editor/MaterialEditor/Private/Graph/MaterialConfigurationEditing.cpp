@@ -1,5 +1,5 @@
 #include "MaterialEditingOperations.h"
-#include "MaterialGraphEditSession.h"
+#include "MaterialGraphCommands.h"
 
 namespace Durin::MaterialEditor::MaterialEditing
 {
@@ -46,9 +46,10 @@ namespace Durin::MaterialEditor::MaterialEditing
 		auto* Transactions = *Admission;
 		if (Material.UsesMaterialAttributes() == bEnabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (!Material.CanEditMaterialAttributesMode()) return RejectCommand("Change the material attributes mode in the Surface domain.");
-		FGraphEditSession State(Material);
-		State.SetRootMode(bEnabled);
-		return State.Commit("Change Material Output Mode", Transactions);
+		auto Candidate = Material.GetExpressionCollection();
+		auto Root = Material.CaptureRootInputs();
+		Root.bUseMaterialAttributes = bEnabled;
+		return CommitGraphEdit(Material, Transactions, "Change Material Output Mode", Candidate, &Root);
 	}
 
 }

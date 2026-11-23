@@ -66,22 +66,6 @@ namespace Durin
 		return Description ? Description->Numeric : std::nullopt;
 	}
 
-	auto FMaterialRootInputEdits::HasValidWidths(const DMaterial& Material) const -> bool
-	{
-		return std::ranges::all_of(Numeric, [&](const auto& Entry) {
-			const auto Live = Material.GetNumericInputForProperty(Entry.first);
-			return Live && Live->Constant.size() == Entry.second.Constant.size();
-		});
-	}
-
-	void FMaterialExpressionEditing::ApplyRootEdits(DMaterial& Owner, const FMaterialRootInputEdits& Edits)
-	{
-		check(Edits.HasValidWidths(Owner));
-		for (const auto& [Property, Input] : Edits.Numeric)
-			DMaterial::VisitNumericField(Owner, Property, [&](auto& Field) { Assign(Field, Input); });
-		if (Edits.Attributes) Owner.MaterialAttributes = *Edits.Attributes;
-		if (Edits.UseAttributes) Owner.bUseMaterialAttributes = *Edits.UseAttributes;
-	}
 
 	void DMaterial::ApplyRootInputs(FMaterialRootInputs Inputs)
 	{
@@ -134,7 +118,7 @@ namespace Durin
 	}
 
 	auto DMaterial::DeriveExpressionParameterSchema(const FMaterialExpressionCollection& Collection,
-		std::vector<FMaterialParameterDefinition>& OutDefinitions) -> FMaterialProgramValidationResult
+		std::vector<FMaterialParameterDefinition>& OutDefinitions, const FMaterialParameterDefinition* SharedParameter) -> FMaterialProgramValidationResult
 	{
 		const auto Fail = [](FGuid Id, std::string Message) {
 			FMaterialProgramValidationResult Result;
@@ -153,6 +137,11 @@ namespace Durin
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 			{
 				auto Definition = Parameter->GetParameterDefinition();
+				if (SharedParameter && Definition.Id == SharedParameter->Id)
+				{
+					if (Definition.Type != SharedParameter->Type) return Fail(Expression->Id, "Shared parameter types disagree.");
+					Definition = *SharedParameter;
+				}
 				if (!Definition.Id.IsValid() || NodeIds.contains(Definition.Id))
 					return Fail(Expression->Id, "Parameter identity must be valid and distinct from node identity.");
 				const auto Existing = std::ranges::find(Definitions, Definition.Id, &FMaterialParameterDefinition::Id);

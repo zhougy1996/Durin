@@ -1,7 +1,7 @@
 #include "Graph/MaterialGraphCatalog.h"
 #include "MaterialGraph.h"
 #include "MaterialGraphPinSource.h"
-#include "MaterialGraphEditSession.h"
+#include "MaterialGraphCommands.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionVector.h"
@@ -82,21 +82,17 @@ namespace Durin::MaterialEditor
 		auto* Expression = GetMaterialExpression();
 		if (!Owner || !Expression || !Expression->CanRenameNode()) return RejectCommand("The selected node cannot be renamed.");
 		if (Expression->GetEditableName() == NewName) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (!ValidateGraphEdit(*Owner))
+		if (const auto* Terminal = GetTerminalPort(Expression))
 		{
-			// A repair must be able to restore the originally invalid asset on Undo.
-			FGraphEditSession State(*Owner);
-			State.Modify(*Expression);
-			Expression->SetEditableName(std::move(NewName));
-			return State.Commit("Rename Material Expression", *Admission);
+			auto Port = *Terminal;
+			Port.Name = std::move(NewName);
+			return SetFunctionPort(std::move(Port), Mode);
 		}
-		const auto Original = Expression->GetEditableName();
-		Expression->SetEditableName(NewName);
-		auto Valid = ValidateGraphEdit(*Owner);
-		Expression->SetEditableName(Original);
-		if (!Valid) return Valid;
-		return EditExpressions(*Owner, *Admission, "Rename Material Expression", std::array{Expression},
-			[&] { Expression->SetEditableName(std::move(NewName)); });
+		const auto Duplicated = DuplicateObject(Expression, nullptr, NAME_None);
+		if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
+		TStrongObjectPtr<DMaterialExpression> Draft(Cast<DMaterialExpression>(*Duplicated));
+		Draft->SetEditableName(std::move(NewName));
+		return CommitExpressionReplacement(*Owner, *Draft, *Admission);
 	}
 
 	auto DMaterialGraphNode::SetFunctionPort(FMaterialFunctionPort Port, ETransactionMode Mode) -> FMaterialGraphCommandResult
@@ -110,26 +106,11 @@ namespace Durin::MaterialEditor
 		auto* Target = GetTerminalPort(Expression);
 		if (!Function || !Target || Target->Id != Port.Id) return RejectCommand("The function port is unavailable.");
 		if (*Target == Port) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		auto Metadata = *Target;
-		Metadata.Name = Port.Name;
-		Metadata.DisplayOrder = Port.DisplayOrder;
-		// Use the compound path when repairing an already-invalid function signature.
-		if (Metadata == Port && ValidateGraphEdit(*Function))
-		{
-			auto Signature = Function->GetFunctionSignature();
-			auto& Ports = Cast<DMaterialExpressionFunctionOutput>(Expression) ? Signature.Outputs : Signature.Inputs;
-			const auto It = std::ranges::find(Ports, Port.Id, &FMaterialFunctionPort::Id);
-			if (It == Ports.end()) return RejectCommand("The function port is unavailable.");
-			*It = Port;
-			if (const auto Valid = ValidateMaterialFunctionSignature(Signature); !Valid)
-				return RejectCommand("The function signature is invalid.", Valid.Diagnostics);
-			return EditExpressions(*Function, *Admission, "Edit Function Port", std::array{Expression},
-				[&] { *Target = std::move(Port); });
-		}
-		FGraphEditSession State(*Function);
-		State.Modify(*Expression);
-		*Target = std::move(Port);
-		return State.Commit("Edit Function Port", *Admission);
+		const auto Duplicated = DuplicateObject(Expression, nullptr, NAME_None);
+		if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
+		TStrongObjectPtr<DMaterialExpression> Draft(Cast<DMaterialExpression>(*Duplicated));
+		*GetTerminalPort(Draft.Get()) = std::move(Port);
+		return CommitExpressionReplacement(*Function, *Draft, *Admission);
 	}
 
 	auto DMaterialGraphNode::SetConstantValue(const FMaterialParameterValue& Value, ETransactionMode Mode)

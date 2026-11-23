@@ -1,5 +1,5 @@
 #include "Graph/MaterialGraphCatalog.h"
-#include "Graph/MaterialGraphEditSession.h"
+#include "Graph/MaterialGraphCommands.h"
 #include "MaterialGraph.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -510,11 +510,11 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	EXPECT_EQ(GetCall(*Draft)->Function.Get(), First);
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 	{
-		GraphEditInternals::FGraphEditSession Renamed(*Draft);
-		const auto Position = std::ranges::find(Renamed.Presentation.Nodes, CallId, &FMaterialGraphNodePresentation::NodeId);
-		if (Position == Renamed.Presentation.Nodes.end()) Renamed.Presentation.Nodes.push_back({.NodeId = CallId, .DisplayName = "Reusable Surface"});
-		else Position->DisplayName = "Reusable Surface";
-		ASSERT_TRUE(Renamed.Commit("Rename Call", Transactions.Get()));
+		FScopedTransaction Rename("Rename Call");
+		GetCall(*Draft)->SetFlags(EObjectFlags::Transactional);
+		ASSERT_TRUE(GetCall(*Draft)->Modify(false));
+		ASSERT_NE(Draft->SetMaterialGraphPresentation({.Nodes = {{CallId, 0, 0, "Reusable Surface"}}}),
+			EMaterialGraphPresentationResult::Rejected);
 	}
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(CaptureMaterialOutputBindings(*Draft), CaptureMaterialOutputBindings(Outputs));

@@ -185,7 +185,7 @@ namespace Durin
 		static auto ValidateExpressionGraph(const FMaterialExpressionCollection& Collection,
 			const FMaterialRootInputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
 		static auto DeriveExpressionParameterSchema(const FMaterialExpressionCollection& Collection,
-			std::vector<FMaterialParameterDefinition>& OutDefinitions) -> FMaterialProgramValidationResult;
+			std::vector<FMaterialParameterDefinition>& OutDefinitions, const FMaterialParameterDefinition* SharedParameter = nullptr) -> FMaterialProgramValidationResult;
 
 #if DURIN_WITH_EDITORONLY_DATA
 		// Load-only field for packages authored before expression-owned layout.
