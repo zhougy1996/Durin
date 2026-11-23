@@ -302,11 +302,11 @@ namespace
 		const auto& Default = Asset->GetWaveGroup();
 		Require(Default && Default->Waves.size() == 16, "Default generator must produce sixteen waves.");
 		Require(Default->Waves[0].Direction == FVector2(1, 0)
-			&& std::abs(Default->BaseAmplitude - 5.08125f) < 1.e-5f
+			&& std::abs(Default->BaseAmplitude - 2.540625f) < 1.e-5f
 			&& std::abs(Default->BaseWavelength / Default->Waves[0].WavenumberRatio - 60.f) < 1.e-5f
 			&& std::abs(Default->Waves[1].Direction.x + .664813) < 1.e-5
 			&& std::abs(Default->Waves[1].Direction.y - .747010) < 1.e-5,
-			"Default spectrum differs from the UE simple generator reference.");
+			"Unexpected default Water Waves spectrum.");
 		auto Settings = SavedWaveSettings();
 		Require(bool(Asset->SetGeneratorSettings(Settings)) && bool(Copy->SetGeneratorSettings(Settings)), "Valid wave asset settings rejected.");
 		const auto Initial = Asset->GetWaveGroup();

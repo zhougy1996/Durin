@@ -22,9 +22,9 @@ namespace Durin
 		DPROPERTY(Edit)
 		float MaxWavelength = 60.f;
 		DPROPERTY(Edit)
-		float MinAmplitude = .04f;
+		float MinAmplitude = .02f;
 		DPROPERTY(Edit)
-		float MaxAmplitude = .8f;
+		float MaxAmplitude = .4f;
 
 		DPROPERTY(Edit)
 		float Randomness = 0.f;
