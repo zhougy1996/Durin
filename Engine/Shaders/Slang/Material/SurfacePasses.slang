@@ -140,6 +140,29 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
     FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
         viewport, input.pos.xy + offset, viewForward, surfaceDepth, slopeTolerance);
     if (refracted.valid) background = refracted;
+    else if (background.valid)
+    {
+        // Pull the footprint back to the visible side of the occluder. Jumping
+        // straight to the source pixel can insert a strip of bed across a pier.
+        float validFraction = 0.0;
+        float occludedFraction = 1.0;
+        [loop]
+        for (uint step = 0; step < 6; ++step)
+        {
+            float fraction = (validFraction + occludedFraction) * 0.5;
+            FWaterBackground candidate = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth,
+                WaterCoverage, WaterView, viewport, input.pos.xy + offset * fraction,
+                viewForward, surfaceDepth, slopeTolerance);
+            if (candidate.valid)
+            {
+                validFraction = fraction;
+                background = candidate;
+            }
+            else occludedFraction = fraction;
+            if ((occludedFraction - validFraction) * max(abs(offset.x), abs(offset.y)) <= 0.5) break;
+        }
+        offset *= validFraction;
+    }
 #endif
     if (!background.valid) background.depth = surfaceDepth;
     float thicknessCm = max(background.depth - surfaceDepth, 0.0) * 100.0;

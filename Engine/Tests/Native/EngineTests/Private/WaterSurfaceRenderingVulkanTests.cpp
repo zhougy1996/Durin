@@ -753,7 +753,7 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	View.ViewportHeight = 240;
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(718));
 
-	// Oblique view of a pier face crossing the waterline. Only the dry half is green.
+	// Distinguish the exposed pier (green), submerged pier (blue), and bed (white).
 	const auto TopDownView = View;
 	const auto AddPierFace = [&](uint32 Id, double CenterZ, const FMaterialRenderProxyRef& Material) {
 		FMatrix Transform(1.0);
@@ -765,7 +765,13 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 			std::make_unique<FStaticMeshSceneProxy>(Grid.get(), std::vector{Material}), Transform);
 	};
 	AddPierFace(719, 1.0, Foreground);
-	AddPierFace(720, -1.0, Bed);
+	ForegroundInput.IR.GetAttribute(P::MP_EmissiveColor).Literal = {0, 0, 1};
+	const auto WetProgram = MIR::Compile(ForegroundInput);
+	ASSERT_TRUE(WetProgram) << FormatMaterialProgramDiagnostics(WetProgram.Diagnostics);
+	auto WetPier = MakeRefCount<FMaterialRenderProxy>();
+	Durin::Testing::QueueMaterialTestState(*WetPier, {.StaticProperties = ForegroundInput.StaticProperties,
+		.CompiledProgram = std::make_shared<const FMaterialProgram>(WetProgram.Resource)});
+	AddPierFace(720, -1.0, WetPier);
 	View.ViewLocation = {-6, 0, 3};
 	const double Axis = 1.0 / std::sqrt(5.0);
 	View.ViewMatrix[0] = FVector4(2 * Axis, 0, Axis, 0);
@@ -783,9 +789,10 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 		View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
 		CaptureHDR(HDR);
 		ASSERT_FALSE(HasFatalFailure());
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(HDR, Evidence / "oblique-pier.rgba16f"));
 		CheckColor(HDR, 160, 100, {0, 1, 0});
-		for (uint32 Y : {132u, 145u, 158u})
-			CheckColor(HDR, 160, Y, FVector3f(1.0f));
+		for (uint32 Y = 121; Y <= 191; ++Y)
+			CheckColor(HDR, 160, Y, {0, 0, 1});
 	}
 	View = TopDownView;
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(719));
