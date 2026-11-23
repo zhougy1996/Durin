@@ -446,9 +446,9 @@ namespace Durin::MaterialEditor
 	}
 
 	auto GraphEditInternals::RemoveGraphNodes(DObject* Owner, std::span<const FGuid> NodeIds,
-		ETransactionMode Mode) -> FMaterialGraphCommandResult
+		bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		if (NodeIds.size() > MaterialProgramMaxNodeCount) return RejectCommand("The removal selection exceeds the graph bound.");
@@ -489,10 +489,10 @@ namespace Durin::MaterialEditor
 		});
 	}
 
-	auto DMaterialGraph::RemoveNodes(std::span<const FGuid> NodeIds, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	auto DMaterialGraph::RemoveNodes(std::span<const FGuid> NodeIds, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
 		if (std::ranges::contains(NodeIds, RootViewId)) return GraphEditInternals::RejectCommand("The material root cannot be removed.");
-		return GraphEditInternals::RemoveGraphNodes(GetMaterialOrFunction(), NodeIds, Mode);
+		return GraphEditInternals::RemoveGraphNodes(GetMaterialOrFunction(), NodeIds, bShouldTransact);
 	}
 
 	namespace
@@ -552,7 +552,7 @@ namespace Durin::MaterialEditor
 	}
 
 	auto FMaterialGraphSchema::TryCreateConnection(const FMaterialGraphPin* A, const FMaterialGraphPin* B,
-		bool Replace, ETransactionMode Mode, std::string* OutError) const -> bool
+		bool Replace, bool bShouldTransact, std::string* OutError) const -> bool
 	{
 		if (OutError) OutError->clear();
 		const auto Response = CanCreateConnection(A, B);
@@ -562,15 +562,15 @@ namespace Durin::MaterialEditor
 			return false;
 		}
 		const auto* Input = A->Direction == EMaterialGraphPinDirection::Input ? A : B;
-		return PinGraph(Input)->LinkMaterialExpressionsFromGraph(*Input, Input == A ? B : A, Replace, Mode, OutError);
+		return PinGraph(Input)->LinkMaterialExpressionsFromGraph(*Input, Input == A ? B : A, Replace, bShouldTransact, OutError);
 	}
 
-	auto FMaterialGraphSchema::BreakPinLinks(const FMaterialGraphPin* Pin, ETransactionMode Mode, std::string* OutError) const -> bool
+	auto FMaterialGraphSchema::BreakPinLinks(const FMaterialGraphPin* Pin, bool bShouldTransact, std::string* OutError) const -> bool
 	{
 		auto* Graph = PinGraph(Pin);
 		if (!Graph) return GraphEditInternals::FailWithError(OutError, "The pin is unavailable.");
-		if (Pin->Direction == EMaterialGraphPinDirection::Output) return Graph->BreakOutputLinks(*Pin, Mode, OutError);
-		return Graph->LinkMaterialExpressionsFromGraph(*Pin, nullptr, true, Mode, OutError);
+		if (Pin->Direction == EMaterialGraphPinDirection::Output) return Graph->BreakOutputLinks(*Pin, bShouldTransact, OutError);
+		return Graph->LinkMaterialExpressionsFromGraph(*Pin, nullptr, true, bShouldTransact, OutError);
 	}
 
 	auto DMaterialGraphNode::CanSetAttributeInput(EMaterialProperty Property, const FMaterialGraphPin* Output) const -> FMaterialGraphConnectionResponse
@@ -588,16 +588,16 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraphNode::SetAttributeInput(EMaterialProperty Property, const FMaterialGraphPin& Output,
-		ETransactionMode Mode, std::string* OutError) -> bool
+		bool bShouldTransact, std::string* OutError) -> bool
 	{
 		using namespace GraphEditInternals;
 		const auto Response = CanSetAttributeInput(Property, &Output);
 		if (!Response.Allows(true)) return FailWithError(OutError, Response.Reason);
 		auto* Graph = Cast<DMaterialGraph>(GetOuter());
 		if (const auto* Input = FindInputPin(static_cast<uint32>(Property) + 1))
-			return Graph->GetSchema().TryCreateConnection(&Output, Input, true, Mode, OutError);
+			return Graph->GetSchema().TryCreateConnection(&Output, Input, true, bShouldTransact, OutError);
 
-		auto Transactions = ResolveEditorTransactor(Mode);
+		auto Transactions = ResolveEditorTransactor(bShouldTransact);
 		if (!Transactions) return FailWithError(OutError, Transactions.error());
 		auto* Target = Cast<DMaterialExpressionSetMaterialAttributes>(GetMaterialExpression());
 		auto* Source = Output.GetOwningNode();
@@ -619,14 +619,14 @@ namespace Durin::MaterialEditor
 		}), OutError);
 	}
 
-	auto DMaterialGraphNode::ClearAttributeInput(EMaterialProperty Property, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	auto DMaterialGraphNode::ClearAttributeInput(EMaterialProperty Property, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
 		auto* Target = Cast<DMaterialExpressionSetMaterialAttributes>(GetMaterialExpression());
 		if (!Target || !FMaterialAttributeDefinitionMap::Find(Property)) return RejectCommand("The attribute input is unavailable.");
 		const auto It = std::ranges::find(Target->Attributes, Property, &FMaterialExpressionAttributeBinding::GetProperty);
 		if (It == Target->Attributes.end()) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		auto Transactions = ResolveEditorTransactor(Mode);
+		auto Transactions = ResolveEditorTransactor(bShouldTransact);
 		if (!Transactions) return RejectCommand(Transactions.error());
 		auto& Owner = *Target->GetOuter();
 		if (auto Valid = ValidateGraphEdit(Owner, {{&It->Input, {}}}); !Valid) return Valid;
@@ -634,12 +634,12 @@ namespace Durin::MaterialEditor
 			std::array<DMaterialExpression*, 1>{Target}, [&] { Target->Attributes.erase(It); });
 	}
 
-	auto DMaterialGraph::BreakOutputLinks(const FMaterialGraphPin& Output, ETransactionMode Mode, std::string* OutError) -> bool
+	auto DMaterialGraph::BreakOutputLinks(const FMaterialGraphPin& Output, bool bShouldTransact, std::string* OutError) -> bool
 	{
 		if (OutError) OutError->clear();
 		using namespace GraphEditInternals;
 		auto* Owner = GetMaterialOrFunction();
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return GraphEditInternals::FailWithError(OutError, Admission.error());
 		auto* Upstream = Output.GetOwningNode()->GetMaterialExpression();
 		struct FConsumer
@@ -715,28 +715,28 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraphNode::PinDefaultValueChanged(const FMaterialGraphPin* Pin, FMaterialInputDefault Value,
-		ETransactionMode Mode) -> FMaterialGraphCommandResult
+		bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
 		auto* Graph = ResolveInputGraph(Pin);
 		if (!Graph) return RejectCommand("The input pin is unavailable.");
 		const auto& Input = View.Inputs[Pin->DisplayIndex];
 		if (Input.MaterialProperty)
-			return WriteInputDefault(Cast<DMaterial>(Graph->GetMaterialOrFunction()), *Input.MaterialProperty, std::move(Value), Mode);
-		return WriteInputDefault(Graph->GetMaterialOrFunction(), GetMaterialExpression(), GetExpressionInputKey(Input), std::move(Value), Mode);
+			return WriteInputDefault(Cast<DMaterial>(Graph->GetMaterialOrFunction()), *Input.MaterialProperty, std::move(Value), bShouldTransact);
+		return WriteInputDefault(Graph->GetMaterialOrFunction(), GetMaterialExpression(), GetExpressionInputKey(Input), std::move(Value), bShouldTransact);
 	}
 
 	auto DMaterialGraphNode::SetPinUseConstant(const FMaterialGraphPin* Pin, bool Enabled,
-		ETransactionMode Mode) -> FMaterialGraphCommandResult
+		bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
 		auto* Graph = ResolveInputGraph(Pin);
 		if (!Graph) return RejectCommand("The numeric input pin is unavailable.");
 		const auto& Input = View.Inputs[Pin->DisplayIndex];
 		if (Input.MaterialProperty)
-			return SetInputConstantEnabled(Cast<DMaterial>(Graph->GetMaterialOrFunction()), *Input.MaterialProperty, Enabled, Mode);
+			return SetInputConstantEnabled(Cast<DMaterial>(Graph->GetMaterialOrFunction()), *Input.MaterialProperty, Enabled, bShouldTransact);
 		if (Input.PortId.IsValid()) return RejectCommand("The numeric input pin is unavailable.");
-		return SetInputConstantEnabled(Graph->GetMaterialOrFunction(), GetMaterialExpression(), Input.InputIndex, Enabled, Mode);
+		return SetInputConstantEnabled(Graph->GetMaterialOrFunction(), GetMaterialExpression(), Input.InputIndex, Enabled, bShouldTransact);
 	}
 
 	auto DMaterialGraph::Create(DObject& MaterialOrFunction) -> DMaterialGraph*
@@ -791,9 +791,9 @@ namespace Durin::MaterialEditor
 		}
 
 		auto WriteRootInput(DMaterial* Material, EMaterialProperty Property, DMaterialExpression* Source, int32 Index, FGuid Port,
-			bool Replace, ETransactionMode Mode, std::string* Error) -> bool
+			bool Replace, bool bShouldTransact, std::string* Error) -> bool
 		{
-			auto Admission = ResolveEditorTransactor(Mode);
+			auto Admission = ResolveEditorTransactor(bShouldTransact);
 			if (!Admission) return FailWithError(Error, Admission.error());
 			if (!Material) return FailWithError(Error, "Invalid material root address.");
 			auto Root = Material->CaptureRootInputs();
@@ -818,10 +818,10 @@ namespace Durin::MaterialEditor
 		}
 
 		auto WriteInput(DObject* Owner, DMaterialExpression& Node, FExpressionInputKey Key,
-			DMaterialExpression* Upstream, int32 SourceIndex, FGuid UnboundPort, bool bReplaceExisting, ETransactionMode Mode, std::string* OutError) -> bool
+			DMaterialExpression* Upstream, int32 SourceIndex, FGuid UnboundPort, bool bReplaceExisting, bool bShouldTransact, std::string* OutError) -> bool
 		{
 			if (OutError) OutError->clear();
-			auto Admission = ResolveEditorTransactor(Mode);
+			auto Admission = ResolveEditorTransactor(bShouldTransact);
 			if (!Admission) return GraphEditInternals::FailWithError(OutError, Admission.error());
 			auto* Transactions = *Admission;
 			if (!Owner) return GraphEditInternals::FailWithError(OutError, "The material graph owner is no longer available.");
@@ -898,7 +898,7 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::LinkMaterialExpressionsFromGraph(const FMaterialGraphPin& Input, const FMaterialGraphPin* Output,
-		bool Replace, ETransactionMode Mode, std::string* OutError) -> bool
+		bool Replace, bool bShouldTransact, std::string* OutError) -> bool
 	{
 		auto* Node = Input.GetOwningNode();
 		const auto& Target = Node->GetView().Inputs[Input.DisplayIndex];
@@ -907,10 +907,10 @@ namespace Durin::MaterialEditor
 		{
 			const auto* Source = Output ? Output->GetOwningNode() : nullptr;
 			return WriteRootInput(Cast<DMaterial>(GetMaterialOrFunction()), *Target.MaterialProperty, Source ? Source->GetMaterialExpression() : nullptr,
-				Output ? Output->SourceIndex : 0, Output ? Source->GetView().Outputs[Output->DisplayIndex].PortId : FGuid{}, Replace, Mode, OutError);
+				Output ? Output->SourceIndex : 0, Output ? Source->GetView().Outputs[Output->DisplayIndex].PortId : FGuid{}, Replace, bShouldTransact, OutError);
 		}
 		if (!Expression) return GraphEditInternals::FailWithError(OutError, "The graph input is unavailable.");
-		if (!Output) return WriteInput(GetMaterialOrFunction(), *Expression, GraphEditInternals::GetExpressionInputKey(Target), nullptr, 0, {}, Replace, Mode, OutError);
+		if (!Output) return WriteInput(GetMaterialOrFunction(), *Expression, GraphEditInternals::GetExpressionInputKey(Target), nullptr, 0, {}, Replace, bShouldTransact, OutError);
 		auto* Source = Output->GetOwningNode();
 		auto* Upstream = Source->GetMaterialExpression();
 		if (!Upstream) return GraphEditInternals::FailWithError(OutError, "The source output no longer exists.");
@@ -919,12 +919,12 @@ namespace Durin::MaterialEditor
 		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Upstream); Call && Index >= 0)
 			if (static_cast<size_t>(Index) >= Call->FunctionOutputs.size() || Call->FunctionOutputs[Index].OutputId != PortId)
 				return GraphEditInternals::FailWithError(OutError, "The source output binding has changed.");
-		return WriteInput(GetMaterialOrFunction(), *Expression, GraphEditInternals::GetExpressionInputKey(Target), Upstream, Index, Index < 0 ? PortId : FGuid{}, Replace, Mode, OutError);
+		return WriteInput(GetMaterialOrFunction(), *Expression, GraphEditInternals::GetExpressionInputKey(Target), Upstream, Index, Index < 0 ? PortId : FGuid{}, Replace, bShouldTransact, OutError);
 	}
 
 	// Low-level repair writes may address input slots without a projected graph pin.
 	auto GraphEditInternals::WriteExpressionConnection(DObject* Owner, DMaterialExpression* Target, FExpressionInputKey Key,
-		FMaterialExpressionInput Source, bool Replace, ETransactionMode Mode, std::string* OutError, FGuid SourcePort) -> bool
+		FMaterialExpressionInput Source, bool Replace, bool bShouldTransact, std::string* OutError, FGuid SourcePort) -> bool
 	{
 		if (!Owner || !Target) return FailWithError(OutError, "The graph input no longer exists.");
 		const auto& Members = FMaterialExpressionEditing::GetExpressions(*Owner);
@@ -936,11 +936,11 @@ namespace Durin::MaterialEditor
 		if (Unbound.IsValid() ? !std::ranges::contains(Members, Upstream, [](const auto& Member) { return Member.Get(); })
 			: !IsSourceAvailable(Members, Source))
 			return FailWithError(OutError, "The source output no longer exists.");
-		return WriteInput(Owner, *Target, Key, Upstream, Source.OutputIndex, Unbound, Replace, Mode, OutError);
+		return WriteInput(Owner, *Target, Key, Upstream, Source.OutputIndex, Unbound, Replace, bShouldTransact, OutError);
 	}
 
 	auto GraphEditInternals::WriteRootConnection(DMaterial* Material, EMaterialProperty Property,
-		FMaterialExpressionInput Source, bool Replace, ETransactionMode Mode, std::string* OutError, FGuid SourcePort) -> bool
+		FMaterialExpressionInput Source, bool Replace, bool bShouldTransact, std::string* OutError, FGuid SourcePort) -> bool
 	{
 		if (!Material) return FailWithError(OutError, "The material is unavailable.");
 		const auto& Members = FMaterialExpressionEditing::GetExpressions(*Material);
@@ -950,7 +950,7 @@ namespace Durin::MaterialEditor
 				return FailWithError(OutError, "The source output no longer exists.");
 		}
 		else if (!IsSourceAvailable(Members, Source)) return FailWithError(OutError, "The source output no longer exists.");
-		return WriteRootInput(Material, Property, Source.Expression.Get(), Source.OutputIndex, SourcePort, Replace, Mode, OutError);
+		return WriteRootInput(Material, Property, Source.Expression.Get(), Source.OutputIndex, SourcePort, Replace, bShouldTransact, OutError);
 	}
 
 	auto DMaterialGraph::FindOutputGraphPin(const FMaterialProgramLink& Link) const -> const FMaterialGraphPin*

@@ -69,7 +69,7 @@ namespace Durin::MaterialEditor
 		std::unique_ptr<FImpl> Impl;
 	};
 
-	// Publishes parameter previews during one pointer gesture and records one undo step.
+	// Edits the control value interactively and writes the material on commit.
 	class FMaterialGraphParameterEditSession
 	{
 	public:
@@ -89,6 +89,7 @@ namespace Durin::MaterialEditor
 			-> std::expected<bool, std::string>;
 		MATERIALEDITOR_API auto Commit() -> std::expected<void, std::string>;
 		MATERIALEDITOR_API auto Cancel() -> std::expected<void, std::string>;
+		MATERIALEDITOR_API auto GetInteractiveValue(const FGuid& Id) const -> const FMaterialParameterValue*;
 		MATERIALEDITOR_API auto IsActive() const -> bool;
 
 	private:

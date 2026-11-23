@@ -79,7 +79,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookPipelineAppliesNestedStructF
 	const Durin::FPropertyEditTarget Target = Durin::FPropertyEditTarget::ForMember(Camera, Projection)
 		.ForStructMember(NearClip);
 	Durin::PropertyEditor::FPropertyEdit Session;
-	ASSERT_TRUE(Session.Begin(Target, "Generic Nested Edit", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Session.Begin(Target, "Generic Nested Edit", false));
 	EXPECT_TRUE(Session.Apply(Proposed));
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 4.0f);
 	EXPECT_TRUE(Session.Cancel());
@@ -110,7 +110,7 @@ TEST(FReflectedPropertyEditSessionTests, RelativeTransformHookNormalizesAndRefre
 	ASSERT_TRUE(Durin::CapturePropertyValue(Property, ProposalObject, 0, Proposed));
 
 	Durin::PropertyEditor::FPropertyEdit Session;
-	ASSERT_TRUE(Session.Begin(Durin::FPropertyEditTarget::ForMember(Child, Property), "Edit Transform", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Session.Begin(Durin::FPropertyEditTarget::ForMember(Child, Property), "Edit Transform", false));
 	ASSERT_TRUE(Session.Apply(Proposed));
 	EXPECT_NEAR(Durin::Math::Length(Child->GetRelativeRotation()), 1.0, 1.e-8);
 	EXPECT_DOUBLE_EQ(Child->GetWorldLocation().x, 13.0);
@@ -134,7 +134,7 @@ TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshot
 	ArrayTarget.SnapshotContainer = &Container;
 	Durin::FPropertyEditTarget ElementTarget = ArrayTarget.ForArrayElement(Inner.get(), 1);
 	Durin::PropertyEditor::FPropertyEdit Session;
-	ASSERT_TRUE(Session.Begin(ElementTarget, "Edit Array Element", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Session.Begin(ElementTarget, "Edit Array Element", false));
 
 	FArrayValueContainer FirstProposal{{3, 19, 11}};
 	Durin::FPropertyValueSnapshot FirstSnapshot;
@@ -175,7 +175,7 @@ TEST(FReflectedPropertyEditSessionTests, ArrayStructuralKindsPublishCommittedEle
 		Durin::FPropertyValueSnapshot Snapshot;
 		EXPECT_TRUE(Durin::CapturePropertyValue(Array.get(), &Proposed, 0, Snapshot));
 		Durin::PropertyEditor::FPropertyEdit Session;
-		ASSERT_TRUE(Session.Begin(Target, "Edit Array Structure", Durin::ETransactionMode::NotTransactable));
+		ASSERT_TRUE(Session.Begin(Target, "Edit Array Structure", false));
 		EXPECT_TRUE(Session.Apply(Snapshot));
 		EXPECT_TRUE(Session.Commit());
 		EXPECT_EQ(Object.Changes.back().Kind, Kind);
@@ -208,7 +208,7 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 		ValueProperty.get(), KeySnapshot, KeySnapshot.GetBytes()
 	);
 	Durin::PropertyEditor::FPropertyEdit ValueSession;
-	ASSERT_TRUE(ValueSession.Begin(ValueTarget, "Edit Map Value", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(ValueSession.Begin(ValueTarget, "Edit Map Value", false));
 	FMapValueContainer ValueProposal{{{"Alpha", 9}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot ValueSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &ValueProposal, 0, ValueSnapshot));
@@ -230,7 +230,7 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 		Durin::FPropertyValueSnapshot Snapshot;
 		ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &Proposed, 0, Snapshot));
 		Durin::PropertyEditor::FPropertyEdit Session;
-		ASSERT_TRUE(Session.Begin(Target, "Edit Map Structure", Durin::ETransactionMode::NotTransactable));
+		ASSERT_TRUE(Session.Begin(Target, "Edit Map Structure", false));
 		ASSERT_TRUE(Session.Apply(Snapshot));
 		ASSERT_TRUE(Session.Commit());
 		EXPECT_EQ(Object.Changes.back().Kind, Kind);
@@ -248,7 +248,7 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 		&KeyProperty, KeySnapshot, KeySnapshot.GetBytes());
 	RenameTarget.Kind = Durin::EPropertyChangeKind::MapKeyRename;
 	Durin::PropertyEditor::FPropertyEdit RenameSession;
-	ASSERT_TRUE(RenameSession.Begin(RenameTarget, "Rename Map Key", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(RenameSession.Begin(RenameTarget, "Rename Map Key", false));
 	FMapValueContainer FirstRename{{{"Renamed", 1}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot FirstRenameSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &FirstRename, 0, FirstRenameSnapshot));

@@ -463,7 +463,7 @@ TEST(FMaterialPropertyEditingTests, StaticMeshComponentValidatesPositionalOverri
 	ASSERT_TRUE(Durin::CapturePropertyValue(Overrides, Component, 0, InvalidProposal));
 	ASSERT_TRUE(Durin::RestorePropertyValue(Overrides, Component, 0, Original));
 	Durin::PropertyEditor::FPropertyEdit Session;
-	ASSERT_TRUE(Session.Begin(Durin::FPropertyEditTarget::ForMember(Component, Overrides), "Corrupt Override", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Session.Begin(Durin::FPropertyEditTarget::ForMember(Component, Overrides), "Corrupt Override", false));
 	const bool EditResult1 = Session.Apply(InvalidProposal, &Error);
 	EXPECT_FALSE(EditResult1);
 	EXPECT_NE(Error.find("incompatible object at material index 0"), std::string::npos);

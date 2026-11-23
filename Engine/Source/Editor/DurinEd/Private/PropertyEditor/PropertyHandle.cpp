@@ -63,7 +63,7 @@ namespace Durin::PropertyEditor
 	}
 
 	template<typename TValue>
-	auto FPropertyEdit::WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged) -> bool
+	auto FPropertyEdit::WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase) -> bool
 	{
 		if (!IsActive() || !IsEditablePath(Target) || !MatchesValueType<TValue>(Target.LeafProperty))
 			return Reject(OutError, "The property edit cannot write this value.");
@@ -81,7 +81,7 @@ namespace Durin::PropertyEditor
 		FPropertyValueSnapshotPayload Proposed;
 		if (const auto Captured = Draft.Capture(Proposed); !Captured)
 			return Reject(OutError, FormatPropertyValueDraftError(Captured.error()));
-		return ApplyInternal(Proposed, OutError, OutChanged);
+		return ApplyInternal(Proposed, OutError, OutChanged, Phase);
 	}
 
 	auto FPropertyEdit::WriteControlValue(const std::variant<int32, FLinearColor>& Value, std::string* OutError,
@@ -147,11 +147,10 @@ namespace Durin::PropertyEditor
 		return IsEditableMember(ResolveMember(Owner));
 	}
 
-	auto FReflectedPropertyHandle::BeginEdit(FPropertyEdit& Edit, ETransactionMode Mode, std::string* OutError) const -> bool
+	auto FReflectedPropertyHandle::BeginEdit(FPropertyEdit& Edit, bool bShouldTransact, std::string* OutError) const -> bool
 	{
 		if (!IsEditable()) return Reject(OutError, "The property is unavailable or read-only.");
-		if (GUndo) return Reject(OutError, "A property edit cannot start inside an active transaction.");
-		return Edit.Begin(ResolveTarget(), {}, Mode, OutError);
+		return Edit.Begin(ResolveTarget(), {}, bShouldTransact && !GUndo, OutError);
 	}
 
 	auto FReflectedPropertyHandle::ResolveTarget() const -> FPropertyEditTarget
@@ -162,22 +161,30 @@ namespace Durin::PropertyEditor
 		return FPropertyEditTarget::ForMember(Owner, Property, ArrayIndex);
 	}
 
-	auto FReflectedPropertyHandle::SetValue(int32 Value, ETransactionMode Mode) const -> bool
+	auto FReflectedPropertyHandle::SetValue(int32 Value, EPropertyValueSetFlags::Type Flags) const -> bool
 	{
-		return SetValueAndCommit(Value, Mode);
+		return SetValueWithFlags(Value, Flags);
 	}
 
-	auto FReflectedPropertyHandle::SetValue(const FLinearColor& Value, ETransactionMode Mode) const -> bool
+	auto FReflectedPropertyHandle::SetValue(const FLinearColor& Value, EPropertyValueSetFlags::Type Flags) const -> bool
 	{
-		return SetValueAndCommit(Value, Mode);
+		return SetValueWithFlags(Value, Flags);
 	}
 
 	template<typename TValue>
-	auto FReflectedPropertyHandle::SetValueAndCommit(const TValue& Value, ETransactionMode Mode) const -> bool
+	auto FReflectedPropertyHandle::SetValueWithFlags(const TValue& Value, EPropertyValueSetFlags::Type Flags) const -> bool
 	{
 		FPropertyEdit Edit;
-		if (!BeginEdit(Edit, Mode)) return false;
-		if (Edit.SetValue(Value) && Edit.Commit()) return true;
+		const bool bShouldTransact = (Flags & EPropertyValueSetFlags::NotTransactable) == 0;
+		if (!BeginEdit(Edit, bShouldTransact)) return false;
+		const auto Phase = (Flags & EPropertyValueSetFlags::InteractiveChange)
+			? EPropertyChangePhase::Interactive : EPropertyChangePhase::Committed;
+		if (Edit.WriteValue(Value, nullptr, nullptr, Phase))
+		{
+			if (Edit.HasChanges()) Edit.Target.Object->MarkPackageDirty();
+			Edit.Reset(false);
+			return true;
+		}
 		if (Edit.IsActive())
 		{
 			if (Edit.HasChanges()) Edit.Cancel();

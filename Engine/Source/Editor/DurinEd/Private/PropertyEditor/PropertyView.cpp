@@ -1568,7 +1568,7 @@ namespace Durin
 		std::string Error;
 		if (!EditSession.IsActive())
 		{
-			if (!EditSession.Begin(Target, {}, Context.TransactionMode, &Error))
+			if (!EditSession.Begin(Target, {}, Context.bShouldTransact, &Error))
 			{
 				ReportEditError(Context, std::move(Error));
 				return false;
@@ -1686,7 +1686,7 @@ namespace Durin
 		const std::string PreviousHandleError = HandleControls.GetFinishError();
 		std::string Error;
 		const bool bFinished = HandleControls.EndFrame(Context.bReadOnly || ImGui::IsKeyPressed(ImGuiKey_Escape, false),
-			Context.TransactionMode, [&] { return ReconcileInteraction(Context, true) && FinishActiveEdit(&Context, false); },
+			Context.bShouldTransact, [&] { return ReconcileInteraction(Context, true) && FinishActiveEdit(&Context, false); },
 			&Error, OutChanged);
 		if (!Error.empty()) ReportEditError(Context, std::move(Error));
 		const auto& HandleError = HandleControls.GetFinishError();

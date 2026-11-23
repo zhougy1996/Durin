@@ -25,7 +25,7 @@ namespace Durin::MaterialEditor
 		ImGui::PopID();
 		if (Disconnect)
 		{
-			Graph.GetSchema().BreakPinLinks(Disconnect, ETransactionMode::Record, &Error);
+			Graph.GetSchema().BreakPinLinks(Disconnect, true, &Error);
 		}
 	}
 

@@ -34,7 +34,7 @@ TEST(FMaterialGraphPersistenceTests, HiddenRootDefaultResetRetainsLiteralAndHist
 	const auto Pin = EMaterialProperty::MP_Roughness;
 	auto* Root = Graph->GetRootNode();
 	ASSERT_TRUE(Root);
-	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, false));
 	ASSERT_TRUE(Testing::InputView(*Graph, Pin));
 	EXPECT_FALSE(Testing::InputView(*Graph, Pin)->bActive);
 	const auto Hidden = Material->GetExpressionInputDescription(EMaterialProperty::MP_Roughness);
@@ -54,7 +54,7 @@ TEST(FMaterialGraphPersistenceTests, HiddenRootDefaultResetRetainsLiteralAndHist
 	ASSERT_TRUE(History->Undo());
 	EXPECT_TRUE(Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->UseConstant);
 	ASSERT_TRUE(History->Redo());
-	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, false, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, false, false));
 	const auto* Restored = Testing::InputView(*Graph, Pin);
 	ASSERT_TRUE(Restored);
 	EXPECT_FALSE(Restored->bUseConstant);
@@ -118,9 +118,9 @@ TEST(FMaterialGraphPersistenceTests, DisconnectedNormalIgnoresRetainedConstantAc
 		EXPECT_FALSE(View->bSupportsConstant);
 		EXPECT_EQ(View->InlineDefault.Literal, Flat);
 		auto* Root = Graph->GetRootNode();
-		EXPECT_FALSE(Root->SetPinUseConstant(Testing::ResolvePin(*Root, Pin), false, ETransactionMode::NotTransactable));
-		EXPECT_FALSE(Root->PinDefaultValueChanged(Testing::ResolvePin(*Root, Pin), View->InlineDefault, ETransactionMode::NotTransactable));
-		ASSERT_TRUE(Root->ExtractInputDefault(Testing::ResolvePin(*Root, Pin), ETransactionMode::NotTransactable));
+		EXPECT_FALSE(Root->SetPinUseConstant(Testing::ResolvePin(*Root, Pin), false, false));
+		EXPECT_FALSE(Root->PinDefaultValueChanged(Testing::ResolvePin(*Root, Pin), View->InlineDefault, false));
+		ASSERT_TRUE(Root->ExtractInputDefault(Testing::ResolvePin(*Root, Pin), false));
 		const auto* Extracted = Cast<DMaterialExpressionVector3Constant>(Material->GetExpressionInputForProperty(Property)->Expression.Get());
 		ASSERT_TRUE(Extracted);
 		EXPECT_TRUE(Extracted->bTangentSpaceNormal);
@@ -151,9 +151,9 @@ TEST(FMaterialGraphPersistenceTests, MixedRootAndExpressionMovementReplaysWithPr
 			Scalar = *Created;
 			const auto Initial = Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Capture();
 			const auto InitialPosition = Material->GetRootPosition();
-			ASSERT_TRUE(Testing::TryCreateConnection(*Graph, Key, FMaterialProgramLink{Scalar}, true, ETransactionMode::NotTransactable));
+			ASSERT_TRUE(Testing::TryCreateConnection(*Graph, Key, FMaterialProgramLink{Scalar}, true, false));
 			EXPECT_EQ(Testing::InputView(*Graph, Key)->Link.SourceNodeId, Scalar);
-			ASSERT_TRUE(Graph->GetSchema().BreakPinLinks(Testing::ResolvePin(*Graph, Key), ETransactionMode::NotTransactable));
+			ASSERT_TRUE(Graph->GetSchema().BreakPinLinks(Testing::ResolvePin(*Graph, Key), false));
 			EXPECT_EQ(*Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness), Initial);
 			ASSERT_TRUE(SavePackage(Material->GetPackage()));
 			Tests::FTestEditorTransactorOwner History;
@@ -284,7 +284,7 @@ TEST(FMaterialGraphPersistenceTests, ObjectTransactionsRefreshCompilationAndLeav
 		const auto ConnectedRevision = Material->GetPackage()->GetEditRevision();
 		std::string Error = "previous error";
 		EXPECT_FALSE(Graph->GetSchema().TryCreateConnection(Testing::ResolvePin(*Graph, Input), Testing::ResolvePin(*Graph, Source),
-			false, ETransactionMode::Record, &Error));
+			false, true, &Error));
 		EXPECT_TRUE(Error.empty());
 		EXPECT_EQ(Material->GetPackage()->GetEditRevision(), ConnectedRevision);
 		EXPECT_EQ(Revision(), Before);
@@ -368,7 +368,7 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			EXPECT_EQ(History->GetQueueLength(), Before + 1);
 			const auto Revision = Asset->GetPackage()->GetEditRevision();
 			std::string Error = "previous error";
-			EXPECT_FALSE(Schema.TryCreateConnection(Testing::ResolvePin(*Graph, Output), Testing::ResolvePin(*Graph, Input), false, ETransactionMode::Record, &Error));
+			EXPECT_FALSE(Schema.TryCreateConnection(Testing::ResolvePin(*Graph, Output), Testing::ResolvePin(*Graph, Input), false, true, &Error));
 			EXPECT_TRUE(Error.empty());
 			EXPECT_EQ(History->GetQueueLength(), Before + 1);
 			EXPECT_EQ(Asset->GetPackage()->GetEditRevision(), Revision);
@@ -402,11 +402,11 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			CheckReplacement();
 			ASSERT_TRUE(Schema.BreakPinLinks(Testing::ResolvePin(*Graph, Replacement)));
 			const auto DisconnectedRevision = Asset->GetPackage()->GetEditRevision();
-			EXPECT_FALSE(Schema.BreakPinLinks(nullptr, ETransactionMode::Record, &Error));
+			EXPECT_FALSE(Schema.BreakPinLinks(nullptr, true, &Error));
 			EXPECT_FALSE(Error.empty());
-			EXPECT_FALSE(Schema.BreakPinLinks(Testing::ResolvePin(*Graph, Replacement), ETransactionMode::Record, &Error));
+			EXPECT_FALSE(Schema.BreakPinLinks(Testing::ResolvePin(*Graph, Replacement), true, &Error));
 			EXPECT_TRUE(Error.empty());
-			EXPECT_FALSE(Schema.BreakPinLinks(Testing::ResolvePin(*Graph, Input), ETransactionMode::Record, &Error));
+			EXPECT_FALSE(Schema.BreakPinLinks(Testing::ResolvePin(*Graph, Input), true, &Error));
 			EXPECT_TRUE(Error.empty());
 			EXPECT_EQ(Asset->GetPackage()->GetEditRevision(), DisconnectedRevision);
 			EXPECT_EQ(History->GetQueueLength(), Before + 3);
@@ -619,7 +619,7 @@ TEST(FMaterialGraphPersistenceTests, SecondFunctionOutputRetainsItsIndexAcrossHi
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	TStrongObjectPtr<DMaterialGraph> RootAuthoringGraph(DMaterialGraph::Create(*Material));
 	TStrongObjectPtr<DMaterialGraph> BodyAuthoringGraph(DMaterialGraph::Create(*Function));
-	const auto Call = RootAuthoringGraph->InsertFunctionCall(*Function, 0, 0, ETransactionMode::NotTransactable).transform(Testing::GraphNodeId);
+	const auto Call = RootAuthoringGraph->InsertFunctionCall(*Function, 0, 0, false).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Call);
 	FMaterialFunctionPort Port;
 	Port.Id = FGuid::NewGuid();
@@ -627,7 +627,7 @@ TEST(FMaterialGraphPersistenceTests, SecondFunctionOutputRetainsItsIndexAcrossHi
 	Port.Type = EMaterialProgramValueType::Float;
 	const auto Constant = Testing::CreateGraphConstant(*BodyAuthoringGraph, .25f);
 	ASSERT_TRUE(Constant);
-	ASSERT_TRUE(BodyAuthoringGraph->AddPort(true, Port, {Constant.value()}, 0, 0, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(BodyAuthoringGraph->AddPort(true, Port, {Constant.value()}, 0, 0, false));
 	const auto Check = [&](DMaterial& Owner) {
 		const auto& Input = Owner.GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Connection;
 		auto* Upstream = Cast<DMaterialExpressionFunctionCall>(Input.Expression.Get());
@@ -763,7 +763,7 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 			ASSERT_FALSE(Graph->GetNodes().empty());
 			MovedNode = Graph->FindNode(Asset->GetExpressionCollection().Expressions.front()->Id)->GetView().Presentation;
 			MovedNode->X += 24;
-			ASSERT_TRUE(Graph->MoveNodes(std::span(&*MovedNode, 1), ETransactionMode::NotTransactable));
+			ASSERT_TRUE(Graph->MoveNodes(std::span(&*MovedNode, 1), false));
 			auto Layout = ReadLayout(*Asset);
 			const auto Position = std::ranges::find(Layout, MovedNode->NodeId, &FMaterialGraphNodePresentation::NodeId);
 			ASSERT_NE(Position, Layout.end());
@@ -880,7 +880,7 @@ TEST(FMaterialGraphPersistenceTests, PackedFunctionAndRetainedIndividualInputsRo
 	EXPECT_EQ(Material->GetRootPosition(), (std::pair<int32, int32>{520, -80}));
 	for (bool Packed : {false, true})
 	{
-		if (Packed) ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, ETransactionMode::NotTransactable));
+		if (Packed) ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, false));
 		const auto Snapshot = SnapshotMaterialCompilerInput(*Instance, {.CompilerIdentity = "RootInputBaseline"});
 		ASSERT_TRUE(Snapshot) << FormatMaterialProgramDiagnostics(Snapshot.Diagnostics);
 		const auto Normalized = MIR::Normalize(Snapshot.Snapshot->Input);
@@ -945,7 +945,7 @@ TEST(FMaterialGraphPersistenceTests, PostProcessCompilesStoredRootModeAcrossDoma
 	const auto Original = MIR::Normalize(Surface.Snapshot->Input);
 	ASSERT_TRUE(Original) << FormatMaterialProgramDiagnostics(Original.Diagnostics);
 
-	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, false));
 	FMaterialConfiguration Effect{.Domain = EMaterialDomain::PostProcess};
 	Effect.Properties.ShadingModel = EMaterialShadingModel::Unlit;
 	ASSERT_TRUE(Material->SetMaterialConfiguration(Effect));
@@ -963,7 +963,7 @@ TEST(FMaterialGraphPersistenceTests, PostProcessCompilesStoredRootModeAcrossDoma
 	ASSERT_EQ(Material->GetDomain(), EMaterialDomain::PostProcess);
 	ASSERT_TRUE(Material->UsesMaterialAttributes());
 	EXPECT_FALSE(Material->CanEditMaterialAttributesMode());
-	EXPECT_FALSE(MaterialEditing::SetUseMaterialAttributes(*Material, false, ETransactionMode::NotTransactable));
+	EXPECT_FALSE(MaterialEditing::SetUseMaterialAttributes(*Material, false, false));
 	const auto Hidden = *Material->GetNumericInputForProperty(Roughness);
 	ASSERT_EQ(Hidden.Connection.GetExpressionId(), Call->Id);
 	ASSERT_EQ(Hidden.Connection.GetOutputId(), Output->Port.Id);
@@ -1009,7 +1009,7 @@ TEST(FMaterialGraphPersistenceTests, PostProcessCompilesStoredRootModeAcrossDoma
 		EXPECT_TRUE(Material->GetExpressionInputForProperty(PackedPin)->IsConnected());
 	}
 	ASSERT_TRUE(Material->SetMaterialConfiguration({}));
-	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, false, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, false, false));
 	ASSERT_TRUE(Material->SetMaterialConfiguration(Effect));
 	{
 		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
@@ -1028,7 +1028,7 @@ TEST(FMaterialGraphPersistenceTests, PostProcessCompilesStoredRootModeAcrossDoma
 	EXPECT_EQ(IndividualCompiled.Identity, Expected.Identity);
 	LoadedCall->Function = SavedFunction.Get();
 	ASSERT_TRUE(Material->SetMaterialConfiguration({}));
-	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, false));
 	const auto PackedSurface = SnapshotMaterialCompilerInput(*Material, Environment);
 	ASSERT_TRUE(PackedSurface);
 	EXPECT_EQ(PackedSurface.Snapshot->FunctionOwners.size(), 1u);
@@ -1036,7 +1036,7 @@ TEST(FMaterialGraphPersistenceTests, PostProcessCompilesStoredRootModeAcrossDoma
 	const auto& Normal = PackedIR.GetAttribute(EMaterialProperty::MP_Normal);
 	ASSERT_TRUE(Normal.bExpression);
 	EXPECT_EQ(PackedIR.Nodes[Normal.ExpressionIndex].GetLiteral().Z, 1.f);
-	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, false, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, false, false));
 	LoadedCall = Cast<DMaterialExpressionFunctionCall>(Material->GetExpressionInputForProperty(Roughness)->Expression.Get());
 	ASSERT_TRUE(LoadedCall);
 	LoadedCall->Function = nullptr;
@@ -1295,7 +1295,7 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 	const auto ImmediateRevision=Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	uint32 Notifications=0;
 	const auto Subscription=Material->GetGraphChanges().Subscribe(*Material,[&](const auto&) { ++Notifications; });
-	ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configurations.front(),ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configurations.front(),false));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,ImmediateRequests+1);
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,ImmediateRevision+1);

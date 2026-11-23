@@ -161,7 +161,7 @@ TEST(FReflectedPropertyEditSessionTests, KeepsTargetAliveForTheSession)
 	Target.Path.push_back({Property.get()});
 
 	Durin::PropertyEditor::FPropertyEdit Session;
-	ASSERT_TRUE(Session.Begin(Target, "Rooted Edit", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Session.Begin(Target, "Rooted Edit", false));
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Object));
 	ASSERT_TRUE(Session.Cancel());
@@ -180,7 +180,7 @@ TEST(FReflectedPropertyEditSessionTests, RejectsACollectedTargetBeforeReadingIts
 
 	Durin::PropertyEditor::FPropertyEdit Session;
 	std::string Error;
-	const bool EditResult1 = Session.Begin(Target, "Stale Edit", Durin::ETransactionMode::NotTransactable, &Error);
+	const bool EditResult1 = Session.Begin(Target, "Stale Edit", false, &Error);
 	EXPECT_FALSE(EditResult1);
 	EXPECT_EQ(Error, "The reflected-property edit target is no longer live.");
 }
@@ -440,7 +440,7 @@ TEST(FReflectedPropertyEditSessionTests, UnchangedNestedSessionPreservesOuterRec
 	ASSERT_TRUE(Transactions.Get()->Undo()); EXPECT_EQ(First->Value, 0);
 }
 
-TEST(FReflectedPropertyEditSessionTests, ExplicitUnrecordedAdmissionCannotJoinOuterRecording)
+TEST(FReflectedPropertyEditSessionTests, DisablingThePropertyScopePreservesOuterRecording)
 {
 	InitializeDObjectSystem();
 	using namespace Durin;
@@ -449,16 +449,15 @@ TEST(FReflectedPropertyEditSessionTests, ExplicitUnrecordedAdmissionCannotJoinOu
 	Durin::PropertyEditor::FPropertyEdit Session;
 	EXPECT_FALSE(Session.Begin(Target, "Missing editor"));
 	EXPECT_FALSE(Session.IsActive());
-	ASSERT_TRUE(Session.Begin(Target, "Unrecorded", ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Session.Begin(Target, "Unrecorded", false));
 	ASSERT_TRUE(Session.Cancel());
 	Tests::FTestEditorTransactorOwner History;
 	{
 		FScopedTransaction Outer("Outer property edit");
 		ASSERT_TRUE(Object->Modify());
 		Object->Value = 7;
-		const auto Result = Session.Begin(Target, "Cannot mix", ETransactionMode::NotTransactable);
-		EXPECT_FALSE(Result);
-		EXPECT_FALSE(Session.IsActive());
+		ASSERT_TRUE(Session.Begin(Target, "Joined edit", false));
+		ASSERT_TRUE(Session.CancelUnchanged());
 		EXPECT_TRUE(History->IsActive());
 		EXPECT_EQ(Object->Value, 7);
 	}

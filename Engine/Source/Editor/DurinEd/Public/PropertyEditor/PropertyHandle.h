@@ -12,6 +12,15 @@ namespace Durin { class DEditorEngine; class FPropertyView; }
 
 namespace Durin::PropertyEditor
 {
+	// Flags for one property write. The caller can own the surrounding gesture transaction.
+	namespace EPropertyValueSetFlags
+	{
+		using Type = uint32;
+		inline constexpr Type DefaultFlags = 0;
+		inline constexpr Type NotTransactable = 1 << 0;
+		inline constexpr Type InteractiveChange = 1 << 1;
+	}
+
 	// Coalesces continuous widget changes into one reflected-property transaction.
 	class FPropertyEdit
 	{
@@ -27,7 +36,7 @@ namespace Durin::PropertyEditor
 			const FPropertyEditTarget& InTarget,
 			// An empty description uses "Edit <MemberProperty>" after target validation.
 			std::string_view InDescription,
-			ETransactionMode Mode = ETransactionMode::Record,
+			bool bShouldTransact = true,
 			std::string* OutError = nullptr
 		) -> bool;
 		DURINED_API auto Begin(const FPropertyEditTarget& Target, std::string_view Description,
@@ -52,19 +61,20 @@ namespace Durin::PropertyEditor
 
 	private:
 		auto BeginInternal(const FPropertyEditTarget& Target, std::string_view Description,
-			DTransactor* Transactor, std::string* OutError) -> bool;
+			DTransactor* Transactor, std::string* OutError, bool bOpenScope = true) -> bool;
 		friend class ::Durin::DEditorEngine;
 		friend class ::Durin::FPropertyView;
 		friend class FReflectedPropertyHandle;
 		friend class FPropertyControlFrame;
 		auto ApplyInternal(const FPropertyValueSnapshotPayload& ProposedValue,
-			std::string* OutError, bool* OutChanged) -> bool;
+			std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase = EPropertyChangePhase::Interactive) -> bool;
 		auto Reset(bool bCancelRecording = true) -> void;
 
 		auto WriteControlValue(const std::variant<int32, FLinearColor>& Value, std::string* OutError,
 			bool& bOutChanged) -> bool;
 		template<typename TValue>
-		auto WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged = nullptr) -> bool;
+		auto WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged = nullptr,
+			EPropertyChangePhase Phase = EPropertyChangePhase::Interactive) -> bool;
 		FPropertyEditTarget Target;
 		TStrongObjectPtr<DObject> TargetObject;
 		FPropertyValueSnapshotPayload OriginalValue;
@@ -81,8 +91,8 @@ namespace Durin::PropertyEditor
 		virtual auto GetValue(int32& OutValue) const -> bool = 0;
 		virtual auto GetValue(FLinearColor& OutValue) const -> bool = 0;
 		virtual auto IsEditable() const -> bool = 0;
-		virtual auto SetValue(int32 Value, ETransactionMode Mode = ETransactionMode::Record) const -> bool = 0;
-		virtual auto SetValue(const FLinearColor& Value, ETransactionMode Mode = ETransactionMode::Record) const -> bool = 0;
+		virtual auto SetValue(int32 Value, EPropertyValueSetFlags::Type Flags = EPropertyValueSetFlags::DefaultFlags) const -> bool = 0;
+		virtual auto SetValue(const FLinearColor& Value, EPropertyValueSetFlags::Type Flags = EPropertyValueSetFlags::DefaultFlags) const -> bool = 0;
 	};
 
 	// Resolves a reflected member or nested path on the bound object generation.
@@ -94,18 +104,18 @@ namespace Durin::PropertyEditor
 		DURINED_API auto GetValue(int32& OutValue) const -> bool override;
 		DURINED_API auto GetValue(FLinearColor& OutValue) const -> bool override;
 		DURINED_API auto IsEditable() const -> bool override;
-		DURINED_API auto SetValue(int32 Value, ETransactionMode Mode = ETransactionMode::Record) const -> bool override;
-		DURINED_API auto SetValue(const FLinearColor& Value, ETransactionMode Mode = ETransactionMode::Record) const -> bool override;
+		DURINED_API auto SetValue(int32 Value, EPropertyValueSetFlags::Type Flags = EPropertyValueSetFlags::DefaultFlags) const -> bool override;
+		DURINED_API auto SetValue(const FLinearColor& Value, EPropertyValueSetFlags::Type Flags = EPropertyValueSetFlags::DefaultFlags) const -> bool override;
 
 	private:
 		friend class FPropertyControlFrame;
-		auto BeginEdit(FPropertyEdit& Edit, ETransactionMode Mode, std::string* OutError = nullptr) const -> bool;
+		auto BeginEdit(FPropertyEdit& Edit, bool bShouldTransact, std::string* OutError = nullptr) const -> bool;
 		auto ResolveTarget() const -> FPropertyEditTarget;
 		auto ResolveMember(DObject*& OutOwner) const -> const FProperty*;
 		template<typename TValue>
 		auto ReadValue(TValue& OutValue) const -> bool;
 		template<typename TValue>
-		auto SetValueAndCommit(const TValue& Value, ETransactionMode Mode) const -> bool;
+		auto SetValueWithFlags(const TValue& Value, EPropertyValueSetFlags::Type Flags) const -> bool;
 
 		TWeakObjectPtr<DObject> Object;
 		FName Member;

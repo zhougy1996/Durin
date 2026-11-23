@@ -1321,9 +1321,9 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	TStrongObjectPtr<DMaterialGraph> FunctionAuthoringGraph(DMaterialGraph::Create(*Function));
 	ASSERT_TRUE(Testing::CreateGraphCatalogNode(*AuthoringGraph, EMaterialProgramOpcode::TextureSampleParameter2D, EMaterialProgramValueType::Float4));
 	ASSERT_TRUE(Testing::CreateGraphCatalogNode(*FunctionAuthoringGraph, EMaterialProgramOpcode::Multiply));
-	const auto Call = AuthoringGraph->InsertFunctionCall(*Function, 300, 0, Durin::ETransactionMode::NotTransactable).transform(Testing::GraphNodeId);
+	const auto Call = AuthoringGraph->InsertFunctionCall(*Function, 300, 0, false).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Call);
-	ASSERT_TRUE(Testing::WriteConnection(Material, EMaterialProperty::MP_MaterialAttributes, FMaterialProgramLink{Call.value(), 0, Function->GetFunctionSignature().Outputs[0].Id}, true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Testing::WriteConnection(Material, EMaterialProperty::MP_MaterialAttributes, FMaterialProgramLink{Call.value(), 0, Function->GetFunctionSignature().Outputs[0].Id}, true, false));
 	const auto CaptureFields = [](const auto& Owner) {
 		std::vector<FPropertyValueSnapshotPayload> Fields;
 		std::vector<FGuid> Sources;

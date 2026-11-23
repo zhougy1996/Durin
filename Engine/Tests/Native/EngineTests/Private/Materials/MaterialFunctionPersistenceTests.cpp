@@ -27,7 +27,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	DMaterialFunction* Second = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
-	ASSERT_TRUE(DMaterialGraph::Create(*Second)->InsertFunctionCall(*First, 0, 300, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(DMaterialGraph::Create(*Second)->InsertFunctionCall(*First, 0, 300, false));
 	ASSERT_TRUE(SavePackage(First->GetPackage()));
 	ASSERT_TRUE(SavePackage(Second->GetPackage()));
 	FMaterialEditorModule Module;
@@ -51,7 +51,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	const auto OutputId = Working->GetFunctionSignature().Outputs.front().Id;
 	auto* OutputNode = Testing::FindFunctionTerminal<DMaterialExpressionFunctionOutput>(*Session.Graph, OutputId);
 	ASSERT_TRUE(OutputNode);
-	ASSERT_TRUE(OutputNode->OnRenameNode("Saved Surface", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(OutputNode->OnRenameNode("Saved Surface", false));
 	EXPECT_TRUE(Workspace->IsAssetDirty(*First));
 	EXPECT_EQ(Workspace->RequestCloseAsset(*First), EAssetEditorCloseResult::PendingConfirmation);
 	EXPECT_EQ(TestHost.GetAssetEditorSubsystem()->ResolvePendingClose(
@@ -71,7 +71,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	EXPECT_TRUE(PreviewInvalidation.ConsumeRefreshRequest());
 	OutputNode = Testing::FindFunctionTerminal<DMaterialExpressionFunctionOutput>(*Session.Graph, OutputId);
 	ASSERT_TRUE(OutputNode);
-	ASSERT_TRUE(OutputNode->OnRenameNode("Discarded Surface", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(OutputNode->OnRenameNode("Discarded Surface", false));
 	EXPECT_FALSE(PreviewInvalidation.ConsumeRefreshRequest());
 	const bool Discarded = Workspace->DiscardAsset(*First);
 	if (!Discarded)
@@ -91,7 +91,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	EXPECT_EQ(Reloaded->GetFunctionSignature().Outputs[0].Name, "Saved Surface");
 	EXPECT_EQ(GetFunctionCalls(*Second)[0]->Function.Get(), Reloaded);
 	EXPECT_FALSE(PreviewInvalidation.ConsumeRefreshRequest());
-	const auto Pasted = SecondEditorGraph->Paste(Clipboard, 300, 300, Durin::ETransactionMode::NotTransactable);
+	const auto Pasted = SecondEditorGraph->Paste(Clipboard, 300, 300, false);
 	EXPECT_TRUE(Pasted) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Pasted);
 	EXPECT_EQ(GetFunctionCalls(*Second).back()->Function.Get(), Reloaded);
 	EXPECT_FALSE(Workspace->IsAssetDirty(*First));
@@ -141,7 +141,7 @@ namespace
 			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(Function));
 			auto* Terminal = Testing::FindFunctionTerminal<DMaterialExpressionFunctionOutput>(*Graph, Function.GetFunctionSignature().Outputs.front().Id);
 			if (!Terminal) return false;
-			if (!bTransactional) return static_cast<bool>(Terminal->OnRenameNode(Name, ETransactionMode::NotTransactable));
+			if (!bTransactional) return static_cast<bool>(Terminal->OnRenameNode(Name, false));
 			FScopedEditorTransactionContext Context(Host->GetAssetEditorSubsystem()->GetEditor());
 			return static_cast<bool>(Terminal->OnRenameNode(Name));
 		}
@@ -295,7 +295,7 @@ TEST_F(FMaterialFunctionDocumentTests, ApplyRejectsProspectiveSourceRecursionWit
 {
 	const auto Initial = Source->GetFunctionSignature().Outputs.front().Name;
 	ASSERT_TRUE(Rename(*Document().Function(), "Recursive draft"));
-	ASSERT_TRUE(Document().Graph->InsertFunctionCall(*Source, 0, 100, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document().Graph->InsertFunctionCall(*Source, 0, 100, false));
 	std::string Error;
 	EXPECT_FALSE(Document().Publish(Error));
 	EXPECT_NE(Error.find("non-recursive"), std::string::npos);

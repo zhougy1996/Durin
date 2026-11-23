@@ -71,11 +71,11 @@ namespace Durin::MaterialEditor
 			[&](const auto& Port) { return FMaterialGraphSchema::AcceptsPort(Port.Type, *SourceType); });
 	}
 	auto FMaterialGraphCreationAction::PerformAction(DMaterialGraph& Graph, int32 X, int32 Y,
-		const FMaterialGraphPin* Pin, ETransactionMode Mode,
+		const FMaterialGraphPin* Pin, bool bShouldTransact,
 			std::vector<DMaterialGraphNode*>* AuxiliaryNodes) const -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
 		if (AuxiliaryNodes) AuxiliaryNodes->clear();
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		if (!Graph.GetMaterialOrFunction()) return std::unexpected(RejectCommand("The graph owner is unavailable.", {}, EMaterialGraphCommandStatus::StaleOwner));
 		FMaterialProgramLink Source;
@@ -111,7 +111,7 @@ namespace Durin::MaterialEditor
 				Port.Default.Kind = Port.Type == EMaterialProgramValueType::MaterialAttributes ? EMaterialFunctionDefaultKind::MaterialAttributes
 					: Port.Type == EMaterialProgramValueType::Texture2D ? EMaterialFunctionDefaultKind::Texture
 					: EMaterialFunctionDefaultKind::Numeric;
-			return Graph.AddPort(Spec->bOutput, Port, Source, X, Y, Mode);
+			return Graph.AddPort(Spec->bOutput, Port, Source, X, Y, bShouldTransact);
 		}
 		if (const auto* Spec = std::get_if<
 			FMaterialGraphCollectionParameterCreation>(&Payload))
@@ -130,7 +130,7 @@ namespace Durin::MaterialEditor
 			Expression->Id = FGuid::NewGuid();
 			Expression->Collection = Loaded;
 			Expression->ParameterId = Spec->ParameterId;
-			return Graph.CreateExpression(*Expression, X, Y, Mode);
+			return Graph.CreateExpression(*Expression, X, Y, bShouldTransact);
 		}
 		auto Loaded = LoadCreationFunction(std::get<std::string>(Payload));
 		if (!Loaded)
@@ -145,7 +145,7 @@ namespace Durin::MaterialEditor
 				if (FMaterialGraphSchema::AcceptsPort(Port.Type, *SourceType)) { Inputs.push_back({Port.Id, Port.Type, Source}); break; }
 			if (Inputs.empty()) return std::unexpected(RejectCommand("This function has no compatible input."));
 		}
-		return Graph.InsertFunctionCall(*Function, X, Y, Inputs, Mode);
+		return Graph.InsertFunctionCall(*Function, X, Y, Inputs, bShouldTransact);
 	}
 	auto DMaterialGraph::GetCreatedNode(const FGuid& Id) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
@@ -173,9 +173,9 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::AddPort(bool bOutput, FMaterialFunctionPort Port,
-		FMaterialProgramLink Source, int32 X, int32 Y, ETransactionMode Mode) -> TMaterialGraphResult<DMaterialGraphNode*>
+		FMaterialProgramLink Source, int32 X, int32 Y, bool bShouldTransact) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
@@ -209,9 +209,9 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::RemovePort(bool bOutput, const FGuid& PortId,
-		ETransactionMode Mode) -> FMaterialGraphCommandResult
+		bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
@@ -352,9 +352,9 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::CreateExpression(const DMaterialExpression& Expression, int32 X, int32 Y,
-		ETransactionMode Mode) -> TMaterialGraphResult<DMaterialGraphNode*>
+		bool bShouldTransact) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
@@ -379,9 +379,9 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::ReplaceExpression(const DMaterialExpression& Expression,
-		ETransactionMode Mode) -> FMaterialGraphCommandResult
+		bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
@@ -393,16 +393,16 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::InsertFunctionCall(DMaterialFunctionInterface& Function,
-		int32 X, int32 Y, ETransactionMode Mode) -> TMaterialGraphResult<DMaterialGraphNode*>
+		int32 X, int32 Y, bool bShouldTransact) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
-		return InsertFunctionCall(Function, X, Y, {}, Mode);
+		return InsertFunctionCall(Function, X, Y, {}, bShouldTransact);
 	}
 
 	auto DMaterialGraph::InsertFunctionCall(DMaterialFunctionInterface& Function,
 		int32 X, int32 Y, std::span<const FMaterialFunctionInputBinding> Inputs,
-		ETransactionMode Mode) -> TMaterialGraphResult<DMaterialGraphNode*>
+		bool bShouldTransact) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));

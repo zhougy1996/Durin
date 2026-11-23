@@ -90,9 +90,9 @@ disclosure arrow to expand a parameter in place. The expanded row exposes its
 name, display name, group, sort order, compatible presentation modes, scalar
 range hints and numeric default values. Details and
 Parameters share continuous scalar/vector drags and Color presentation controls
-for base-material defaults. Each gesture previews parameter values without
-recompiling and records one undo step on release. Escape restores the original
-value; hiding the edited control or cancelling the document interaction discards
+for base-material defaults. The controls display the interactive value during the gesture.
+Release updates the material preview and records one undo step. Escape discards
+the unfinished value; hiding the edited control or cancelling the document interaction discards
 its unfinished gesture. These edits preserve parameter IDs,
 instance overrides and per-node sampling inputs through ordinary transactions.
 Instances show their parameter override list in Parameters because they do not

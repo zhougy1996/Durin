@@ -57,7 +57,7 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::MoveSelection(std::span<const FMaterialGraphNodePosition> Positions,
-		ETransactionMode Mode, std::string* OutError) const -> bool
+		bool bShouldTransact, std::string* OutError) const -> bool
 	{
 		std::vector<FMaterialGraphNodePresentation> Resolved;
 		Resolved.reserve(Positions.size());
@@ -67,14 +67,14 @@ namespace Durin::MaterialEditor
 			if (!Node) return FailWithError(OutError, "A moved material graph node does not exist.");
 			Resolved.push_back({Node->GetView().Node.Id, Position.X, Position.Y});
 		}
-		return MoveNodes(Resolved, Mode, OutError);
+		return MoveNodes(Resolved, bShouldTransact, OutError);
 	}
 
 	auto DMaterialGraph::MoveNodes(
 		std::span<const FMaterialGraphNodePresentation> Positions,
-		ETransactionMode Mode, std::string* OutError) const -> bool
+		bool bShouldTransact, std::string* OutError) const -> bool
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return FailWithError(OutError, Admission.error());
 		auto* Transactions = *Admission;
 		return MoveNodesInternal(Positions, Transactions, OutError);
@@ -123,15 +123,15 @@ namespace Durin::MaterialEditor
 				Changes.emplace_back(Expression, &Position);
 		}
 		if (!RootPosition && Changes.empty()) return true;
-		if (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions)
+		if (Transactions && ResolveEditorTransactor(true).value_or(nullptr) != Transactions)
 			return FailWithError(OutError, "The editor transactor is busy.");
 
 		FScopedMaterialGraphChange Batch(Asset);
 		const bool bNested = Transactions && Transactions->IsActive();
-		FScopedTransaction Recording("MaterialGraph", Description, &Asset, Transactions != nullptr);
+		FScopedTransaction Recording("MaterialGraph", Description, &Asset, Transactions && !bNested);
 		if (Transactions)
 		{
-			if (!Recording.IsOutstanding()) return FailWithError(OutError, "Unable to start the layout transaction.");
+			if (!bNested && !Recording.IsOutstanding()) return FailWithError(OutError, "Unable to start the layout transaction.");
 			FScopedPackageDirtySuppression Suppress;
 			auto Record = [](DObject& Object) {
 				Object.SetFlags(EObjectFlags::Transactional);
@@ -345,10 +345,10 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::Layout(std::span<const FGuid> NodeIds,
-		ETransactionMode Mode, std::string* OutError) const -> bool
+		bool bShouldTransact, std::string* OutError) const -> bool
 	{
 		if (OutError) OutError->clear();
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return FailWithError(OutError, Admission.error());
 		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return FailWithError(OutError, "The material graph owner is no longer available.");

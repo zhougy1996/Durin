@@ -172,9 +172,9 @@ namespace Durin::MaterialEditor
 	namespace
 	{
 		auto SetConstant(DObject* Owner, DMaterialExpression* Expression, uint32 Index, std::optional<EMaterialProperty> Property,
-			bool Enabled, ETransactionMode Mode) -> FMaterialGraphCommandResult
+			bool Enabled, bool bShouldTransact) -> FMaterialGraphCommandResult
 		{
-			auto Admission = ResolveEditorTransactor(Mode);
+			auto Admission = ResolveEditorTransactor(bShouldTransact);
 			if (!Admission) return RejectCommand(Admission.error());
 			auto* Transactions = *Admission;
 			if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
@@ -203,9 +203,9 @@ namespace Durin::MaterialEditor
 		}
 
 		auto WriteDefault(DObject* Owner, DMaterialExpression* Expression, FExpressionInputKey Key, std::optional<EMaterialProperty> Property,
-			FMaterialInputDefault Value, ETransactionMode Mode) -> FMaterialGraphCommandResult
+			FMaterialInputDefault Value, bool bShouldTransact) -> FMaterialGraphCommandResult
 		{
-			auto Admission = ResolveEditorTransactor(Mode);
+			auto Admission = ResolveEditorTransactor(bShouldTransact);
 			if (!Admission) return RejectCommand(Admission.error());
 			auto* Transactions = *Admission;
 			if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
@@ -253,33 +253,33 @@ namespace Durin::MaterialEditor
 	}
 
 	auto GraphEditInternals::WriteInputDefault(DObject* Owner, DMaterialExpression* Expression, FExpressionInputKey Input,
-		FMaterialInputDefault Value, ETransactionMode Mode) -> FMaterialGraphCommandResult
+		FMaterialInputDefault Value, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		return WriteDefault(Owner, Expression, Input, {}, std::move(Value), Mode);
+		return WriteDefault(Owner, Expression, Input, {}, std::move(Value), bShouldTransact);
 	}
 
 	auto GraphEditInternals::WriteInputDefault(DMaterial* Material, EMaterialProperty Property,
-		FMaterialInputDefault Value, ETransactionMode Mode) -> FMaterialGraphCommandResult
+		FMaterialInputDefault Value, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		return WriteDefault(Material, nullptr, uint32{0}, Property, std::move(Value), Mode);
+		return WriteDefault(Material, nullptr, uint32{0}, Property, std::move(Value), bShouldTransact);
 	}
 
 	auto GraphEditInternals::SetInputConstantEnabled(DObject* Owner, DMaterialExpression* Expression, uint32 Index,
-		bool Enabled, ETransactionMode Mode) -> FMaterialGraphCommandResult
+		bool Enabled, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		return SetConstant(Owner, Expression, Index, {}, Enabled, Mode);
+		return SetConstant(Owner, Expression, Index, {}, Enabled, bShouldTransact);
 	}
 
 	auto GraphEditInternals::SetInputConstantEnabled(DMaterial* Material, EMaterialProperty Property,
-		bool Enabled, ETransactionMode Mode) -> FMaterialGraphCommandResult
+		bool Enabled, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		return SetConstant(Material, nullptr, 0, Property, Enabled, Mode);
+		return SetConstant(Material, nullptr, 0, Property, Enabled, bShouldTransact);
 	}
 
-	auto DMaterialGraph::PromoteInputToParameter(const FMaterialGraphPin* Pin, ETransactionMode Mode)
+	auto DMaterialGraph::PromoteInputToParameter(const FMaterialGraphPin* Pin, bool bShouldTransact)
 		-> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Material = Cast<DMaterial>(GetMaterialOrFunction());
 		if (!Material) return std::unexpected(RejectCommand("Input parameters require a base material."));
@@ -350,9 +350,9 @@ namespace Durin::MaterialEditor
 		return GetCreatedNodes(Generated);
 	}
 
-	auto DMaterialGraphNode::ExtractInputDefault(const FMaterialGraphPin* Pin, ETransactionMode Mode) -> TMaterialGraphResult<DMaterialGraphNode*>
+	auto DMaterialGraphNode::ExtractInputDefault(const FMaterialGraphPin* Pin, bool bShouldTransact) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		auto* Graph = ResolveInputGraph(Pin);
@@ -382,9 +382,9 @@ namespace Durin::MaterialEditor
 		return Graph->GetCreatedNode(Id);
 	}
 
-	auto DMaterialGraphNode::InlineInputNode(const FMaterialGraphPin* Pin, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	auto DMaterialGraphNode::InlineInputNode(const FMaterialGraphPin* Pin, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		auto* Graph = ResolveInputGraph(Pin);

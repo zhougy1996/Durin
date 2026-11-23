@@ -44,7 +44,7 @@ namespace Durin::Testing
 
 	template<class A, class B>
 	auto TryCreateConnection(MaterialEditor::DMaterialGraph& Graph, const A& First, const B& Second, bool Replace = false,
-		ETransactionMode Mode = ETransactionMode::Record, std::string* Error = nullptr) -> bool
+		bool Mode = true, std::string* Error = nullptr) -> bool
 	{
 		return Graph.GetSchema().TryCreateConnection(ResolvePin(Graph, First), ResolvePin(Graph, Second), Replace, Mode, Error);
 	}
@@ -55,7 +55,7 @@ namespace Durin::Testing
 	}
 
 	inline auto WriteConnection(DObject* Owner, const FTestExpressionInput& Target, const FMaterialProgramLink& Source,
-		bool Replace = false, ETransactionMode Mode = ETransactionMode::Record, std::string* Error = nullptr) -> bool
+		bool Replace = false, bool Mode = true, std::string* Error = nullptr) -> bool
 	{
 		const auto Upstream = FindExpression(Owner, Source.SourceNodeId);
 		return MaterialEditor::GraphEditInternals::WriteExpressionConnection(Owner, FindExpression(Owner, Target.first), Target.second,
@@ -64,7 +64,7 @@ namespace Durin::Testing
 	}
 
 	inline auto WriteConnection(DObject* Owner, EMaterialProperty Target, const FMaterialProgramLink& Source,
-		bool Replace = false, ETransactionMode Mode = ETransactionMode::Record, std::string* Error = nullptr) -> bool
+		bool Replace = false, bool Mode = true, std::string* Error = nullptr) -> bool
 	{
 		const auto Upstream = FindExpression(Owner, Source.SourceNodeId);
 		return MaterialEditor::GraphEditInternals::WriteRootConnection(Cast<DMaterial>(Owner), Target,
@@ -72,7 +72,7 @@ namespace Durin::Testing
 	}
 
 	inline auto WriteInputDefault(DObject* Owner, const FTestExpressionInput& Target, FMaterialInputDefault Value,
-		ETransactionMode Mode = ETransactionMode::Record) -> MaterialEditor::FMaterialGraphCommandResult
+		bool Mode = true) -> MaterialEditor::FMaterialGraphCommandResult
 	{
 		return MaterialEditor::GraphEditInternals::WriteInputDefault(Owner, FindExpression(Owner, Target.first), Target.second, std::move(Value), Mode);
 	}

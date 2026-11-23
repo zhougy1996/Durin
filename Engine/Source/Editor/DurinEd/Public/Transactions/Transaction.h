@@ -12,9 +12,6 @@ namespace Durin
 
 namespace Durin
 {
-	// Explicit editor admission policy; unrecorded edits cannot join a live recording.
-	enum class ETransactionMode : uint8 { Record, NotTransactable };
-
 	using FRevisionId = uint64;
 
 	// Identifies the history transition reported by a transaction event.

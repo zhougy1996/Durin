@@ -66,8 +66,8 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "PreviewParent"));
 	TStrongObjectPtr<DMaterialFunction> Root(NewObject<DMaterialFunction>(nullptr, "PreviewRoot"));
 	TStrongObjectPtr<DMaterialFunction> Other(NewObject<DMaterialFunction>(nullptr, "PreviewOther"));
-	ASSERT_TRUE(DMaterialGraph::Create(*Wrapper)->InsertFunctionCall(*Leaf, 0, 100, Durin::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(DMaterialGraph::Create(*Root)->InsertFunctionCall(*Wrapper, 0, 100, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(DMaterialGraph::Create(*Wrapper)->InsertFunctionCall(*Leaf, 0, 100, false));
+	ASSERT_TRUE(DMaterialGraph::Create(*Root)->InsertFunctionCall(*Wrapper, 0, 100, false));
 	FMaterialFunctionPreviewInvalidation First, Second;
 	First.SetFunction(Root.Get());
 	Second.SetFunction(Root.Get());
@@ -81,7 +81,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	TStrongObjectPtr<DMaterialGraph> OtherGraph(DMaterialGraph::Create(*Other));
 	auto* OtherOutput = Testing::FindFunctionTerminal<DMaterialExpressionFunctionOutput>(*OtherGraph, Other->GetFunctionSignature().Outputs.front().Id);
 	ASSERT_TRUE(OtherOutput);
-	ASSERT_TRUE(OtherOutput->OnRenameNode("Unrelated edit", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(OtherOutput->OnRenameNode("Unrelated edit", false));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 
 	Tests::FTestEditorTransactorOwner Transactions;
@@ -104,7 +104,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	EXPECT_TRUE(First.ConsumeRefreshRequest());
 	First.SetFunction(Other.Get());
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
-	ASSERT_TRUE(LeafOutput->OnRenameNode("Former dependency", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(LeafOutput->OnRenameNode("Former dependency", false));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 	EXPECT_TRUE(Second.ConsumeRefreshRequest());
 	Transactions->Reset();

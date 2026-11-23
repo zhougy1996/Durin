@@ -188,7 +188,7 @@ namespace Durin
 			};
 			// Proposal hooks can retire a document, target or endpoint. Check live authority
 			// at the publication boundary, after all synchronous normalization callbacks.
-			if (Phase == EPropertyChangePhase::Interactive && Origin == EPropertyChangeOrigin::Edit)
+			if (Phase != EPropertyChangePhase::Cancelled && Origin == EPropertyChangeOrigin::Edit)
 				if (auto* Script = FScopedEditorScriptCall::Current(); Script
 					&& Script->ResolveEditAccess(*Target.Object) != EEditorScriptTargetAccess::Writable)
 				{
@@ -639,14 +639,14 @@ namespace Durin
 	}
 
 	auto PropertyEditor::FPropertyEdit::Begin(const FPropertyEditTarget& Target,
-		std::string_view Description, ETransactionMode Mode, std::string* OutError) -> bool
+		std::string_view Description, bool bShouldTransact, std::string* OutError) -> bool
 	{
-		if (Mode == ETransactionMode::Record && Target.SnapshotProperty
+		if (bShouldTransact && Target.SnapshotProperty
 			&& Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional))
 			return BeginInternal(Target, Description, nullptr, OutError);
-		auto Owner = ResolveEditorTransactor(Mode);
+		auto Owner = ResolveEditorTransactor(bShouldTransact);
 		if (!Owner) return FailPropertyEdit(OutError, Owner.error());
-		return BeginInternal(Target, Description, *Owner, OutError);
+		return BeginInternal(Target, Description, *Owner, OutError, bShouldTransact);
 	}
 
 	auto PropertyEditor::FPropertyEdit::Begin(const FPropertyEditTarget& Target,
@@ -657,7 +657,8 @@ namespace Durin
 		const FPropertyEditTarget& InTarget,
 		std::string_view InDescription,
 		DTransactor* InTransactor,
-		std::string* OutError
+		std::string* OutError,
+		bool bOpenScope
 	) -> bool
 	{
 		if (bActive) return FailPropertyEdit(OutError, "A reflected-property edit session is already active.");
@@ -705,8 +706,8 @@ namespace Durin
 				return FailPropertyEdit(OutError, "Property recording requires the active editor's transactor.");
 			}
 			const bool bOwnsRecording = !Owner->IsActive();
-			TransactionScope.emplace("ReflectedProperty", Description, Target.Object);
-			if (!TransactionScope->IsOutstanding())
+			if (bOpenScope) TransactionScope.emplace("ReflectedProperty", Description, Target.Object);
+			if (bOpenScope && !TransactionScope->IsOutstanding())
 			{
 				const auto Message = "The reflected-property transactor rejected the edit scope.";
 				Reset();
@@ -715,7 +716,7 @@ namespace Durin
 			if (!Target.Object->IsTemplateObject())
 				Target.Object->SetFlags(EObjectFlags::Transactional);
 			const bool bCaptured = Target.Object->Modify(false);
-			if (!TransactionScope) return FailPropertyEdit(OutError, "The editor closed during property capture.");
+			if ((bOpenScope && !TransactionScope) || !TargetObject.Get()) return FailPropertyEdit(OutError, "The editor closed during property capture.");
 			if (!bCaptured || !Owner->IsActive())
 			{
 				Reset(bOwnsRecording);
@@ -738,14 +739,18 @@ namespace Durin
 	}
 
 	auto PropertyEditor::FPropertyEdit::ApplyInternal(
-		const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError, bool* OutChanged) -> bool
+		const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase) -> bool
 	{
 		if (OutChanged) *OutChanged = false;
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
-		if (ProposedValue == CurrentValue) return true;
+		if (ProposedValue == CurrentValue)
+		{
+			if (Phase == EPropertyChangePhase::Committed) NotifyMutation(Target, Phase, EPropertyChangeOrigin::Edit, false);
+			return true;
+		}
 		FMutationExecutionResult Result = ExecuteMutation(
 			Target, &ProposedValue, &CurrentValue, EMutationOperation::Apply,
-			EPropertyChangePhase::Interactive, EPropertyChangeOrigin::Edit);
+			Phase, EPropertyChangeOrigin::Edit);
 		if (!Result)
 		{
 			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);

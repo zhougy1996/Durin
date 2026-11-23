@@ -74,7 +74,7 @@ namespace Durin
 
 	using FTransactionApplyResult = std::expected<void, FTransactionApplyError>;
 
-	DURINED_API auto ResolveEditorTransactor(ETransactionMode Mode) -> std::expected<DTransactor*, std::string>;
+	DURINED_API auto ResolveEditorTransactor(bool bShouldTransact) -> std::expected<DTransactor*, std::string>;
 
 	struct FTransactionPackageRevisionTransition
 	{

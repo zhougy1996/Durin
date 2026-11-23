@@ -45,7 +45,8 @@ namespace Durin::MaterialEditor
 		const ImGuiID Widget = ImGui::GetID("##Value");
 		using namespace MonaImGui::PropertyEdit;
 		FPropertyInteractionState Interaction;
-		auto Value = Parameter.Value;
+		const auto* Interactive = ParameterSession.GetInteractiveValue(Parameter.Id);
+		auto Value = Interactive && Interactive->HasSameType(Parameter.Value) ? *Interactive : Parameter.Value;
 		bool Edited = false;
 		const float Minimum = Parameter.bHasRange ? Parameter.MinimumValue : 0.0f;
 		const float Maximum = Parameter.bHasRange ? Parameter.MaximumValue : 0.0f;
@@ -71,7 +72,7 @@ namespace Durin::MaterialEditor
 				Edited = DrawColorPicker(Color, EColorPickerMode::LinearHDR, true, false, &Interaction);
 				if (Interaction.End != EPropertyInteractionEnd::Cancel)
 					Interaction = FPropertyInteractionState::FromPopup(Interaction.Id,
-						ImGui::IsPopupOpen(Interaction.Id, ImGuiPopupFlags_AnyPopupLevel));
+						ImGui::IsPopupOpen(Interaction.Id, ImGuiPopupFlags_AnyPopupLevel) && !ImGui::IsMouseReleased(ImGuiMouseButton_Left));
 				if (Edited) Value.GetVector4() = FVector4(Color.R, Color.G, Color.B, Color.A);
 			}
 			else
@@ -287,7 +288,7 @@ namespace Durin::MaterialEditor
 	{
 		if (!ParameterSession.IsActive()) return true;
 		const int Frame = ImGui::GetCurrentContext() ? ImGui::GetFrameCount() : -1;
-		if (Frame >= 0 && FailedParameterFinishFrame == Frame) return false;
+		if (!bCancel && Frame >= 0 && FailedParameterFinishFrame == Frame) return false;
 		const auto Result = bCancel ? ParameterSession.Cancel() : ParameterSession.Commit();
 		if (!Result)
 		{
@@ -530,7 +531,7 @@ namespace Durin::MaterialEditor
 								Output.GetId().ToString()).c_str())) continue;
 
 							std::string Error;
-							Changed = SelectedNode->SetAttributeInput(Attribute, Output, ETransactionMode::Record, &Error);
+							Changed = SelectedNode->SetAttributeInput(Attribute, Output, true, &Error);
 							if (!Error.empty()) ReportError(std::move(Error));
 							ImGui::EndCombo();
 							return Changed;

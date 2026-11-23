@@ -462,7 +462,7 @@ TEST_F(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 
 	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
 	const auto Begin = std::chrono::steady_clock::now();
-	const bool First = EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable);
+	const bool First = EditorGraph->Layout({}, false);
 	const auto Duration = std::chrono::steady_clock::now() - Begin;
 	ASSERT_TRUE(First);
 	EXPECT_LT(Duration, std::chrono::seconds(1));
@@ -487,14 +487,14 @@ TEST_F(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 				&& PositionA.Y < PositionB.Y + HeightB
 				&& PositionA.Y + HeightA > PositionB.Y);
 		}
-	EXPECT_TRUE(EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
+	EXPECT_TRUE(EditorGraph->Layout({}, false));
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), FirstLayout);
 	std::vector<std::chrono::microseconds> Samples;
 	Samples.reserve(100);
 	for (uint32 Sample = 0; Sample < 100; ++Sample)
 	{
 		const auto SampleBegin = std::chrono::steady_clock::now();
-		EXPECT_TRUE(EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
+		EXPECT_TRUE(EditorGraph->Layout({}, false));
 		Samples.push_back(std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now() - SampleBegin));
 	}

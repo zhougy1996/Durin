@@ -1163,14 +1163,10 @@ namespace Durin
 		return true;
 	}
 
-	auto ResolveEditorTransactor(ETransactionMode Mode) -> std::expected<DTransactor*, std::string>
+	auto ResolveEditorTransactor(bool bShouldTransact) -> std::expected<DTransactor*, std::string>
 	{
 		if (!IsInGameThread()) return std::unexpected("Editor edits require the game thread.");
-		if (Mode == ETransactionMode::NotTransactable)
-		{
-			if (GUndo) return std::unexpected("Unrecorded edits cannot join an active transaction.");
-			return nullptr;
-		}
+		if (!bShouldTransact && !GUndo) return nullptr;
 		if (!GetTransactionEditor() || !GetTransactionEditor()->CanTransact())
 			return std::unexpected("The active editor transaction service is unavailable or busy.");
 		return GetTransactionEditor()->GetTransactor();

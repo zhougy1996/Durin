@@ -73,10 +73,10 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto DMaterialGraphNode::OnRenameNode(std::string NewName, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	auto DMaterialGraphNode::OnRenameNode(std::string NewName, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Graph = Cast<DMaterialGraph>(GetOuter());
 		auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
@@ -87,7 +87,7 @@ namespace Durin::MaterialEditor
 		{
 			auto Port = *Terminal;
 			Port.Name = std::move(NewName);
-			return SetFunctionPort(std::move(Port), Mode);
+			return SetFunctionPort(std::move(Port), bShouldTransact);
 		}
 		const auto Duplicated = DuplicateObject(Expression, nullptr, NAME_None);
 		if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
@@ -96,10 +96,10 @@ namespace Durin::MaterialEditor
 		return CommitExpressionReplacement(*Owner, *Draft, *Admission);
 	}
 
-	auto DMaterialGraphNode::SetFunctionPort(FMaterialFunctionPort Port, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	auto DMaterialGraphNode::SetFunctionPort(FMaterialFunctionPort Port, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Graph = Cast<DMaterialGraph>(GetOuter());
 		auto* Function = Graph ? Cast<DMaterialFunction>(Graph->GetMaterialOrFunction()) : nullptr;
@@ -128,11 +128,11 @@ namespace Durin::MaterialEditor
 		return CommitExpressionReplacement(*Function, *Draft, *Admission);
 	}
 
-	auto DMaterialGraphNode::SetConstantValue(const FMaterialParameterValue& Value, ETransactionMode Mode)
+	auto DMaterialGraphNode::SetConstantValue(const FMaterialParameterValue& Value, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Graph = Cast<DMaterialGraph>(GetOuter());
 		auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
@@ -169,11 +169,11 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto DMaterialGraphNode::SetSwizzleComponents(std::span<const uint8> Components, ETransactionMode Mode)
+	auto DMaterialGraphNode::SetSwizzleComponents(std::span<const uint8> Components, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		if (Components.empty() || Components.size() > 4 || std::ranges::any_of(Components, [](uint8 Channel) { return Channel > 3; }))
 			return RejectCommand("Swizzles require one to four valid components.");
@@ -190,11 +190,11 @@ namespace Durin::MaterialEditor
 			{{Swizzle, static_cast<EMaterialProgramValueType>(Components.size() - 1)}});
 	}
 
-	auto DMaterialGraphNode::SetAttributeOutputEnabled(FGuid AttributeId, bool Enabled, ETransactionMode Mode)
+	auto DMaterialGraphNode::SetAttributeOutputEnabled(FGuid AttributeId, bool Enabled, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Surface = Cast<DMaterialExpressionGetMaterialAttributes>(GetMaterialExpression());
 		if (!Surface) return RejectCommand("The selected node has no material attribute outputs.");

@@ -272,7 +272,7 @@ namespace Durin::MaterialEditor
 			if (auto* Base = Cast<DMaterial>(&Owner); Base && ImGui::Button("Auto Layout"))
 			{
 				std::string Error;
-				if (!EditorGraph->Layout({}, ETransactionMode::Record, &Error)) ReportError(std::move(Error));
+				if (!EditorGraph->Layout({}, true, &Error)) ReportError(std::move(Error));
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();
 				ImGui::EndPopup();

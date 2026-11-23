@@ -271,9 +271,10 @@ a claim that UE's color-picker reset callbacks provide a retry protocol.
 This division follows UE 5.8's `IPropertyHandle::SetValue`,
 `SPropertyEditorNumeric::OnBeginSliderMovement`/`OnEndSliderMovement`, and
 `FColorStructCustomization` callbacks: interactive updates are distinct from
-the transaction owner's terminal action. Durin retains its existing transaction
-mode and property-change phase types rather than aliasing UE's `NotTransactable`
-flag to a mode that rejects an enclosing recording. A failed terminal action is
+the transaction owner's terminal action. Property handles accept per-write flags. `NotTransactable` skips creating a
+transaction. An enclosing recording can still capture the property owner.
+`InteractiveChange` sends an interactive notification and leaves the final
+notification to the caller's terminal write. A failed terminal action is
 retried at most once per ImGui frame, and an unchanged error is reported once per
 interaction. Cancellation remains pending across failed retries.
 
@@ -292,9 +293,8 @@ discarding the preview state.
 
 ## History Submission
 
-Begin defaults to ETransactionMode::Record and resolves the active editor.
-ETransactionMode::NotTransactable explicitly requests no scope or history record;
-it rejects an existing GUndo instead of joining an outer recording. The explicit
+Begin requests a transaction by default. Passing `bShouldTransact = false`
+skips opening a scope. An existing recording still captures the target. The explicit
 non-null DTransactor reference overload remains for low-level native composition.
 NonTransactional property metadata continues to exclude that property from
 history, including when ordinary recorded admission is selected. Local preview

@@ -38,19 +38,19 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	// Asset writes use the owning expression and its numeric slot or function port.
 	using FExpressionInputKey = std::variant<uint32, FGuid>;
 	MATERIALEDITOR_API auto WriteExpressionConnection(DObject* Owner, DMaterialExpression* Target, FExpressionInputKey Input,
-		FMaterialExpressionInput Source, bool Replace = false, ETransactionMode Mode = ETransactionMode::Record,
+		FMaterialExpressionInput Source, bool Replace = false, bool bShouldTransact = true,
 		std::string* OutError = nullptr, FGuid SourcePort = {}) -> bool;
 	MATERIALEDITOR_API auto WriteRootConnection(DMaterial* Material, EMaterialProperty Property,
-		FMaterialExpressionInput Source, bool Replace = false, ETransactionMode Mode = ETransactionMode::Record,
+		FMaterialExpressionInput Source, bool Replace = false, bool bShouldTransact = true,
 		std::string* OutError = nullptr, FGuid SourcePort = {}) -> bool;
 	MATERIALEDITOR_API auto WriteInputDefault(DObject* Owner, DMaterialExpression* Expression, FExpressionInputKey Input,
-		FMaterialInputDefault Value, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		FMaterialInputDefault Value, bool bShouldTransact = true) -> FMaterialGraphCommandResult;
 	MATERIALEDITOR_API auto WriteInputDefault(DMaterial* Material, EMaterialProperty Property,
-		FMaterialInputDefault Value, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		FMaterialInputDefault Value, bool bShouldTransact = true) -> FMaterialGraphCommandResult;
 	MATERIALEDITOR_API auto SetInputConstantEnabled(DObject* Owner, DMaterialExpression* Expression, uint32 Index,
-		bool Enabled, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		bool Enabled, bool bShouldTransact = true) -> FMaterialGraphCommandResult;
 	MATERIALEDITOR_API auto SetInputConstantEnabled(DMaterial* Material, EMaterialProperty Property,
-		bool Enabled, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		bool Enabled, bool bShouldTransact = true) -> FMaterialGraphCommandResult;
 	auto GetExpressionInputKey(const FMaterialGraphPinView& Input) -> FExpressionInputKey;
 	// The command supplies one synchronous mutation after all affected objects have been recorded.
 	auto EditExpressions(DObject& Owner, DTransactor* Transactions, std::string Description,

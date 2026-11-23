@@ -270,7 +270,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphCanvas::BreakPinLinks(const FMaterialGraphPin* Pin) -> bool
 	{
 		std::string Error;
-		const bool Changed = EditorGraph->GetSchema().BreakPinLinks(Pin, ETransactionMode::Record, &Error);
+		const bool Changed = EditorGraph->GetSchema().BreakPinLinks(Pin, true, &Error);
 		if (!Error.empty()) ReportError(std::move(Error));
 		return Changed;
 	}
@@ -278,7 +278,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphCanvas::ConnectPins(const FMaterialGraphPin* Input, const FMaterialGraphPin* Source, bool Replace) -> bool
 	{
 		std::string Error;
-		const bool Changed = EditorGraph->GetSchema().TryCreateConnection(Input, Source, Replace, ETransactionMode::Record, &Error);
+		const bool Changed = EditorGraph->GetSchema().TryCreateConnection(Input, Source, Replace, true, &Error);
 		if (!Error.empty()) ReportError(std::move(Error));
 		return Changed;
 	}
@@ -857,7 +857,7 @@ namespace Durin::MaterialEditor
 			if (Entry == Catalog.end()) continue;
 			std::vector<DMaterialGraphNode*> AuxiliaryNodes;
 			const auto Created = MakeCreationAction(*Entry).PerformAction(*EditorGraph,
-				static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y)), {}, ETransactionMode::Record, &AuxiliaryNodes);
+				static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y)), {}, true, &AuxiliaryNodes);
 			if (CheckCommand(Created))
 			{
 				SelectedNodes.clear();
@@ -1232,7 +1232,7 @@ namespace Durin::MaterialEditor
 			if (ImGui::Button("Auto Layout"))
 			{
 				std::string Error;
-				if (!EditorGraph->Layout({}, ETransactionMode::Record, &Error)) ReportError(std::move(Error));
+				if (!EditorGraph->Layout({}, true, &Error)) ReportError(std::move(Error));
 			}
 			ImGui::SameLine();
 			const char* DetailName = DetailLevel == EMaterialGraphDetailLevel::Overview ? "Overview" : "Editing";

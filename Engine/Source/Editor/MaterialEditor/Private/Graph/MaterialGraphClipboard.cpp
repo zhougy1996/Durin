@@ -73,9 +73,9 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::Paste(const FMaterialGraphClipboardPayload& Payload,
-		int32 X, int32 Y, ETransactionMode Mode) -> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>
+		int32 X, int32 Y, bool bShouldTransact) -> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
@@ -206,9 +206,9 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::DuplicateNodes(std::span<const FGuid> NodeIds,
-		int32 OffsetX, int32 OffsetY, ETransactionMode Mode) -> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>
+		int32 OffsetX, int32 OffsetY, bool bShouldTransact) -> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		FMaterialGraphClipboardPayload Payload;
 		std::string Error;
@@ -237,13 +237,13 @@ namespace Durin::MaterialEditor
 			|| AnchorY < -MaterialGraphPresentationCoordinateLimit
 			|| AnchorY > MaterialGraphPresentationCoordinateLimit)
 			return std::unexpected(RejectCommand("Duplicating would place a material graph node outside the supported coordinate range."));
-		return Paste(Payload, static_cast<int32>(AnchorX), static_cast<int32>(AnchorY), Mode);
+		return Paste(Payload, static_cast<int32>(AnchorX), static_cast<int32>(AnchorY), bShouldTransact);
 	}
 
 	auto DMaterialGraph::CutSelection(std::span<const FGuid> NodeIds,
-		FMaterialGraphClipboardPayload& OutPayload, ETransactionMode Mode) -> FMaterialGraphCommandResult
+		FMaterialGraphClipboardPayload& OutPayload, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		std::string Error;
 		if (!CopySelection(NodeIds, OutPayload, &Error))
@@ -251,7 +251,7 @@ namespace Durin::MaterialEditor
 			const auto Status = Owner.IsValid() ? EMaterialGraphCommandStatus::Rejected : EMaterialGraphCommandStatus::StaleOwner;
 			return RejectCommand(std::move(Error), {}, Status);
 		}
-		FMaterialGraphCommandResult Removed = RemoveNodes(NodeIds, Mode);
+		FMaterialGraphCommandResult Removed = RemoveNodes(NodeIds, bShouldTransact);
 		if (!Removed) OutPayload = {};
 		return Removed;
 	}

@@ -5,9 +5,9 @@ namespace Durin::MaterialEditor::MaterialEditing
 {
 	using namespace GraphEditInternals;
 
-	auto SetConfiguration(DMaterial& Material, const FMaterialConfiguration& Configuration, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	auto SetConfiguration(DMaterial& Material, const FMaterialConfiguration& Configuration, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		if (Transactions && !Transactions->CanTransact()) return RejectCommand("The editor transactor is busy.");
@@ -17,10 +17,10 @@ namespace Durin::MaterialEditor::MaterialEditing
 		if (Before.Domain == Configuration.Domain && Before.Properties == Configuration.Properties)
 			return {.Status = EMaterialGraphCommandStatus::NoChange};
 		const bool bNested = Transactions && Transactions->IsActive();
-		FScopedTransaction Recording("MaterialGraph", "Change Material Configuration", &Material, Transactions != nullptr);
+		FScopedTransaction Recording("MaterialGraph", "Change Material Configuration", &Material, Transactions && !bNested);
 		if (Transactions)
 		{
-			if (!Recording.IsOutstanding()) return RejectCommand("Unable to start the configuration transaction.");
+			if (!bNested && !Recording.IsOutstanding()) return RejectCommand("Unable to start the configuration transaction.");
 			FScopedPackageDirtySuppression Suppress;
 			Material.SetFlags(EObjectFlags::Transactional);
 			if (!Material.Modify(false))
@@ -39,9 +39,9 @@ namespace Durin::MaterialEditor::MaterialEditing
 			? EMaterialGraphCommandStatus::NoChange : EMaterialGraphCommandStatus::Succeeded};
 	}
 
-	auto SetUseMaterialAttributes(DMaterial& Material, bool bEnabled, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	auto SetUseMaterialAttributes(DMaterial& Material, bool bEnabled, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		if (Material.UsesMaterialAttributes() == bEnabled) return {.Status = EMaterialGraphCommandStatus::NoChange};

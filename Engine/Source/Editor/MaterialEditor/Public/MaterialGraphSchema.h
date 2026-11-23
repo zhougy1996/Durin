@@ -32,9 +32,9 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API virtual auto CanCreateConnection(const FMaterialGraphPin* A, const FMaterialGraphPin* B) const -> FMaterialGraphConnectionResponse;
 		// True when a link changed. An unchanged link leaves the optional error empty.
 		MATERIALEDITOR_API virtual auto TryCreateConnection(const FMaterialGraphPin* A, const FMaterialGraphPin* B,
-			bool Replace = false, ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
+			bool Replace = false, bool bShouldTransact = true, std::string* OutError = nullptr) const -> bool;
 		MATERIALEDITOR_API virtual auto BreakPinLinks(const FMaterialGraphPin* Pin,
-			ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
+			bool bShouldTransact = true, std::string* OutError = nullptr) const -> bool;
 		MATERIALEDITOR_API virtual auto GetGraphContextActions(const DMaterialGraph& Graph,
 			const FMaterialGraphPin* Source = nullptr) const -> std::vector<FMaterialGraphCreationAction>;
 		virtual auto HasFunctionPorts() const -> bool = 0;

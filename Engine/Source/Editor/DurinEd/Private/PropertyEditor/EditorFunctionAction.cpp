@@ -44,7 +44,7 @@ namespace Durin
 		if (!Function || !Function->HasAnyFunctionFlags(EFunctionFlags::CallInEditor) || Function->GetNumParms() != 0
 			|| Function->GetRootFunction().GetOuterDClass()->GetQualifiedName() != Request.RootOwner)
 			return EEditorFunctionError::FunctionUnavailable;
-		if (Context.TransactionMode != ETransactionMode::Record || !GetTransactionEditor() || !GetTransactionEditor()->GetTransactor())
+		if (!Context.bShouldTransact || !GetTransactionEditor() || !GetTransactionEditor()->GetTransactor())
 			return EEditorFunctionError::MissingTransactor;
 		if (!GetTransactionEditor()->CanTransact()) return EEditorFunctionError::BusyTransactor;
 		return EEditorFunctionError::None;

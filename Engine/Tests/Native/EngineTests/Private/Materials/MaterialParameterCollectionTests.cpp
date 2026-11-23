@@ -445,7 +445,7 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 		"CollectionGraphAuthoring");
 	TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*AuthoringMaterial));
 	const auto Action = MakeCollectionParameterCreationAction(Collection->GetObjectPath(), Tint.Id, "Tint");
-	const auto Created = Action.PerformAction(*AuthoringGraph, 120, 80, {}, Durin::ETransactionMode::NotTransactable).transform(Testing::GraphNodeId);
+	const auto Created = Action.PerformAction(*AuthoringGraph, 120, 80, {}, false).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Created) << FormatMaterialGraphCommandResult(Created);
 
 	const auto Authored = std::ranges::find_if(

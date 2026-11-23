@@ -57,7 +57,7 @@ namespace Durin
 	// Supplies transaction, error, and read-only policy to a property view.
 	struct FPropertyViewContext
 	{
-		ETransactionMode TransactionMode = ETransactionMode::Record;
+		bool bShouldTransact = true;
 		// Reports editor actions and host operations.
 		std::function<void(std::string)> ReportError;
 		// Overrides the default non-modal property edit feedback.

@@ -120,16 +120,16 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	auto RecordGraphEdit(DObject& Owner, DTransactor* Transactions, std::string Description,
 		std::span<DObject* const> Objects, const std::function<void()>& Apply) -> FMaterialGraphCommandResult
 	{
-		if (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions)
+		if (Transactions && ResolveEditorTransactor(true).value_or(nullptr) != Transactions)
 			return RejectCommand("The editor transactor is busy.");
 		if (std::ranges::any_of(Objects, [](const auto* Object) { return !IsValid(Object); }))
 			return RejectCommand("An edited graph object is unavailable.");
 		const bool bNested = Transactions && Transactions->IsActive();
 		FScopedMaterialGraphChange Batch(Owner);
-		FScopedTransaction Recording("MaterialGraph", Description, &Owner, Transactions != nullptr);
+		FScopedTransaction Recording("MaterialGraph", Description, &Owner, Transactions && !bNested);
 		if (Transactions)
 		{
-			if (!Recording.IsOutstanding()) return RejectCommand("Unable to start the graph transaction.");
+			if (!bNested && !Recording.IsOutstanding()) return RejectCommand("Unable to start the graph transaction.");
 			FScopedPackageDirtySuppression Suppress;
 			std::unordered_set<DObject*> Recorded;
 			for (auto* Object : Objects)

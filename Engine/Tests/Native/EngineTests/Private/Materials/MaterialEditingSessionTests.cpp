@@ -77,13 +77,13 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 	TStrongObjectPtr<DMaterialFunction> Callee(NewObject<DMaterialFunction>(nullptr, "GraphCallee"));
 	TStrongObjectPtr<DMaterialGraph> FunctionAuthoringGraph(DMaterialGraph::Create(*Callee));
 	const FMaterialFunctionPort Port{.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float, .Name = "Result"};
-	ASSERT_TRUE(FunctionAuthoringGraph->AddPort(true, Port, {}, 10, 20, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FunctionAuthoringGraph->AddPort(true, Port, {}, 10, 20, false));
 
 	TStrongObjectPtr<DMaterialGraph> MaterialAuthoringGraph(DMaterialGraph::Create(*Source));
-	const auto Call = MaterialAuthoringGraph->InsertFunctionCall(*Callee, 100, 200, ETransactionMode::NotTransactable).transform(Testing::GraphNodeId);
+	const auto Call = MaterialAuthoringGraph->InsertFunctionCall(*Callee, 100, 200, false).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Call);
 	const auto ResultLink = FMaterialProgramLink{Call.value(), 0, Port.Id};
-	ASSERT_TRUE(Testing::WriteConnection(Source, EMaterialProperty::MP_Roughness, ResultLink, true, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Testing::WriteConnection(Source, EMaterialProperty::MP_Roughness, ResultLink, true, false));
 	DMaterialExpressionFunctionCall* Expression = nullptr;
 	for (const auto& Entry : Source->GetExpressionCollection().Expressions)
 		if (Entry->Id == Call.value()) Expression = Cast<DMaterialExpressionFunctionCall>(Entry.Get());
@@ -270,7 +270,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionGraphRelinksWideOutputSlotsByObject
 TEST_F(FMaterialEditingSessionTests, ReconstructNodeReadsRenamedFunctionPinsAndRetainsMaterialRootBinding)
 {
 	Tests::FTestEditorTransactorOwner Transactions;
-	const auto Mode = ETransactionMode::NotTransactable;
+	const auto Mode = false;
 	TStrongObjectPtr<DMaterialFunction> Callee(NewObject<DMaterialFunction>(nullptr, "PinReconstruction"));
 	TStrongObjectPtr<DMaterialGraph> FunctionAuthoringGraph(DMaterialGraph::Create(*Callee));
 	FMaterialFunctionPort Port{.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float, .Name = "Value"};

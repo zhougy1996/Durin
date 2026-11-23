@@ -38,12 +38,11 @@ recording and do not expose replay as a new recording.
 
 ## Transactions And Scoped Recording
 
-ResolveEditorTransactor is the editor command admission boundary. Record requires
-the active editor to accept recording. NotTransactable returns no service only
-when no GUndo is published, preventing unrecorded commands from joining another
-recording. This policy does not suspend GUndo or change low-level Modify behavior.
-Property UI and ordinary material commands carry this mode instead of selecting
-a service; exact owners remain inside long-lived edit sessions.
+Commands use `bShouldTransact` to request a transaction when needed.
+`ResolveEditorTransactor(false)` returns the active editor recorder during an
+enclosing transaction and null outside one. Objects modified by a nested
+command participate in the enclosing history entry. Recorded commands require
+an available editor. Long-lived edit sessions retain their original host.
 
 Recording and replay run synchronously on GameThread. `Begin(Context,
 Description)` returns the previous active-action count: zero for the outermost

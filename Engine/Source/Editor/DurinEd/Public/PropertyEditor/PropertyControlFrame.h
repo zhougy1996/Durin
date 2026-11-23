@@ -93,7 +93,7 @@ namespace Durin::PropertyEditor
 
 		DURINED_API auto Observe(ImGuiID Id, const FReflectedPropertyHandle& Handle, EEnd End,
 			std::optional<FValue> Value) -> void;
-		DURINED_API auto EndFrame(bool bCancel, ETransactionMode Mode,
+		DURINED_API auto EndFrame(bool bCancel, bool bShouldTransact,
 			const std::function<bool()>& PrepareNewEdit, std::string* OutError = nullptr, bool* OutChanged = nullptr) -> bool;
 		DURINED_API auto Finish(bool bCancel) -> bool;
 		auto GetFinishError() const -> const std::string& { return FinishError; }

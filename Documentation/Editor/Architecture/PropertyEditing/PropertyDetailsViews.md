@@ -18,7 +18,7 @@ object with `SetObject()`, and draw it each frame. The view keeps a weak selecti
 and owns its property interaction state. Hosts that embed individual rows can
 own an `FPropertyView` directly. Both supply a context containing:
 
-- transaction mode (recorded by default, or explicit NotTransactable);
+- whether edits should open a transaction (enabled by default);
 - an error-reporting callback;
 - optional asset reveal/open callbacks; and
 - read-only state.

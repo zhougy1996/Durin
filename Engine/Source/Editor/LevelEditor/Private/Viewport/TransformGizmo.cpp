@@ -700,7 +700,7 @@ namespace Durin::LevelEditor
 
 	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
 	{
-		if (GUndo || (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions))
+		if (GUndo || (Transactions && ResolveEditorTransactor(true).value_or(nullptr) != Transactions))
 		{
 			// Restore only after the foreign recorder/replay has released GUndo.
 			if (IsDragging()) bRestorePending = true;

@@ -139,10 +139,10 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto MaterialEditing::CreateParameter(DMaterial& Material, FMaterialParameterDefinition Definition, ETransactionMode Mode)
+	auto MaterialEditing::CreateParameter(DMaterial& Material, FMaterialParameterDefinition Definition, bool bShouldTransact)
 		-> TMaterialGraphResult<DMaterialExpression*>
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		if (!Definition.Id.IsValid()) Definition.Id = FGuid::NewGuid();
@@ -158,10 +158,10 @@ namespace Durin::MaterialEditor
 		return Parameter.Get();
 	}
 
-	auto MaterialEditing::RenameParameter(DMaterial& Material, const FGuid& ParameterId, FName Name, ETransactionMode Mode)
+	auto MaterialEditing::RenameParameter(DMaterial& Material, const FGuid& ParameterId, FName Name, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		auto Candidate = Material.GetExpressionCollection();
@@ -189,23 +189,23 @@ namespace Durin::MaterialEditor
 		});
 	}
 
-	auto MaterialEditing::DeleteParameter(DMaterial& Material, const FGuid& ParameterId, ETransactionMode Mode)
+	auto MaterialEditing::DeleteParameter(DMaterial& Material, const FGuid& ParameterId, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		std::vector<FGuid> Nodes;
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == ParameterId)
 				Nodes.push_back(Parameter->Id);
 		if (Nodes.empty()) return RejectCommand("Parameter owner is unavailable.");
-		return GraphEditInternals::RemoveGraphNodes(&Material, Nodes, Mode);
+		return GraphEditInternals::RemoveGraphNodes(&Material, Nodes, bShouldTransact);
 	}
 
-	auto MaterialEditing::PromoteConstantToParameter(DMaterial& Material, const FGuid& NodeId, FName Name, ETransactionMode Mode)
+	auto MaterialEditing::PromoteConstantToParameter(DMaterial& Material, const FGuid& NodeId, FName Name, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		auto Candidate = Material.GetExpressionCollection();
@@ -250,10 +250,10 @@ namespace Durin::MaterialEditor
 
 	auto MaterialEditing::SetParameterValue(DMaterial& Material, const FGuid& ParameterId,
 		FMaterialParameterValue Value,
-		ETransactionMode Mode)
+		bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		const auto* Definition = Material.FindParameterDefinition(ParameterId);
@@ -269,10 +269,10 @@ namespace Durin::MaterialEditor
 		const auto Before = Definition->Value;
 		const TStrongObjectPtr<DTexture> BeforeTexture(Before.GetType() == EMaterialParameterType::Texture ? Before.GetTexture().Texture.Get() : nullptr);
 		const bool bNested = Transactions && Transactions->IsActive();
-		FScopedTransaction Recording("MaterialGraph", "Edit material parameter", &Material, Transactions != nullptr);
+		FScopedTransaction Recording("MaterialGraph", "Edit material parameter", &Material, Transactions && !bNested);
 		if (Transactions)
 		{
-			if (!Recording.IsOutstanding()) return RejectCommand("The editor could not begin the material parameter transaction.");
+			if (!bNested && !Recording.IsOutstanding()) return RejectCommand("The editor could not begin the material parameter transaction.");
 			FScopedPackageDirtySuppression Suppress;
 			for (auto* Declaration : *Declarations)
 			{
@@ -304,10 +304,10 @@ namespace Durin::MaterialEditor
 		return {};
 	}
 
-	auto MaterialEditing::PromoteSurfaceOutputToParameter(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode)
+	auto MaterialEditing::PromoteSurfaceOutputToParameter(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, bool bShouldTransact)
 		-> TMaterialGraphResult<DMaterialExpression*>
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		auto Candidate = Material.GetExpressionCollection();
@@ -344,10 +344,10 @@ namespace Durin::MaterialEditor
 		return Parameter.Get();
 	}
 
-	auto MaterialEditing::AddTextureToSurfaceOutput(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode)
+	auto MaterialEditing::AddTextureToSurfaceOutput(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, bool bShouldTransact)
 		-> TMaterialGraphResult<DMaterialExpression*>
 	{
-		auto Admission = ResolveEditorTransactor(Mode);
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		auto Candidate = Material.GetExpressionCollection();

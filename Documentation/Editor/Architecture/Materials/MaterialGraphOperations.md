@@ -608,12 +608,10 @@ published RHI allocations and retire registrations after their last canvas consu
 
 ## Transactions and gestures
 
-Material and graph editing commands select ETransactionMode::Record by
-default and resolve the active editor before editing. UI callers do not pass
-transactors. Missing or busy editor services reject the command without mutation.
-Explicit ETransactionMode::NotTransactable permits standalone edits without
-creating history, but rejects an existing GUndo. Both modes validate the proposed
-edit before publishing dirty state and compilation revisions.
+Material and graph editing commands record by default. Passing
+`bShouldTransact = false` skips opening a transaction. An active recording
+still captures the affected objects. Standalone commands can run without an
+editor. Both paths validate the proposed edit before publication.
 Read-only inspection, copying and layout calculation need no transaction service.
 Move gestures retain their original service and use a private position submission
 path; their Commit never redirects to a replacement editor. Working-copy checkpoint
@@ -663,19 +661,20 @@ expressions. A committed parameter edit records each declaration expression
 sharing the parameter GUID. Replay restores the declarations together and
 rebuilds the material's parameter schema from the settled graph.
 
-Material-instance color overrides and graph color defaults share the color picker
-and its popup lifetime. Both preview while the popup is open and commit one undo
-step on normal dismissal. Escape or losing the edited row restores the original
-value without history. Instance colors use the reflected override array and
-linear LDR controls. Graph defaults use the parameter setter and linear HDR
-controls, including numeric RGB values above one.
+Material-instance color overrides use the reflected override array and linear
+LDR controls. Graph default colors use a linear HDR picker. Each mouse release
+commits the current graph color while the picker stays open.
 
 Graph scalar, vector and color controls collect input during drawing and use
 the [shared frame settlement](../PropertyEditing/ReflectedPropertyEditing.md#edit-session-lifecycle)
-after all rows are drawn. The current parameter's final value and terminal action
-are processed before applying a new parameter's proposal, regardless of draw
-order. The parameter session owns preview and cancellation. It captures the
-pre-gesture value on the declaration expressions when the gesture commits.
+after all rows are drawn. The previous control settles before the next edit
+starts. A gesture opens or joins the editor transaction and holds its interactive
+value in the parameter editor. Other controls for that parameter display this
+value. The material and render preview read the committed default. Commit checks
+the original value and declaration identities, records each declaration in the
+same transaction and publishes the final value through the parameter setter.
+Escape, a hidden row or document deactivation discards unfinished input.
+Returning to the original value leaves no gesture history.
 
 Material configuration records the material before writing its domain and
 static properties. Replay publishes configuration, expression and root changes
@@ -722,10 +721,9 @@ cancellation and attempts to restore the original value. Its result includes
 any restoration failure. A committed change produces one undo entry. Observers
 can see preview and restoration writes while package revisions are suppressed.
 
-A failed parameter Apply leaves the session available for retry. A failed restoration
-keeps the parameter session active for retry. These results own their
-messages independently of subsequent retries. Engine parameter mutation and
-transaction replay continue to expose their own typed error contracts.
+An invalid control value leaves the last valid draft available for correction.
+Deleting or replacing a declaration invalidates the edit. Discarding the draft
+preserves external writes and releases the gesture transaction.
 
 The selected node's Parameter name field rebinds only that node, creating a fresh
 parameter GUID if the name is unused. Rename shared parameter changes all references

@@ -45,14 +45,14 @@ namespace Durin::Testing
 		return Ids;
 	}
 	inline auto CreateGraphConstant(MaterialEditor::DMaterialGraph& Graph, float Value = 0.f,
-		int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable) -> MaterialEditor::TMaterialGraphResult<FGuid>
+		int32 X = 0, int32 Y = 0, bool Mode = false) -> MaterialEditor::TMaterialGraphResult<FGuid>
 	{
 		auto Constant = MakeGraphExpression<DMaterialExpressionScalarConstant>();
 		Constant->Value = Value;
 		return Graph.CreateExpression(*Constant.Get(), X, Y, Mode).transform(GraphNodeId);
 	}
 	inline auto CreateGraphCatalogNode(MaterialEditor::DMaterialGraph& Graph, const MaterialEditor::FMaterialGraphCatalogEntry& Entry,
-		int32 X, int32 Y, FMaterialProgramLink Input, ETransactionMode Mode = ETransactionMode::Record)
+		int32 X, int32 Y, FMaterialProgramLink Input, bool Mode = true)
 		-> MaterialEditor::TMaterialGraphResult<std::vector<FGuid>>
 	{
 		const auto* Source = Input.SourceNodeId.IsValid() ? Graph.FindOutputGraphPin(Input) : nullptr;
@@ -68,7 +68,7 @@ namespace Durin::Testing
 	}
 	inline auto CreateGraphCatalogNode(MaterialEditor::DMaterialGraph& Graph,
 		EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type = EMaterialProgramValueType::Float,
-		FMaterialProgramLink Input = {}, int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable)
+		FMaterialProgramLink Input = {}, int32 X = 0, int32 Y = 0, bool Mode = false)
 		-> MaterialEditor::TMaterialGraphResult<std::vector<FGuid>>
 	{
 		const auto Catalog = MaterialEditor::EnumerateCatalog();

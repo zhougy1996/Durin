@@ -146,7 +146,7 @@ namespace
 	{
 		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
 		if (!Material || !Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material)
-			|| !DMaterialGraph::Create(*Material)->Layout({}, Durin::ETransactionMode::NotTransactable)) return nullptr;
+			|| !DMaterialGraph::Create(*Material)->Layout({}, false)) return nullptr;
 		return Material;
 	}
 }

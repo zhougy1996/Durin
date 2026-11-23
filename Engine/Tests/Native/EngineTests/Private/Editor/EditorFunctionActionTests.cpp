@@ -203,11 +203,11 @@ TEST_F(FEditorFunctionTests, AdmissionAndReentrancyPreventNativeMutation)
 	FPropertyViewContext Context{.bReadOnly = true};
 	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::ReadOnly);
 	Context.bReadOnly = false;
-	Context.TransactionMode = ETransactionMode::NotTransactable;
+	Context.bShouldTransact = false;
 	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::MissingTransactor);
 	EXPECT_EQ(Target->EventDispatches, 0);
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-	Context.TransactionMode = ETransactionMode::Record;
+	Context.bShouldTransact = true;
 	Durin::FScopedTransaction Busy("test", "Busy", nullptr);
 	EXPECT_TRUE(ExecuteEditorFunction(View, Context, Request(Target)).bInvoked);
 	(void)Busy.Cancel();

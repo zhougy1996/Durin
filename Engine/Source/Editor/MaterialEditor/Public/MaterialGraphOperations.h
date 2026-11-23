@@ -137,7 +137,7 @@ namespace Durin::MaterialEditor
 			FMaterialGraphPortCreation,
 			FMaterialGraphCollectionParameterCreation> Payload;
 		MATERIALEDITOR_API auto PerformAction(DMaterialGraph& Graph, int32 X, int32 Y,
-			const FMaterialGraphPin* Source = nullptr, ETransactionMode Mode = ETransactionMode::Record,
+			const FMaterialGraphPin* Source = nullptr, bool bShouldTransact = true,
 			std::vector<DMaterialGraphNode*>* AuxiliaryNodes = nullptr) const -> TMaterialGraphResult<DMaterialGraphNode*>;
 	};
 	MATERIALEDITOR_API auto MakeCreationAction(const FMaterialGraphCatalogEntry& Entry) -> FMaterialGraphCreationAction;

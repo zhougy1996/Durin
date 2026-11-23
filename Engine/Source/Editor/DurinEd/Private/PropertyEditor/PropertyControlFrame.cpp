@@ -13,13 +13,13 @@ namespace Durin::PropertyEditor
 		return Frame.Finish(bCancel, [this](bool bRestore) { return FinishEdit(bRestore); });
 	}
 
-	auto FPropertyControlFrame::EndFrame(bool bCancel, ETransactionMode Mode,
+	auto FPropertyControlFrame::EndFrame(bool bCancel, bool bShouldTransact,
 		const std::function<bool()>& PrepareNewEdit, std::string* OutError, bool* OutChanged) -> bool
 	{
 		bool bChanged = bCancel && Edit.HasChanges();
 		const bool bSucceeded = Frame.EndFrame(bCancel,
 			[&](ImGuiID, const FReflectedPropertyHandle& Handle) {
-				return PrepareNewEdit() && Handle.BeginEdit(Edit, Mode, OutError);
+				return PrepareNewEdit() && Handle.BeginEdit(Edit, bShouldTransact, OutError);
 			},
 			[&](const FValue& Value) {
 				bool bAppliedChange = false;
