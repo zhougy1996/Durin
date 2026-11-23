@@ -49,7 +49,7 @@ namespace Durin
 		TObjectPtr<DWaterWaves> BoundWaveAsset;
 		FDelegateHandle WaveAssetChangeHandle;
 		std::optional<FResolvedWaterSurface> EffectiveSettings;
-		// Null uses the plugin's default Lit material. Overrides must implement its custom-data wave contract.
+		// Null uses the plugin's default Single Layer Water material. Overrides must implement its custom-data wave contract.
 		DPROPERTY(Category = "Water", Edit)
 		TObjectPtr<DMaterialInterface> Material;
 		std::shared_ptr<FStaticMeshRenderData> Geometry;
