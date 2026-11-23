@@ -1,6 +1,7 @@
 // Minimal fullscreen post-process shader.
 
 import Material.GBufferDecode;
+import Material.SingleLayerWaterLighting;
 import Lighting.DirectionalShadow;
 import Lighting.ViewLightingUniform;
 
@@ -147,7 +148,7 @@ FWaterSnapshotOutput WaterSnapshotFragmentMain(VSOutput input)
 struct FWaterReflectionView
 {
     float4x4 ViewToWorld;
-    float4 Projection[4];
+    FWaterViewUniform Water;
     float4 Viewport;
 };
 
@@ -169,12 +170,12 @@ float4 WaterReflectionFragmentMain(VSOutput input) : SV_Target0
         discard;
     float2 ndc = (input.pos.xy - WaterReflectionView.Viewport.xy) / WaterReflectionView.Viewport.zw * 2.0 - 1.0;
     float3 viewPosition;
-    if (!ReconstructViewPositionAnalytic(WaterReflectionView.Projection[0], WaterReflectionView.Projection[1],
-            WaterReflectionView.Projection[2], WaterReflectionView.Projection[3], ndc,
+    if (!ReconstructViewPositionAnalytic(WaterReflectionView.Water.Projection[0], WaterReflectionView.Water.Projection[1],
+            WaterReflectionView.Water.Projection[2], WaterReflectionView.Water.Projection[3], ndc,
             WaterReflectionDepth.Load(pixel), viewPosition))
         discard;
-    float3 worldPosition = mul(WaterReflectionView.ViewToWorld, float4(viewPosition, 1.0)).xyz;
-    float3 toView = normalize(WaterReflectionLighting.ViewPosition.xyz - worldPosition);
+    float3 incident = WaterIncidentDirection(WaterReflectionView.Water, viewPosition, WaterViewForward(WaterReflectionView.Water));
+    float3 toView = normalize(mul((float3x3)WaterReflectionView.ViewToWorld, -incident));
     float4 record = WaterReflectionNormalRoughness.Load(pixel);
     float3 normal = DecodeOctahedralNormal(record.xy);
     float roughness = record.z;

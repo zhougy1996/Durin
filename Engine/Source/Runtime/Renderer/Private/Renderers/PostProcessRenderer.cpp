@@ -401,11 +401,13 @@ namespace Durin
 		{
 			FMatrix4f ViewToWorld;
 			std::array<FVector4f, 4> Projection;
+			FVector4f DepthParameters;
 			FVector4f Viewport;
 		};
 		const auto Projection = Math::TransposeToFloat(View.ProjectionMatrix);
 		const FViewUniform Data{Math::TransposeToFloat(ViewToWorld),
 			{Projection[0], Projection[1], Projection[2], Projection[3]},
+			{View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.f : 1.f, 0.f, 0.f, 0.f},
 			{float(View.ViewportX), float(View.ViewportY), float(View.ViewportWidth), float(View.ViewportHeight)}};
 		const auto Uniform = Commands.CreateUniformBufferRange(&Data, sizeof(Data));
 		if (!Uniform.Buffer) return false;

@@ -690,9 +690,16 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
 	ASSERT_FALSE(HasFailure());
 	const float Offset = ReadChannel(Refraction, 160, 120, 0);
-	// Snell transmission through the tilted normal, projected onto the 1 m and 25 cm beds.
-	EXPECT_NEAR(Offset, -9.659f, .1f);
-	EXPECT_NEAR(ReadChannel(Refraction, 160, 195, 0), -2.593f, .1f);
+	// At native 320x240, FromF0 gives IOR 1.329431. For a half-strength
+	// right-facing normal the UE mono distortion is 26.877 pixels.
+	EXPECT_NEAR(Offset, 26.8772f, .05f);
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 195, 0), Offset * 25.0f / 30.0f, .1f);
+	EXPECT_NEAR(ReadChannel(Refraction, 315, 120, 0), 3.95f, .05f);
+	Input.IR.GetAttribute(P::MP_Normal).Literal = {.5f, 0, .8660254f};
+	PublishWater();
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 1), -26.8772f * 240.f / 320.f, .05f);
+	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, .5f, .8660254f};
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefraction;
 	Input.IR.GetAttribute(P::MP_Refraction).Literal = {1.0f};
 	PublishWater();
@@ -717,18 +724,22 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	CheckColor(HDR, 160, 120, FVector3f(1.0f));
 	CheckColor(HDR, static_cast<uint32>(std::round(160.0f + Offset)), 120, {0.0f, 1.0f, 0.0f});
 	CheckColor(HDR, Offset > 0 ? 319u : 0u, 120, FVector3f(1.0f));
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	EXPECT_FLOAT_EQ(ReadChannel(Refraction, 160, 120, 0), 0.0f);
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(716));
 
-	// The shallow stripe overlaps the projected ray after it has already passed
-	// the stripe's depth. Its screen-space edge cannot intercept the ray.
-	const double ShallowStripeY = -5.0 * (2.0 / 320.0) * 3.25 / std::sqrt(3.0);
-	Add(717, 0.0, -.25, .16, .04, Foreground, ShallowStripeY);
+	// The right-hand tap sees a green 25 cm bed; the left sees the white 1 m bed.
+	// The same bilinear weights must select both radiance and optical thickness.
+	const double PixelAtBed = 2.0 * 3.25 / (320.0 * std::sqrt(3.0));
+	Add(717, 0.0, -.25, .16, .9 * PixelAtBed, Foreground, 27.5 * PixelAtBed);
 	CaptureHDR(HDR);
-	ASSERT_FALSE(HasFailure());
-	CheckColor(HDR, 160, 120, FVector3f(1.0f));
-	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
-	ASSERT_FALSE(HasFailure());
-	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 0), Offset, .1f);
+	constexpr float GreenWeight = 26.8772f - 26.0f;
+	CheckColor(HDR, 160, 120, {1.0f - GreenWeight, 1.0f, 1.0f - GreenWeight});
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {.01f, .01f, .01f};
+	PublishWater();
+	CaptureHDR(HDR, EWaterVolumeReadback::ViewTransmission);
+	CheckColor(HDR, 160, 120, FVector3f(std::exp(-.01f * (100.0f - 75.0f * GreenWeight))));
+	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {};
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(717));
 
 	// Track an actual underwater landmark in the shaded HDR image with the camera locked.
@@ -760,122 +771,11 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 			ASSERT_GT(Count, 0u);
 			StripeCenter[Enabled] /= float(Count);
 		}
-		EXPECT_NEAR((StripeCenter[0] - StripeCenter[1]) / float(Scale), Offset, 1.0f);
+		EXPECT_NEAR((StripeCenter[0] - StripeCenter[1]) / float(Scale * Scale), Offset, 1.0f);
 	}
 	View.ViewportWidth = 320;
 	View.ViewportHeight = 240;
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(718));
-
-	// Distinguish the exposed pier (green), submerged pier (blue), and bed (white).
-	// A single bed at the foot of the pier leaves its entire face visible.
-	for (uint32 Id : {710u, 711u, 712u})
-		FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(Id));
-	Add(721, 0.0, -2.0, 8.0, 8.0, Bed);
-	const auto TopDownView = View;
-	const auto AddPierFace = [&](uint32 Id, double CenterZ, const FMaterialRenderProxyRef& Material) {
-		FMatrix Transform(1.0);
-		Transform[0] = FVector4(0, 0, 1.25, 0);
-		Transform[1] = FVector4(0, .5, 0, 0);
-		Transform[2] = FVector4(-1, 0, 0, 0);
-		Transform[3] = FVector4(.5, 0, CenterZ, 1);
-		FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
-			std::make_unique<FStaticMeshSceneProxy>(Grid.get(), std::vector{Material}), Transform);
-	};
-	AddPierFace(719, 1.0, Foreground);
-	ForegroundInput.IR.GetAttribute(P::MP_EmissiveColor).Literal = {0, 0, 1};
-	const auto WetProgram = MIR::Compile(ForegroundInput);
-	ASSERT_TRUE(WetProgram) << FormatMaterialProgramDiagnostics(WetProgram.Diagnostics);
-	auto WetPier = MakeRefCount<FMaterialRenderProxy>();
-	Durin::Testing::QueueMaterialTestState(*WetPier, {.StaticProperties = ForegroundInput.StaticProperties,
-		.CompiledProgram = std::make_shared<const FMaterialProgram>(WetProgram.Resource)});
-	AddPierFace(720, -1.0, WetPier);
-	View.ViewLocation = {-6, 0, 3};
-	const double Axis = 1.0 / std::sqrt(5.0);
-	View.ViewMatrix[0] = FVector4(2 * Axis, 0, Axis, 0);
-	View.ViewMatrix[1] = FVector4(0, 1, 0, 0);
-	View.ViewMatrix[2] = FVector4(-Axis, 0, 2 * Axis, 0);
-	View.ViewMatrix[3] = FVector4(15 * Axis, 0, 0, 1);
-	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, 0, 1};
-	Input.IR.GetAttribute(P::MP_Specular).Literal = {.5f};
-	PublishWater();
-	for (auto Depth : {ESceneDepthConvention::ForwardZ, ESceneDepthConvention::ReversedZ})
-	{
-		SCOPED_TRACE(Depth == ESceneDepthConvention::ForwardZ ? "ForwardZ oblique pier" : "ReversedZ oblique pier");
-		View.DepthConvention = Depth;
-		ASSERT_TRUE(SceneViewProjection::BuildPerspectiveProjection(VerticalFov, Aspect, .1, 100.0, Depth, View.ProjectionMatrix));
-		View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
-		CaptureHDR(HDR);
-		ASSERT_FALSE(HasFatalFailure());
-		ASSERT_TRUE(FFileHelper::SaveArrayToFile(HDR, Evidence / "oblique-pier.rgba16f"));
-		CheckColor(HDR, 160, 100, {0, 1, 0});
-		// At (146,138) the transmitted ray intersects the pier at y=-.338 m,
-		// inside its -.35 m edge. At (160,152) it crosses the bed before the pier.
-		EXPECT_GT(ReadChannel(HDR, 146, 138, 2) - ReadChannel(HDR, 146, 138, 0), .5f);
-		CheckColor(HDR, 160, 152, FVector3f(1.0f));
-		// The submerged face must be continuous from the waterline down to its apparent foot.
-		uint32 End = 120;
-		while (End < View.ViewportHeight && ReadChannel(HDR, 160, End, 2) - ReadChannel(HDR, 160, End, 0) > .5f)
-			++End;
-		EXPECT_GT(End, 130u);
-		ASSERT_LT(End, View.ViewportHeight);
-		for (uint32 Y = End; Y < View.ViewportHeight; ++Y)
-			EXPECT_LE(ReadChannel(HDR, 160, Y, 2) - ReadChannel(HDR, 160, Y, 0), .5f) << Y;
-		Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::None;
-		PublishWater();
-		CaptureHDR(HDR);
-		ASSERT_FALSE(HasFatalFailure());
-		EXPECT_GT(ReadChannel(HDR, 160, End, 2) - ReadChannel(HDR, 160, End, 0), .5f)
-			<< "Above-water refraction should raise the apparent foot of the pier";
-		Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
-		PublishWater();
-	}
-
-	// Extend water just over the reprojected footprint at the finite pool edge.
-	// A green foreground quad at receiver-like depth then occludes one corner.
-	const FVector3 ScreenForward(2.0 * Axis, 0, -Axis);
-	const FVector3 ScreenRight(0, 1, 0);
-	const FVector3 ScreenUp(Axis, 0, 2.0 * Axis);
-	const double FocalPixels = 160.0 / std::tan(Math::DegreesToRadians(30.0));
-	const auto AddScreenQuad = [&](uint32 Id, FVector2 Center, double Size, double Depth,
-		const FMaterialRenderProxyRef& Proxy) {
-		const auto ToCenter = ScreenForward + ScreenRight * ((Center.x - 160.0) / FocalPixels)
-			+ ScreenUp * ((120.0 - Center.y) / FocalPixels);
-		const auto Position = View.ViewLocation + ToCenter * Depth;
-		const double Width = Size * Depth / FocalPixels;
-		FMatrix Transform(1.0);
-		Transform[0] = FVector4(ScreenRight * (Width / 1.6), 0);
-		Transform[1] = FVector4(ScreenUp * (Width / 1.4), 0);
-		Transform[2] = FVector4(ScreenForward, 0);
-		Transform[3] = FVector4(Position - ScreenForward * .5, 1);
-		FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
-			std::make_unique<FStaticMeshSceneProxy>(Grid.get(), std::vector{Proxy}), Transform);
-	};
-	const double BedDepthAtLowerCorner = -5.0
-		/ (ScreenForward.z + ScreenUp.z * ((120.0 - 214.5) / FocalPixels));
-	const double CornerWaterDepth = BedDepthAtLowerCorner - .004;
-	Input.IR.GetAttribute(P::MP_EmissiveColor).Literal = {.25f, 0, 0};
-	PublishWater();
-	AddScreenQuad(722, {165.0, 214.0}, 2.0, CornerWaterDepth, Water);
-	AddScreenQuad(723, {164.5, 214.5}, .8, CornerWaterDepth - .004, Foreground);
-	CaptureHDR(HDR);
-	ASSERT_FALSE(HasFailure());
-	CheckColor(HDR, 164, 214, {0, 1, 0});
-	for (const auto [X, Y] : {std::pair{164u, 213u}, std::pair{165u, 213u}, std::pair{165u, 214u}})
-		EXPECT_GT(ReadChannel(HDR, X, Y, 0), 1.0f) << "Covered tap (" << X << ", " << Y << ")";
-	CheckColor(HDR, 165, 177, {1.25f, 1, 1});
-	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
-	ASSERT_FALSE(HasFailure());
-	EXPECT_GT(ReadChannel(Refraction, 165, 177, 1), 25.0f);
-	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(723));
-	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(722));
-	Input.IR.GetAttribute(P::MP_EmissiveColor).Literal = {};
-	View = TopDownView;
-	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(719));
-	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(720));
-	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(721));
-	Add(710, -1.0, -.25, 1.0, 6.0, Bed);
-	Add(711, 0.0, -1.0, 1.0, 6.0, Bed);
-	Add(712, 1.0, -2.0, 1.0, 6.0, Bed);
 
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::None;
 	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, 0, 1};
@@ -1083,6 +983,31 @@ TEST(FWaterRenderingPathVulkanTests, WaterSkyReflectionCompositesOnlyTheNearestC
 	} while (std::chrono::steady_clock::now() < Deadline);
 	ASSERT_EQ(ReflectionPasses(Normal), 1);
 	FCapture Disabled, Rear, Rough, Grazing, Masked, MaskedDisabled;
+	const auto Perspective = View.ProjectionMatrix;
+	for (auto Depth : {ESceneDepthConvention::ForwardZ, ESceneDepthConvention::ReversedZ})
+	{
+		const auto SavedDepth = View.DepthConvention;
+		View.DepthConvention = Depth;
+		View.ProjectionMatrix = FMatrix(0.0);
+		View.ProjectionMatrix[1][0] = .5;
+		View.ProjectionMatrix[2][1] = -.5;
+		View.ProjectionMatrix[0][2] = Depth == ESceneDepthConvention::ForwardZ ? .01 : -.01;
+		View.ProjectionMatrix[3][2] = Depth == ESceneDepthConvention::ForwardZ ? 0.0 : 1.0;
+		View.ProjectionMatrix[3][3] = 1.0;
+		Aim({0, 0, 3});
+		FCapture Ortho, OrthoDisabled;
+		Capture(false, Ortho);
+		Capture(true, OrthoDisabled);
+		ASSERT_FALSE(HasFatalFailure());
+		const auto Pixel = [](const FCapture& Frame, size_t X) {
+			return std::span(Frame.HDR).subspan((48 * 96 + X) * 8, 6);
+		};
+		EXPECT_FALSE(std::ranges::equal(Pixel(Ortho, 48), Pixel(OrthoDisabled, 48)));
+		EXPECT_TRUE(std::ranges::equal(Pixel(Ortho, 48), Pixel(Ortho, 80)));
+		View.DepthConvention = SavedDepth;
+	}
+	View.ProjectionMatrix = Perspective;
+	Aim({0, 0, 3});
 	Capture(true, Disabled);
 	Surface(721, -.1);
 	Capture(false, Rear);

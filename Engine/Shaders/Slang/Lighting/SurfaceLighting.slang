@@ -11,16 +11,10 @@ public struct FSurfaceLightingFrame
     public float3 reflectionDirection;
 };
 
-public FSurfaceLightingFrame BuildSurfaceLightingFrame(
-    float3 worldPosition,
-    float3 shadingNormal,
-    float3 viewPosition)
+public FSurfaceLightingFrame BuildSurfaceLightingFrameFromViewVector(float3 shadingNormal, float3 viewVector)
 {
     FSurfaceLightingFrame result;
-    // SurfaceMaterial already publishes a finite normalized shading normal.
-    // Preserve that exact value so extraction does not perturb forward output.
     result.normal = shadingNormal;
-    float3 viewVector = viewPosition - worldPosition;
     float viewLengthSquared = dot(viewVector, viewVector);
     result.toView = viewLengthSquared > 1.0e-8
         ? viewVector * rsqrt(viewLengthSquared)
@@ -28,6 +22,12 @@ public FSurfaceLightingFrame BuildSurfaceLightingFrame(
     result.NoV = saturate(dot(result.normal, result.toView));
     result.reflectionDirection = reflect(-result.toView, result.normal);
     return result;
+}
+
+public FSurfaceLightingFrame BuildSurfaceLightingFrame(
+    float3 worldPosition, float3 shadingNormal, float3 viewPosition)
+{
+    return BuildSurfaceLightingFrameFromViewVector(shadingNormal, viewPosition - worldPosition);
 }
 
 public float3 EvaluateSurfaceDirectionalLighting(

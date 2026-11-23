@@ -125,10 +125,11 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
 #endif
     float3 normal = shading.normalFrame.shadingNormal;
     float roughness = shading.effectiveRoughness;
-    FSurfaceLightingFrame frame = BuildSurfaceLightingFrame(input.worldPosition, normal, Lighting.ViewPosition.xyz);
+    float3 incident = WaterIncidentDirection(WaterView, surfaceInView, viewForward);
+    FSurfaceLightingFrame frame = BuildSurfaceLightingFrameFromViewVector(normal, mul((float3x3)MaterialView.ViewToWorld, -incident));
     float waterIor = WaterIor(surface.specular);
     float4 viewport = MaterialView.Viewport;
-    FWaterBackground background = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
+    FWaterBackground background = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterView,
         viewport, input.pos.xy, viewForward, surfaceDepth, slopeTolerance);
     float2 offset = 0.0;
 #if DURIN_MATERIAL_REFRACTION_METHOD != 0
@@ -137,21 +138,20 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
     authoredIor = surface.refraction;
 #endif
     float3 viewNormal = normalize(mul((float3x3)MaterialView.WorldToView, normal));
-    if (background.valid && !background.open)
+    if (background.valid)
     {
-        FWaterRefractionCandidate candidate = FindWaterRefractionCandidate(WaterBackgroundDepth, WaterCoverage,
-            WaterView, viewport, input.pos.xy, surfaceInView, viewNormal, viewForward, surfaceDepth,
-            slopeTolerance, authoredIor, asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)), background.depth);
-        if (candidate.depth > 0.0)
+        float2 distortion = WaterDistortionPixels(WaterView, viewport.zw, viewNormal, viewForward, authoredIor,
+            max(background.depth - surfaceDepth, 0.0) * 100.0,
+            asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)), background.open);
+        float2 target = ClampWaterPixel(ClampWaterPixel(input.pos.xy, viewport) + distortion, viewport);
+        if (any(distortion != 0.0))
         {
-            FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage,
-                WaterView, viewport, input.pos.xy + candidate.offset, viewForward, surfaceDepth, slopeTolerance, candidate.depth);
-            // A reprojected candidate needs at least one finite tap from its layer.
-            // Otherwise retain the original pixel's color and depth together.
-            if (refracted.valid && (candidate.converged || !refracted.open))
+            FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterView,
+                viewport, target, viewForward, surfaceDepth, slopeTolerance);
+            if (refracted.valid)
             {
                 background = refracted;
-                offset = candidate.offset;
+                offset = target - input.pos.xy;
             }
         }
     }
