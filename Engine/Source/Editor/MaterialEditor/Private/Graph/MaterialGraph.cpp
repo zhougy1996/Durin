@@ -1,18 +1,40 @@
 #include "MaterialGraph.h"
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
-#include "MaterialGraphPinSource.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "Materials/Material.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Graph/MaterialGraphCommands.h"
+#include "MaterialExpressionParameters.h"
 #include "Materials/MaterialExpressionInputs.h"
+#include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 
 namespace Durin::MaterialEditor
 {
 	namespace
 	{
+		auto ToGraphLink(const FMaterialExpressionInput& Input) -> FMaterialProgramLink
+		{
+			const FGuid Port = Input.GetOutputId();
+			if (!Port.IsValid() && !std::in_range<uint8>(Input.OutputIndex)) return {};
+			return {Input.GetExpressionId(), static_cast<uint8>(Port.IsValid() ? 0 : Input.OutputIndex), Port};
+		}
+
+		auto ReadGraphOutputs(const DMaterial& Material) -> FMaterialAttributeValues
+		{
+			FMaterialAttributeValues Result;
+			Result.Attributes = ToGraphLink(*Material.GetExpressionInputForProperty(EMaterialProperty::MP_MaterialAttributes));
+			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
+			{
+				const auto Input = *Material.GetNumericInputForProperty(Definition.Property);
+				GetMaterialSurfaceOutputLink(Result, Definition.Property) = ToGraphLink(Input.Connection);
+				const auto V = ReadMaterialNumericDefault(Input, Definition.Property);
+				GetMaterialSurfaceOutputDefault(Result, Definition.Property) = {V[0], V.size() > 1 ? V[1] : 0.f, V.size() > 2 ? V[2] : 0.f};
+			}
+			return Result;
+		}
 
 		auto ResolveExpression(DObject* Owner, const FGuid& Id) -> DMaterialExpression*
 		{
@@ -182,155 +204,243 @@ namespace Durin::MaterialEditor
 			return bValid;
 		}
 
-		auto CommitGraphEdit(DObject& Owner, DTransactor* Transactions, std::string Description,
-			FMaterialExpressionCollection& Collection, FMaterialRootInputs* Root, FProposedLinks Links,
-			FProposedCallOutputs CallOutputs, std::vector<DMaterialExpression*> Edited, const std::function<void()>& Apply,
-			const FProposedNumerics& Numerics, DMaterialExpression* PreserveIdentity,
-			const FMaterialParameterDefinition* SharedParameter) -> FMaterialGraphCommandResult
+		namespace
 		{
-			const auto* MaterialOwner = Cast<DMaterial>(&Owner);
-			std::optional<FMaterialRootInputs> CurrentRoot;
-			if (MaterialOwner) CurrentRoot = MaterialOwner->CaptureRootInputs();
-			if (auto Valid = ValidateProposedGraph(Owner, Collection, Links,
-				Root ? Root : (CurrentRoot ? &*CurrentRoot : nullptr), SharedParameter); !Valid) return Valid;
-			auto& Current = FMaterialExpressionEditing::GetExpressions(Owner);
-			auto& Candidate = Collection.Expressions;
-			std::unordered_set<DMaterialExpression*> Live;
-			for (const auto& Expression : Current) Live.insert(Expression.Get());
-			auto* Draft = PreserveIdentity ? FindMaterialExpression(Candidate, PreserveIdentity->Id) : nullptr;
-
-			std::vector<DMaterialExpression*> Seeds, ChangedOutputs;
-			std::vector<DObject*> Objects(Edited.begin(), Edited.end());
-			for (const auto& Expression : Candidate)
+			struct FInferredNumericEdits
 			{
-				if (!Live.contains(Expression.Get()))
-				{
-					Seeds.push_back(Expression.Get());
-					ChangedOutputs.push_back(Expression.Get());
-					continue;
-				}
-				bool bLinkChanged = false;
-				VisitStoredMaterialInputs(*Expression, [&](const FMaterialExpressionInput& Input) {
-					bLinkChanged |= Links.contains(&Input);
-				});
-				if (bLinkChanged || std::ranges::contains(Edited, Expression.Get())) Seeds.push_back(Expression.Get());
-			}
-			for (const auto& [Call, Outputs] : CallOutputs)
-				if (Live.contains(Call)) Objects.push_back(Call);
+				std::vector<DMaterialExpression*> Objects;
+				std::vector<std::pair<EMaterialProgramValueType*, EMaterialProgramValueType>> Widths;
+				std::vector<std::pair<std::vector<float>*, std::vector<float>>> Defaults;
 
-			std::vector<std::pair<EMaterialProgramValueType*, EMaterialProgramValueType>> Widths;
-			std::vector<std::pair<std::vector<float>*, std::vector<float>>> Defaults;
-			uint32 Inferred = 0;
-			if (!Seeds.empty())
-				InferNumericTypes(Candidate, Inferred, Seeds, ChangedOutputs, [&](DMaterialExpression& Expression, auto& Field, auto Value) {
-					if (!Live.contains(&Expression)) { Field = std::move(Value); return; }
+				template<class T>
+				auto Add(DMaterialExpression& Expression, T& Field, T Value) -> void
+				{
 					Objects.push_back(&Expression);
-					if constexpr (std::is_same_v<decltype(Value), EMaterialProgramValueType>)
-						Widths.emplace_back(&Field, Value);
+					if constexpr (std::is_same_v<T, EMaterialProgramValueType>) Widths.emplace_back(&Field, Value);
 					else Defaults.emplace_back(&Field, std::move(Value));
-				}, Links, Numerics, {}, CallOutputs);
-
-			// Same-class replacement is a field edit of the existing object. The draft
-			// supplies its prospective values without changing live links or identity.
-			std::vector<std::pair<FProperty*, uint32>> Fields;
-			if (Draft)
-			{
-				VisitStoredMaterialInputs(*Draft, [&](FMaterialExpressionInput& Input) {
-					if (const auto Proposed = Links.find(&Input); Proposed != Links.end())
-					{
-						Input = Proposed->second;
-						Links.erase(Proposed);
-					}
-					if (Input.Expression.Get() == Draft) Input.Expression = PreserveIdentity;
-				});
-				for (auto& [Field, Link] : Links)
-					if (Link.Expression.Get() == Draft) Link.Expression = PreserveIdentity;
-				if (Root)
-				{
-					const auto Remap = [&](FMaterialExpressionInput& Input) {
-						if (Input.Expression.Get() == Draft) Input.Expression = PreserveIdentity;
-					};
-					Remap(Root->Attributes);
-					for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
-						Remap(Root->Get(Field.Property).Connection);
 				}
-				bool bCanCopy = true;
-				Draft->GetClass()->ForEachProperty([&](FProperty* Property) {
-					if (Property->HasAnyPropertyFlags(EPropertyFlags::Transient) || Property->NamePrivate == FName("EditorLayout")) return;
-					for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
-						if (!ArePropertyValuesIdentical(Property, Draft, Index, PreserveIdentity, Index))
-						{
-							bCanCopy &= Property->CanCopyAssignValue();
-							Fields.emplace_back(Property, Index);
-						}
-				});
-				if (!bCanCopy) return RejectCommand("Unable to update the expression properties.");
-				if (!Fields.empty()) Objects.push_back(PreserveIdentity);
-				*std::ranges::find(Candidate, Draft, [](const auto& Expression) { return Expression.Get(); }) = PreserveIdentity;
-			}
-			// Only links whose proposed value differs require a consumer record.
-			std::erase_if(Links, [](const auto& Entry) { return *Entry.first == Entry.second; });
-			if (!Links.empty())
-				for (const auto& Expression : Candidate)
-					if (Live.contains(Expression.Get()))
-						VisitStoredMaterialInputs(*Expression, [&](const FMaterialExpressionInput& Input) {
-							if (Links.contains(&Input)) Objects.push_back(Expression.Get());
-						});
-			const bool bMembership = Candidate != Current;
-			auto* Material = Cast<DMaterial>(&Owner);
-			const bool bRoot = Root && *Root != *CurrentRoot;
-			if (!bMembership && !bRoot && Fields.empty() && Links.empty() && CallOutputs.empty()
-				&& Widths.empty() && Defaults.empty() && !Apply) return {.Status = EMaterialGraphCommandStatus::NoChange};
-			std::vector<DMaterialExpression*> Removed;
-			if (bMembership)
-			{
-				std::unordered_set<DMaterialExpression*> Retained;
-				for (const auto& Expression : Candidate) Retained.insert(Expression.Get());
-				for (const auto& Expression : Current)
-					if (!Retained.contains(Expression.Get())) Removed.push_back(Expression.Get());
-			}
-			if (bMembership || bRoot) Objects.insert(Objects.begin(), &Owner);
-			Objects.insert(Objects.end(), Removed.begin(), Removed.end());
-			return RecordGraphEdit(Owner, Transactions, std::move(Description), Objects, [&] {
-				for (const auto& [Field, Index] : Fields)
-					require(Field->CopyAssignValue(Field->GetValuePtr(PreserveIdentity, Index), Field->GetValuePtr(Draft, Index)));
-				for (auto& [Field, Link] : Links) *const_cast<FMaterialExpressionInput*>(Field) = std::move(Link);
-				for (auto& [Call, Outputs] : CallOutputs) Call->FunctionOutputs = std::move(Outputs);
-				if (Apply) Apply();
-				for (auto& [Field, Width] : Widths) *Field = Width;
-				for (auto& [Field, Default] : Defaults) *Field = std::move(Default);
-				if (bRoot) require(FMaterialExpressionEditing::SetRootInputs(*Material, std::move(*Root)));
-				if (bMembership)
+
+				auto Write() -> void
 				{
-					Current.swap(Candidate);
+					for (const auto& [Field, Width] : Widths) *Field = Width;
+					for (auto& [Field, Default] : Defaults) *Field = std::move(Default);
+				}
+			};
+
+			auto InferStructuralEdit(DObject& Owner, const FMaterialExpressionCollection& Collection,
+				const FProposedLinks& Links, const FProposedNumerics& Numerics, const FProposedCallOutputs& Outputs) -> FInferredNumericEdits
+			{
+				const auto& Current = FMaterialExpressionEditing::GetExpressions(Owner);
+				std::unordered_set<DMaterialExpression*> Live;
+				for (const auto& Expression : Current) Live.insert(Expression.Get());
+				std::vector<DMaterialExpression*> Seeds, ChangedOutputs;
+				for (const auto& Expression : Collection.Expressions)
+				{
+					if (!Live.contains(Expression.Get()))
+					{
+						Seeds.push_back(Expression.Get());
+						ChangedOutputs.push_back(Expression.Get());
+						continue;
+					}
+					bool bInputChanged = false;
+					VisitStoredMaterialInputs(*Expression, [&](const FMaterialExpressionInput& Input) {
+						bInputChanged |= Links.contains(&Input);
+						if (!Numerics.empty())
+							bInputChanged |= Numerics.contains(FindMaterialNumericInput(*Expression, Input));
+					});
+					if (bInputChanged) Seeds.push_back(Expression.Get());
+				}
+
+				FInferredNumericEdits Inferred;
+				uint32 Count = 0;
+				if (!Seeds.empty())
+					InferNumericTypes(Collection.Expressions, Count, Seeds, ChangedOutputs,
+						[&](DMaterialExpression& Expression, auto& Field, auto Value) {
+							if (Live.contains(&Expression)) Inferred.Add(Expression, Field, std::move(Value));
+							else Field = std::move(Value);
+						}, Links, Numerics, {}, Outputs);
+				return Inferred;
+			}
+
+			struct FGraphStructureWrite
+			{
+				std::vector<DObject*> Objects;
+				std::vector<DMaterialExpression*> Removed;
+				bool bMembershipChanged = false;
+				bool bRootChanged = false;
+
+				auto Apply(DObject& Owner, FMaterialExpressionCollection& Collection, FMaterialRootInputs* Root) const -> void
+				{
+					if (bRootChanged) require(FMaterialExpressionEditing::SetRootInputs(*Cast<DMaterial>(&Owner), std::move(*Root)));
+					if (!bMembershipChanged) return;
+					FMaterialExpressionEditing::GetExpressions(Owner).swap(Collection.Expressions);
 					for (auto* Node : Removed) Node->MarkAsGarbage();
 					FMaterialExpressionEditing::ReconcileOwnership(Owner, {});
 				}
+			};
+
+			auto PrepareStructureWrite(DObject& Owner, const FMaterialExpressionCollection& Collection, const FMaterialRootInputs* Root,
+				FProposedLinks& Links, FProposedCallOutputs& CallOutputs, FProposedNumerics& Numerics,
+				const FInferredNumericEdits& Inferred) -> FGraphStructureWrite
+			{
+				FGraphStructureWrite Write;
+				const auto& Current = FMaterialExpressionEditing::GetExpressions(Owner);
+				Write.bMembershipChanged = Collection.Expressions != Current;
+				Write.bRootChanged = Root && *Root != Cast<DMaterial>(&Owner)->CaptureRootInputs();
+				if (Write.bMembershipChanged || Write.bRootChanged) Write.Objects.push_back(&Owner);
+				Write.Objects.insert(Write.Objects.end(), Inferred.Objects.begin(), Inferred.Objects.end());
+				std::unordered_set<DMaterialExpression*> Live;
+				for (const auto& Expression : Current) Live.insert(Expression.Get());
+				std::erase_if(Links, [](const auto& Entry) { return *Entry.first == Entry.second; });
+				std::erase_if(Numerics, [](const auto& Entry) { return *Entry.first == Entry.second; });
+				for (const auto& Expression : Collection.Expressions)
+				{
+					const bool bRetained = Live.erase(Expression.Get()) != 0;
+					// Detached additions are stored through the owner's membership record.
+					if (!bRetained || (Links.empty() && Numerics.empty())) continue;
+					VisitStoredMaterialInputs(*Expression, [&](const FMaterialExpressionInput& Input) {
+						if (Links.contains(&Input)
+							|| (!Numerics.empty() && Numerics.contains(FindMaterialNumericInput(*Expression, Input))))
+							Write.Objects.push_back(Expression.Get());
+					});
+				}
+				for (const auto& Expression : Current)
+					if (Live.contains(Expression.Get())) Write.Removed.push_back(Expression.Get());
+				Write.Objects.insert(Write.Objects.end(), Write.Removed.begin(), Write.Removed.end());
+				CollectCallOutputEdits(CallOutputs, Write.Objects);
+				return Write;
+			}
+
+			auto WriteExpressionInputs(FProposedLinks& Links, FProposedNumerics& Numerics) -> void
+			{
+				for (auto& [Slot, Input] : Numerics) *const_cast<FMaterialNumericInput*>(Slot) = std::move(Input);
+				for (auto& [Slot, Link] : Links) *const_cast<FMaterialExpressionInput*>(Slot) = std::move(Link);
+			}
+
+			auto ValidateStructuralEdit(DObject& Owner, const FMaterialExpressionCollection& Collection,
+				const FMaterialRootInputs* Root, const FProposedLinks& Links,
+				const FMaterialParameterDefinition* SharedParameter = nullptr) -> FMaterialGraphCommandResult
+			{
+				if (!Root)
+					if (const auto* Material = Cast<DMaterial>(&Owner))
+					{
+						const auto CurrentRoot = Material->CaptureRootInputs();
+						return ValidateProposedGraph(Owner, Collection, Links, &CurrentRoot, SharedParameter);
+					}
+				return ValidateProposedGraph(Owner, Collection, Links, Root, SharedParameter);
+			}
+		}
+
+		auto CommitGraphEdit(DObject& Owner, DTransactor* Transactions, std::string Description,
+			FMaterialExpressionCollection& Collection, FMaterialRootInputs* Root, FProposedLinks Links,
+			FProposedCallOutputs CallOutputs, FProposedNumerics Numerics) -> FMaterialGraphCommandResult
+		{
+			if (auto Valid = ValidateStructuralEdit(Owner, Collection, Root, Links); !Valid) return Valid;
+			auto Inferred = InferStructuralEdit(Owner, Collection, Links, Numerics, CallOutputs);
+			auto Write = PrepareStructureWrite(Owner, Collection, Root, Links, CallOutputs, Numerics, Inferred);
+			if (Write.Objects.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			return RecordGraphEdit(Owner, Transactions, std::move(Description), Write.Objects, [&] {
+				WriteExpressionInputs(Links, Numerics);
+				WriteCallOutputs(CallOutputs);
+				Inferred.Write();
+				Write.Apply(Owner, Collection, Root);
 			});
 		}
 
 		auto EditExpressionInputs(DObject& Owner, DTransactor* Transactions, std::string Description,
 			std::vector<DMaterialExpression*> Objects, const std::function<void()>& Apply,
 			const FProposedLinks& Links, const FProposedNumerics& Numerics,
-			std::map<DMaterialExpression*, EMaterialProgramValueType> KnownOutputs, uint32* InferredCount) -> FMaterialGraphCommandResult
+			std::map<DMaterialExpression*, EMaterialProgramValueType> KnownOutputs, uint32* InferredCount,
+			FProposedCallOutputs CallOutputs) -> FMaterialGraphCommandResult
 		{
 			if (auto Valid = ValidateGraphEdit(Owner, Links); !Valid) return Valid;
-			std::vector<std::pair<EMaterialProgramValueType*, EMaterialProgramValueType>> Widths;
-			std::vector<std::pair<std::vector<float>*, std::vector<float>>> Defaults;
-			const auto Seeds = Objects;
+			FInferredNumericEdits Inferred;
 			uint32 Count = 0;
-			InferNumericTypes(FMaterialExpressionEditing::GetExpressions(Owner), Count, Seeds, {},
-				[&](DMaterialExpression& Object, auto& Field, auto Value) {
-					if (!std::ranges::contains(Objects, &Object)) Objects.push_back(&Object);
-					if constexpr (std::is_same_v<decltype(Value), EMaterialProgramValueType>)
-						Widths.emplace_back(&Field, Value);
-					else Defaults.emplace_back(&Field, std::move(Value));
-				}, Links, Numerics, std::move(KnownOutputs));
+			InferNumericTypes(FMaterialExpressionEditing::GetExpressions(Owner), Count, Objects, {},
+				[&](DMaterialExpression& Object, auto& Field, auto Value) { Inferred.Add(Object, Field, std::move(Value)); },
+				Links, Numerics, std::move(KnownOutputs), CallOutputs);
 			if (InferredCount) *InferredCount = Count;
-			return EditExpressions(Owner, Transactions, std::move(Description), Objects, [&] {
+			std::vector<DObject*> Participants(Objects.begin(), Objects.end());
+			Participants.insert(Participants.end(), Inferred.Objects.begin(), Inferred.Objects.end());
+			CollectCallOutputEdits(CallOutputs, Participants);
+			return RecordGraphEdit(Owner, Transactions, std::move(Description), Participants, [&] {
+				WriteCallOutputs(CallOutputs);
 				Apply();
-				for (auto& [Field, Width] : Widths) *Field = Width;
-				for (auto& [Field, Default] : Defaults) *Field = std::move(Default);
+				Inferred.Write();
+			});
+		}
+
+		auto CommitExpressionReplacement(DObject& Owner, DMaterialExpression& Replacement,
+			DTransactor* Transactions) -> FMaterialGraphCommandResult
+		{
+			FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(Owner)};
+			auto* Existing = FindMaterialExpression(Candidate.Expressions, Replacement.Id);
+			if (!Existing) return RejectCommand("The expression no longer exists.");
+			std::vector<DMaterialExpression*> Peers;
+			std::optional<FMaterialParameterDefinition> Shared;
+			if (auto* Parameter = Cast<DMaterialExpressionParameter>(&Replacement))
+			{
+				if (auto Valid = ResolveParameterExpression(Owner, Candidate.Expressions, *Parameter,
+					Cast<DMaterialExpressionParameter>(Existing), &Peers); !Valid) return Valid;
+				if (!Peers.empty()) Shared = Parameter->GetParameterDefinition();
+			}
+			std::optional<FMaterialRootInputs> Root;
+			if (const auto* Material = Cast<DMaterial>(&Owner)) Root = Material->CaptureRootInputs();
+			FProposedLinks Links;
+			PrepareExpressionReplacement(Candidate, Root ? &*Root : nullptr, Links, *Existing, Replacement);
+			if (auto Valid = ValidateStructuralEdit(Owner, Candidate, Root ? &*Root : nullptr, Links, Shared ? &*Shared : nullptr); !Valid)
+				return Valid;
+
+			auto Inferred = InferStructuralEdit(Owner, Candidate, Links, {}, {});
+			std::vector<std::pair<FProperty*, uint32>> Fields;
+			if (Existing->GetClass() == Replacement.GetClass())
+			{
+				// Keep the original object and use the draft only for prospective values.
+				const auto RestoreIdentity = [&](FMaterialExpressionInput& Input) {
+					if (Input.Expression.Get() == &Replacement) Input.Expression = Existing;
+				};
+				VisitStoredMaterialInputs(Replacement, [&](FMaterialExpressionInput& Input) {
+					if (const auto Proposed = Links.find(&Input); Proposed != Links.end())
+					{
+						Input = Proposed->second;
+						Links.erase(Proposed);
+					}
+					RestoreIdentity(Input);
+				});
+				for (auto& [Slot, Link] : Links) RestoreIdentity(Link);
+				if (Root)
+				{
+					RestoreIdentity(Root->Attributes);
+					for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+						RestoreIdentity(Root->Get(Field.Property).Connection);
+				}
+				bool bCanCopy = true;
+				Replacement.GetClass()->ForEachProperty([&](FProperty* Field) {
+					if (Field->HasAnyPropertyFlags(EPropertyFlags::Transient) || Field->NamePrivate == FName("EditorLayout")) return;
+					for (uint32 Index = 0; Index < Field->GetArrayDim(); ++Index)
+						if (!ArePropertyValuesIdentical(Field, &Replacement, Index, Existing, Index))
+						{
+							bCanCopy &= Field->CanCopyAssignValue();
+							Fields.emplace_back(Field, Index);
+						}
+				});
+				if (!bCanCopy) return RejectCommand("Unable to update the expression properties.");
+				*std::ranges::find(Candidate.Expressions, &Replacement, [](const auto& Expression) { return Expression.Get(); }) = Existing;
+			}
+
+			FProposedCallOutputs Outputs;
+			FProposedNumerics Numerics;
+			auto Write = PrepareStructureWrite(Owner, Candidate, Root ? &*Root : nullptr, Links, Outputs, Numerics, Inferred);
+			if (!Fields.empty()) Write.Objects.push_back(Existing);
+			Write.Objects.insert(Write.Objects.end(), Peers.begin(), Peers.end());
+			if (Write.Objects.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			return RecordGraphEdit(Owner, Transactions, "Replace Graph Expression", Write.Objects, [&] {
+				for (const auto& [Field, Index] : Fields)
+					require(Field->CopyAssignValue(Field->GetValuePtr(Existing, Index), Field->GetValuePtr(&Replacement, Index)));
+				WriteExpressionInputs(Links, Numerics);
+				for (auto* Peer : Peers) require(Cast<DMaterialExpressionParameter>(Peer)->SetParameterDefinition(*Shared));
+				Inferred.Write();
+				Write.Apply(Owner, Candidate, Root ? &*Root : nullptr);
 			});
 		}
 	}
@@ -444,6 +554,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphSchema::TryCreateConnection(const FMaterialGraphPin* A, const FMaterialGraphPin* B,
 		bool Replace, ETransactionMode Mode, std::string* OutError) const -> bool
 	{
+		if (OutError) OutError->clear();
 		const auto Response = CanCreateConnection(A, B);
 		if (!Response.Allows(Replace))
 		{
@@ -492,14 +603,20 @@ namespace Durin::MaterialEditor
 		auto* Source = Output.GetOwningNode();
 		const auto& Pin = Source->GetView().Outputs[Output.DisplayIndex];
 		auto& Owner = *Target->GetOuter();
-		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(Owner)};
 		FProposedCallOutputs Outputs;
 		const auto Link = ResolveGraphOutput(Source->GetMaterialExpression(), Pin.OutputIndex, Pin.PortId, Outputs);
 		if (Link.OutputIndex < 0) return FailWithError(OutError, "The source output is unavailable.");
 		auto Bindings = Target->Attributes;
 		Bindings.emplace_back(Property, Link);
-		return ConnectionCommitChanged(CommitGraphEdit(Owner, *Transactions, "Set Material Attribute Input", Candidate, nullptr, {},
-			std::move(Outputs), {Target}, [&] { Target->Attributes.swap(Bindings); }), OutError);
+		const FMaterialExpressionCollection Collection{FMaterialExpressionEditing::GetExpressions(Owner)};
+		if (auto Valid = ValidateStructuralEdit(Owner, Collection, nullptr, {}); !Valid)
+			return ConnectionCommitChanged(Valid, OutError);
+		std::vector<DObject*> Objects{Target};
+		CollectCallOutputEdits(Outputs, Objects);
+		return ConnectionCommitChanged(RecordGraphEdit(Owner, *Transactions, "Set Material Attribute Input", Objects, [&] {
+			WriteCallOutputs(Outputs);
+			Target->Attributes.swap(Bindings);
+		}), OutError);
 	}
 
 	auto DMaterialGraphNode::ClearAttributeInput(EMaterialProperty Property, ETransactionMode Mode) -> FMaterialGraphCommandResult
@@ -583,7 +700,6 @@ namespace Durin::MaterialEditor
 
 	auto DMaterialGraphNode::GetMaterialExpression() const -> DMaterialExpression*
 	{
-		if (ActiveSource) return ActiveSource->Expression;
 		auto* Graph = Cast<DMaterialGraph>(GetOuter());
 		if (!Graph || Graph->FindNode(View.Node.Id) != this) return nullptr;
 		auto* Expression = MaterialExpression.Get();
@@ -687,9 +803,18 @@ namespace Durin::MaterialEditor
 			const auto Next = ResolveGraphOutput(Source, Port.IsValid() ? 0 : Index, Port, Outputs);
 			if (Next.OutputIndex < 0) return FailWithError(Error, "The source output no longer exists.");
 			if (!FMaterialGraphSchema::CanReplaceConnection(*Input, Next, Replace)) return FailWithError(Error, "The graph input is already connected.");
+			const bool bRootChanged = *Input != Next;
 			*Input = Next;
-			auto Candidate = Material->GetExpressionCollection();
-			return ConnectionCommitChanged(CommitGraphEdit(*Material, *Admission, "Connect Material Input", Candidate, &Root, {}, std::move(Outputs)), Error);
+			if (auto Valid = ValidateProposedGraph(*Material, Material->GetExpressionCollection(), {}, &Root, nullptr); !Valid)
+				return ConnectionCommitChanged(Valid, Error);
+			std::vector<DObject*> Objects;
+			if (bRootChanged) Objects.push_back(Material);
+			CollectCallOutputEdits(Outputs, Objects);
+			if (Objects.empty()) return ConnectionCommitChanged({.Status = EMaterialGraphCommandStatus::NoChange}, Error);
+			return ConnectionCommitChanged(RecordGraphEdit(*Material, *Admission, "Connect Material Input", Objects, [&] {
+				WriteCallOutputs(Outputs);
+				if (bRootChanged) require(FMaterialExpressionEditing::SetRootInputs(*Material, std::move(Root)));
+			}), Error);
 		}
 
 		auto WriteInput(DObject* Owner, DMaterialExpression& Node, FExpressionInputKey Key,
@@ -746,36 +871,28 @@ namespace Durin::MaterialEditor
 			if (!FMaterialGraphSchema::CanReplaceConnection(Previous, Connection, bReplaceExisting))
 				return GraphEditInternals::FailWithError(OutError, "The graph input is already connected.");
 			if (Previous == Connection) return false;
-			FMaterialGraphCommandResult Result;
-			if (Target && !SourceCall)
+			FProposedCallOutputs Outputs;
+			if (SourceCall)
 			{
-				Result = EditExpressionInputs(*Owner, Transactions, "Connect Graph Input", {&Node},
-					[&] { *Target = Connection; }, {{Target, Connection}});
+				auto& Proposed = Outputs.emplace(SourceCall, SourceCall->FunctionOutputs).first->second;
+				Proposed.push_back(NewOutput);
 			}
-			else
-			{
-				FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
-				FProposedCallOutputs Outputs;
-				if (SourceCall)
-				{
-					auto& Proposed = Outputs.emplace(SourceCall, SourceCall->FunctionOutputs).first->second;
-					Proposed.push_back(NewOutput);
-				}
-				FProposedLinks Links;
-				if (Target) Links.emplace(Target, Connection);
-				std::vector<FMaterialExpressionFunctionInputBinding> Bindings;
-				if (!Target)
-				{
-					Bindings = Call->FunctionInputs;
-					Bindings.push_back({Port->Id, Port->Type, Connection});
-				}
-				if (Upstream && !FindMaterialExpression(Candidate.Expressions, Upstream->Id))
-					return FailWithError(OutError, "The source expression is unavailable.");
-				Result = CommitGraphEdit(*Owner, Transactions, "Connect Graph Input", Candidate, nullptr, std::move(Links), std::move(Outputs),
-					Target ? std::vector<DMaterialExpression*>{} : std::vector<DMaterialExpression*>{&Node},
-					Target ? std::function<void()>{} : std::function<void()>([&] { Call->FunctionInputs.swap(Bindings); }));
-			}
-			return ConnectionCommitChanged(Result, OutError);
+			if (Target)
+				return ConnectionCommitChanged(EditExpressionInputs(*Owner, Transactions, "Connect Graph Input", {&Node},
+					[&] { *Target = Connection; }, {{Target, Connection}}, {}, {}, nullptr, std::move(Outputs)), OutError);
+
+			const auto& Members = FMaterialExpressionEditing::GetExpressions(*Owner);
+			if (Upstream && !std::ranges::contains(Members, Upstream, [](const auto& Member) { return Member.Get(); }))
+				return FailWithError(OutError, "The source expression is unavailable.");
+			if (auto Valid = ValidateGraphEdit(*Owner); !Valid) return ConnectionCommitChanged(Valid, OutError);
+			auto Bindings = Call->FunctionInputs;
+			Bindings.push_back({Port->Id, Port->Type, Connection});
+			std::vector<DObject*> Objects{Call};
+			CollectCallOutputEdits(Outputs, Objects);
+			return ConnectionCommitChanged(RecordGraphEdit(*Owner, Transactions, "Connect Graph Input", Objects, [&] {
+				WriteCallOutputs(Outputs);
+				Call->FunctionInputs.swap(Bindings);
+			}), OutError);
 		}
 
 	}
@@ -873,30 +990,32 @@ namespace Durin::MaterialEditor
 		ApplyChanges(std::move(Changes));
 	}
 
-	auto DMaterialGraph::RefreshNodes(std::span<const FMaterialGraphCatalogEntry> Catalog,
-		std::optional<std::span<const FGuid>> Selected) -> void
+	auto DMaterialGraph::RefreshNodes(std::optional<std::span<const FGuid>> Selected) -> void
 	{
+		auto* Asset = GetMaterialOrFunction();
+		const auto* Material = Cast<DMaterial>(Asset);
+		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Asset);
 		std::unordered_map<FGuid, DMaterialGraphNode*> Existing;
 		for (const auto& Node : Nodes) Existing.emplace(Node->GetView().Node.Id, Node.Get());
+		std::unordered_set<FGuid> Selection;
+		if (Selected) Selection.insert(Selected->begin(), Selected->end());
 		std::vector<TObjectPtr<DMaterialGraphNode>> Updated;
-		auto Summary = ReadMaterialGraph(GetMaterialOrFunction(), RootViewId, Catalog, Selected,
-			[&](FMaterialGraphNodeView Metadata, const FMaterialGraphPinSource& Source) {
-				const auto It = Existing.find(Metadata.Node.Id);
-				const bool NewNode = It == Existing.end() || It->second->GetView().Node.bMaterialOutput != Metadata.Node.bMaterialOutput;
-				auto* Type = Metadata.Node.bMaterialOutput ? DMaterialGraphNode_Root::StaticClass() : DMaterialGraphNode::StaticClass();
-				auto* Node = NewNode ? NewObject<DMaterialGraphNode>(Type, this, NAME_None, EObjectFlags::Transient) : It->second;
-				if (NewNode)
-				{
-					if (It != Existing.end())
-					{
-						It->second->ClearPinLinks();
-						std::erase_if(Nodes, [&](const auto& Value) { return Value.Get() == It->second; });
-					}
-					Nodes.emplace_back(Node);
-				}
-				Node->Refresh(std::move(Metadata), Source, NewNode ? &DMaterialGraphNode::AllocateDefaultPins : &DMaterialGraphNode::ReconstructNode);
-				if (!Selected) Updated.emplace_back(Node);
-			});
+		const auto FindOrAddNode = [&](FGuid Id, DClass* Type) {
+			const auto It = Existing.find(Id);
+			auto* Node = It != Existing.end() ? It->second
+				: NewObject<DMaterialGraphNode>(Type, this, NAME_None, EObjectFlags::Transient);
+			if (!Selected) Updated.emplace_back(Node);
+			else if (It == Existing.end()) Nodes.emplace_back(Node);
+			return Node;
+		};
+		for (size_t Ordinal = 0; Ordinal < Expressions.size(); ++Ordinal)
+		{
+			auto* Expression = Expressions[Ordinal].Get();
+			if (Expression && (!Selected || Selection.contains(Expression->Id)))
+				FindOrAddNode(Expression->Id, DMaterialGraphNode::StaticClass())->Refresh(Expression, Ordinal);
+		}
+		if (Material && (!Selected || Selection.contains(RootViewId)))
+			Cast<DMaterialGraphNode_Root>(FindOrAddNode(RootViewId, DMaterialGraphNode_Root::StaticClass()))->Refresh(*Material, RootViewId);
 		if (!Selected)
 		{
 			// Detached nodes may still be held by an editor client.
@@ -905,7 +1024,7 @@ namespace Durin::MaterialEditor
 			Nodes = std::move(Updated);
 		}
 		std::ranges::sort(Nodes, {}, [](const auto& Node) { return Node->GetView().Node.Id; });
-		Outputs = std::move(Summary.Outputs);
+		Outputs = Material ? ReadGraphOutputs(*Material) : FMaterialAttributeValues{};
 		RestorePinLinks();
 	}
 

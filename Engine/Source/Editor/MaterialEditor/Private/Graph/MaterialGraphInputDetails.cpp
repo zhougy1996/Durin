@@ -305,12 +305,9 @@ namespace Durin::MaterialEditor
 		return true;
 	}
 
-	auto FMaterialGraphCanvas::PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&
+	auto FMaterialGraphCanvas::GetSelectedDetailsNode() const -> DMaterialGraphNode*
 	{
-		// Refresh here too: Details can be drawn before the canvas or while it is hidden.
-		if (auto* Material = Cast<DMaterial>(&Owner)) PrepareView(*Material);
-		else if (auto* Function = Cast<DMaterialFunction>(&Owner)) PrepareFunctionView(*Function);
-		return ReadModel.GetView();
+		return SelectedNodes.size() == 1 ? EditorGraph->ResolveNode(*SelectedNodes.begin()) : nullptr;
 	}
 
 	auto FMaterialGraphCanvas::DrawNodeLiteral(const FMaterialGraphPin* Pin,
@@ -363,16 +360,12 @@ namespace Durin::MaterialEditor
 	{
 		if (!EditorGraph->GetMaterialOrFunction()) { CancelInteraction(); return; }
 		auto& Owner = *EditorGraph->GetMaterialOrFunction();
-		if (SelectedNodes.empty()) return;
-		const auto& View = PrepareDetailsView(Owner);
-		const auto Selection = GetSelectedProgramNodes();
-		if (Selection.size() != 1) return;
-		auto* SelectedNode = EditorGraph->FindNode(Selection.front());
+		auto* SelectedNode = GetSelectedDetailsNode();
 		if (!SelectedNode) return;
 		const TStrongObjectPtr<DMaterialExpression> Expression(SelectedNode->GetMaterialExpression());
 		if (!Expression && !SelectedNode->GetView().Node.bMaterialOutput) return;
 		const auto& Selected = SelectedNode->GetView();
-		ImGui::PushID(Selection.front().ToString().c_str());
+		ImGui::PushID(Selected.Node.Id.ToString().c_str());
 		ImGui::TextWrapped("%s", Selected.PrimaryLabel.c_str());
 		if (SelectedDiagnostic && SelectedDiagnostic->NodeId == Selected.Node.Id)
 		{
@@ -520,21 +513,27 @@ namespace Durin::MaterialEditor
 				DetailsStyle::EditRow(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name.data(), [&] {
 					if (!ImGui::BeginCombo("##Value", bKeepBase ? "Keep base value" : "Connected")) return false;
 					if (ImGui::Selectable("Keep base value", bKeepBase)) Submit(SelectedNode->ClearAttributeInput(Attribute));
-					for (const auto& Source : View.Nodes)
+					if (Changed)
 					{
-						if (Changed) break;
-						for (const auto& Pin : Source.Outputs)
+						ImGui::EndCombo();
+						return true;
+					}
+					for (const auto& SourceNode : EditorGraph->GetNodes())
+					{
+						const auto& Source = SourceNode->GetView();
+						for (const auto& Output : SourceNode->GetPins())
 						{
-							const auto* Output = EditorGraph->FindOutputGraphPin({Source.Node.Id, Pin.OutputIndex, Pin.PortId});
-							if (!SelectedNode->CanSetAttributeInput(Attribute, Output).Allows(true)) continue;
-							if (ImGui::Selectable(std::format("{}: {}##{}:{}:{}", Source.PrimaryLabel, Pin.Name,
-								Source.Node.Id.ToString(), Pin.OutputIndex, Pin.PortId.ToString()).c_str()))
-							{
-								std::string Error;
-								Changed = SelectedNode->SetAttributeInput(Attribute, *Output, ETransactionMode::Record, &Error);
-								if (!Error.empty()) ReportError(std::move(Error));
-								break;
-							}
+							if (Output.Direction != EMaterialGraphPinDirection::Output
+								|| !SelectedNode->CanSetAttributeInput(Attribute, &Output).Allows(true)) continue;
+							const auto& Pin = Source.Outputs[Output.DisplayIndex];
+							if (!ImGui::Selectable(std::format("{}: {}##{}", Source.PrimaryLabel, Pin.Name,
+								Output.GetId().ToString()).c_str())) continue;
+
+							std::string Error;
+							Changed = SelectedNode->SetAttributeInput(Attribute, Output, ETransactionMode::Record, &Error);
+							if (!Error.empty()) ReportError(std::move(Error));
+							ImGui::EndCombo();
+							return Changed;
 						}
 					}
 					ImGui::EndCombo();

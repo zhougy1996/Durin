@@ -10,10 +10,15 @@
 #include "Delegates/Delegate.h"
 #include "MaterialGraph.gen.h"
 
+namespace Durin
+{
+	struct FMaterialExpressionAuthoringShape;
+}
+
 namespace Durin::MaterialEditor
 {
 	class FMaterialGraphSchema;
-	struct FMaterialGraphPinSource;
+	class FMaterialGraphCanvas;
 
 	class DMaterialGraphNode;
 	enum class EMaterialGraphPinDirection : uint8 { Input, Output };
@@ -90,7 +95,7 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API virtual auto ReconstructNode() -> void;
 	protected:
 		friend class DMaterialGraph;
-		MATERIALEDITOR_API virtual auto CreateInputPins() -> void;
+		MATERIALEDITOR_API virtual auto CreateInputPins(const FMaterialExpressionAuthoringShape* Shape) -> void;
 		MATERIALEDITOR_API virtual auto CreateOutputPins() -> void;
 		FMaterialGraphNodeView View;
 	private:
@@ -102,11 +107,8 @@ namespace Durin::MaterialEditor
 		}
 		auto ResolveInputGraph(const FMaterialGraphPin* Pin) const -> DMaterialGraph*;
 		friend class DMaterialGraphNode_Root;
-		using FPinOperation = void (DMaterialGraphNode::*)();
-		auto Refresh(FMaterialGraphNodeView Metadata, FMaterialGraphPinSource Source, FPinOperation Operation) -> void;
-		auto CreatePins() -> void;
-		// Available only while dispatching the synchronous allocation/reconstruction hooks.
-		const FMaterialGraphPinSource* ActiveSource = nullptr;
+		auto Refresh(DMaterialExpression* Expression, size_t Ordinal) -> void;
+		auto CreatePins(const FMaterialExpressionAuthoringShape* Shape) -> void;
 	};
 
 	DCLASS(NoClassDefaultObject)
@@ -116,8 +118,11 @@ namespace Durin::MaterialEditor
 	public:
 		explicit DMaterialGraphNode_Root(const FObjectInitializer& Initializer) : DMaterialGraphNode(Initializer) {}
 	protected:
-		MATERIALEDITOR_API auto CreateInputPins() -> void override;
+		MATERIALEDITOR_API auto CreateInputPins(const FMaterialExpressionAuthoringShape* Shape) -> void override;
 		auto CreateOutputPins() -> void override {}
+	private:
+		friend class DMaterialGraph;
+		auto Refresh(const DMaterial& Material, FGuid Id) -> void;
 	};
 
 	DCLASS(NoClassDefaultObject)
@@ -131,6 +136,7 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto GetSchema() const -> const FMaterialGraphSchema&;
 		auto GetRootNode() const -> DMaterialGraphNode* { return FindNode(RootViewId); }
 		auto GetNodes() const -> std::span<const TObjectPtr<DMaterialGraphNode>> { return Nodes; }
+		auto GetOutputs() const -> const FMaterialAttributeValues& { return Outputs; }
 		MATERIALEDITOR_API auto FindNode(const FGuid& Id) const -> DMaterialGraphNode*;
 		auto ResolveNode(const FMaterialGraphNodeAddress& Address) const -> DMaterialGraphNode*
 		{
@@ -198,7 +204,7 @@ namespace Durin::MaterialEditor
 			DTransactor* Transactions, bool bAuthorDefaultPositions, std::string_view Description, std::string* OutError) const -> bool;
 		auto MoveNodesInternal(std::span<const FMaterialGraphNodePresentation> Positions,
 			DTransactor* Transactions, std::string* OutError) const -> bool;
-		friend class FMaterialGraphReadModel;
+		friend class FMaterialGraphCanvas;
 		auto HasExpressionConsumer(const DMaterialExpression& Source) const -> bool;
 		auto RestorePinLinks() -> void;
 		friend class FMaterialGraphSchema;
@@ -216,8 +222,7 @@ namespace Durin::MaterialEditor
 		DECLARE_MULTICAST_DELEGATE_OneParam(FGraphSynchronized, const FMaterialGraphChangeSet&)
 		FGraphSynchronized Synchronized;
 		FMaterialAttributeValues Outputs;
-		auto RefreshNodes(std::span<const FMaterialGraphCatalogEntry> Catalog,
-			std::optional<std::span<const FGuid>> Selected = {}) -> void;
+		auto RefreshNodes(std::optional<std::span<const FGuid>> Selected = {}) -> void;
 		auto LinkMaterialExpressionsFromGraph(const FMaterialGraphPin& Input, const FMaterialGraphPin* Output,
 			bool Replace, ETransactionMode Mode, std::string* OutError) -> bool;
 		auto BreakOutputLinks(const FMaterialGraphPin& Output, ETransactionMode Mode, std::string* OutError) -> bool;

@@ -274,10 +274,21 @@ TEST(FMaterialGraphPersistenceTests, ObjectTransactionsRefreshCompilationAndLeav
 		EXPECT_FALSE(Testing::InputView(*Graph, Input)->bUseConstant);
 		ASSERT_TRUE(History->Undo());
 		ASSERT_TRUE(History->Undo());
+		auto* SourceExpression = Graph->FindNode(Id)->GetMaterialExpression();
+		SourceExpression->ClearFlags(EObjectFlags::Transactional);
 		ASSERT_TRUE(Graph->GetSchema().TryCreateConnection(Testing::ResolvePin(*Graph, Input), Testing::ResolvePin(*Graph, Source)));
+		EXPECT_FALSE(SourceExpression->HasAnyObjectFlags(EObjectFlags::Transactional));
 		EXPECT_TRUE(Connected());
 		EXPECT_EQ(History->GetQueueLength(), 1u);
 		auto Before = Revision();
+		const auto ConnectedRevision = Material->GetPackage()->GetEditRevision();
+		std::string Error = "previous error";
+		EXPECT_FALSE(Graph->GetSchema().TryCreateConnection(Testing::ResolvePin(*Graph, Input), Testing::ResolvePin(*Graph, Source),
+			false, ETransactionMode::Record, &Error));
+		EXPECT_TRUE(Error.empty());
+		EXPECT_EQ(Material->GetPackage()->GetEditRevision(), ConnectedRevision);
+		EXPECT_EQ(Revision(), Before);
+		EXPECT_EQ(History->GetQueueLength(), 1u);
 		ASSERT_TRUE(Graph->FindNode(Id)->SetConstantValue(FMaterialParameterValue::MakeScalar(.75f)));
 		EXPECT_EQ(History->GetQueueLength(), 2u);
 		EXPECT_GT(Revision(), Before);

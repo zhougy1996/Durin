@@ -1,7 +1,7 @@
 #include "Graph/MaterialGraphCatalog.h"
 #include "MaterialGraph.h"
-#include "MaterialGraphPinSource.h"
 #include "MaterialGraphCommands.h"
+#include "Materials/MaterialExpressionCollectionParameter.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionVector.h"
@@ -218,26 +218,79 @@ namespace Durin::MaterialEditor
 		}, Links);
 	}
 
-	auto DMaterialGraphNode::Refresh(FMaterialGraphNodeView Metadata, FMaterialGraphPinSource Source, FPinOperation Operation) -> void
+	auto DMaterialGraphNode::Refresh(DMaterialExpression* Expression, size_t Ordinal) -> void
 	{
-		if (MaterialExpression.Get() != Source.Expression) Pins.clear();
-		MaterialExpression = Source.Expression;
-		View = std::move(Metadata);
-		if (Source.Expression) SetExpressionLabels(View, Source.Expression);
-		struct FRestoreSource
+		if (MaterialExpression.Get() != Expression) Pins.clear();
+		MaterialExpression = Expression;
+		FMaterialGraphNodeDescriptor Node{.Id = Expression->Id};
+		const auto* Description = FindMaterialExpressionDescription(Expression->GetClass());
+		if (Description)
 		{
-			const FMaterialGraphPinSource*& Slot;
-			const FMaterialGraphPinSource* Previous;
-			~FRestoreSource() { Slot = Previous; }
-		} Restore{ActiveSource, std::exchange(ActiveSource, &Source)};
-		(this->*Operation)();
+			if (Description->SemanticOpcode) Node.Opcode = *Description->SemanticOpcode;
+			if (!Description->Shapes.empty()) Node.ResultType = Description->Shapes.front().ResultType;
+		}
+		if (const auto* Texture = Cast<DMaterialExpressionTextureParameter>(Expression); Texture && !IsMaterialSamplingNode(Node.Opcode))
+			Node.ResultType = Texture->DefaultValue.Dimension == EMaterialTextureDimension::TextureCube ? EMaterialProgramValueType::TextureCube : EMaterialProgramValueType::Texture2D;
+		if (auto* Type = Expression->GetClass()->FindPropertyByName("ResultType"))
+			Node.ResultType = *static_cast<const EMaterialProgramValueType*>(Type->GetValuePtr(Expression));
+		if (const auto* Constant = Cast<DMaterialExpressionScalarConstant>(Expression)) Node.Data = FMaterialParameterValue::MakeScalar(Constant->Value);
+		else if (const auto* Constant = Cast<DMaterialExpressionVector2Constant>(Expression)) Node.Data = FMaterialParameterValue::MakeVector2(Constant->Value);
+		else if (const auto* Constant = Cast<DMaterialExpressionVector3Constant>(Expression)) Node.Data = FMaterialParameterValue::MakeVector(Constant->Value);
+		else if (const auto* Constant = Cast<DMaterialExpressionVector4Constant>(Expression)) Node.Data = FMaterialParameterValue::MakeVector4(Constant->Value);
+		else if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameterCube>(Expression)) Node.Data = FMaterialGraphSampleInfo{Sample->Metadata.Id};
+		else if (Cast<DMaterialExpressionTextureSampleCube>(Expression)) Node.Data = FMaterialGraphSampleInfo{};
+		else if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression)) Node.Data = FMaterialGraphSampleInfo{Sample->Metadata.Id};
+		else if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression)) Node.Data = FMaterialGraphSampleInfo{};
+		else if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression)) Node.Data = FMaterialGraphParameterInfo{Parameter->Metadata.Id};
+		else if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression))
+		{
+			Node.Data = Swizzle->Components;
+			if (!Swizzle->Components.empty()) Node.ResultType = static_cast<EMaterialProgramValueType>(Swizzle->Components.size() - 1);
+		}
+		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
+		{
+			Node.Opcode = EMaterialProgramOpcode::FunctionCall;
+			if (!Call->FunctionOutputs.empty()) Node.ResultType = Call->FunctionOutputs.front().ExpectedType;
+		}
+		if (const auto* Collection = Cast<DMaterialExpressionCollectionParameter>(Expression); Collection && IsValid(Collection->Collection.Get()))
+			if (const auto* Declaration = Collection->Collection->FindDeclaration(Collection->ParameterId))
+				Node.ResultType = GetProgramType(Declaration->Type);
+		const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression);
+		const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression);
+		if (Input || Output)
+		{
+			Node.Opcode = Input ? EMaterialProgramOpcode::FunctionInput : EMaterialProgramOpcode::FunctionOutput;
+			Node.ResultType = Input ? Input->Port.Type : Output->Port.Type;
+		}
+		const FMaterialExpressionAuthoringShape* Shape = nullptr;
+		if (Description)
+		{
+			const auto It = std::ranges::find(Description->Shapes, Node.ResultType, &FMaterialExpressionAuthoringShape::ResultType);
+			if (It != Description->Shapes.end()) Shape = &*It;
+		}
+		const auto& Layout = Expression->EditorLayout;
+		auto Label = Description ? std::string(Description->Name) : "Unknown";
+		if (Shape && Node.Opcode == EMaterialProgramOpcode::Parameter)
+			Label = Node.ResultType == EMaterialProgramValueType::Float ? "Scalar Parameter" : "Vector Parameter";
+		View = {.Node = std::move(Node), .PrimaryLabel = std::move(Label)};
+		View.Presentation = Layout.bAuthored
+			? FMaterialGraphNodePresentation{View.Node.Id, Layout.X, Layout.Y, Layout.DisplayName}
+			: DefaultNodePresentation(View.Node, Ordinal);
+		SetExpressionLabels(View, Expression);
+		CreatePins(Shape);
 	}
 
-	auto DMaterialGraphNode::CreatePins() -> void
+	auto DMaterialGraphNode_Root::Refresh(const DMaterial& Material, FGuid Id) -> void
 	{
-		View.Inputs.clear();
-		View.Outputs.clear();
-		CreateInputPins();
+		const auto [X, Y] = Material.GetRootPosition();
+		View = {.Node = {.Id = Id, .bMaterialOutput = true}, .PrimaryLabel = "Material Output",
+			.Presentation = {Id, X, Y}};
+		CreatePins(nullptr);
+	}
+
+	auto DMaterialGraphNode::CreatePins(const FMaterialExpressionAuthoringShape* Shape) -> void
+	{
+		CreateInputPins(Shape);
 		CreateOutputPins();
 
 		const auto Previous = std::move(Pins);
@@ -251,7 +304,7 @@ namespace Durin::MaterialEditor
 			Pin.Id = Match == Previous.end() ? FGuid::NewGuid() : Match->Id;
 			Pins.push_back(std::move(Pin));
 		};
-		const auto* Call = Cast<DMaterialExpressionFunctionCall>(ActiveSource->Expression);
+		const auto* Call = Cast<DMaterialExpressionFunctionCall>(MaterialExpression.Get());
 		for (const auto& Input : View.Inputs)
 		{
 			auto Index = static_cast<int32>(Input.InputIndex);
@@ -303,23 +356,19 @@ namespace Durin::MaterialEditor
 
 	auto DMaterialGraphNode::AllocateDefaultPins() -> void
 	{
-		if (ActiveSource)
-		{
-			CreatePins();
-			return;
-		}
-		if (!View.Node.bMaterialOutput && !GetMaterialExpression()) return;
 		auto* Graph = Cast<DMaterialGraph>(GetOuter());
-		Graph->RefreshNodes(EnumerateCatalog(), std::span(&View.Node.Id, 1));
+		if (!Graph || Graph->FindNode(View.Node.Id) != this) return;
+		FMaterialGraphChangeSet Changes;
+		Changes.MarkNode(View.Node.Id, EMaterialGraphNodeChange::Content);
+		Graph->ApplyChanges(std::move(Changes));
 	}
 
 	auto DMaterialGraphNode::ReconstructNode() -> void { AllocateDefaultPins(); }
 
 
-	auto DMaterialGraphNode_Root::CreateInputPins() -> void
+	auto DMaterialGraphNode_Root::CreateInputPins(const FMaterialExpressionAuthoringShape*) -> void
 	{
-		const auto& Source = *ActiveSource;
-		const auto* Material = Source.Material;
+		const auto* Material = Cast<DMaterial>(Cast<DMaterialGraph>(GetOuter())->GetMaterialOrFunction());
 		if (!Material) return;
 		const auto Properties = GetMaterialDomainInputProperties(EMaterialDomain::Surface);
 		const auto Active = FMaterialAttributeDefinitionMap::GetActiveProperties(Material->GetDomain(), Material->GetStaticProperties());
@@ -358,12 +407,10 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto DMaterialGraphNode::CreateInputPins() -> void
+	auto DMaterialGraphNode::CreateInputPins(const FMaterialExpressionAuthoringShape* Shape) -> void
 	{
-		const auto& Source = *ActiveSource;
-		auto* Expression = Source.Expression;
+		auto* Expression = MaterialExpression.Get();
 		const auto& Node = View.Node;
-		const auto* Shape = Source.Shape;
 		const auto Definitions = FMaterialAttributeDefinitionMap::GetDefinitions();
 		if (!Cast<DMaterialExpressionFunctionCall>(Expression))
 			VisitMaterialExpressionInputs(*Expression, [&](uint32 InputIndex, FMaterialExpressionInput& Input) {
@@ -446,8 +493,7 @@ namespace Durin::MaterialEditor
 
 	auto DMaterialGraphNode::CreateOutputPins() -> void
 	{
-		const auto& Source = *ActiveSource;
-		auto* Expression = Source.Expression;
+		auto* Expression = MaterialExpression.Get();
 		const auto& Node = View.Node;
 		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
 		{

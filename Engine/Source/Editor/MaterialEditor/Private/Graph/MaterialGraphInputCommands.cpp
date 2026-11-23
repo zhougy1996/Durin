@@ -122,8 +122,16 @@ namespace Durin::MaterialEditor
 			if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
 			{
 				Slot = Next;
-				return CommitGraphEdit(Owner, Transactions, std::move(Description), Candidate, nullptr, {}, {},
-					{Call}, [&] { Call->FunctionInputs.swap(Bindings); });
+				auto* Material = Cast<DMaterial>(&Owner);
+				const auto CurrentRoot = Material ? std::optional(Material->CaptureRootInputs()) : std::nullopt;
+				if (auto Valid = ValidateProposedGraph(Owner, Candidate, {}, CurrentRoot ? &*CurrentRoot : nullptr, nullptr); !Valid)
+					return Valid;
+				const std::array<DObject*, 2> Objects{&Owner, Call};
+				return RecordGraphEdit(Owner, Transactions, std::move(Description), Objects, [&] {
+					Call->FunctionInputs.swap(Bindings);
+					FMaterialExpressionEditing::GetExpressions(Owner).swap(Candidate.Expressions);
+					FMaterialExpressionEditing::ReconcileOwnership(Owner, {});
+				});
 			}
 			return CommitGraphEdit(Owner, Transactions, std::move(Description), Candidate, nullptr, {{&Slot, Next}});
 		}
@@ -180,8 +188,13 @@ namespace Durin::MaterialEditor
 			if (RootEdit)
 			{
 				Input.Numeric->UseConstant = Enabled;
-				FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
-				return CommitGraphEdit(*Owner, Transactions, "Set Material Input Constant", Candidate, &*RootEdit);
+				auto& Material = *Cast<DMaterial>(Owner);
+				if (auto Valid = ValidateProposedGraph(Material, Material.GetExpressionCollection(), {}, &*RootEdit, nullptr); !Valid)
+					return Valid;
+				const std::array<DObject*, 1> Objects{&Material};
+				return RecordGraphEdit(Material, Transactions, "Set Material Input Constant", Objects, [&] {
+					require(FMaterialExpressionEditing::SetRootInputs(Material, std::move(*RootEdit)));
+				});
 			}
 			auto Next = *Input.Numeric;
 			Next.UseConstant = Enabled;
@@ -216,10 +229,19 @@ namespace Durin::MaterialEditor
 			if (Root || Call)
 			{
 				if (!Input.Write(Components)) return RejectCommand("The input default has an incompatible width.");
-				FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
-				if (Root) return CommitGraphEdit(*Owner, Transactions, "Edit Input Default", Candidate, &*Root);
-				return CommitGraphEdit(*Owner, Transactions, "Edit Input Default", Candidate, nullptr, {}, {},
-					{Call}, [&] { Call->FunctionInputs.swap(Bindings); });
+				if (Root)
+				{
+					auto& Material = *Cast<DMaterial>(Owner);
+					if (auto Valid = ValidateProposedGraph(Material, Material.GetExpressionCollection(), {}, &*Root, nullptr); !Valid)
+						return Valid;
+					const std::array<DObject*, 1> Objects{&Material};
+					return RecordGraphEdit(Material, Transactions, "Edit Input Default", Objects, [&] {
+						require(FMaterialExpressionEditing::SetRootInputs(Material, std::move(*Root)));
+					});
+				}
+				if (auto Valid = ValidateGraphEdit(*Owner); !Valid) return Valid;
+				const std::array<DMaterialExpression*, 1> Objects{Call};
+				return EditExpressions(*Owner, Transactions, "Edit Input Default", Objects, [&] { Call->FunctionInputs.swap(Bindings); });
 			}
 			auto Next = *Input.Numeric;
 			if (Components.empty()) Next.UseConstant = false;
@@ -379,7 +401,7 @@ namespace Durin::MaterialEditor
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault() || Input.Source->OutputIndex != 0)
 			return RejectCommand("This source cannot be represented by an inline binding.");
-		const auto* Source = Input.Source->Expression.Get();
+		auto* Source = Input.Source->Expression.Get();
 		if (!Source || !std::ranges::contains(Candidate.Expressions, Source, [](const auto& Member) { return Member.Get(); }))
 			return RejectCommand("The source expression is unavailable.");
 		const auto Value = ReadConstant(Source);
@@ -416,14 +438,29 @@ namespace Durin::MaterialEditor
 			std::erase_if(Candidate.Expressions, [&](const auto& Node) { return Node.Get() == Source; });
 		FProposedLinks Links;
 		if (LiveLink) Links.emplace(LiveLink, FMaterialExpressionInput{});
+		if (Call)
+		{
+			if (auto Valid = ValidateProposedGraph(Owner, Candidate, Links, Root ? &*Root : nullptr, nullptr); !Valid) return Valid;
+			std::vector<DObject*> Objects{Call};
+			if (!bRetained)
+			{
+				Objects.push_back(&Owner);
+				Objects.push_back(Source);
+			}
+			return RecordGraphEdit(Owner, Transactions, "Inline Input Node", Objects, [&] {
+				Call->FunctionInputs.swap(Bindings);
+				if (!bRetained)
+				{
+					FMaterialExpressionEditing::GetExpressions(Owner).swap(Candidate.Expressions);
+					Source->MarkAsGarbage();
+					FMaterialExpressionEditing::ReconcileOwnership(Owner, {});
+				}
+			});
+		}
 		FProposedNumerics Numerics;
-		if (Numeric) Numerics.emplace(Input.Numeric, *Numeric);
-		const auto Apply = [&] {
-			if (Call) Call->FunctionInputs.swap(Bindings);
-			else if (Numeric) *Input.Numeric = std::move(*Numeric);
-		};
+		if (Numeric) Numerics.emplace(Input.Numeric, std::move(*Numeric));
 		return CommitGraphEdit(Owner, Transactions, "Inline Input Node", Candidate, Root ? &*Root : nullptr,
-			std::move(Links), {}, Call ? std::vector<DMaterialExpression*>{Call} : std::vector<DMaterialExpression*>{}, Apply, Numerics);
+			std::move(Links), {}, std::move(Numerics));
 	}
 
 }

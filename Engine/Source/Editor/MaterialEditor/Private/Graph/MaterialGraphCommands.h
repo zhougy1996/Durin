@@ -23,11 +23,14 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	auto PrepareExpressionReplacement(FMaterialExpressionCollection& Collection, FMaterialRootInputs* Root,
 		FProposedLinks& Links, DMaterialExpression& Previous, DMaterialExpression& Replacement) -> void;
 	MATERIALEDITOR_API auto SetNodeLayout(DMaterialExpression& Expression, int32 X, int32 Y, std::string Label = {}) -> void;
+	// Structural edits prepare detached members and any retained links before recording.
 	MATERIALEDITOR_API auto CommitGraphEdit(DObject& Owner, DTransactor* Transactions, std::string Description,
 		FMaterialExpressionCollection& Collection, FMaterialRootInputs* Root = nullptr, FProposedLinks Links = {},
-		FProposedCallOutputs CallOutputs = {}, std::vector<DMaterialExpression*> Edited = {}, const std::function<void()>& Apply = {},
-		const FProposedNumerics& Numerics = {}, DMaterialExpression* PreserveIdentity = nullptr,
-		const FMaterialParameterDefinition* SharedParameter = nullptr) -> FMaterialGraphCommandResult;
+		FProposedCallOutputs CallOutputs = {}, FProposedNumerics Numerics = {}) -> FMaterialGraphCommandResult;
+
+	// These bindings are appended on demand by the command that connects an output.
+	auto CollectCallOutputEdits(FProposedCallOutputs& Outputs, std::vector<DObject*>& Objects) -> void;
+	auto WriteCallOutputs(FProposedCallOutputs& Outputs) -> void;
 
 	auto RecordGraphEdit(DObject& Owner, DTransactor* Transactions, std::string Description,
 		std::span<DObject* const> Objects, const std::function<void()>& Apply) -> FMaterialGraphCommandResult;
@@ -55,7 +58,8 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	MATERIALEDITOR_API auto EditExpressionInputs(DObject& Owner, DTransactor* Transactions, std::string Description,
 		std::vector<DMaterialExpression*> Objects, const std::function<void()>& Apply,
 		const FProposedLinks& Links = {}, const FProposedNumerics& Numerics = {},
-		std::map<DMaterialExpression*, EMaterialProgramValueType> KnownOutputs = {}, uint32* InferredCount = nullptr) -> FMaterialGraphCommandResult;
+		std::map<DMaterialExpression*, EMaterialProgramValueType> KnownOutputs = {}, uint32* InferredCount = nullptr,
+		FProposedCallOutputs CallOutputs = {}) -> FMaterialGraphCommandResult;
 	auto ValidateProposedGraph(DObject& Owner, const FMaterialExpressionCollection& Collection,
 		const FProposedLinks& Links, const FMaterialRootInputs* Root, const FMaterialParameterDefinition* SharedParameter) -> FMaterialGraphCommandResult;
 	auto ValidateGraphEdit(DObject& Owner, const std::unordered_map<const FMaterialExpressionInput*, FMaterialExpressionInput>& Links = {}) -> FMaterialGraphCommandResult;

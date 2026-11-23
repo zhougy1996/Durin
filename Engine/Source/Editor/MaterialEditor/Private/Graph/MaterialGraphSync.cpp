@@ -64,7 +64,7 @@ namespace Durin::MaterialEditor
 		if (!Asset) return;
 		if (Changes.Has(G::Reset))
 		{
-			RefreshNodes(EnumerateCatalog());
+			RefreshNodes();
 			ObserveDependencies(*Asset);
 			Synchronized.Broadcast(Changes);
 			return;
@@ -134,7 +134,7 @@ namespace Durin::MaterialEditor
 					: DefaultNodePresentation(Node->View.Node, std::distance(Expressions.begin(), Expression));
 			}
 		}
-		if (!Reconstruct.empty()) RefreshNodes(EnumerateCatalog(), Reconstruct);
+		if (!Reconstruct.empty()) RefreshNodes(Reconstruct);
 		else if (!ChangedOutputs.empty()) RestorePinLinks();
 		Synchronized.Broadcast(Changes);
 	}

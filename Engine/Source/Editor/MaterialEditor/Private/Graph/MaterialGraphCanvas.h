@@ -4,7 +4,7 @@
 #include "Graph/MaterialGraphInteraction.h"
 
 #include "MaterialGraphOperations.h"
-#include "MaterialGraphReadModel.h"
+#include "MaterialGraph.h"
 #include "MonaImGui.h"
 #include "PropertyEditor/DetailPanel.h"
 #include "PropertyEditor/PropertyControlFrame.h"
@@ -207,7 +207,7 @@ namespace Durin::MaterialEditor
 		auto ToggleNodePins(const FGuid& NodeId) -> void;
 		auto PrepareFunctionView(DMaterialFunction& Function) -> void;
 		auto PrepareDocumentView(DObject& Owner) -> void;
-		auto PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&;
+		auto GetSelectedDetailsNode() const -> DMaterialGraphNode*;
 		auto HandleCreationShortcut(DObject& Owner, DTransactor& Transactions,
 			const ImVec2& Position) -> bool;
 		auto DrawNodeHeading(const FVisualNode& Visual, ImDrawList& DrawList,
@@ -228,7 +228,8 @@ namespace Durin::MaterialEditor
 		std::optional<FMaterialProgramDiagnostic> SelectedDiagnostic;
 		std::optional<EMaterialProperty> SelectedSurfaceOutput;
 		std::vector<std::string> RecentCreationMenuEntries;
-		FMaterialGraphReadModel ReadModel;
+		FDelegateHandle GraphSynchronizedHandle;
+		FMaterialGraphChangeSet PendingGraphChanges;
 		bool bViewStale = true;
 		std::optional<ImVec2> LastPasteAnchor;
 		uint32 RepeatedPasteCount = 0;

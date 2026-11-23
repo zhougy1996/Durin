@@ -46,10 +46,14 @@ namespace Durin::MaterialEditor::MaterialEditing
 		auto* Transactions = *Admission;
 		if (Material.UsesMaterialAttributes() == bEnabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (!Material.CanEditMaterialAttributesMode()) return RejectCommand("Change the material attributes mode in the Surface domain.");
-		auto Candidate = Material.GetExpressionCollection();
 		auto Root = Material.CaptureRootInputs();
 		Root.bUseMaterialAttributes = bEnabled;
-		return CommitGraphEdit(Material, Transactions, "Change Material Output Mode", Candidate, &Root);
+		if (auto Valid = ValidateProposedGraph(Material, Material.GetExpressionCollection(), {}, &Root, nullptr); !Valid)
+			return Valid;
+		const std::array<DObject*, 1> Objects{&Material};
+		return RecordGraphEdit(Material, Transactions, "Change Material Output Mode", Objects, [&] {
+			require(FMaterialExpressionEditing::SetRootInputs(Material, std::move(Root)));
+		});
 	}
 
 }

@@ -152,7 +152,7 @@ namespace Durin::MaterialEditor
 		// An outer change batch can defer the notification that normally creates these nodes.
 		if (Owner.IsValid())
 		{
-			RefreshNodes(EnumerateCatalog());
+			RefreshNodes();
 			if (auto* Node = FindNode(Id)) return Node;
 		}
 		return std::unexpected(RejectCommand("The created graph node is no longer available."));
@@ -390,32 +390,6 @@ namespace Durin::MaterialEditor
 		if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
 		TStrongObjectPtr<DMaterialExpression> Replacement(Duplicated.value());
 		return CommitExpressionReplacement(*Owner.Get(), *Replacement, Transactions);
-	}
-
-	auto GraphEditInternals::CommitExpressionReplacement(DObject& Owner, DMaterialExpression& Replacement,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(Owner)};
-		auto* Existing = FindMaterialExpression(Candidate.Expressions, Replacement.Id);
-		if (!Existing) return RejectCommand("The expression no longer exists.");
-		std::vector<DMaterialExpression*> Peers;
-		std::optional<FMaterialParameterDefinition> Shared;
-		if (auto* Parameter = Cast<DMaterialExpressionParameter>(&Replacement))
-		{
-			if (const auto Error = ResolveParameterExpression(Owner, Candidate.Expressions, *Parameter,
-				Cast<DMaterialExpressionParameter>(Existing), &Peers); !Error) return Error;
-			if (!Peers.empty()) Shared = Parameter->GetParameterDefinition();
-		}
-		std::optional<FMaterialRootInputs> Root;
-		if (const auto* Material = Cast<DMaterial>(&Owner)) Root = Material->CaptureRootInputs();
-		FProposedLinks Links;
-		PrepareExpressionReplacement(Candidate, Root ? &*Root : nullptr, Links, *Existing, Replacement);
-		const auto Apply = [&] {
-			for (auto* Peer : Peers) require(Cast<DMaterialExpressionParameter>(Peer)->SetParameterDefinition(*Shared));
-		};
-		return CommitGraphEdit(Owner, Transactions, "Replace Graph Expression", Candidate, Root ? &*Root : nullptr, std::move(Links),
-			{}, Peers, Shared ? std::function<void()>(Apply) : std::function<void()>{}, {},
-			Existing->GetClass() == Replacement.GetClass() ? Existing : nullptr, Shared ? &*Shared : nullptr);
 	}
 
 	auto DMaterialGraph::InsertFunctionCall(DMaterialFunctionInterface& Function,

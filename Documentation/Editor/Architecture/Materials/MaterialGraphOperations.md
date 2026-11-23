@@ -108,7 +108,7 @@ before `FMaterialExpressionEditing` reconciles ownership and publishes the
 settled graph. Transaction capture and replay follow
 [Transactions and gestures](#transactions-and-gestures).
 The graph owns clipboard commands and supplies a lightweight command object with the same weak owner for asset commands. The public command object has no raw connect or disconnect entry points.
-New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation and derives activity from the material configuration. The read model copies these node views for full and partial refresh. Details routes pin default changes through the owning node. A Set Material Attributes node uses schema admission for existing pins and checks the same type and cycle rules before adding a new input. Choosing a source creates the binding and connection in one edit. Choosing the base value removes the binding and its pin. Undo restores the attribute selection and its previous connection. An open Set prototype starts with standard material defaults.
+Graph synchronization binds each node to its expression before the node builds its pins. Expression nodes use their class descriptions, authored inputs and function port IDs. The root node builds pins from the material and derives activity from its configuration. Local reconstruction keeps pin IDs for surviving inputs and outputs and relinks the updated graph. Details routes pin default changes through the owning node. A Set Material Attributes node uses schema admission for existing pins and checks the same type and cycle rules before adding a new input. Choosing a source creates the binding and connection in one edit. Choosing the base value removes the binding and its pin. Undo restores the attribute selection and its previous connection. An open Set prototype starts with standard material defaults.
 Each graph node owns transient editor pins. `GetInputPin` and `GetOutputPin` take
 display ordinals. A pin's signed 32-bit `SourceIndex` identifies the authored
 slot, with -1 for a signature port that has no call binding. Function outputs
@@ -286,7 +286,8 @@ is explicit; normal Save/Apply continues to use the document lifecycle above.
 
 ## Inspection and commands
 
-The canvas, tests, and structured callers share the graph creation and replacement commands. The read model snapshots nodes, pins, material outputs and presentation from the synchronized editor graph. A node descriptor retains identity and
+The canvas, Details, and command callers share the synchronized editor graph.
+A node descriptor retains identity and
 type metadata plus one display payload: constant value, parameter identity, local
 sampling metadata, or swizzle components. Connections and defaults reside in pin
 views; no universal authored node is copied into the view. Catalog
@@ -303,11 +304,10 @@ authored shapes; see [expression descriptions](../../../Runtime/Rendering/Materi
 `MaterialGraphExpressionRegistry` binds those descriptions to editor category,
 creation kind and palette policy by reflected class. Initialization validates
 unique registrations and complete direct-creation shapes once; class and
-description pointers are borrowed for process lifetime. Catalog enumeration
-visits registered class shapes, and inspection identifies existing expressions
-by their actual class even when the caller supplies a filtered catalog. It does
-not construct probe expressions. Collection output types come from their live
-declarations; function ports/calls and Surface pins retain instance/GUID behavior.
+description pointers are borrowed for process lifetime. Catalog enumeration visits
+registered creation shapes. Existing nodes read the description for their bound
+expression class directly. Collection output types come from live declarations.
+Function calls use port GUIDs and Surface root pins use material properties.
 
 Class plus result type identifies a creation shape. Opcode remains operation
 semantics for numeric rules and stale-payload validation. Creation action IDs use
@@ -500,8 +500,9 @@ output interfaces, and reconciles membership. A reset synchronizes the whole gra
 The graph is queryable as soon as a published edit or history replay returns.
 Function signature changes refresh the corresponding call sites. The graph rebinds
 dependency observers after membership and interface changes, including package replacement.
-Each `FMaterialGraphReadModel` coalesces graph notifications and copies synchronized
-views on demand. Reading a snapshot never reconstructs a graph node.
+The canvas accumulates graph notifications until it updates its drawing cache.
+Details reads the selected node and its pins directly, including when the canvas
+has yet to draw.
 Canvas and Details edit constant values and Swizzle channels on the live graph node.
 A same-width constant edit records its value. A width change replaces the concrete
 constant expression under the same GUID and records inferred downstream types in
@@ -509,10 +510,9 @@ the same transaction. Swizzle edits record the channel sequence and dependent wi
 Root defaults use the node's `PinDefaultValueChanged`; resetting a root input uses
 `SetPinUseConstant(false)` to disable its retained literal.
 
-The canvas and Details share this read model and do not poll compile, render,
-expression, schema, or function revisions. Canvas visibility filters and detached
-interaction drafts remain UI state. Compiler generations, package save checkpoints,
-and optimistic editing-session revisions retain their separate existing roles.
+The drawing cache applies canvas visibility filters and carries detached interaction
+drafts. Position-only updates preserve its pin storage. Compiler generations, package
+save checkpoints, and optimistic editing-session revisions have separate lifetimes.
 
 ## Compact input and texture authoring
 
@@ -623,7 +623,19 @@ default edits determine affected inputs, downstream widths and retained
 defaults from the proposed values before recording. Creating a function
 binding prepares the new endpoint binding and records each affected call or
 consumer before publishing the connection.
-No-op and invalid requests return before marking the package dirty. Successful replay publishes the settled collection through the owner's graph change source.
+Pin connections enter through `FMaterialGraphSchema::TryCreateConnection`.
+The schema checks pin ownership, type compatibility, cycles and replacement before
+the graph resolves the writable expression slot or root property. The command
+prepares the new bindings and checks the proposed asset state before recording
+the material or expressions that will change. A new function-call output binding
+and any changed destination are recorded in the same transaction. No-op and invalid
+requests return before marking the package dirty. Successful replay publishes the
+settled collection through the owner's graph change source.
+
+`CommitGraphEdit` handles structural collection edits and the root or retained
+input changes they require. Same-class replacement prepares the changed fields
+and shared declarations before recording. Material root writes and function-call
+binding edits choose their participants at the command boundary.
 
 A structural edit records the material or function before changing its ordered
 `ExpressionCollection`. It calls `Modify(false)` on changed expressions and on

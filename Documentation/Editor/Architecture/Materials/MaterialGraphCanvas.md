@@ -260,12 +260,11 @@ anchor add a 24-unit offset and select the generated nodes. Node creation and
 clipboard commands use the shared canvas menus and keyboard shortcuts.
 Menu requests and editing keyboard commands do not replace an active drag.
 Resetting an interaction cancels any remaining move or parameter edit session.
-Material and function canvases share the event-driven document read model described
-in [Change observation](MaterialGraphOperations.md#change-observation). Position-only
-notifications preserve node and pin storage. Direct callee interface changes refresh
-call pins; callee body and layout changes do not rebuild the caller's visible graph.
-Interaction cleanup restores detached drafts from the read model. No timing
-guarantee is implied by this cache.
+Material and function canvases update their drawing cache from the current graph
+nodes after a [graph notification](MaterialGraphOperations.md#change-observation).
+Position-only notifications preserve node and pin storage in the cache. A direct
+callee interface edit refreshes call pins. Body and layout edits stay within the
+callee's graph. Interaction cleanup restores positions from the current graph.
 Right-clicking a node or surface input retains its editing context menu. Search ranks exact,
 prefix, and substring matches, then uses stable category, operation, type,
 parameter GUID, and catalog order ties. Opening from a source output filters the

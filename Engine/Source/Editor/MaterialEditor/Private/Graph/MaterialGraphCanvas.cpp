@@ -250,8 +250,17 @@ namespace Durin::MaterialEditor
 	};
 
 	FMaterialGraphCanvas::FMaterialGraphCanvas(DMaterialGraph& Graph, FMaterialGraphEditorServices InServices)
-		: EditorGraph(&Graph), Services(std::move(InServices)), ReadModel(EditorGraph.Get()) {}
-	FMaterialGraphCanvas::~FMaterialGraphCanvas() = default;
+		: EditorGraph(&Graph), Services(std::move(InServices))
+	{
+		GraphSynchronizedHandle = Graph.Synchronized.AddLambda([this](const FMaterialGraphChangeSet& Changes) {
+			PendingGraphChanges.Merge(Changes);
+		});
+	}
+
+	FMaterialGraphCanvas::~FMaterialGraphCanvas()
+	{
+		EditorGraph->Synchronized.Remove(GraphSynchronizedHandle);
+	}
 
 	auto FMaterialGraphCanvas::ReportError(std::string Message) const -> void
 	{
@@ -370,17 +379,21 @@ namespace Durin::MaterialEditor
 			bViewStale = true;
 		}
 		bFunctionGraph = bFunction;
-		const auto Changes = ReadModel.Refresh(Owner);
+		const auto Changes = std::exchange(PendingGraphChanges, {});
 		const auto* Root = EditorGraph->GetRootNode();
 		OutputNodeId = Root ? Root->GetView().Node.Id : FGuid{};
-		const auto& Inspection = ReadModel.GetView();
 		using N = EMaterialGraphNodeChange;
 		if (bViewStale || Changes.Has(EMaterialGraphChange::Reset)
 			|| std::ranges::any_of(Changes.Nodes, [](const auto& Node) {
 				return (Node.Flags & (N::Added | N::Removed | N::Interface | N::Inputs | N::Content)) != N::None;
 			}))
 		{
-			CachedView = Inspection;
+			CachedView.Outputs = EditorGraph->GetOutputs();
+			CachedView.bFunction = bFunctionGraph;
+			CachedView.Nodes.clear();
+			CachedView.Nodes.reserve(EditorGraph->GetNodes().size());
+			for (const auto& Node : EditorGraph->GetNodes())
+				CachedView.Nodes.push_back(Node->GetView());
 			HideUnusedAdvancedPins(CachedView, ExpandedPinNodes, CollapsiblePinNodes);
 			CachedNodeIndices.clear();
 			for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index)
@@ -403,9 +416,8 @@ namespace Durin::MaterialEditor
 			for (const auto& Change : Changes.Nodes)
 			{
 				const auto It = CachedNodeIndices.find(Change.NodeId);
-				if (It == CachedNodeIndices.end()) continue;
-				const auto& Node = Inspection.Nodes[It->second];
-				CachedView.Nodes[It->second].Presentation = Node.Presentation;
+				if (const auto* Node = EditorGraph->FindNode(Change.NodeId); Node && It != CachedNodeIndices.end())
+					CachedView.Nodes[It->second].Presentation = Node->GetView().Presentation;
 			}
 		}
 		for (const auto& Position : MoveSession.GetPositions())

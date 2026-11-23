@@ -30,6 +30,17 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		return {Source, static_cast<int32>(Candidate.size() - 1)};
 	}
 
+	auto CollectCallOutputEdits(FProposedCallOutputs& Outputs, std::vector<DObject*>& Objects) -> void
+	{
+		std::erase_if(Outputs, [](const auto& Entry) { return Entry.first->FunctionOutputs == Entry.second; });
+		for (const auto& [Call, Bindings] : Outputs) Objects.push_back(Call);
+	}
+
+	auto WriteCallOutputs(FProposedCallOutputs& Outputs) -> void
+	{
+		for (auto& [Call, Bindings] : Outputs) Call->FunctionOutputs.swap(Bindings);
+	}
+
 	auto PrepareExpressionReplacement(FMaterialExpressionCollection& Collection, FMaterialRootInputs* Root,
 		FProposedLinks& Links, DMaterialExpression& Previous, DMaterialExpression& Replacement) -> void
 	{
