@@ -292,7 +292,7 @@ def _typed_metadata_from_annotation(
             setattr(result, attribute, value)
 
     numeric_keys = set(values) & _NUMERIC_METADATA_KEYS
-    if numeric_keys and "Durin::EPropertyFlags::Edit" not in prop.flags:
+    if numeric_keys and not prop.has_flag("Edit"):
         raise ValueError(f"[DHT-META005] {location}: numeric metadata requires the Edit property flag")
     numeric_kind = _numeric_metadata_kind(prop)
     if numeric_keys and not numeric_kind:
@@ -370,7 +370,7 @@ def _deprecation_from_annotation(
         return None
     if not prop.name.endswith("_DEPRECATED"):
         raise ValueError(f"[DHT-DEPR003] {location}: Deprecated property names must end in _DEPRECATED")
-    if "Durin::EPropertyFlags::Edit" in prop.flags or "Durin::EPropertyFlags::Transient" in prop.flags:
+    if prop.has_flag("Edit") or prop.has_flag("Transient"):
         raise ValueError(f"[DHT-DEPR004] {location}: Deprecated cannot be combined with Edit or Transient")
     historical_name = prop.name.removesuffix("_DEPRECATED")
     return ReflectedPropertyDeprecationInfo(historical_name)

@@ -310,6 +310,7 @@ class TestReflectionProperties:
         ("annotation", "diagnostic"),
         [
             ('DPROPERTY, Step = "1"', "numeric metadata requires the Edit property flag"),
+            ('DPROPERTY, EditorOnly, Step = "1"', "numeric metadata requires the Edit property flag"),
             ('DPROPERTY, Edit, Step = "nan"', "Step must be finite"),
             ('DPROPERTY, Edit, Step = "0"', "Step must be positive"),
             ('DPROPERTY, Edit, ClampMin = "2", ClampMax = "1"', "ClampMin exceeds ClampMax"),
@@ -321,9 +322,8 @@ class TestReflectionProperties:
         ],
     )
     def test_invalid_typed_metadata_has_stable_diagnostics(self, annotation, diagnostic):
-        prop = ReflectedPropertyInfo("Value", "float", "Float", flags="Durin::EPropertyFlags::Edit")
-        if annotation == 'DPROPERTY, Step = "1"':
-            prop.flags = "None"
+        flags = property_parser._property_flags_from_annotation(annotation)
+        prop = ReflectedPropertyInfo("Value", "float", "Float", flags=flags)
         with pytest.raises(ValueError, match=re.escape(diagnostic)):
             property_parser._apply_property_annotation(prop, annotation, "DPROPERTY 'Value' at line 7")
 
@@ -375,6 +375,21 @@ class TestReflectionProperties:
         assert prop.deprecation.historical_name == "Value"
         assert "FPropertyDeprecationParams" not in self.generated_cpp
         assert "WithDeprecation" not in self.generated_cpp
+
+    @pytest.mark.parametrize(
+        "specifiers",
+        [("Deprecated", "EditorOnly"), ("EditorOnly", "Deprecated")],
+    )
+    def test_deprecated_editor_only_property_is_accepted(self, specifiers):
+        annotation = "DPROPERTY, " + ", ".join(specifiers)
+        flags = property_parser._property_flags_from_annotation(annotation)
+        prop = ReflectedPropertyInfo("Value_DEPRECATED", "int32", "Int32", flags=flags)
+
+        property_parser._apply_property_annotation(prop, annotation, "DPROPERTY 'Value_DEPRECATED'")
+
+        assert prop.flags == " | ".join(f"Durin::EPropertyFlags::{specifier}" for specifier in specifiers)
+        assert prop.deprecation is not None
+        assert prop.deprecation.historical_name == "Value"
 
     @pytest.mark.parametrize(
         ("name", "annotation", "diagnostic"),

@@ -45,6 +45,11 @@ def test_invalid_object_property_exposure_is_rejected(tmp_path, specifiers):
         parse(tmp_path, declaration(f"DPROPERTY({specifiers}) int32 Value;"))
 
 
+def test_editor_only_script_read_write_object_property_still_requires_edit(tmp_path):
+    with pytest.raises(ValueError, match="ScriptReadWrite object property requires Edit"):
+        parse(tmp_path, declaration("DPROPERTY(EditorOnly, ScriptReadWrite) int32 Value;"))
+
+
 @pytest.mark.parametrize("specifiers", [
     "ScriptCallable, ScriptCallable", "ScriptCallable=true", "ScriptReadWrite", 'ScriptName=""',
 ])

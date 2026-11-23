@@ -371,7 +371,7 @@ def parse_reflection_header(
                     reflected_class.qualified_name, reflected_class.properties
                 )
                 for prop in reflected_class.properties:
-                    if "Durin::EPropertyFlags::ScriptReadWrite" in prop.flags and "Durin::EPropertyFlags::Edit" not in prop.flags:
+                    if prop.has_flag("ScriptReadWrite") and not prop.has_flag("Edit"):
                         raise ValueError(f"{header}: ScriptReadWrite object property requires Edit")
                 function_symbols = dict(exported_symbols or {})
                 for local in [*structs, *enums, *classes, reflected_class]:

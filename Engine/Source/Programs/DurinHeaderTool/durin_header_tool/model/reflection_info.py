@@ -220,6 +220,10 @@ class ReflectedPropertyInfo:
     deprecation: ReflectedPropertyDeprecationInfo | None = None
     legacy_names: list[str] = field(default_factory=list)
 
+    def has_flag(self, name: str) -> bool:
+        qualified_name = f"Durin::EPropertyFlags::{name}"
+        return any(flag.strip() == qualified_name for flag in self.flags.split("|"))
+
 
 @dataclass
 class ReflectedFunctionParameterInfo:
