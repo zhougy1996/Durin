@@ -131,35 +131,9 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
     authoredIor = surface.refraction;
 #endif
     float3 viewNormal = normalize(mul((float3x3)MaterialView.WorldToView, normal));
-    offset = WaterRefractionOffsetInPixels(WaterView, viewport, input.pos.xy, surfaceInView, viewNormal,
-        viewForward, authoredIor, background.valid && !background.open ? background.depth - surfaceDepth : 0.0,
-        asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)));
-    FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
-        viewport, input.pos.xy + offset, viewForward, surfaceDepth, slopeTolerance);
-    if (refracted.valid) background = refracted;
-    else if (background.valid)
-    {
-        // Pull the footprint back to the visible side of the occluder. Jumping
-        // straight to the source pixel can insert a strip of bed across a pier.
-        float validFraction = 0.0;
-        float occludedFraction = 1.0;
-        [loop]
-        for (uint step = 0; step < 6; ++step)
-        {
-            float fraction = (validFraction + occludedFraction) * 0.5;
-            FWaterBackground candidate = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth,
-                WaterCoverage, WaterView, viewport, input.pos.xy + offset * fraction,
-                viewForward, surfaceDepth, slopeTolerance);
-            if (candidate.valid)
-            {
-                validFraction = fraction;
-                background = candidate;
-            }
-            else occludedFraction = fraction;
-            if ((occludedFraction - validFraction) * max(abs(offset.x), abs(offset.y)) <= 0.5) break;
-        }
-        offset *= validFraction;
-    }
+    ResolveWaterRefraction(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView, viewport,
+        input.pos.xy, surfaceInView, viewNormal, viewForward, surfaceDepth, slopeTolerance, authoredIor,
+        asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)), background, offset);
 #endif
     if (!background.valid) background.depth = surfaceDepth;
     float thicknessCm = max(background.depth - surfaceDepth, 0.0) * 100.0;

@@ -38,7 +38,7 @@ public float2 ClampWaterPixel(float2 pixel, float4 viewport)
 public FWaterBackground SampleWaterBackground(
     Texture2D<float4> sceneColor, Texture2D<float> sceneDepth, Texture2D<float> waterCoverage,
     FWaterViewUniform view, float4 viewport, float2 samplePixel,
-    float3 viewForward, float surfaceDepth, float slopeTolerance)
+    float3 viewForward, float surfaceDepth, float slopeTolerance, float maxReceiverDepth = 0.0)
 {
     float2 texel = ClampWaterPixel(samplePixel, viewport) - 0.5;
     int2 corner = int2(floor(texel));
@@ -74,6 +74,7 @@ public FWaterBackground SampleWaterBackground(
             continue;
         float tapDepth = dot(viewPosition, viewForward);
         if (tapDepth + slopeTolerance < surfaceDepth) continue;
+        if (maxReceiverDepth > 0.0 && tapDepth > maxReceiverDepth) continue;
         finiteWeight += weight;
         depth += tapDepth * weight;
         bedColor += sceneColor.Load(pixel).rgb * weight;
@@ -114,28 +115,120 @@ public float WaterIor(float specular)
     return 2.0 / (1.0 - sqrt(min(f0, 0.99))) - 1.0;
 }
 
-public float2 WaterRefractionOffsetInPixels(FWaterViewUniform view, float4 viewport, float2 pixel,
-    float3 surfaceInView, float3 normal, float3 viewForward, float ior,
-    float separation, float depthBiasCm)
+struct FWaterRefractionRay
 {
-    // Without a finite receiver there is no hit distance for a screen-space lookup.
-    if (ior <= 0.0 || ior == 1.0 || separation <= 0.0) return 0.0;
+    float2 pixelDirection;
+    float surfaceW;
+    float directionW;
+};
+
+FWaterRefractionRay BuildWaterRefractionRay(FWaterViewUniform view, float4 viewport, float2 pixel,
+    float3 surfaceInView, float3 normal, float3 viewForward, float ior)
+{
+    FWaterRefractionRay result = (FWaterRefractionRay)0;
+    if (ior <= 0.0 || ior == 1.0) return result;
     bool perspective = dot(view.Projection[3].xyz, view.Projection[3].xyz) > 1.0e-12;
     float3 incident = perspective ? normalize(surfaceInView) : viewForward;
     float3 ray = refract(incident, dot(incident, normal) > 0.0 ? -normal : normal, 1.0 / ior);
     float forward = dot(ray, viewForward);
-    if (!all(isfinite(ray)) || forward <= 1.0e-5) return 0.0;
+    if (!all(isfinite(ray)) || forward <= 1.0e-5) return result;
 
-    float4 hit = float4(surfaceInView + ray * (separation / forward), 1.0);
-    float w = dot(view.Projection[3], hit);
-    if (w <= 1.0e-6) return 0.0;
-    float2 ndc = float2(dot(view.Projection[0], hit), dot(view.Projection[1], hit)) / w;
-    float2 offset = (ndc - WaterNdc(pixel, viewport)) * (0.5 * viewport.zw);
+    float3 direction = ray / forward;
+    result.surfaceW = dot(view.Projection[3], float4(surfaceInView, 1.0));
+    result.directionW = dot(view.Projection[3].xyz, direction);
+    float2 clipDirection = float2(dot(view.Projection[0].xyz, direction), dot(view.Projection[1].xyz, direction));
+    result.pixelDirection = (clipDirection - WaterNdc(pixel, viewport) * result.directionW) * (0.5 * viewport.zw);
+    return result;
+}
+
+float2 ProjectWaterRefraction(FWaterRefractionRay ray, float separation, float depthBiasCm)
+{
+    float w = ray.surfaceW + separation * ray.directionW;
+    if (w <= 1.0e-6 || separation <= 0.0) return 0.0;
     float separationCm = separation * 100.0;
     float bias = -depthBiasCm;
     float range = max(1.0, clamp(abs(bias) * 0.5, 0.0, 50.0));
     float fade = saturate(separationCm / range + bias) * saturate(separationCm / 30.0);
-    return offset * fade;
+    return ray.pixelDirection * (separation * fade / w);
+}
+
+// A silhouette has two distinct depths. Interpolating them would create a
+// receiver between surfaces. Filter color only after the ray has picked a layer.
+public float WaterReceiverDepth(Texture2D<float> sceneDepth, Texture2D<float> coverage,
+    FWaterViewUniform view, float4 viewport, float2 samplePixel, float3 forward)
+{
+    int3 texel = int3(int2(ClampWaterPixel(samplePixel, viewport)), 0);
+    float deviceDepth = sceneDepth.Load(texel);
+    float3 position;
+    if (coverage.Load(texel) < 0.5 || deviceDepth == view.DepthParameters.x ||
+        !ReconstructViewPositionAnalytic(view.Projection[0], view.Projection[1], view.Projection[2],
+            view.Projection[3], WaterNdc(float2(texel.xy) + 0.5, viewport), deviceDepth, position))
+        return -1.0;
+    return dot(position, forward);
+}
+
+public void ResolveWaterRefraction(Texture2D<float4> sceneColor, Texture2D<float> sceneDepth,
+    Texture2D<float> coverage, FWaterViewUniform view, float4 viewport, float2 pixel, float3 surfaceInView,
+    float3 normal, float3 viewForward, float surfaceDepth, float slopeTolerance, float ior, float depthBias,
+    inout FWaterBackground background, out float2 offset)
+{
+    offset = 0.0;
+    if (!background.valid || background.open || background.depth <= surfaceDepth) return;
+    FWaterRefractionRay ray = BuildWaterRefractionRay(view, viewport, pixel, surfaceInView, normal, viewForward, ior);
+    float distance = background.depth - surfaceDepth;
+    float2 probe = ProjectWaterRefraction(ray, distance, depthBias);
+    float span = max(abs(probe.x), abs(probe.y));
+    if (span == 0.0) return;
+    float stride = max(4.0, span / 6.0);
+    float firstFraction = min(1.0, stride / span);
+    distance *= firstFraction;
+    probe = ProjectWaterRefraction(ray, distance, depthBias);
+    float nearDistance = 0.0;
+    float farDistance = -1.0;
+    bool haveHit = false;
+    float selectedDepth = 0.0;
+    // The source texel supplies only a first estimate. At a silhouette it can
+    // belong to the bed while the refracted ray hits the pier, or vice versa.
+    [loop]
+    for (uint step = 0; step < 16; ++step)
+    {
+        float depth = WaterReceiverDepth(sceneDepth, coverage, view, viewport,
+            pixel + probe, viewForward);
+        bool validReceiver = depth > 0.0 && depth + slopeTolerance >= surfaceDepth;
+        float receiver = max(depth - surfaceDepth, 0.0);
+        bool crossed = validReceiver && receiver <= distance;
+        if (validReceiver && (crossed || !haveHit))
+        {
+            selectedDepth = depth;
+            offset = probe;
+        }
+        haveHit = haveHit || crossed;
+        if (validReceiver && abs(receiver - distance) < 1.0e-4) break;
+        if (crossed || !validReceiver) farDistance = distance;
+        else nearDistance = distance;
+        // Keep the nearest crossing. An occluded footprint bounds the search
+        // without contributing its foreground color.
+        float nextDistance = validReceiver && receiver > nearDistance && (farDistance < 0.0 || receiver < farDistance)
+            ? receiver : 0.5 * (nearDistance + farDistance);
+        float2 next = ProjectWaterRefraction(ray, nextDistance, depthBias);
+        if (all(abs(next - probe) < 0.25)) break;
+        float2 delta = abs(next - probe);
+        if (farDistance < 0.0 && max(delta.x, delta.y) > stride)
+        {
+            nextDistance = lerp(distance, nextDistance, stride / max(delta.x, delta.y));
+            next = ProjectWaterRefraction(ray, nextDistance, depthBias);
+        }
+        distance = nextDistance;
+        probe = next;
+    }
+    if (selectedDepth > 0.0)
+    {
+        FWaterBackground refracted = SampleWaterBackground(sceneColor, sceneDepth, coverage,
+            view, viewport, pixel + offset, viewForward, surfaceDepth, slopeTolerance,
+            selectedDepth + max(slopeTolerance, 0.001));
+        if (refracted.valid) background = refracted;
+        else offset = 0.0;
+    }
 }
 
 public float WaterSchlickPhase(float g, float rayLightCosine)

@@ -796,6 +796,10 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 		ASSERT_FALSE(HasFatalFailure());
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(HDR, Evidence / "oblique-pier.rgba16f"));
 		CheckColor(HDR, 160, 100, {0, 1, 0});
+		// At (146,138) the transmitted ray intersects the pier at y=-.338 m,
+		// inside its -.35 m edge. At (160,152) it crosses the bed before the pier.
+		EXPECT_GT(ReadChannel(HDR, 146, 138, 2) - ReadChannel(HDR, 146, 138, 0), .5f);
+		CheckColor(HDR, 160, 152, FVector3f(1.0f));
 		// The submerged face must be continuous from the waterline down to its apparent foot.
 		uint32 End = 120;
 		while (End < View.ViewportHeight && ReadChannel(HDR, 160, End, 2) - ReadChannel(HDR, 160, End, 0) > .5f)
