@@ -507,6 +507,11 @@ namespace Durin
 	{
 	}
 
+	auto DObject::CanEditChange(const FProperty* Property) const -> bool
+	{
+		return Property && !Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
+	}
+
 	auto DObject::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		(void)Event;

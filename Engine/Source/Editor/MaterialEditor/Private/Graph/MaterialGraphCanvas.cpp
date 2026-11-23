@@ -250,10 +250,28 @@ namespace Durin::MaterialEditor
 	};
 
 	FMaterialGraphCanvas::FMaterialGraphCanvas(DMaterialGraph& Graph, FMaterialGraphEditorServices InServices)
-		: EditorGraph(&Graph), Services(std::move(InServices))
+		: EditorGraph(&Graph), Services(std::move(InServices)), PreviewParameters(Cast<DMaterial>(Graph.GetMaterialOrFunction()))
 	{
 		GraphSynchronizedHandle = Graph.Synchronized.AddLambda([this](const FMaterialGraphChangeSet& Changes) {
 			PendingGraphChanges.Merge(Changes);
+			using N = EMaterialGraphNodeChange;
+			using G = EMaterialGraphChange;
+			const auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
+			if (!Material) return;
+			if (Changes.Has(G::Reset | G::RootInputs | G::ParameterDefinitions) ||
+				std::ranges::any_of(Changes.Nodes, [&](const FMaterialGraphNodeChange& Change) {
+					if ((Change.Flags & (N::Added | N::Removed | N::Interface | N::Inputs)) != N::None) return true;
+					if ((Change.Flags & N::ParameterValue) == N::None) return false;
+					const auto* Node = EditorGraph->FindNode(Change.NodeId);
+					if (!Node) return false;
+					const auto Id = Node->GetView().Node.GetParameterId();
+					if (!Id.IsValid()) return false;
+					const auto* Preview = PreviewParameters.Find(Id);
+					// A committed preview already holds the published default. An active draft still needs rebinding.
+					const auto* Definition = Material->FindParameterDefinition(Id);
+					return ParameterControls.IsActive() || !Preview || !Definition || Preview->GetValue() != Definition->Value;
+				}))
+				PreviewParameters.RegenerateArrays();
 		});
 	}
 
@@ -346,7 +364,7 @@ namespace Durin::MaterialEditor
 		NodeLiteralDraft.reset();
 		if (!FinishDetailsEdit(true)) return false;
 		RootInputFrame.Finish(true, [this](bool bCancel) { return FinishRootInputEdit(bCancel); });
-		if (!FinishParameterEdit(true)) return false;
+		if (!ParameterControls.Finish(true)) { ReportError(ParameterControls.GetFinishError()); return false; }
 		if (MoveSession.IsActive())
 		{
 			MoveSession.Cancel();

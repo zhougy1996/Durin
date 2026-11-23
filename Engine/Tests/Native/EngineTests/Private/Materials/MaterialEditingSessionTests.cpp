@@ -469,7 +469,7 @@ TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossA
 		EXPECT_FLOAT_EQ(Applied->DefaultValue, 0.64f);
 		EXPECT_EQ(Applied->Metadata.DisplayName, "Edited parameter");
 		EXPECT_FALSE(Session.HasUnappliedChanges());
-		ASSERT_TRUE(MaterialEditing::SetParameterValue(*Draft, Edited->Metadata.Id, FMaterialParameterValue::MakeScalar(0.91f)));
+		ASSERT_TRUE(Testing::WritePreviewParameter(*Draft, Edited->Metadata.Id, .91f));
 		EXPECT_TRUE(Session.HasUnappliedChanges());
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_FLOAT_EQ(Edited->DefaultValue, 0.64f);

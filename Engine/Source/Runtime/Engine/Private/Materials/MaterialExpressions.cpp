@@ -379,6 +379,52 @@ namespace Durin
 			.SortOrder = Metadata.SortOrder, .Presentation = Metadata.Presentation};
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
+	template<typename TParameter, typename TValue>
+	static auto SetExpressionDefault(TParameter& Parameter, const TValue& Value, const FMaterialParameterMetadata& Meta,
+		EMaterialExpressionSetParameterValueFlags Flags) -> bool
+	{
+		if (Parameter.DefaultValue != Value)
+		{
+			Parameter.DefaultValue = Value;
+			if (EnumHasAnyFlags(Flags, EMaterialExpressionSetParameterValueFlags::SendPostEditChangeProperty))
+			{
+				const auto* Property = Parameter.GetClass()->FindPropertyByName("DefaultValue");
+				require(Property);
+				Parameter.PostEditChangeProperty({.MemberProperty = Property, .LeafProperty = Property});
+			}
+		}
+		if (EnumHasAnyFlags(Flags, EMaterialExpressionSetParameterValueFlags::AssignGroupAndSortPriority))
+		{
+			Parameter.Metadata.GroupName = Meta.Group;
+			Parameter.Metadata.SortOrder = Meta.SortPriority;
+		}
+		return true;
+	}
+
+	auto DMaterialExpressionScalarParameter::SetParameterValue(const FName& Name, const FMaterialParameterMetadata& Meta,
+		EMaterialExpressionSetParameterValueFlags Flags) -> bool
+	{
+		if (Name != Metadata.Name || Meta.Value.GetType() != EMaterialParameterType::Scalar) return false;
+		return SetExpressionDefault(*this, Meta.Value.GetScalar(), Meta, Flags);
+	}
+
+	auto DMaterialExpressionVector4Parameter::SetParameterValue(const FName& Name, const FMaterialParameterMetadata& Meta,
+		EMaterialExpressionSetParameterValueFlags Flags) -> bool
+	{
+		if (Name != Metadata.Name || Meta.Value.GetType() != EMaterialParameterType::Vector4) return false;
+		return SetExpressionDefault(*this, Meta.Value.GetVector4(), Meta, Flags);
+	}
+
+	auto DMaterialExpressionTextureParameter::SetParameterValue(const FName& Name, const FMaterialParameterMetadata& Meta,
+		EMaterialExpressionSetParameterValueFlags Flags) -> bool
+	{
+		if (Name != Metadata.Name || Meta.Value.GetType() != EMaterialParameterType::Texture) return false;
+		if (Meta.Value.GetTexture().Dimension != DefaultValue.Dimension) return false;
+		return SetExpressionDefault(*this, Meta.Value.GetTexture(), Meta, Flags);
+	}
+#endif
+
 	auto DMaterialExpressionScalarParameter::GetParameterDefinition() const -> FMaterialParameterDefinition
 	{
 		auto Definition = MakeDefinition(EMaterialParameterType::Scalar, FMaterialParameterValue::MakeScalar(DefaultValue));

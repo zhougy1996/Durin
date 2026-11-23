@@ -68,32 +68,4 @@ namespace Durin::MaterialEditor
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};
-
-	// Edits the control value interactively and writes the material on commit.
-	class FMaterialGraphParameterEditSession
-	{
-	public:
-		MATERIALEDITOR_API FMaterialGraphParameterEditSession();
-		MATERIALEDITOR_API ~FMaterialGraphParameterEditSession();
-		FMaterialGraphParameterEditSession(const FMaterialGraphParameterEditSession&) = delete;
-		auto operator=(const FMaterialGraphParameterEditSession&)
-			-> FMaterialGraphParameterEditSession& = delete;
-
-		MATERIALEDITOR_API auto Begin(
-			DMaterial& Material,
-			const FGuid& ParameterId,
-			DTransactor* Transactions = nullptr)
-			-> std::expected<void, std::string>;
-		// The success value tells the caller whether the preview changed.
-		MATERIALEDITOR_API auto Apply(FMaterialParameterValue Value)
-			-> std::expected<bool, std::string>;
-		MATERIALEDITOR_API auto Commit() -> std::expected<void, std::string>;
-		MATERIALEDITOR_API auto Cancel() -> std::expected<void, std::string>;
-		MATERIALEDITOR_API auto GetInteractiveValue(const FGuid& Id) const -> const FMaterialParameterValue*;
-		MATERIALEDITOR_API auto IsActive() const -> bool;
-
-	private:
-		struct FImpl;
-		std::unique_ptr<FImpl> Impl;
-	};
 }

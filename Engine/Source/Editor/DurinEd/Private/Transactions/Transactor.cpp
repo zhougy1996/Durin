@@ -1177,16 +1177,28 @@ namespace Durin
 	FScopedTransaction::FScopedTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject, bool bShouldActuallyTransact)
 	{
 		if (bShouldActuallyTransact && GEditor && GetTransactionEditor() == GEditor)
+		{
 			StartIndex = GEditor->BeginTransaction(Context, Description, PrimaryObject);
+			if (StartIndex >= 0 && GUndo)
+			{
+				RecordingOwner = GEditor->GetTransactor();
+				RecordingId = GUndo->GetContext().TransactionId;
+			}
+		}
+	}
+	auto FScopedTransaction::IsRecordingCurrent() const -> bool
+	{
+		return IsOutstanding() && GEditor && GUndo && RecordingOwner.Get() == GEditor->GetTransactor()
+			&& GUndo->GetContext().TransactionId == RecordingId;
 	}
 	FScopedTransaction::~FScopedTransaction()
 	{
-		if (IsOutstanding() && GEditor) GEditor->EndTransaction();
+		if (IsRecordingCurrent() && GEditor) GEditor->EndTransaction();
 	}
 	auto FScopedTransaction::Cancel() -> void
 	{
 		if (!IsOutstanding()) return;
-		if (GEditor)
+		if (IsRecordingCurrent() && GEditor)
 		{
 			auto* Buffer = GEditor->GetTransactor();
 			if (Buffer && Buffer->IsActive() && !Buffer->CanTransact()) return;

@@ -22,10 +22,6 @@ namespace Durin::MaterialEditor::MaterialEditing
 		bool bShouldTransact = true) -> FMaterialGraphCommandResult;
 	MATERIALEDITOR_API auto PromoteConstantToParameter(DMaterial& Material, const FGuid& NodeId, FName Name,
 		bool bShouldTransact = true) -> FMaterialGraphCommandResult;
-	MATERIALEDITOR_API auto SetParameterValue(DMaterial& Material, const FGuid& ParameterId,
-		FMaterialParameterValue Value,
-		bool bShouldTransact = true)
-		-> FMaterialGraphCommandResult;
 	struct FMaterialGraphSurfaceNodeRequest
 	{
 		EMaterialProperty Output = EMaterialProperty::MP_BaseColor;

@@ -2,10 +2,20 @@
 
 #include "MaterialGraph.h"
 #include "Graph/MaterialGraphCommands.h"
+#include "Graph/MaterialEditorPreviewParameter.h"
 
 namespace Durin::Testing
 {
 	using FTestExpressionInput = std::pair<FGuid, MaterialEditor::GraphEditInternals::FExpressionInputKey>;
+
+	template<class TValue>
+	auto WritePreviewParameter(DMaterial& Material, const FGuid& Id, const TValue& Value) -> bool
+	{
+		MaterialEditor::FMaterialEditorPreviewParameters Parameters(&Material);
+		const auto Preview = Parameters.Find(Id);
+		return Preview && PropertyEditor::FReflectedPropertyHandle(Preview->GetEditTarget()).SetValue(Value)
+			== PropertyEditor::FPropertyAccess::Success;
+	}
 
 	inline auto ExpressionInput(FGuid Node, uint32 Index, FGuid Port = {}) -> FTestExpressionInput
 	{

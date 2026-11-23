@@ -1,5 +1,5 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
-#include "Graph/MaterialGraphInteraction.h"
+#include "Graph/MaterialEditorPreviewParameter.h"
 #include "Graph/MaterialEditingOperations.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -292,9 +292,11 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	Durin::MaterialEditor::FMaterialParameterPanelModel BaseModel(Base);
 	const auto* BaseOpacity = FindEntry(BaseModel, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_NE(BaseOpacity, nullptr);
-	auto ScalarValue = BaseOpacity->Value;
-	ScalarValue.GetScalar() = 0.7f;
-	ASSERT_TRUE(Durin::MaterialEditor::MaterialEditing::SetParameterValue(*Base, BaseOpacity->ParameterId, ScalarValue));
+	Durin::MaterialEditor::FMaterialEditorPreviewParameters Parameters(Base);
+	const auto Preview = Parameters.Find(BaseOpacity->ParameterId);
+	ASSERT_TRUE(Preview);
+	Durin::PropertyEditor::FReflectedPropertyHandle Handle(Preview->GetEditTarget());
+	ASSERT_EQ(Handle.SetValue(.7f), Durin::PropertyEditor::FPropertyAccess::Success);
 	float Opacity = 0.0f;
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.7f);
@@ -568,14 +570,19 @@ TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScope
 
 	auto OpacityValue = Opacity->Value;
 	OpacityValue.GetScalar() = 0.55f;
-	Durin::MaterialEditor::FMaterialGraphParameterEditSession OpacitySession, ColorSession;
-	ASSERT_TRUE(OpacitySession.Begin(*Base, Opacity->ParameterId, Transactions.Get()));
-	ASSERT_TRUE(OpacitySession.Apply(OpacityValue));
+	Durin::MaterialEditor::FMaterialEditorPreviewParameters Parameters(Base);
+	auto OpacityPreview = Parameters.Find(Opacity->ParameterId);
+	auto ColorPreview = Parameters.Find(BaseColor->ParameterId);
+	ASSERT_TRUE(OpacityPreview);
+	ASSERT_TRUE(ColorPreview);
+	Durin::PropertyEditor::FPropertyEdit OpacitySession, ColorSession;
+	ASSERT_TRUE(OpacitySession.Begin(OpacityPreview->GetEditTarget(), "Edit parameter", *Transactions.Get()));
+	ASSERT_TRUE(OpacitySession.SetValue(OpacityValue.GetScalar()));
 	ASSERT_TRUE(OpacitySession.Commit());
 	auto ColorValue = BaseColor->Value;
 	ColorValue.GetVector4() = Durin::FVector4(0.1, 0.2, 0.3, 0);
-	ASSERT_TRUE(ColorSession.Begin(*Base, BaseColor->ParameterId, Transactions.Get()));
-	ASSERT_TRUE(ColorSession.Apply(ColorValue));
+	ASSERT_TRUE(ColorSession.Begin(ColorPreview->GetEditTarget(), "Edit parameter", *Transactions.Get()));
+	ASSERT_TRUE(ColorSession.SetValue(ColorValue.GetVector4()));
 	// Switching logical GUIDs commits the first continuous edit. Cancelling the
 	// second must not restore the entire collection to the first edit's origin.
 	ASSERT_TRUE(ColorSession.Cancel());

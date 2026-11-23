@@ -79,12 +79,11 @@ reports owned history bytes. A failed or busy PIE inspection conservatively
 returns true. History events carry their own presentation details. Runtime
 `ITransaction` capture/inspection remains checked so recording and replay never
 mistake a failed traversal for an empty reference set.
-A scope stores only the index returned by Begin. It is noncopyable and nonmovable. As in UE 5.8, IsOutstanding() tests whether the saved index is
-nonnegative. Use the host transactor's IsActive() when a callback may have ended recording.
-Cancel discards the entire recording and clears the calling scope's index. A sole
-scope can therefore cancel and immediately start another transaction. If other scopes
-from that recording remain, unwind them before starting a new recording on the same
-host. This rule also applies after external End or Reset. Keep the same editor active until scope exit. Before releasing the editor, shutdown cancels property previews and releases suspended Python scopes. Ordinary native callers must unwind their lexical scopes before host replacement.
+A scope stores its start index, recording ID and weak owner. It is noncopyable and
+nonmovable. `IsOutstanding()` reports successful acquisition until explicit
+cancellation. `IsRecordingCurrent()` checks whether the original recording is
+still active on its editor. Destruction and cancellation only act on that
+recording, including after external End, Cancel, Reset or host replacement. Before releasing the editor, shutdown cancels property previews and releases suspended Python scopes. Ordinary native callers must unwind their lexical scopes before host replacement.
 
 ### Everyday Object Editing
 

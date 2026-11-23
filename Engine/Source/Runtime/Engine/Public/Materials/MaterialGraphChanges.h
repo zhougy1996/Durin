@@ -13,12 +13,12 @@ namespace Durin
 	enum class EMaterialGraphNodeChange : uint8
 	{
 		None = 0, Added = 1 << 0, Removed = 1 << 1, Content = 1 << 2,
-		Interface = 1 << 3, Inputs = 1 << 4, Position = 1 << 5,
+		Interface = 1 << 3, Inputs = 1 << 4, Position = 1 << 5, ParameterValue = 1 << 6,
 	};
 	ENUM_CLASS_FLAGS(EMaterialGraphNodeChange);
 	enum class EMaterialGraphChange : uint8
 	{
-		None = 0, Reset = 1 << 0, RootInputs = 1 << 1, RootPosition = 1 << 2,
+		None = 0, Reset = 1 << 0, RootInputs = 1 << 1, RootPosition = 1 << 2, ParameterDefinitions = 1 << 3,
 	};
 	ENUM_CLASS_FLAGS(EMaterialGraphChange);
 	struct FMaterialGraphNodeChange

@@ -599,7 +599,7 @@ namespace Durin
 		const auto Kind = Property->GetKind();
 		const bool bColor = Kind == EPropertyGenFlags::Struct
 			&& static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_FLinearColor();
-		if (!Property->HasValueAccessors() && (bColor || (!ExistingTarget && Kind == EPropertyGenFlags::Int32)))
+		if (!Property->HasValueAccessors() && (bColor || (!ExistingTarget && (Kind == EPropertyGenFlags::Int32 || Kind == EPropertyGenFlags::Float))))
 		{
 			using namespace MonaImGui::PropertyEdit;
 			using FValue = PropertyEditor::FPropertyControlFrame::FValue;
@@ -613,7 +613,7 @@ namespace Durin
 			if (bColor)
 			{
 				FLinearColor Value;
-				if (Handle.GetValue(Value))
+				if (Handle.GetValue(Value) == PropertyEditor::FPropertyAccess::Success)
 				{
 					const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
 					FPropertyInteractionState Interaction;
@@ -625,16 +625,21 @@ namespace Durin
 					return false;
 				}
 			}
-			else if (int32 Value; Handle.GetValue(Value))
+			else
 			{
-				const ImGuiID Id = ImGui::GetID(Label.c_str());
-				BeginRow(Label.c_str(), bReadOnly, 0.0f, Tooltip);
-				FWidgetState Widget;
-				const bool bChanged = DrawNumericProperty(*Property, ImGuiDataType_S32, &Value, Widget);
-				EndRow(bReadOnly);
-				const auto State = FPropertyInteractionState::FromWidget(Id, Widget, bReadOnly);
-				HandleControls.Observe(Id, Handle, State.End, bChanged ? std::optional(FValue{Value}) : std::nullopt);
-				return false;
+				const auto DrawNumber = [&](auto Value, ImGuiDataType Type) {
+					if (Handle.GetValue(Value) != PropertyEditor::FPropertyAccess::Success) return false;
+					const ImGuiID Id = ImGui::GetID(Label.c_str());
+					BeginRow(Label.c_str(), bReadOnly, 0.0f, Tooltip);
+					FWidgetState Widget;
+					const bool bChanged = DrawNumericProperty(*Property, Type, &Value, Widget);
+					EndRow(bReadOnly);
+					const auto State = FPropertyInteractionState::FromWidget(Id, Widget, bReadOnly);
+					HandleControls.Observe(Id, Handle, State.End, bChanged ? std::optional(FValue{Value}) : std::nullopt);
+					return true;
+				};
+				if (Kind == EPropertyGenFlags::Float ? DrawNumber(float{}, ImGuiDataType_Float) : DrawNumber(int32{}, ImGuiDataType_S32))
+					return false;
 			}
 		}
 		FPropertyWidgetEditResult Edit;
@@ -1683,15 +1688,11 @@ namespace Durin
 
 	auto FPropertyView::EndInteractionFrame(const FPropertyViewContext& Context, bool* OutChanged) -> bool
 	{
-		const std::string PreviousHandleError = HandleControls.GetFinishError();
 		std::string Error;
 		const bool bFinished = HandleControls.EndFrame(Context.bReadOnly || ImGui::IsKeyPressed(ImGuiKey_Escape, false),
 			Context.bShouldTransact, [&] { return ReconcileInteraction(Context, true) && FinishActiveEdit(&Context, false); },
 			&Error, OutChanged);
 		if (!Error.empty()) ReportEditError(Context, std::move(Error));
-		const auto& HandleError = HandleControls.GetFinishError();
-		if (Context.ReportPropertyError && !HandleError.empty() && HandleError != PreviousHandleError)
-			Context.ReportPropertyError(HandleError);
 		return ReconcileInteraction(Context, true) && bFinished;
 	}
 

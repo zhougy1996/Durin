@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Graph/MaterialGraphInteraction.h"
+#include "Graph/MaterialEditorPreviewParameter.h"
 
 #include "MaterialGraphOperations.h"
 #include "MaterialGraph.h"
@@ -39,10 +40,9 @@ namespace Durin::MaterialEditor
 			DTransactor& Transactions,
 			float Height) -> void;
 		auto SelectAndFrame(const FGuid& NodeId) -> bool;
-		auto DrawSelectionDetails(DTransactor& Transactions) -> void;
+		auto DrawSelectionDetails() -> void;
 		auto FinishDetailsEdit(bool bCancel) -> bool;
-		auto DrawParameterValue(const FMaterialParameterDefinition& Parameter,
-			DTransactor& Transactions) -> void;
+		auto DrawParameterValue(const FMaterialParameterDefinition& Parameter) -> void;
 		enum class EParameterTextField { Name, DisplayName, Group, Binding };
 		auto DrawParameterText(const char* Label, EParameterTextField Field, const FGuid& TargetId,
 			std::string_view Value) -> void;
@@ -78,10 +78,8 @@ namespace Durin::MaterialEditor
 		}
 
 	private:
-		auto ObserveParameterValue(const FGuid& Id, DTransactor& Transactions,
-			const MonaImGui::PropertyEdit::FPropertyInteractionState& State, std::optional<FMaterialParameterValue> Value) -> void;
-		auto FinishParameterEdit(bool bCancel) -> bool;
-		auto FinishParameterSession(bool bCancel) -> bool;
+		auto CommitParameterValue(const FMaterialParameterDefinition& Parameter, const FMaterialParameterValue& Value) -> std::expected<void, std::string>;
+		auto DrawParameterTexture(const FMaterialParameterDefinition& Parameter) -> bool;
 		auto EndParameterTextFrame() -> void;
 		auto EndRootInputFrame() -> void;
 		auto FinishRootInputEdit(bool bCancel) -> bool;
@@ -251,7 +249,8 @@ namespace Durin::MaterialEditor
 		std::array<char, 256> NodeTextureSearch{};
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
-		FMaterialGraphParameterEditSession ParameterSession;
+		FMaterialEditorPreviewParameters PreviewParameters;
+		PropertyEditor::FPropertyControlFrame ParameterControls;
 		struct FParameterTextDraft
 		{
 			EParameterTextField Field;
@@ -275,9 +274,5 @@ namespace Durin::MaterialEditor
 		PropertyEditor::TPropertyControlFrame<FRootInputControlId, uint64, FMaterialInputDefault> RootInputFrame;
 		std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>> RootInputDraft;
 		uint64 RootInputRevision = 0;
-		using FParameterControlId = std::pair<FGuid, ImGuiID>;
-		PropertyEditor::TPropertyControlFrame<FParameterControlId, TWeakObjectPtr<DTransactor>, FMaterialParameterValue> ParameterFrame;
-		int FailedParameterFinishFrame = -1;
-		std::string LastParameterFinishError;
 	};
 }

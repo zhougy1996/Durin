@@ -196,6 +196,8 @@ namespace Durin
 		COREDOBJECT_API auto SetLoadedDeprecatedProperties(std::span<const FName> Properties) -> void;
 		COREDOBJECT_API auto ClearLoadedDeprecatedProperties() -> void;
 
+		COREDOBJECT_API virtual auto CanEditChange(const FProperty* Property) const -> bool;
+
 		// Validates or normalizes detached reflected storage before a live write.
 		COREDOBJECT_API virtual auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>;
 

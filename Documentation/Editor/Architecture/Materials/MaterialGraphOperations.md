@@ -657,8 +657,8 @@ validated publication and compensation boundary.
 Layout gestures keep draft coordinates on the canvas. A completed gesture
 records only the moved objects. Whole-object replay restores the moved
 expression's historical fields and preserves later changes on stationary
-expressions. A committed parameter edit records each declaration expression
-sharing the parameter GUID. Replay restores the declarations together and
+expressions. A committed parameter gesture records its transactional preview parameter and each
+declaration expression sharing the parameter GUID. Replay restores the declarations together and
 rebuilds the material's parameter schema from the settled graph.
 
 Material-instance color overrides use the reflected override array and linear
@@ -668,12 +668,21 @@ commits the current graph color while the picker stays open.
 Graph scalar, vector and color controls collect input during drawing and use
 the [shared frame settlement](../PropertyEditing/ReflectedPropertyEditing.md#edit-session-lifecycle)
 after all rows are drawn. The previous control settles before the next edit
-starts. A gesture opens or joins the editor transaction and holds its interactive
-value in the parameter editor. Other controls for that parameter display this
-value. The material and render preview read the committed default. Commit checks
-the original value and declaration identities, records each declaration in the
-same transaction and publishes the final value through the parameter setter.
-Escape, a hidden row or document deactivation discards unfinished input.
+starts. The document creates its transient reflected preview objects together
+from the working material's parameter schema. The canvas calls `RegenerateArrays()` when graph synchronization
+reports topology or parameter declaration changes and when undo or redo relinks
+the graph. A changed parameter default also triggers a rebuild if it conflicts
+with a draft or differs from the value shown by that document. An ordinary
+preview commit keeps its controls bound. Rebuilding retires the old handles.
+The same property control frame used by Details owns the edit across frames. It
+writes the selected field on the preview object, which supplies the value shown
+by every control for that parameter. The material and render preview read the committed default.
+Commit records each shared declaration in the
+same transaction and publishes the final value from the preview object's
+committed property notification. Texture selection and sampler changes use the
+same binding with a single committed write.
+Escape, a hidden row or document deactivation restores the preview property
+before ending the gesture. Other writes in an enclosing transaction survive.
 Returning to the original value leaves no gesture history.
 
 Material configuration records the material before writing its domain and
@@ -707,19 +716,21 @@ After admission and a successful model write, scope destruction
 publishes history. A publication failure leaves the authored graph edit applied
 and is reported by the transactor.
 
-A failed parameter gesture commit keeps its preview and session active, allowing
-cancellation or retry, without marking the package dirty. A failed move commit
+A busy transactor leaves a parameter gesture available for retry or cancellation.
+A stale binding closes the preview and reports that the property is no longer
+editable. A failed move commit
 keeps its draft without publishing positions. Rejected move previews preserve the
 previous draft. A semantic revision change cancels the move. A released drag
 keeps its final positions while the transactor is busy and commits when it
-can record again. The move and parameter sessions return error text on
-failure. Their Apply methods also report whether the preview changed.
+can record again. Both controls surface the underlying diagnostic on failure.
 
-Direct parameter commands open their recording before publishing a changed value.
-If a synchronous observer cancels that recording, the command reports the
-cancellation and attempts to restore the original value. Its result includes
-any restoration failure. A committed change produces one undo entry. Observers
-can see preview and restoration writes while package revisions are suppressed.
+On commit, the preview object's `CopyToSourceInstance` calls
+`DMaterial::SetParameterValueEditorOnly(Name, Meta)`. Each matching expression
+receives `SendPostEditChangeProperty`. The preview object then forwards the
+original property event to the material. Graph observers see the settled shared
+declarations and parameter schema. A binding invalidated before release rejects
+the commit. Cancelling the transaction from a graph notification discards its
+undo recording and leaves the published value in place.
 
 An invalid control value leaves the last valid draft available for correction.
 Deleting or replacing a declaration invalidates the edit. Discarding the draft

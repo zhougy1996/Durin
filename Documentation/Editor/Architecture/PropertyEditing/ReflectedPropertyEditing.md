@@ -159,14 +159,15 @@ Python dependency; the Python adapter owns conversion and exception mapping.
 ## Edit Session Lifecycle
 
 `Durin::PropertyEditor::IPropertyHandle` provides typed reads and writes for
-reflected `int32` and `FLinearColor` values. The reflected handle resolves a
+reflected integers, floats, real vectors and linear colors. Callers compare
+the result with `FPropertyAccess::Success`. The reflected handle resolves a
 member or nested path on the current object generation. `SetValue` completes
 one edit. The view and its frame-settled controls retain an `FPropertyEdit` for
 interactive writes. Both paths validate detached drafts and use the active
 editor's history. Editor shutdown restores unfinished previews and releases
 their scopes before another editor can record.
 
-The default top-level `int32` control and reflected `FLinearColor` popup record
+The default top-level integer and float controls and the reflected color popup record
 input during drawing. At frame end the host applies the active control's final
 value and settles its edit before starting a different control's edit. A color
 popup keeps one edit through successive picker gestures and commits it on
@@ -180,7 +181,9 @@ and `Cancel` return success as a boolean. Applying the current value succeeds
 and a no-op commit adds no undo record. The caller can supply a string output
 for diagnostics on failure. The view can surface a rejection as a short,
 non-modal notification and suppress repeated copies while it is visible.
-A failed property validation, notification or rollback leaves the edit active and keeps the reason visible
+A proxy target can report a backing-object write failure after its committed notification.
+The session restores its original property value and returns the diagnostic. A failed
+restoration keeps the edit available for retry. Other recoverable edit failures keep their reason visible
 in the Details panel until retry succeeds. Python uses the failure text in its
 exceptions.
 
@@ -203,12 +206,13 @@ Apply(proposal)
   notify Interactive when it changed
 
 Commit()
+  check the object's CanEditChange for the edited member
   notify Committed
   end the scoped record
 
 Cancel()
   if changed, restore through the same generic hook path
-  cancel the scoped record
+  discard an owned recording or close the nested scope
   notify Cancelled
   create no transaction
 ```
@@ -216,10 +220,11 @@ Cancel()
 Checkboxes, selections, and structural buttons normally begin and commit in one
 frame. Drag, text, vector, and transform widgets keep the session active
 until deactivation. Repeated `Apply()` calls therefore produce preview events
-but only one transaction. Escape restores the original value. Every successful
-Begin has exactly one terminal Committed or Cancelled event, including an
-interaction that never changes or returns to its original snapshot; those no-op
-interactions do not dirty the package or enter history.
+but only one transaction. Escape restores the original value. A successful commit emits one Committed notification even when the last
+interactive update already supplied the final value. Cancellation emits Cancelled.
+If a proxy rejects its committed write, restoration emits Cancelled and the
+caller receives the write failure. An unchanged edit leaves history and package
+dirtiness untouched.
 
 Reflected color values use the picker popup as the edit boundary. Opening the
 popup does not begin a transaction. The first proposal begins a normal property
@@ -274,7 +279,9 @@ This division follows UE 5.8's `IPropertyHandle::SetValue`,
 the transaction owner's terminal action. Property handles accept per-write flags. `NotTransactable` skips creating a
 transaction. An enclosing recording can still capture the property owner.
 `InteractiveChange` sends an interactive notification and leaves the final
-notification to the caller's terminal write. A failed terminal action is
+notification to the caller's terminal write. Reuse the handle through the
+gesture. The final write emits one committed notification even when its value
+matches the last interactive update. A subsequent identical write is silent. A failed terminal action is
 retried at most once per ImGui frame, and an unchanged error is reported once per
 interaction. Cancellation remains pending across failed retries.
 

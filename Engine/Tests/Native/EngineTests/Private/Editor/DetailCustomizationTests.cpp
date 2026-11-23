@@ -244,6 +244,7 @@ TEST(FSharedDetailCustomizationTests, DeferredTargetsPreserveDragReleaseEscapeAn
 			Durin::MonaImGui::PropertyEdit::EndTable();
 		}
 		ImGui::End();
+		View.EndInteractionFrame(Context);
 		ImGui::EndFrame(); // Exercise widgets without rendering or a GPU backend.
 	};
 	const auto Value = [&] { return *Intensity->ContainerPtrToValuePtr<float>(Light); };

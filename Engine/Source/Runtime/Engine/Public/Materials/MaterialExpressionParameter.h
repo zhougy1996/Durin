@@ -10,8 +10,8 @@
 namespace Durin
 {
 	// Nodes sharing a parameter ID must retain identical parameter definitions.
-	DSTRUCT()
-	struct FMaterialParameterMetadata
+	DSTRUCT(LegacyNames = "Durin::FMaterialParameterMetadata")
+	struct FMaterialExpressionParameterMetadata
 	{
 		GENERATED_BODY()
 
@@ -33,7 +33,7 @@ namespace Durin
 		DPROPERTY()
 		EMaterialParameterPresentation Presentation = EMaterialParameterPresentation::Default;
 
-		auto operator==(const FMaterialParameterMetadata&) const -> bool = default;
+		auto operator==(const FMaterialExpressionParameterMetadata&) const -> bool = default;
 	};
 
 	DCLASS(Abstract, NoClassDefaultObject)
@@ -44,7 +44,7 @@ namespace Durin
 		explicit DMaterialExpressionParameter(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialParameterMetadata Metadata;
+		FMaterialExpressionParameterMetadata Metadata;
 
 		virtual auto GetParameterDefinition() const -> FMaterialParameterDefinition = 0;
 

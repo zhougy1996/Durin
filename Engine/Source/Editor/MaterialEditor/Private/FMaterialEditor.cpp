@@ -700,7 +700,7 @@ namespace Durin::MaterialEditor
 							}
 						}
 					}
-					if (!bSubmitted) Canvas.DrawParameterValue(Parameter, *EditorSession.GetEditor()->GetTransactor());
+					if (!bSubmitted) Canvas.DrawParameterValue(Parameter);
 					MonaImGui::PropertyEdit::EndTable();
 				}
 				if (NodeIds.size() > 1)
@@ -817,7 +817,7 @@ namespace Durin::MaterialEditor
 		{
 			DrawSelectedFunction(Resource, BaseMaterial);
 			if (GetActiveMaterial() == Material && IsEditorOpen())
-				Canvas.DrawSelectionDetails(*EditorSession.GetEditor()->GetTransactor());
+				Canvas.DrawSelectionDetails();
 		}
 	}
 

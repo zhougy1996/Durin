@@ -11,6 +11,19 @@
 
 namespace Durin
 {
+	struct FMaterialParameterMetadata;
+
+#if DURIN_WITH_EDITORONLY_DATA
+	enum class EMaterialExpressionSetParameterValueFlags : uint32
+	{
+		None = 0,
+		SendPostEditChangeProperty = 1 << 0,
+		NoUpdateExpressionGuid = 1 << 1,
+		AssignGroupAndSortPriority = 1 << 2,
+	};
+	ENUM_CLASS_FLAGS(EMaterialExpressionSetParameterValueFlags);
+#endif
+
 	namespace MIR
 	{
 		class FEmitter;
@@ -58,6 +71,8 @@ namespace Durin
 
 		// Fixed output ports of a plugin expression, in Build output index order.
 		virtual auto GetOutputs() const -> std::span<const FMaterialExpressionOutput> { return {}; }
+		virtual auto SetParameterValue(const FName& Name, const FMaterialParameterMetadata& Meta,
+			EMaterialExpressionSetParameterValueFlags Flags = EMaterialExpressionSetParameterValueFlags::None) -> bool { return false; }
 		virtual auto CanRenameNode() const -> bool { return false; }
 		virtual auto GetEditableName() const -> std::string { return {}; }
 		// Changes authored name only. The editor owns validation, transactions and publication.

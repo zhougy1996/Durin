@@ -109,6 +109,7 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 
 #if DURIN_WITH_EDITORONLY_DATA
+		ENGINE_API auto SetParameterValueEditorOnly(const FName& ParameterName, const FMaterialParameterMetadata& Meta) -> bool;
 		auto GetGraphChanges() -> FMaterialGraphChangeSource& { return GraphChanges; }
 #endif
 

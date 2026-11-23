@@ -433,7 +433,7 @@ namespace Durin::MaterialEditor
 		{
 			if (BeginPanel("Details", "Details", &ProfileSettings->bDetailsVisible))
 			{
-				Document.Canvas->DrawSelectionDetails(*EditorSession.GetEditor()->GetTransactor());
+				Document.Canvas->DrawSelectionDetails();
 				if (IsCurrent()) DrawInterface(Document);
 			}
 			ImGui::End();

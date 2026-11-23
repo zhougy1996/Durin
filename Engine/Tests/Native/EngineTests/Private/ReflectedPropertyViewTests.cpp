@@ -1002,7 +1002,7 @@ TEST(FReflectedPropertyViewTests, ColorPickerHandoffToIntegerHasTheSameHistoryIn
 		const FReflectedPropertyHandle ColorHandle(FPropertyEditTarget::ForMember(Light.Get(), ColorProperty));
 		const FReflectedPropertyHandle NumberHandle(*Object, Reflection.Property->NamePrivate);
 		FLinearColor Original;
-		ASSERT_TRUE(ColorHandle.GetValue(Original));
+		ASSERT_EQ(ColorHandle.GetValue(Original), Durin::PropertyEditor::FPropertyAccess::Success);
 		FPropertyControlFrame Frame;
 		const auto EndFrame = [&] { return Frame.EndFrame(false, true, [] { return true; }); };
 
@@ -1018,20 +1018,20 @@ TEST(FReflectedPropertyViewTests, ColorPickerHandoffToIntegerHasTheSameHistoryIn
 		EXPECT_FALSE(Frame.IsActive());
 
 		FLinearColor Color;
-		ASSERT_TRUE(ColorHandle.GetValue(Color));
+		ASSERT_EQ(ColorHandle.GetValue(Color), Durin::PropertyEditor::FPropertyAccess::Success);
 		EXPECT_EQ(Color, Committed);
 		EXPECT_EQ(Object->Value, 9);
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(Object->Value, 5);
-		ASSERT_TRUE(ColorHandle.GetValue(Color));
+		ASSERT_EQ(ColorHandle.GetValue(Color), Durin::PropertyEditor::FPropertyAccess::Success);
 		EXPECT_EQ(Color, Committed);
 		ASSERT_TRUE(Transactions->Undo());
-		ASSERT_TRUE(ColorHandle.GetValue(Color));
+		ASSERT_EQ(ColorHandle.GetValue(Color), Durin::PropertyEditor::FPropertyAccess::Success);
 		EXPECT_EQ(Color, Original);
 		EXPECT_FALSE(Transactions->CanUndo());
 		ASSERT_TRUE(Transactions->Redo());
 		ASSERT_TRUE(Transactions->Redo());
-		ASSERT_TRUE(ColorHandle.GetValue(Color));
+		ASSERT_EQ(ColorHandle.GetValue(Color), Durin::PropertyEditor::FPropertyAccess::Success);
 		EXPECT_EQ(Color, Committed);
 		EXPECT_EQ(Object->Value, 9);
 		EXPECT_FALSE(Transactions->CanRedo());
@@ -1045,16 +1045,16 @@ TEST(FReflectedPropertyViewTests, ReflectedIntegerHandleReadsAndWritesInOneTrans
 	Testing::InitializeAssetSystemForTests();
 	TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(nullptr, "IntegerHandle"));
 	FPropertyViewTestTransactorOwner Transactions;
-	const FReflectedPropertyHandle Reflected(*Object, GetPropertyViewHostTestReflection().Property->NamePrivate);
-	const IPropertyHandle& Handle = Reflected;
+	FReflectedPropertyHandle Reflected(*Object, GetPropertyViewHostTestReflection().Property->NamePrivate);
+	IPropertyHandle& Handle = Reflected;
 	int32 Value = 0;
-	ASSERT_TRUE(Handle.GetValue(Value));
+	ASSERT_EQ(Handle.GetValue(Value), Durin::PropertyEditor::FPropertyAccess::Success);
 	EXPECT_EQ(Value, 5);
 	EXPECT_TRUE(Handle.IsEditable());
-	EXPECT_TRUE(Handle.SetValue(8));
-	ASSERT_TRUE(Handle.GetValue(Value));
+	EXPECT_EQ(Handle.SetValue(8), Durin::PropertyEditor::FPropertyAccess::Success);
+	ASSERT_EQ(Handle.GetValue(Value), Durin::PropertyEditor::FPropertyAccess::Success);
 	EXPECT_EQ(Value, 8);
-	EXPECT_TRUE(Handle.SetValue(8));
+	EXPECT_EQ(Handle.SetValue(8), Durin::PropertyEditor::FPropertyAccess::Success);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Object->Value, 5);
 	EXPECT_FALSE(Transactions->CanUndo());
@@ -1062,21 +1062,24 @@ TEST(FReflectedPropertyViewTests, ReflectedIntegerHandleReadsAndWritesInOneTrans
 	EXPECT_EQ(Object->Value, 8);
 	Transactions->Reset();
 	std::vector<EPropertyChangePhase> Phases;
-		struct FObserver
-		{
-			FPropertyEditExtensionHandle Handle;
-			~FObserver() { UnregisterPropertyEditExtension(Handle); }
-		} Observer{RegisterPropertyEditExtension({.PostEdit = [&](DObject& Owner, const FPropertyChangedEvent& Event, bool) {
-			if (&Owner == Object.Get()) Phases.push_back(Event.Phase);
-		}})};
-		ASSERT_TRUE(Handle.SetValue(1, EPropertyValueSetFlags::NotTransactable));
+	struct FObserver
+	{
+		FPropertyEditExtensionHandle Handle;
+		~FObserver() { UnregisterPropertyEditExtension(Handle); }
+	} Observer{RegisterPropertyEditExtension({.PostEdit = [&](DObject& Owner, const FPropertyChangedEvent& Event, bool) {
+		if (&Owner == Object.Get()) Phases.push_back(Event.Phase);
+	}})};
+	ASSERT_EQ(Handle.SetValue(1, EPropertyValueSetFlags::NotTransactable), Durin::PropertyEditor::FPropertyAccess::Success);
 	EXPECT_FALSE(Transactions->CanUndo());
 	{
 		FScopedTransaction Gesture("Slider");
-		ASSERT_TRUE(Handle.SetValue(2, EPropertyValueSetFlags::InteractiveChange | EPropertyValueSetFlags::NotTransactable));
+		ASSERT_EQ(Handle.SetValue(2, EPropertyValueSetFlags::InteractiveChange | EPropertyValueSetFlags::NotTransactable), Durin::PropertyEditor::FPropertyAccess::Success);
 		EXPECT_TRUE(Gesture.IsOutstanding());
 		EXPECT_EQ(Object->Value, 2);
-		ASSERT_TRUE(Handle.SetValue(3, EPropertyValueSetFlags::NotTransactable));
+		ASSERT_EQ(Handle.SetValue(2), Durin::PropertyEditor::FPropertyAccess::Success);
+		ASSERT_EQ(Handle.SetValue(2), FPropertyAccess::Success);
+		float IncompatibleValue = 0;
+		EXPECT_EQ(Handle.GetValue(IncompatibleValue), FPropertyAccess::Fail);
 		EXPECT_EQ(Phases, (std::vector{EPropertyChangePhase::Committed, EPropertyChangePhase::Interactive,
 			EPropertyChangePhase::Committed}));
 	}
@@ -1084,7 +1087,7 @@ TEST(FReflectedPropertyViewTests, ReflectedIntegerHandleReadsAndWritesInOneTrans
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Object->Value, 1);
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_EQ(Object->Value, 3);
+	EXPECT_EQ(Object->Value, 2);
 }
 
 TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWithoutErrors)

@@ -301,6 +301,18 @@ namespace Durin
 		std::variant<float, FVector2, FVector3, FVector4, FMaterialTextureValue> Value = 0.0f;
 	};
 
+#if DURIN_WITH_EDITORONLY_DATA
+	struct FMaterialParameterMetadata
+	{
+		FMaterialParameterValue Value;
+		FName Group;
+		int32 SortPriority = 0;
+
+		FMaterialParameterMetadata() = default;
+		FMaterialParameterMetadata(const FMaterialParameterValue& InValue) : Value(InValue) {}
+	};
+#endif
+
 	// Derived parameter view; pointers expire when the owner revision changes.
 	struct FMaterialParameterDefinition
 	{

@@ -270,24 +270,12 @@ namespace Durin
 			bool bValueChanged = true
 		) -> void
 		{
-			std::vector<FPropertyPathSegment> EventPath = MakeEventPath(Target);
-			Target.Object->PostEditChangeProperty({
-				Target.MemberProperty,
-				Target.LeafProperty,
-				EventPath,
-				Phase,
-				Target.Kind,
-				Origin
-			});
-			const FPropertyChangedEvent Event{
-				Target.MemberProperty,
-				Target.LeafProperty,
-				std::move(EventPath),
-				Phase,
-				Target.Kind,
-				Origin};
+			const TStrongObjectPtr<DObject> Owner(Target.Object);
+			const auto Path = MakeEventPath(Target);
+			const FPropertyChangedEvent Event{Target.MemberProperty, Target.LeafProperty, Path, Phase, Target.Kind, Origin};
+			Owner->PostEditChangeProperty(Event);
 			for (const FPropertyEditExtension& Extension : SnapshotPropertyEditExtensions())
-				if (Extension.PostEdit) Extension.PostEdit(*Target.Object, Event, bValueChanged);
+				if (Extension.PostEdit) Extension.PostEdit(*Owner, Event, bValueChanged);
 		}
 
 		auto ExecuteMutation(
@@ -681,13 +669,14 @@ namespace Durin
 		Description = InDescription.empty()
 			? std::format("Edit {}", Target.MemberProperty->NamePrivate)
 			: InDescription;
-		if (const auto Capture = CaptureTargetValue(Target, OriginalValue); !Capture)
+		if (const auto Capture = CapturePropertyValue(Target.SnapshotProperty, Target.SnapshotContainer,
+			Target.SnapshotArrayIndex, OriginalValue); !Capture)
 		{
 			const auto Message = ToString(Capture.error());
 			Reset();
 			return FailPropertyEdit(OutError, Message);
 		}
-		CurrentValue = OriginalValue;
+		CurrentValue = GetOriginalValue();
 		if (GEditor)
 		{
 			if (GEditor->IsShutdownRequested())
@@ -705,7 +694,7 @@ namespace Durin
 				Reset();
 				return FailPropertyEdit(OutError, "Property recording requires the active editor's transactor.");
 			}
-			const bool bOwnsRecording = !Owner->IsActive();
+			bOwnsRecording = !Owner->IsActive();
 			if (bOpenScope) TransactionScope.emplace("ReflectedProperty", Description, Target.Object);
 			if (bOpenScope && !TransactionScope->IsOutstanding())
 			{
@@ -769,14 +758,28 @@ namespace Durin
 	auto PropertyEditor::FPropertyEdit::Commit(std::string* OutError) -> bool
 	{
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
-		if (TransactionScope && (!GEditor || !GEditor->GetTransactor()->IsActive()))
-			return FailPropertyEdit(OutError, "The property transaction scope is unavailable. Cancel this edit before retrying.");
+		if (bCommitting) return true;
+		if (TransactionScope && !TransactionScope->IsRecordingCurrent())
+		{
+			if (!Cancel(OutError)) return false;
+			return FailPropertyEdit(OutError, "The property transaction is no longer active.");
+		}
+		if (TransactionScope && !ResolveEditorTransactor(true)) return FailPropertyEdit(OutError, "The editor transactor is busy.");
+		if (!Target.Object->CanEditChange(Target.MemberProperty))
+		{
+			if (!Cancel(OutError)) return false;
+			return FailPropertyEdit(OutError, "The property is no longer editable.");
+		}
 		const bool bChanged = HasChanges();
-		if (const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
-			EPropertyChangePhase::Committed, EPropertyChangeOrigin::Edit, bChanged); !Mutation)
+		bCommitting = true;
+		const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
+			EPropertyChangePhase::Committed, EPropertyChangeOrigin::Edit, bChanged);
+		bCommitting = false;
+		if (!Mutation)
 		{
 			return FailPropertyEdit(OutError, FormatPropertyMutationError(Mutation.Error));
 		}
+		if (!bActive) return FailPropertyEdit(OutError, "The property edit closed during publication.");
 		if (bChanged) Target.Object->MarkPackageDirty();
 		Reset(false);
 		return true;
@@ -796,10 +799,13 @@ namespace Durin
 
 	auto PropertyEditor::FPropertyEdit::Cancel(std::string* OutError) -> bool
 	{
+		if (bCommitting) return true;
+		if (TransactionScope && TransactionScope->IsRecordingCurrent() && !GEditor->GetTransactor()->CanTransact())
+			return FailPropertyEdit(OutError, "The editor transactor is busy.");
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
 		const bool bChanged = HasChanges();
 		FMutationExecutionResult Result = ExecuteMutation(
-			Target, bChanged ? &OriginalValue : nullptr, nullptr,
+			Target, bChanged ? &GetOriginalValue() : nullptr, nullptr,
 			bChanged ? EMutationOperation::Apply : EMutationOperation::NotifyOnly,
 			EPropertyChangePhase::Cancelled, EPropertyChangeOrigin::Edit);
 		if (!Result)
@@ -815,8 +821,9 @@ namespace Durin
 	{
 		if (GEditor) std::erase(GEditor->ActivePropertyEdits, this);
 		bActive = false;
-		if (bCancelRecording && TransactionScope) TransactionScope->Cancel();
+		if (bCancelRecording && bOwnsRecording && TransactionScope) TransactionScope->Cancel();
 		TransactionScope.reset();
+		bOwnsRecording = false;
 		Target = {};
 		TargetObject.Reset();
 		OriginalValue = {};

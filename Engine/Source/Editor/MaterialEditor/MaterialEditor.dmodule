@@ -16,6 +16,7 @@
     ],
     "ReflectHeaders": [
         "Private/MaterialAssetDefinitions.h",
+        "Private/Graph/MaterialEditorPreviewParameter.h",
         "Public/MaterialGraph.h",
         "Public/Thumbnail/MaterialThumbnailRenderer.h"
     ]

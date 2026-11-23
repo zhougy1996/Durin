@@ -17,13 +17,14 @@ namespace Durin::PropertyEditor
 		const std::function<bool()>& PrepareNewEdit, std::string* OutError, bool* OutChanged) -> bool
 	{
 		bool bChanged = bCancel && Edit.HasChanges();
+		const std::string PreviousError = FinishError;
 		const bool bSucceeded = Frame.EndFrame(bCancel,
 			[&](ImGuiID, const FReflectedPropertyHandle& Handle) {
-				return PrepareNewEdit() && Handle.BeginEdit(Edit, bShouldTransact, OutError);
+				return (!PrepareNewEdit || PrepareNewEdit()) && Handle.IsEditable() && Edit.Begin(Handle.ResolveTarget(), {}, bShouldTransact, OutError);
 			},
 			[&](const FValue& Value) {
 				bool bAppliedChange = false;
-				if (!Edit.WriteControlValue(Value, OutError, bAppliedChange))
+				if (!Edit.WriteControlValue(Value, OutError, &bAppliedChange))
 				{
 					Finish(true);
 					return false;
@@ -32,15 +33,22 @@ namespace Durin::PropertyEditor
 				return true;
 			},
 			[this](bool bRestore) { return FinishEdit(bRestore); });
+		if (!bSucceeded && OutError && OutError->empty() && FinishError != PreviousError) *OutError = FinishError;
 		if (bSucceeded && OutChanged) *OutChanged |= bChanged;
 		return bSucceeded;
 	}
 
 	auto FPropertyControlFrame::FinishEdit(bool bCancel) -> bool
 	{
+		if (!Edit.IsActive()) return true;
+		const int FrameNumber = ImGui::GetCurrentContext() ? ImGui::GetFrameCount() : -1;
+		if (!bCancel && FrameNumber >= 0 && FrameNumber == FailedFinishFrame) return false;
 		const bool bFinished = bCancel
 			? (Edit.HasChanges() ? Edit.Cancel(&FinishError) : Edit.CancelUnchanged(&FinishError))
 			: Edit.Commit(&FinishError);
+		// A target that became read-only is closed at commit.
+		if (!bFinished && !Edit.IsActive()) Frame.RetireActiveControl();
+		FailedFinishFrame = Edit.IsActive() && !bFinished ? FrameNumber : -1;
 		if (bFinished) FinishError.clear();
 		return bFinished;
 	}

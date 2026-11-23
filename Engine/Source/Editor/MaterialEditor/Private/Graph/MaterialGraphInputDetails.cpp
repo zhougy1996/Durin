@@ -21,7 +21,6 @@
 #include "Math/Color.h"
 #include "Texture/Texture2D.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
-#include "Transactions/Transactor.h"
 
 namespace Durin::MaterialEditor
 {
@@ -35,18 +34,57 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto FMaterialGraphCanvas::DrawParameterValue(
-		const FMaterialParameterDefinition& Parameter, DTransactor& Transactions) -> void
+	auto FMaterialGraphCanvas::CommitParameterValue(const FMaterialParameterDefinition& Parameter,
+		const FMaterialParameterValue& Value) -> std::expected<void, std::string>
 	{
-		if (!Cast<DMaterial>(EditorGraph->GetMaterialOrFunction())) { CancelInteraction(); return; }
-		if (Parameter.Type == EMaterialParameterType::Texture) return;
+		if (!ParameterControls.Finish(false)) return std::unexpected(ParameterControls.GetFinishError());
+		auto* Preview = PreviewParameters.Find(Parameter.Id);
+		if (!Preview) return std::unexpected("The material parameter definition is unavailable.");
+		PropertyEditor::FReflectedPropertyHandle Handle(Preview->GetEditTarget());
+		if (Handle.SetValue(Value.GetTexture()) != PropertyEditor::FPropertyAccess::Success)
+			return std::unexpected(Handle.GetLastError());
+		return {};
+	}
+
+	auto FMaterialGraphCanvas::DrawParameterTexture(const FMaterialParameterDefinition& Parameter) -> bool
+	{
+		bool bChanged = false;
+		const auto& Texture = Parameter.Value.GetTexture();
+		MonaImGui::PropertyEdit::BeginRow("Texture");
+		const auto Interaction = AssetPicker::Draw({
+			.RequiredClass = Texture.Dimension == EMaterialTextureDimension::TextureCube ? DTextureCube::StaticClass() : DTexture2D::StaticClass(),
+			.CurrentSelection = Texture.Texture.Get(), .SearchText = NodeTextureSearch,
+			.AssignSelection = [&](DObject* Object, std::string& Error) {
+				auto Value = Parameter.Value;
+				Value.GetTexture().Texture = Cast<DTexture>(Object);
+				const auto Result = CommitParameterValue(Parameter, Value);
+				if (!Result) Error = Result.error();
+				bChanged = Result.has_value() && Value != Parameter.Value;
+				return Result.has_value();
+			}});
+		MonaImGui::PropertyEdit::EndRow();
+		if (!Interaction.Error.empty()) ReportError(Interaction.Error);
+		return bChanged;
+	}
+
+	auto FMaterialGraphCanvas::DrawParameterValue(
+		const FMaterialParameterDefinition& Parameter) -> void
+	{
+		auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
+		if (!Material) { CancelInteraction(); return; }
+		if (Parameter.Type == EMaterialParameterType::Texture)
+		{
+			DrawParameterTexture(Parameter);
+			return;
+		}
+		auto* Preview = PreviewParameters.Find(Parameter.Id);
+		const bool bEditing = Preview && ParameterControls.IsEditingObject(Preview);
 		ImGui::PushID(Parameter.Id.ToString().c_str());
 		MonaImGui::PropertyEdit::BeginRow("Default value");
 		const ImGuiID Widget = ImGui::GetID("##Value");
 		using namespace MonaImGui::PropertyEdit;
 		FPropertyInteractionState Interaction;
-		const auto* Interactive = ParameterSession.GetInteractiveValue(Parameter.Id);
-		auto Value = Interactive && Interactive->HasSameType(Parameter.Value) ? *Interactive : Parameter.Value;
+		auto Value = bEditing ? Preview->GetValue() : Parameter.Value;
 		bool Edited = false;
 		const float Minimum = Parameter.bHasRange ? Parameter.MinimumValue : 0.0f;
 		const float Maximum = Parameter.bHasRange ? Parameter.MaximumValue : 0.0f;
@@ -84,15 +122,19 @@ namespace Durin::MaterialEditor
 		const bool Active = ImGui::IsItemActive();
 		const bool Deactivated = ImGui::IsItemDeactivatedAfterEdit();
 		if (Interaction.Id == 0) Interaction = FPropertyInteractionState::FromWidget(Widget, {Active, Deactivated});
-		ObserveParameterValue(Parameter.Id, Transactions, Interaction, Edited ? std::optional(std::move(Value)) : std::nullopt);
+		if (Preview && (Edited || bEditing))
+		{
+			std::optional<PropertyEditor::FPropertyControlValue> Proposed;
+			if (Edited)
+			{
+				if (Parameter.Type == EMaterialParameterType::Scalar) Proposed = Value.GetScalar();
+				else Proposed = Value.GetVector4();
+			}
+			ParameterControls.Observe(Interaction.Id, PropertyEditor::FReflectedPropertyHandle(Preview->GetEditTarget()),
+				Interaction.End, std::move(Proposed));
+		}
 		MonaImGui::PropertyEdit::EndRow();
 		ImGui::PopID();
-	}
-
-	auto FMaterialGraphCanvas::ObserveParameterValue(const FGuid& Id, DTransactor& Transactions,
-		const MonaImGui::PropertyEdit::FPropertyInteractionState& State, std::optional<FMaterialParameterValue> Value) -> void
-	{
-		ParameterFrame.Observe({Id, State.Id}, TWeakObjectPtr<DTransactor>(&Transactions), State.End, std::move(Value));
 	}
 
 	auto FMaterialGraphCanvas::EndParameterFrame() -> void
@@ -100,27 +142,9 @@ namespace Durin::MaterialEditor
 		EndParameterTextFrame();
 		EndNodeLiteralFrame();
 		EndRootInputFrame();
-		ParameterFrame.EndFrame(ImGui::IsKeyPressed(ImGuiKey_Escape, false),
-			[this](const FParameterControlId& Id, const TWeakObjectPtr<DTransactor>& Transactions) {
-				auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
-				auto* Transactor = Transactions.Get();
-				if (!Material || !Transactor)
-				{
-					ReportError(!Material ? "The material graph owner is no longer available."
-						: "The editor transactor is no longer available.");
-					return false;
-				}
-				const auto Result = ParameterSession.Begin(*Material, Id.first, Transactor);
-				if (!Result) ReportError(Result.error());
-				return static_cast<bool>(Result);
-			},
-			[this](const FMaterialParameterValue& Value) {
-				const auto Result = ParameterSession.Apply(Value);
-				if (!ParameterSession.IsActive()) FinishParameterEdit(false);
-				if (!Result) ReportError(Result.error());
-				return static_cast<bool>(Result);
-			},
-			[this](bool bCancel) { return FinishParameterSession(bCancel); });
+		std::string Error;
+		ParameterControls.EndFrame(ImGui::IsKeyPressed(ImGuiKey_Escape, false), true, {}, &Error);
+		if (!Error.empty()) ReportError(std::move(Error));
 	}
 
 	auto FMaterialGraphCanvas::DrawParameterText(const char* Label, EParameterTextField Field, const FGuid& TargetId,
@@ -279,32 +303,6 @@ namespace Durin::MaterialEditor
 			bEdited ? std::optional(Value) : std::nullopt);
 	}
 
-	auto FMaterialGraphCanvas::FinishParameterEdit(bool bCancel) -> bool
-	{
-		return ParameterFrame.Finish(bCancel, [this](bool bRestore) { return FinishParameterSession(bRestore); });
-	}
-
-	auto FMaterialGraphCanvas::FinishParameterSession(bool bCancel) -> bool
-	{
-		if (!ParameterSession.IsActive()) return true;
-		const int Frame = ImGui::GetCurrentContext() ? ImGui::GetFrameCount() : -1;
-		if (!bCancel && Frame >= 0 && FailedParameterFinishFrame == Frame) return false;
-		const auto Result = bCancel ? ParameterSession.Cancel() : ParameterSession.Commit();
-		if (!Result)
-		{
-			FailedParameterFinishFrame = Frame;
-			auto Error = Result.error();
-			if (LastParameterFinishError != Error)
-			{
-				LastParameterFinishError = Error;
-				ReportError(std::move(Error));
-			}
-			return false;
-		}
-		FailedParameterFinishFrame = -1;
-		LastParameterFinishError.clear();
-		return true;
-	}
 
 	auto FMaterialGraphCanvas::GetSelectedDetailsNode() const -> DMaterialGraphNode*
 	{
@@ -357,7 +355,7 @@ namespace Durin::MaterialEditor
 			CheckCommand(Pin->GetOwningNode()->PinDefaultValueChanged(Pin, Draft.Value));
 	}
 
-	auto FMaterialGraphCanvas::DrawSelectionDetails(DTransactor& Transactions) -> void
+	auto FMaterialGraphCanvas::DrawSelectionDetails() -> void
 	{
 		if (!EditorGraph->GetMaterialOrFunction()) { CancelInteraction(); return; }
 		auto& Owner = *EditorGraph->GetMaterialOrFunction();
@@ -410,25 +408,16 @@ namespace Durin::MaterialEditor
 					Parameter.TextureUsage = Cube ? (Usage == 1 ? ETextureUsage::DataMask : ETextureUsage::Color) : static_cast<ETextureUsage>(Usage);
 					Submit(ReplaceParameterDefinition(*ParameterExpression, Parameter));
 				}
-				MonaImGui::PropertyEdit::BeginRow("Texture");
-				const auto Interaction = AssetPicker::Draw({.RequiredClass = Parameter.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? DTextureCube::StaticClass() : DTexture2D::StaticClass(),
-					.CurrentSelection = Parameter.Value.GetTexture().Texture.Get(), .SearchText = NodeTextureSearch,
-					.AssignSelection = [&](DObject* Object, std::string& Error) {
-						auto Value = Parameter.Value;
-						Value.GetTexture().Texture = Cast<DTexture>(Object);
-						const auto Result = MaterialEditing::SetParameterValue(*Material, Parameter.Id, Value);
-						Error = FormatMaterialGraphCommandResult(Result); Changed = Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded;
-						return static_cast<bool>(Result);
-					}});
-				MonaImGui::PropertyEdit::EndRow();
-				if (!Interaction.Error.empty()) ReportError(Interaction.Error);
+				Changed = DrawParameterTexture(Parameter);
 				if (MonaImGui::PropertyEdit::BeginGroup("Sampler", "Sampler settings", ImGuiTreeNodeFlags_None))
 				{
 					const auto Combo = [&](const char* Label, auto& Value, const char* Names) {
 						int Index = static_cast<int>(Value);
 						if (Changed || !DetailsStyle::EditRow(Label, [&] { return ImGui::Combo("##Value", &Index, Names); })) return;
 						Value = static_cast<std::remove_reference_t<decltype(Value)>>(Index);
-						Submit(MaterialEditing::SetParameterValue(*Material, Parameter.Id, Parameter.Value));
+						const auto Result = CommitParameterValue(Parameter, Parameter.Value);
+						if (!Result) ReportError(Result.error());
+						Changed = Result.has_value();
 					};
 					Combo("Missing texture", Parameter.Value.GetTexture().TextureFallback, Parameter.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? "White\0Black\0" : "White\0Black\0Flat normal\0");
 					Combo("Min filter", Parameter.Value.GetTexture().SamplerState.MinFilter, "Nearest\0Linear\0Nearest mip nearest\0Linear mip nearest\0Nearest mip linear\0Linear mip linear\0");
@@ -439,7 +428,7 @@ namespace Durin::MaterialEditor
 					MonaImGui::PropertyEdit::EndGroup();
 				}
 			}
-			else if (!Changed) DrawParameterValue(Parameter, Transactions);
+			else if (!Changed) DrawParameterValue(Parameter);
 		}
 		std::optional<EMaterialTextureReadMode> SamplingMode;
 		const auto EditSamplingMode = [&](const auto* Sample) {

@@ -72,7 +72,7 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 			ImGui::Begin("Parameter value", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
 			if (Visible && MonaImGui::PropertyEdit::BeginTable("Values", DetailsStyle::MakeTableConfig()))
 			{
-				Canvas.DrawParameterValue(*Material->FindParameterDefinition(Definition.Id), *Transactions.Get());
+				Canvas.DrawParameterValue(*Material->FindParameterDefinition(Definition.Id));
 				Start = {ImGui::GetItemRectMin().x + 30, (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) / 2};
 				MonaImGui::PropertyEdit::EndTable();
 			}
@@ -171,7 +171,7 @@ TEST(FMaterialGraphInteractionTests, ColorPopupCommitsEachMouseReleaseWhileOpen)
 				ImGui::OpenPopup("##Picker");
 				ImGui::PopID();
 			}
-			Canvas.DrawParameterValue(*Material->FindParameterDefinition(Definition.Id), *Transactions.Get());
+			Canvas.DrawParameterValue(*Material->FindParameterDefinition(Definition.Id));
 			MonaImGui::PropertyEdit::EndTable();
 		}
 		Canvas.EndParameterFrame();
@@ -228,21 +228,24 @@ namespace Durin::MaterialEditor
 			Editor.EditingSession->Canvas = std::move(Canvas);
 			return Result;
 		}
+		static auto Parameters(const FMaterialGraphCanvas& Canvas) -> const FMaterialEditorPreviewParameters&
+		{ return Canvas.PreviewParameters; }
 		static auto HasCanvas(const FMaterialEditor& Editor) -> bool
 		{ return Editor.EditingSession && Editor.EditingSession->Canvas; }
-		static auto ObserveParameter(FMaterialGraphCanvas& Canvas, const FGuid& Id, DTransactor& Transactions,
+		static auto ObserveParameter(FMaterialGraphCanvas& Canvas, const FGuid& Id,
 			ImGuiID Widget, MonaImGui::PropertyEdit::EPropertyInteractionEnd End, float Value) -> void
 		{
-			Canvas.ObserveParameterValue(Id, Transactions, {.Id = Widget, .End = End}, FMaterialParameterValue::MakeScalar(Value));
+			const auto Preview = Canvas.PreviewParameters.Find(Id);
+			ASSERT_TRUE(Preview);
+			Canvas.ParameterControls.Observe(Widget, PropertyEditor::FReflectedPropertyHandle(Preview->GetEditTarget()), End, Value);
 		}
-		static auto BeginParameter(FMaterialGraphCanvas& Canvas, const FGuid& Id, DTransactor& Transactions) -> void
+		static auto BeginParameter(FMaterialGraphCanvas& Canvas, const FGuid& Id) -> void
 		{
-			ObserveParameter(Canvas, Id, Transactions, 1, MonaImGui::PropertyEdit::EPropertyInteractionEnd::None, .75f);
+			ObserveParameter(Canvas, Id, 1, MonaImGui::PropertyEdit::EPropertyInteractionEnd::None, .75f);
 			Canvas.EndParameterFrame();
-			ASSERT_TRUE(Canvas.ParameterSession.IsActive());
+			ASSERT_TRUE(Canvas.ParameterControls.IsActive());
 		}
-		static auto FinishParameter(FMaterialGraphCanvas& Canvas, bool bCancel) -> bool { return Canvas.FinishParameterEdit(bCancel); }
-		static auto ParameterActive(const FMaterialGraphCanvas& Canvas) -> bool { return Canvas.ParameterSession.IsActive(); }
+		static auto ParameterActive(const FMaterialGraphCanvas& Canvas) -> bool { return Canvas.ParameterControls.IsActive(); }
 		static auto DrawRootInputValue(FMaterialGraphCanvas& Canvas, const FMaterialGraphPinView& Pin, uint64 Revision) -> void
 		{
 			Canvas.DrawRootInputValue(Pin, Revision, Pin.InlineDefault, 240.0f);
@@ -344,6 +347,125 @@ namespace Durin::MaterialEditor
 	};
 }
 
+TEST(FMaterialGraphInteractionTests, RegeneratingPreviewParametersRetiresOnlyThatCollectionsHandles)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	const auto Id = FGuid::NewGuid();
+	ASSERT_TRUE(MaterialEditing::CreateParameter(*Material, {.Id = Id, .Name = "Weight",
+		.Type = EMaterialParameterType::Scalar, .Value = FMaterialParameterValue::MakeScalar(.25f)}, false));
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	FMaterialGraphCanvas Canvas(*Graph);
+	const auto& First = FMaterialGraphCanvasTestAccess::Parameters(Canvas);
+	auto* Local = First.Find(Id);
+	ASSERT_NE(Local, nullptr);
+	PropertyEditor::FReflectedPropertyHandle Writer(Local->GetEditTarget());
+	TStrongObjectPtr<DMaterialEditorPreviewParameter> Retained;
+	{
+		FMaterialGraphCanvas SecondCanvas(*Graph);
+		const auto& Second = FMaterialGraphCanvasTestAccess::Parameters(SecondCanvas);
+		Retained = Second.Find(Id);
+		ASSERT_TRUE(Retained);
+		PropertyEditor::FReflectedPropertyHandle Old(Retained->GetEditTarget());
+		ASSERT_EQ(Writer.SetValue(.5f, PropertyEditor::EPropertyValueSetFlags::NotTransactable), PropertyEditor::FPropertyAccess::Success);
+		EXPECT_TRUE(Writer.IsEditable());
+		EXPECT_FALSE(Old.IsEditable());
+		Retained = Second.Find(Id);
+		ASSERT_TRUE(Retained);
+		EXPECT_FLOAT_EQ(Retained->GetValue().GetScalar(), .5f);
+		EXPECT_FALSE(Old.IsEditable());
+	}
+	EXPECT_FALSE(PropertyEditor::FReflectedPropertyHandle(Retained->GetEditTarget()).IsEditable());
+	Graph->LinkGraphNodesFromMaterial();
+	EXPECT_FALSE(Writer.IsEditable());
+	ASSERT_NE(First.Find(Id), nullptr);
+	EXPECT_FLOAT_EQ(First.Find(Id)->GetValue().GetScalar(), .5f);
+
+	// A render-binding notification alone leaves the editor controls in place.
+	PropertyEditor::FReflectedPropertyHandle BeforeReload(First.Find(Id)->GetEditTarget());
+	Material->RefreshReloadedAssetBindings();
+	EXPECT_TRUE(BeforeReload.IsEditable());
+	ASSERT_TRUE(Graph->MoveNodes(std::array{FMaterialGraphNodePresentation{Graph->GetRootNode()->GetView().Node.Id, 124, -48}}, false));
+	EXPECT_TRUE(BeforeReload.IsEditable());
+	ASSERT_TRUE(MaterialEditing::RenameParameter(*Material, Id, FName("RenamedWeight"), false));
+	EXPECT_FALSE(BeforeReload.IsEditable());
+	ASSERT_NE(First.Find(Id), nullptr);
+	EXPECT_FLOAT_EQ(First.Find(Id)->GetValue().GetScalar(), .5f);
+}
+
+TEST(FMaterialGraphInteractionTests, PreviewBindingRejectsWrongTypesAndStaleSources)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphCanvas Canvas(*DMaterialGraph::Create(*Material));
+	const auto& Parameters = FMaterialGraphCanvasTestAccess::Parameters(Canvas);
+	PropertyEditor::FPropertyEdit Edit;
+	EXPECT_FALSE(Edit.Commit());
+	const auto Missing = Parameters.Find(FGuid::NewGuid());
+	ASSERT_FALSE(Missing);
+	FMaterialParameterDefinition Definition;
+	Definition.Name = "TypedSession";
+	Definition.Type = EMaterialParameterType::Scalar;
+	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
+	const auto Created = MaterialEditing::CreateParameter(*Material, Definition, false).transform(Testing::ExpressionNodeId);
+	ASSERT_TRUE(Created);
+
+	const auto* CreatedParameter = FindExpression<DMaterialExpressionParameter>(*Material, Created.value());
+	ASSERT_NE(CreatedParameter, nullptr);
+	const auto Id = CreatedParameter->Metadata.Id;
+	auto Preview = Parameters.Find(Id);
+	ASSERT_TRUE(Preview);
+	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), {}, false));
+	EXPECT_FALSE(Edit.Begin(Preview->GetEditTarget(), {}, false));
+	EXPECT_FALSE(Edit.SetValue(FVector4(1, 2, 3, 4)));
+	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .25f);
+	ASSERT_TRUE(Edit.SetValue(.75f));
+	ASSERT_TRUE(Edit.Commit());
+	Preview = Parameters.Find(Id);
+	ASSERT_TRUE(Preview);
+	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), {}, false));
+	ASSERT_TRUE(Edit.SetValue(.5f));
+	ASSERT_TRUE(MaterialEditing::DeleteParameter(*Material, Id, false));
+	Definition.Id = Id;
+	Definition.Value = FMaterialParameterValue::MakeScalar(.75f);
+	ASSERT_TRUE(MaterialEditing::CreateParameter(*Material, Definition, false));
+	std::string Error;
+	EXPECT_FALSE(Edit.Commit(&Error));
+	EXPECT_EQ(Error, "The property is no longer editable.");
+	EXPECT_FALSE(Edit.IsActive());
+	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .75f);
+
+	Preview = Parameters.Find(Id);
+	ASSERT_TRUE(Preview);
+	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), {}, false));
+	ASSERT_TRUE(Edit.SetValue(.5f));
+	ASSERT_TRUE(Material->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.8f)));
+	EXPECT_FALSE(Edit.Commit());
+	EXPECT_FALSE(Edit.IsActive());
+	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .8f);
+
+	PropertyEditor::FPropertyControlFrame Controls;
+	using EEnd = PropertyEditor::FPropertyControlFrame::EEnd;
+	Preview = Parameters.Find(Id);
+	ASSERT_TRUE(Preview);
+	PropertyEditor::FReflectedPropertyHandle OldHandle(Preview->GetEditTarget());
+	EXPECT_TRUE(OldHandle.IsEditable());
+	Controls.Observe(7, OldHandle, EEnd::None, .5f);
+	ASSERT_TRUE(Controls.EndFrame(false, false));
+	ASSERT_TRUE(Material->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.7f)));
+	EXPECT_FALSE(OldHandle.IsEditable());
+	Controls.Observe(7, OldHandle, EEnd::Commit, std::nullopt);
+	EXPECT_FALSE(Controls.EndFrame(false, false));
+	EXPECT_FALSE(Controls.IsActive());
+	Preview = Parameters.Find(Id);
+	ASSERT_TRUE(Preview);
+	Controls.Observe(7, PropertyEditor::FReflectedPropertyHandle(Preview->GetEditTarget()), EEnd::Commit, .6f);
+	ASSERT_TRUE(Controls.EndFrame(false, false));
+	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .6f);
+}
+
 TEST(FMaterialGraphInteractionTests, ReplacementCanvasRestoresRootAndSurvivingExpressionsByAddress)
 {
 	InitializeDObjectSystem();
@@ -416,16 +538,16 @@ TEST(FMaterialGraphInteractionTests, ParameterHandoffHasTheSameHistoryInBothDraw
 		IO.Fonts->AddFontDefault(); IO.Fonts->Build();
 
 		ImGui::NewFrame();
-		FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, Outgoing.Id, *Transactions.Get());
+		FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, Outgoing.Id);
 		ImGui::EndFrame();
 		EXPECT_FLOAT_EQ(Read(Outgoing.Id), .25f);
 		EXPECT_FALSE(Transactions->CanUndo());
 
 		const auto DrawOutgoing = [&] {
-			FMaterialGraphCanvasTestAccess::ObserveParameter(Canvas, Outgoing.Id, *Transactions.Get(), 1, EEnd::Commit, 1.f);
+			FMaterialGraphCanvasTestAccess::ObserveParameter(Canvas, Outgoing.Id, 1, EEnd::Commit, 1.f);
 		};
 		const auto DrawIncoming = [&] {
-			FMaterialGraphCanvasTestAccess::ObserveParameter(Canvas, Incoming.Id, *Transactions.Get(), 2, EEnd::Commit, 2.f);
+			FMaterialGraphCanvasTestAccess::ObserveParameter(Canvas, Incoming.Id, 2, EEnd::Commit, 2.f);
 		};
 		ImGui::NewFrame();
 		if (bDrawIncomingFirst) { DrawIncoming(); DrawOutgoing(); }
@@ -502,7 +624,7 @@ TEST(FMaterialGraphInteractionTests, DeactivateDiscardsParameterDraftAndAllowsRe
 	ImGui::NewFrame();
 	auto* Transactions = Host.GetAssetEditorSubsystem()->GetEditor()->GetTransactor();
 	ASSERT_NE(Transactions, nullptr);
-	FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, Definition.Id, *Transactions);
+	FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, Definition.Id);
 	EXPECT_FLOAT_EQ(Preview->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .25f);
 	EXPECT_TRUE(Toolkit->RequestDeactivate());
 	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::ParameterActive(Canvas));
@@ -803,7 +925,7 @@ TEST(FMaterialGraphInteractionTests, FunctionDefaultControlsPreserveInheritedCom
 			ImGui::PushID(CallId.ToString().c_str());
 			const auto TableId = ImGui::GetID("NodeProperties");
 			ImGui::PopID();
-			Canvas.DrawSelectionDetails(*Transactions.Get());
+			Canvas.DrawSelectionDetails();
 			Canvas.EndNodeLiteralFrame();
 			const auto* Table = Context->Tables.GetByKey(TableId);
 			if (Table) Field = {Table->Columns[1].WorkMinX + 15,
@@ -1343,7 +1465,7 @@ TEST(FMaterialGraphInteractionTests, CanvasConnectsASecondFunctionOutputAndRefre
 	ImGui::SetNextWindowSize({600, 500});
 	ImGui::Begin("Connected input details");
 	ImGui::LogToBuffer();
-	Canvas.DrawSelectionDetails(*Transactions.Get());
+	Canvas.DrawSelectionDetails();
 	const std::string DetailsText = Context->LogBuffer.c_str();
 	ImGui::LogFinish();
 	ImGui::End();
@@ -1581,7 +1703,7 @@ TEST(FMaterialGraphInteractionTests, ConstantInputCommitsWhenFocusLeavesAndCance
 			ImGui::PushID(Id.ToString().c_str());
 			const auto TableId = ImGui::GetID("DetailsProperties");
 			ImGui::PopID();
-			Canvas.DrawSelectionDetails(*Transactions.Get());
+			Canvas.DrawSelectionDetails();
 			const auto* Table = Context->Tables.GetByKey(TableId);
 			if (Table) Field = {Table->Columns[1].WorkMinX + 15, Table->OuterRect.Min.y + 1 + ImGui::GetFrameHeight() * 0.5f};
 			else ADD_FAILURE() << "Missing reflected Details table";
@@ -1731,7 +1853,7 @@ TEST(FMaterialGraphInteractionTests, NumericNodeDisplayTracksValuesAndUndo)
 	const auto View = Testing::CaptureGraphView(*AuthoringGraph);
 	const auto* Node = FindViewNode(View, Parameter->front());
 	ASSERT_NE(Node, nullptr);
-	ASSERT_TRUE(MaterialEditing::SetParameterValue(*Material, Node->Node.GetParameterId(), FMaterialParameterValue::MakeVector4({0.25f, 0.5f, 2, 1})));
+	ASSERT_TRUE(Testing::WritePreviewParameter(*Material, Node->Node.GetParameterId(), FVector4(.25, .5, 2, 1)));
 	Display = MakeGraphNodeDisplay(*Node, Material); // Resolve current values even with a cached view.
 	EXPECT_EQ(Display.Title, Node->PrimaryLabel);
 	EXPECT_EQ(Display.Subtitle, "(0.25, 0.5, 2, 1)");
@@ -2195,7 +2317,7 @@ TEST(FMaterialGraphInteractionTests, SharedTextureParametersPreserveLocalSamplin
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	auto Definition = A->GetParameterDefinition();
 	Definition.Value.GetTexture().TextureFallback = EMaterialTextureFallback::FlatRGNormal;
-	ASSERT_TRUE(MaterialEditing::SetParameterValue(*Material, Id, Definition.Value));
+	ASSERT_TRUE(Testing::WritePreviewParameter(*Material, Id, Definition.Value.GetTexture()));
 	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.Connection.GetExpressionId(), UV->Id);
 	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->DefaultValue.TextureFallback, EMaterialTextureFallback::FlatRGNormal);
 	ASSERT_TRUE(Transactions->Undo());
@@ -2463,7 +2585,7 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SurfaceDetailsCommitImmediatelyAndU
 		ImGui::PushID(Surface->Id.ToString().c_str());
 		const auto TableId = ImGui::GetID("NodeProperties");
 		ImGui::PopID();
-		Canvas.DrawSelectionDetails(*Transactions.Get());
+		Canvas.DrawSelectionDetails();
 		const auto* Table = Context->Tables.GetByKey(TableId);
 		if (!Table) ADD_FAILURE() << "Missing Details table";
 		if (Table) Checkbox = {Table->Columns[1].WorkMinX + ImGui::GetFrameHeight() / 2,

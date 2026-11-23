@@ -4,6 +4,7 @@
 #include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialCustomVersion.h"
+#include "Graph/MaterialEditorPreviewParameter.h"
 #include "Graph/MaterialGraphInteraction.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionArithmetic.h"
@@ -1241,8 +1242,14 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 			const auto Original=Material->FindParameterDefinition(Id)->Value;
 			const auto Value=Id==WeightId ? FMaterialParameterValue::MakeScalar(.5f+Index*.0625f)
 				: FMaterialParameterValue::MakeVector4({.3+Index*.1,.2,.7,1});
-			FMaterialGraphParameterEditSession Edit;
-			ASSERT_TRUE(Edit.Begin(*Material,Id,Transactions.Get())); ASSERT_TRUE(Edit.Apply(Value)); ASSERT_TRUE(Edit.Commit());
+			FMaterialEditorPreviewParameters Parameters(Material);
+			auto Preview = Parameters.Find(Id);
+			ASSERT_TRUE(Preview);
+			PropertyEditor::FPropertyEdit Edit;
+			ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
+			if (Id == WeightId) { ASSERT_TRUE(Edit.SetValue(Value.GetScalar())); }
+			else { ASSERT_TRUE(Edit.SetValue(Value.GetVector4())); }
+			ASSERT_TRUE(Edit.Commit());
 			const auto Updated=Testing::CaptureMaterialRenderData(*Material); EXPECT_FALSE(Updated.Representation.IsError());
 			ASSERT_TRUE(Updated.CompiledProgram); EXPECT_EQ(Updated.CompiledProgram->ShaderMap,Program->ShaderMap);
 			const auto Field=std::ranges::find(Updated.Representation.GetLayout().Fields,Id,&FMaterialRenderField::ParameterId);

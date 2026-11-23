@@ -30,6 +30,10 @@ namespace Durin
 		float MaximumValue = 0.0f;
 
 		ENGINE_API auto GetParameterDefinition() const -> FMaterialParameterDefinition override;
+#if DURIN_WITH_EDITORONLY_DATA
+		ENGINE_API auto SetParameterValue(const FName& Name, const FMaterialParameterMetadata& Meta,
+			EMaterialExpressionSetParameterValueFlags Flags = EMaterialExpressionSetParameterValueFlags::None) -> bool override;
+#endif
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 

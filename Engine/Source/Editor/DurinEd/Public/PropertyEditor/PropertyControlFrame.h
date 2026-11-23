@@ -29,12 +29,14 @@ namespace Durin::PropertyEditor
 			if (!ActiveId) return true;
 			bCancelPending |= bCancel;
 			const bool bFinished = FinishEdit(bCancelPending);
-			if (bFinished)
-			{
-				ActiveId.reset();
-				bCancelPending = false;
-			}
+			if (bFinished) RetireActiveControl();
 			return bFinished;
+		}
+
+		auto RetireActiveControl() -> void
+		{
+			ActiveId.reset();
+			bCancelPending = false;
 		}
 
 		auto EndFrame(bool bCancel, auto&& BeginEdit, auto&& ApplyValue, auto&& FinishEdit) -> bool
@@ -89,12 +91,12 @@ namespace Durin::PropertyEditor
 	{
 	public:
 		using EEnd = MonaImGui::PropertyEdit::EPropertyInteractionEnd;
-		using FValue = std::variant<int32, FLinearColor>;
+		using FValue = FPropertyControlValue;
 
 		DURINED_API auto Observe(ImGuiID Id, const FReflectedPropertyHandle& Handle, EEnd End,
 			std::optional<FValue> Value) -> void;
 		DURINED_API auto EndFrame(bool bCancel, bool bShouldTransact,
-			const std::function<bool()>& PrepareNewEdit, std::string* OutError = nullptr, bool* OutChanged = nullptr) -> bool;
+			const std::function<bool()>& PrepareNewEdit = {}, std::string* OutError = nullptr, bool* OutChanged = nullptr) -> bool;
 		DURINED_API auto Finish(bool bCancel) -> bool;
 		auto GetFinishError() const -> const std::string& { return FinishError; }
 		auto IsActive() const -> bool { return Edit.IsActive(); }
@@ -106,6 +108,7 @@ namespace Durin::PropertyEditor
 
 		FPropertyEdit Edit;
 		std::string FinishError;
+		int FailedFinishFrame = -1;
 		TPropertyControlFrame<ImGuiID, FReflectedPropertyHandle, FValue> Frame;
 	};
 }

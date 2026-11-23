@@ -548,9 +548,11 @@ namespace Durin
 		FScopedTransaction(const FScopedTransaction&) = delete;
 		auto operator=(const FScopedTransaction&) -> FScopedTransaction& = delete;
 		DURINED_API auto Cancel() -> void;
-		// Unwind other scopes from a canceled recording before starting a new one on this host.
+		DURINED_API auto IsRecordingCurrent() const -> bool;
 		auto IsOutstanding() const -> bool { return StartIndex >= 0; }
 	private:
+		TWeakObjectPtr<DTransactor> RecordingOwner;
+		FTransactionId RecordingId = 0;
 		int32 StartIndex = -1;
 	};
 }

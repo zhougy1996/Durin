@@ -1,8 +1,12 @@
 #include "MaterialGraphPinTestSupport.h"
 #include "Graph/MaterialGraphCommands.h"
 #include "Editor/EditorTransactionTestSupport.h"
+#include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "Graph/MaterialGraphInteraction.h"
+#include "Graph/MaterialEditorPreviewParameter.h"
+#include "PropertyEditor/PropertyEditing.h"
+#include "PropertyEditor/PropertyControlFrame.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
@@ -2578,7 +2582,7 @@ TEST(FMaterialGraphOperationsTests,
 		ParameterId);
 	const uint64 CompileGeneration =
 		Material->GetMaterialCompileDebugInfo().RequestId;
-	ASSERT_TRUE(MaterialEditing::SetParameterValue(*Material, ParameterId, FMaterialParameterValue::MakeVector4({0.7, 0.6, 0.5, 0})));
+	ASSERT_TRUE(Testing::WritePreviewParameter(*Material, ParameterId, FVector4(0.7, 0.6, 0.5, 0)));
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,
 		CompileGeneration);
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
@@ -2635,7 +2639,7 @@ TEST(FMaterialGraphOperationsTests,
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FMaterialGraphOperationsTests, TextureEditSessionRetainsOriginalAcrossCollection)
+TEST(FMaterialGraphOperationsTests, TexturePropertyHistoryRetainsOriginalAcrossCollection)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "TextureSessionMaterial"));
@@ -2647,12 +2651,15 @@ TEST(FMaterialGraphOperationsTests, TextureEditSessionRetainsOriginalAcrossColle
 	ASSERT_TRUE(MaterialEditing::CreateParameter(*Material, {.Id = Id,
 		.Name = FName("Texture"), .Type = EMaterialParameterType::Texture,
 		.Value = FMaterialParameterValue::MakeTexture(Original)}, false));
-	FMaterialGraphParameterEditSession Session;
-	ASSERT_TRUE(Session.Begin(*Material, Id, nullptr));
-	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeTexture(Replacement)));
+	Tests::FTestEditorTransactorOwner History;
+	FMaterialEditorPreviewParameters Parameters(Material);
+	auto Preview = Parameters.Find(Id);
+	ASSERT_TRUE(Preview);
+	PropertyEditor::FReflectedPropertyHandle Handle(Preview->GetEditTarget());
+	ASSERT_EQ(Handle.SetValue(FMaterialParameterValue::MakeTexture(Replacement).GetTexture()), PropertyEditor::FPropertyAccess::Success);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(WeakOriginal.IsValid());
-	ASSERT_TRUE(Session.Cancel());
+	ASSERT_TRUE(History->Undo());
 	EXPECT_EQ(Material->FindParameterDefinition(Id)->Value.GetTexture().Texture.Get(), WeakOriginal.Get());
 	Material.Reset();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -2676,19 +2683,20 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, OriginalBaseColor));
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	FMaterialGraphParameterEditSession Session;
-	ASSERT_TRUE(Session.Begin(*Material, ParameterId, Transactions.Get()));
-	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector4(
-		{0.4, 0.5, 0.6, 0})));
+	FMaterialEditorPreviewParameters Parameters(Material);
+	auto Preview = Parameters.Find(ParameterId);
+	ASSERT_TRUE(Preview);
+	PropertyEditor::FPropertyEdit Session;
+	ASSERT_TRUE(Session.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
+	ASSERT_TRUE(Session.SetValue(FVector4{0.4, 0.5, 0.6, 0}));
 	FVector4 BaseColor;
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, OriginalBaseColor);
-	EXPECT_EQ(Session.GetInteractiveValue(ParameterId)->GetVector4(), FVector4(0.4, 0.5, 0.6, 0));
+	EXPECT_EQ(Preview->GetValue().GetVector4(), FVector4(0.4, 0.5, 0.6, 0));
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,
 		CompileGeneration);
-	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector4(
-		{0.7, 0.8, 0.9, 0})));
+	ASSERT_TRUE(Session.SetValue(FVector4{0.7, 0.8, 0.9, 0}));
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, OriginalBaseColor);
@@ -2708,9 +2716,11 @@ TEST(FMaterialGraphOperationsTests,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector4(0.7, 0.8, 0.9, 0));
 
-	ASSERT_TRUE(Session.Begin(*Material, ParameterId, Transactions.Get()));
-	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector4(
-		{0.1, 0.1, 0.1, 0})));
+	Parameters.RegenerateArrays();
+	Preview = Parameters.Find(ParameterId);
+	ASSERT_TRUE(Preview);
+	ASSERT_TRUE(Session.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
+	ASSERT_TRUE(Session.SetValue(FVector4{0.1, 0.1, 0.1, 0}));
 	ASSERT_TRUE(Session.Cancel());
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
@@ -3070,9 +3080,9 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	auto* Instance = NewObject<DMaterialInstance>(nullptr, "SharedParameterInstance");
 	ASSERT_TRUE(Instance->SetParent(Material));
 	ASSERT_TRUE(Instance->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.8f)));
-	ASSERT_TRUE(MaterialEditing::SetParameterValue(*Material, Id, FMaterialParameterValue::MakeScalar(.6f)));
+	ASSERT_TRUE(Testing::WritePreviewParameter(*Material, Id, .6f));
 	ASSERT_EQ(Transactions->GetQueueLength(), 1u);
-	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 2u);
+	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 3u);
 	for (const auto& E : Material->GetExpressionCollection().Expressions)
 		if (const auto* Parameter = Cast<DMaterialExpressionScalarParameter>(E.Get())) EXPECT_FLOAT_EQ(Parameter->DefaultValue, .6f);
 	ASSERT_TRUE(Transactions->Undo());
@@ -4398,18 +4408,55 @@ TEST(FMaterialGraphOperationsTests, SharedScalarParameterWritesBothDeclarationsO
 		EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), Expected);
 	};
 	Tests::FTestEditorTransactorOwner History;
-	FMaterialGraphParameterEditSession Edit;
-	ASSERT_TRUE(Edit.Begin(*Material, Id, History.Get()));
+	FMaterialEditorPreviewParameters Parameters(Material);
+	auto Preview = Parameters.Find(Id);
+	ASSERT_TRUE(Preview);
+	PropertyEditor::FPropertyEdit Edit;
+	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *History));
 	EXPECT_TRUE(History->IsActive());
-	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.75f)));
+	std::vector<EPropertyChangePhase> Phases;
+	const auto Observer = RegisterPropertyEditExtension({.PostEdit = [&](DObject& Object, const FPropertyChangedEvent& Event, bool) {
+		if (Object.IsA(DMaterialEditorPreviewParameter::StaticClass())) Phases.push_back(Event.Phase);
+	}});
+	const auto Applied = Edit.SetValue(.75f);
+	EXPECT_TRUE(Applied);
 	CheckDeclarations(.25f);
-	ASSERT_TRUE(Edit.Commit());
+	int Publications = 0;
+	const auto Refresh = Material->GetGraphChanges().Subscribe(*Material, [&](const auto&) {
+		++Publications;
+		CheckDeclarations(.75f);
+		EXPECT_EQ(Parameters.Find(Id), Preview);
+		EXPECT_FALSE(Edit.IsActive());
+		EXPECT_TRUE(Edit.Cancel());
+	});
+	const auto Committed = Edit.Commit();
+	Material->GetGraphChanges().Unsubscribe(Refresh);
+	UnregisterPropertyEditExtension(Observer);
+	ASSERT_TRUE(Committed);
+	EXPECT_EQ(Publications, 1);
+	EXPECT_EQ(Phases, (std::vector{EPropertyChangePhase::Interactive, EPropertyChangePhase::Committed}));
 	CheckDeclarations(.75f);
 	ASSERT_EQ(History->GetQueueLength(), 1u);
-	EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 2u);
+	EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 3u);
 	ASSERT_TRUE(History->Undo());
 	CheckDeclarations(.25f);
 	ASSERT_TRUE(History->Redo());
+	CheckDeclarations(.75f);
+
+	// An unrelated outer edit survives cancellation of a nested preview.
+	ASSERT_EQ(History->Begin("test", "Outer edit"), 0);
+	const auto OtherId = FGuid::NewGuid();
+	ASSERT_TRUE(MaterialEditing::CreateParameter(*Material, {.Id = OtherId, .Name = "OuterParameter",
+		.Type = EMaterialParameterType::Scalar, .Value = FMaterialParameterValue::MakeScalar(.1f)}, false));
+	Preview = Parameters.Find(Id);
+	ASSERT_TRUE(Preview);
+	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *History));
+	ASSERT_TRUE(Edit.SetValue(.9f));
+	ASSERT_TRUE(Edit.Cancel());
+	EXPECT_TRUE(History->IsActive());
+	ASSERT_EQ(History->End(), 1);
+	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(Material->FindParameterDefinition(OtherId), nullptr);
 	CheckDeclarations(.75f);
 }
 
@@ -4429,14 +4476,19 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_NE(CreatedParameter, nullptr);
 	const auto ParameterId = CreatedParameter->Metadata.Id;
 	Tests::FTestEditorTransactorOwner Transactions;
-	FMaterialGraphParameterEditSession Edit;
+	FMaterialEditorPreviewParameters Parameters(Material);
+	auto Preview = Parameters.Find(ParameterId);
+	ASSERT_TRUE(Preview);
+	PropertyEditor::FPropertyEdit Edit;
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
-	ASSERT_TRUE(Edit.Begin(*Material, ParameterId, Transactions.Get()));
-	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.75f)));
+	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
+	ASSERT_TRUE(Edit.SetValue(.75f));
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
-	const auto Failed = Edit.Commit();
+	std::string Error;
+	const auto Failed = Edit.Commit(&Error);
 	ASSERT_FALSE(Failed);
-	EXPECT_NE(Failed.error().find("The editor transactor is busy."), std::string::npos);
+	EXPECT_NE(Error.find("The editor transactor is busy."), std::string::npos);
+	EXPECT_FALSE(Edit.Cancel());
 	EXPECT_TRUE(Edit.IsActive());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
@@ -4444,14 +4496,27 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Edit.Cancel());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
-	ASSERT_TRUE(Edit.Begin(*Material, ParameterId, Transactions.Get()));
-	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.5f)));
+	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
+	ASSERT_TRUE(Edit.SetValue(.5f));
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	EXPECT_FALSE(Edit.Commit());
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Recording);
 	ASSERT_TRUE(Edit.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
+
+	// A later transaction may start while the old control still owns its gesture.
+	Parameters.RegenerateArrays();
+	Preview = Parameters.Find(ParameterId);
+	ASSERT_TRUE(Preview);
+	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
+	ASSERT_TRUE(Edit.SetValue(.9f));
+	Transactions->Cancel();
+	ASSERT_EQ(Transactions->Begin("test", "Replacement"), 0);
+	EXPECT_FALSE(Edit.Commit());
+	EXPECT_TRUE(Transactions->IsActive());
+	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
+	ASSERT_EQ(Transactions->End(), 1);
 
 	Transactions->Reset();
 	const auto NodeId = Created.value();
@@ -4470,11 +4535,11 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Move.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	EXPECT_NE(Failed.error().find("The editor transactor is busy."), std::string::npos);
+	EXPECT_NE(Error.find("The editor transactor is busy."), std::string::npos);
 	EXPECT_NE(MoveFailure.error().find("The editor transactor is busy."), std::string::npos);
 }
 
-TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAndReportsFailure)
+TEST(FMaterialGraphOperationsTests, PreviewWriteRejectsBusyHistoryAndKeepsPublishedValueWhenObserverCancels)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -4490,86 +4555,36 @@ TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAn
 	ASSERT_NE(CreatedParameter, nullptr);
 	const auto ParameterId = CreatedParameter->Metadata.Id;
 	Tests::FTestEditorTransactorOwner Transactions;
+	FMaterialEditorPreviewParameters Parameters(Material);
+	auto Preview = Parameters.Find(ParameterId);
+	ASSERT_TRUE(Preview);
+	PropertyEditor::FReflectedPropertyHandle Handle(Preview->GetEditTarget());
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
-	const auto Failed = MaterialEditing::SetParameterValue(*Material, ParameterId, FMaterialParameterValue::MakeScalar(.75f));
-	ASSERT_FALSE(Failed);
-	EXPECT_EQ(Failed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	EXPECT_EQ(FormatMaterialGraphCommandResult(Failed), "The active editor transaction service is unavailable or busy.");
+	ASSERT_EQ(Handle.SetValue(.75f), PropertyEditor::FPropertyAccess::Fail);
+	EXPECT_FALSE(Handle.GetLastError().empty());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
-	const auto Retried = MaterialEditing::SetParameterValue(*Material, ParameterId, FMaterialParameterValue::MakeScalar(.75f));
-	ASSERT_TRUE(Retried);
+	ASSERT_EQ(Handle.SetValue(.75f), PropertyEditor::FPropertyAccess::Success);
 
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
 
-	// Interrupt the command after preview publication, before it records history.
-	auto* Owner = Cast<DMaterialExpressionScalarParameter>(Material->GetExpressionCollection().Expressions.front().Get());
-	ASSERT_NE(Owner, nullptr);
+	Parameters.RegenerateArrays();
+	Preview = Parameters.Find(ParameterId);
+	ASSERT_TRUE(Preview);
+	PropertyEditor::FReflectedPropertyHandle RetryHandle(Preview->GetEditTarget());
+	int Publications = 0;
 	const auto Observer = Material->GetGraphChanges().Subscribe(*Material, [&](const auto&) {
-		EXPECT_TRUE(Transactions->IsActive());
+		++Publications;
 		Transactions->Cancel();
-		Owner->DefaultValue = .5f;
 	});
-	const auto RestoreFailed = MaterialEditing::SetParameterValue(*Material, ParameterId, FMaterialParameterValue::MakeScalar(.75f));
+	EXPECT_EQ(RetryHandle.SetValue(.75f), PropertyEditor::FPropertyAccess::Success);
 	Material->GetGraphChanges().Unsubscribe(Observer);
-	EXPECT_EQ(RestoreFailed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	const auto Message = FormatMaterialGraphCommandResult(RestoreFailed);
-	EXPECT_TRUE(Message.starts_with("The parameter transaction was cancelled."));
-	EXPECT_NE(Message.find("The parameter expression disagrees with its declaration."), std::string::npos);
+	EXPECT_EQ(Publications, 1);
+	EXPECT_FLOAT_EQ(Preview->GetValue().GetScalar(), .75f);
+	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .75f);
 	EXPECT_FALSE(Transactions->CanUndo());
-}
-
-TEST(FMaterialGraphOperationsTests, ParameterSessionRejectionsReportFailureAndAllowRetry)
-{
-	InitializeDObjectSystem();
-	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
-	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	FMaterialGraphParameterEditSession Edit;
-	const auto Inactive = Edit.Commit();
-	ASSERT_FALSE(Inactive);
-	EXPECT_EQ(Inactive.error().find("No material parameter edit is active."), 0u);
-	const auto MissingId = FGuid::NewGuid();
-	const auto Missing = Edit.Begin(*Material, MissingId);
-	ASSERT_FALSE(Missing);
-	EXPECT_EQ(Missing.error().find("The material parameter definition is unavailable."), 0u);
-	FMaterialParameterDefinition Definition;
-	Definition.Name = "TypedSession";
-	Definition.Type = EMaterialParameterType::Scalar;
-	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
-	const auto Created = MaterialEditing::CreateParameter(*Material, Definition, false).transform(Testing::ExpressionNodeId);
-	ASSERT_TRUE(Created);
-
-	const auto* CreatedParameter = FindExpression<DMaterialExpressionParameter>(*Material, Created.value());
-	ASSERT_NE(CreatedParameter, nullptr);
-	const auto Id = CreatedParameter->Metadata.Id;
-	ASSERT_TRUE(Edit.Begin(*Material, Id));
-	const auto Active = Edit.Begin(*Material, MissingId);
-	ASSERT_FALSE(Active);
-	EXPECT_EQ(Active.error().find("A material parameter edit is already active."), 0u);
-	const auto Invalid = Edit.Apply(FMaterialParameterValue::MakeVector4({1, 2, 3, 4}));
-	ASSERT_FALSE(Invalid);
-	EXPECT_EQ(Invalid.error().find("The material rejected the parameter value."), 0u);
-	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .25f);
-	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.75f)));
-	ASSERT_TRUE(Edit.Commit());
-	ASSERT_TRUE(Edit.Begin(*Material, Id));
-	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.5f)));
-	ASSERT_TRUE(MaterialEditing::DeleteParameter(*Material, Id, false));
-	Definition.Id = Id;
-	Definition.Value = FMaterialParameterValue::MakeScalar(.75f);
-	ASSERT_TRUE(MaterialEditing::CreateParameter(*Material, Definition, false));
-	EXPECT_FALSE(Edit.Commit());
-	EXPECT_FALSE(Edit.IsActive());
-	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .75f);
-
-	ASSERT_TRUE(Edit.Begin(*Material, Id));
-	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.5f)));
-	ASSERT_TRUE(Material->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.8f)));
-	EXPECT_FALSE(Edit.Commit());
-	ASSERT_TRUE(Edit.Cancel());
-	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .8f);
 }
 
 TEST(FMaterialGraphOperationsTests, BaseParameterMutationRetainsFailuresBeforePublication)
@@ -4604,6 +4619,47 @@ TEST(FMaterialGraphOperationsTests, BaseParameterMutationRetainsFailuresBeforePu
 	Owner->DefaultValue = .25f;
 	ASSERT_TRUE(Material->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.75f)));
 	EXPECT_FLOAT_EQ(Owner->DefaultValue, .75f);
+}
+
+TEST(FMaterialGraphOperationsTests, SerializedParameterMetadataResolvesTheOriginalStructName)
+{
+	InitializeDObjectSystem();
+	auto* Metadata = FindStructByQualifiedName("Durin::FMaterialExpressionParameterMetadata");
+	ASSERT_NE(Metadata, nullptr);
+	EXPECT_EQ(FindStructBySerializedName("Durin::FMaterialParameterMetadata"), Metadata);
+}
+
+TEST(FMaterialGraphOperationsTests, ExpressionParameterWritesMatchByNameAndTypeAndNotifyOnChange)
+{
+	InitializeDObjectSystem();
+	using Flags = EMaterialExpressionSetParameterValueFlags;
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialParameterDefinition Definition;
+	Definition.Id = FGuid::NewGuid();
+	Definition.Name = "Weight";
+	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
+	ASSERT_TRUE(MaterialEditing::CreateParameter(*Material, Definition, false));
+	auto* Parameter = Cast<DMaterialExpressionScalarParameter>(Material->GetExpressionCollection().Expressions.front().Get());
+	ASSERT_NE(Parameter, nullptr);
+	DMaterialExpression& Expression = *Parameter;
+	FMaterialParameterMetadata Meta(FMaterialParameterValue::MakeScalar(.75f));
+	Meta.Group = "Surface";
+	Meta.SortPriority = 7;
+	int Notifications = 0;
+	const auto Observer = Material->GetGraphChanges().Subscribe(*Material, [&](const auto&) { ++Notifications; });
+	EXPECT_FALSE(Expression.SetParameterValue("Other", Meta));
+	EXPECT_FALSE(Expression.SetParameterValue("Weight", FMaterialParameterValue::MakeVector4(FVector4(1.0))));
+	EXPECT_FLOAT_EQ(Parameter->DefaultValue, .25f);
+	EXPECT_TRUE(Expression.SetParameterValue("Weight", Meta, Flags::SendPostEditChangeProperty));
+	EXPECT_FLOAT_EQ(Parameter->DefaultValue, .75f);
+	EXPECT_NE(Parameter->Metadata.GroupName, Meta.Group);
+	EXPECT_EQ(Notifications, 1);
+	EXPECT_TRUE(Expression.SetParameterValue("Weight", Meta, Flags::SendPostEditChangeProperty | Flags::AssignGroupAndSortPriority));
+	EXPECT_EQ(Parameter->Metadata.GroupName, Meta.Group);
+	EXPECT_EQ(Parameter->Metadata.SortOrder, Meta.SortPriority);
+	EXPECT_EQ(Notifications, 1);
+	Material->GetGraphChanges().Unsubscribe(Observer);
 }
 
 TEST(FMaterialGraphOperationsTests, ParameterDefinitionFailurePreservesExpressionAndAllowsRetry)
@@ -4935,7 +4991,7 @@ TEST(FMaterialGraphOperationsTests, CommandStatusAndFailurePresentationAreIndepe
 	EXPECT_TRUE(FormatMaterialGraphCommandResult(NoChange).empty());
 }
 
-TEST(FMaterialGraphOperationsTests, SharedParameterPreviewRecordsOnlyDeclarationsAndRetainsTextures)
+TEST(FMaterialGraphOperationsTests, SharedTextureSelectionRecordsPreviewAndDeclarationsAndRetainsTextures)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -4951,13 +5007,18 @@ TEST(FMaterialGraphOperationsTests, SharedParameterPreviewRecordsOnlyDeclaration
 	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
 	ASSERT_TRUE(Graph->DuplicateNodes(std::array{*Parameter}, 100, 0, false));
 	Tests::FTestEditorTransactorOwner History;
-	FMaterialGraphParameterEditSession Session;
-	ASSERT_TRUE(Session.Begin(*Material, Id, History.Get()));
-	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeTexture(Replacement)));
-	ASSERT_TRUE(Session.Commit());
+	FMaterialEditorPreviewParameters Parameters(Material);
+	auto Preview = Parameters.Find(Id);
+	ASSERT_TRUE(Preview);
+	PropertyEditor::FReflectedPropertyHandle Handle(Preview->GetEditTarget());
+	ASSERT_EQ(Handle.SetValue(FMaterialParameterValue::MakeTexture(Replacement).GetTexture()), PropertyEditor::FPropertyAccess::Success);
 	ASSERT_EQ(History->GetQueueLength(), 1u);
-	EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 2u);
-	EXPECT_FALSE(std::ranges::contains(History->GetTransaction(0)->GetTransactionObjects(), Material.Get()));
+	EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 3u);
+	const auto RecordedObjects = History->GetTransaction(0)->GetTransactionObjects();
+	EXPECT_FALSE(std::ranges::contains(RecordedObjects, Material.Get()));
+	EXPECT_EQ(std::ranges::count_if(RecordedObjects, [](const auto* Object) {
+		return Object && Object->IsA(DMaterialEditorPreviewParameter::StaticClass());
+	}), 1);
 	const auto CheckValue = [&](DTexture* Expected) {
 		ASSERT_NE(Expected, nullptr);
 		const auto* Definition = Material->FindParameterDefinition(Id);

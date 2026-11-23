@@ -149,10 +149,13 @@ namespace Durin
 					const auto Name = Node.Properties[Index].GetProperty()->NamePrivate;
 					// Known display/value fields cannot change pin identities or connections.
 					// Unknown fields conservatively invalidate the node interface as well.
-					const bool bContent = Name == FName("Value") || (Name == FName("DefaultValue") && Old.TextureDimension == Node.TextureDimension)
-						|| Name == FName("Metadata") || Name == FName("bHasRange")
+					const bool bDefinition = Name == FName("Metadata") || Name == FName("bHasRange")
 						|| Name == FName("MinimumValue") || Name == FName("MaximumValue");
-					Result.MarkNode(Id, bContent ? N::Content : N::Content | N::Interface | N::Inputs);
+					if (bDefinition) Result.MarkGraph(G::ParameterDefinitions);
+					if (Name == FName("DefaultValue") && Old.TextureDimension == Node.TextureDimension)
+						Result.MarkNode(Id, N::Content | N::ParameterValue);
+					else if (bDefinition || Name == FName("Value")) Result.MarkNode(Id, N::Content);
+					else Result.MarkNode(Id, N::Content | N::Interface | N::Inputs);
 				}
 			}
 			if (After.Root && (Before.Root != After.Root || Before.Properties.ShadingModel != After.Properties.ShadingModel

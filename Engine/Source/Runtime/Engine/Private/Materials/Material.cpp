@@ -248,6 +248,40 @@ namespace Durin
 		return SetParameterValue(Definition->Id, Candidate);
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
+	auto DMaterial::SetParameterValueEditorOnly(const FName& ParameterName, const FMaterialParameterMetadata& Meta) -> bool
+	{
+		const auto* Definition = FindParameterDefinition(ParameterName);
+		if (!Definition || !Definition->Value.HasSameType(Meta.Value)) return false;
+		auto Candidate = *Definition;
+		Candidate.Value = Meta.Value;
+		if (!ValidateMaterialParameterDefinitions(std::span(&Candidate, 1))) return false;
+		const auto Declarations = FMaterialExpressionEditing::GetParameterDeclarations(*this, *Definition);
+		if (!Declarations) return false;
+		if (Definition->Value == Meta.Value) return true;
+
+		// Capture all participants before the first expression can send a change event.
+		if (GUndo)
+		{
+			FScopedPackageDirtySuppression Suppress;
+			for (auto* Declaration : *Declarations)
+			{
+				Declaration->SetFlags(EObjectFlags::Transactional);
+				if (!Declaration->Modify(false)) return false;
+			}
+		}
+		FScopedMaterialGraphChange Batch(*this);
+		for (auto* Declaration : *Declarations)
+		{
+			const bool bMatched = Declaration->SetParameterValue(Candidate.Name, Meta,
+				EMaterialExpressionSetParameterValueFlags::SendPostEditChangeProperty);
+			require(bMatched);
+		}
+		MarkPackageDirty();
+		return true;
+	}
+#endif
+
 	auto DMaterial::SetParameterValue(const FGuid& Id, const FMaterialParameterValue& Value) -> std::expected<void, std::string>
 	{
 		if (!Id.IsValid()) return std::unexpected(std::format("{} [parameter {}]", "Material declaration GUID is invalid.", Id.ToString()));
@@ -265,10 +299,12 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 			const auto Owners = FMaterialExpressionEditing::GetParameterDeclarations(*this, *Entry);
 			if (!Owners) return std::unexpected(Owners.error());
+			const FMaterialParameterMetadata Meta(Value);
+			// Publish the shared edit once, after the schema and every declaration agree.
 			for (auto* Parameter : *Owners)
 			{
-				const auto Applied = Parameter->SetParameterDefinition(Definition);
-				require(Applied);
+				const bool bMatched = Parameter->SetParameterValue(Definition.Name, Meta);
+				require(bMatched);
 			}
 #else
 			return std::unexpected(std::format("{} [parameter {}]", "The parameter has no authored expression owner.", Id.ToString()));
@@ -504,6 +540,7 @@ namespace Durin
 		if (!SchemaValidation)
 		{
 			DURIN_ERROR("PostLoad '{}': unsupported material graph; rebuild this material.", GetObjectPath());
+			NotifyParameterChanges();
 			return;
 		}
 		const FMaterialProgramValidationResult ProgramValidation =
@@ -514,6 +551,7 @@ namespace Durin
 				? "Material program validation failed."
 				: ProgramValidation.Diagnostics.front().Message;
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Message);
+			NotifyParameterChanges();
 			return;
 		}
 		AdvanceRevision(MaterialProgramRevision);
