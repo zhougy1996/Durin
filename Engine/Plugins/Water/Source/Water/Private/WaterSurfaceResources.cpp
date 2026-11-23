@@ -1,14 +1,15 @@
 #include "WaterSurfaceResources.h"
 
 #include "StaticMesh/StaticMeshResources.h"
+#include "WaterSurfaceMetrics.h"
 
 namespace Durin
 {
 	auto MakeWaterGrid(const FWaterSurfaceSettings& S) -> std::unique_ptr<FStaticMeshRenderData>
 	{
-		if (!ValidateWaterSurface(S)) return {};
-		const double Step = S.Wavelength * .73 / 32;
-		const uint32 NX = uint32(std::ceil(S.Extent.x / Step)), NY = uint32(std::ceil(S.Extent.y / Step));
+		const auto Metrics = MeasureWaterSurface(S);
+		if (!Metrics) return {};
+		const uint32 NX = Metrics->CellsX, NY = Metrics->CellsY;
 		const uint32 Count = (NX + 1) * (NY + 1);
 		auto Data = std::make_unique<FStaticMeshRenderData>();
 		Data->MaterialSlots.resize(1); Data->MaterialSlots[0].Name = "Water";
@@ -34,9 +35,9 @@ namespace Durin
 		LOD.VertexBuffers.ColorVertexBuffer.Init(std::vector<FVector4f>(Count, FVector4f(1)), Count);
 		LOD.IndexBuffer.Init(std::move(Indices));
 		const double Padding = 1.e-4 + 2.e-7 * std::max({std::abs(double(S.Elevation)), S.Extent.x, S.Extent.y});
-		const double H = S.Amplitude * S.Steepness + Padding;
-		const FBox Bounds({-S.Extent.x * .5 - H, -S.Extent.y * .5 - H, S.Elevation - S.Amplitude - Padding},
-			{S.Extent.x * .5 + H, S.Extent.y * .5 + H, S.Elevation + S.Amplitude + Padding});
+		const double H = Metrics->HorizontalEnvelope + Padding, V = Metrics->VerticalEnvelope + Padding;
+		const FBox Bounds({-S.Extent.x * .5 - H, -S.Extent.y * .5 - H, S.Elevation - V},
+			{S.Extent.x * .5 + H, S.Extent.y * .5 + H, S.Elevation + V});
 		LOD.Sections.push_back({.Name = "Water", .FirstIndex = 0, .IndexCount = NX * NY * 6,
 			.MinVertexIndex = 0, .MaxVertexIndex = Count - 1, .MaterialSlotIndex = 0, .LocalBounds = Bounds});
 		LOD.NumTexCoords = 1; LOD.bHasColorVertexData = true; LOD.LocalBounds = Bounds; Data->LocalBounds = Bounds;

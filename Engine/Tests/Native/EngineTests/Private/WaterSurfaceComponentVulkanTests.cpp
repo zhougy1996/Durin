@@ -136,13 +136,18 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 		ASSERT_NE(Pixels[0], Pixels[1]);
 		ASSERT_EQ(Capture(0, Pixels[2]), ERenderViewResult::Success);
 		EXPECT_EQ(Pixels[0], Pixels[2]);
-		Settings.Amplitude = 0; Settings.Elevation = .6f;
+		Settings.Waves = {{{0, 2}, .9f, 1.8f}};
 		ASSERT_TRUE(Component->SetSettings(Settings));
-		EXPECT_EQ(Component->GetCustomPrimitiveData().Values[0], 0.f);
+		ASSERT_EQ(Capture(.75, Pixels[2]), ERenderViewResult::Success);
+		EXPECT_NE(Pixels[1], Pixels[2]);
+		Settings.Waves.clear(); Settings.Elevation = .6f;
+		ASSERT_TRUE(Component->SetSettings(Settings));
+		EXPECT_TRUE(std::ranges::equal(std::span(Component->GetCustomPrimitiveData().Values).first(FWaterWaveData{}.size()),
+			PackWaterWaveData(Settings)));
 		const auto Query = Component->QuerySurface({0, 0, 0}, .75);
 		ASSERT_TRUE(Query); EXPECT_NEAR(Query->Position.z, .6, 1.e-6);
 		ASSERT_EQ(Capture(.75, Pixels[3]), ERenderViewResult::Success);
-		EXPECT_NE(Pixels[1], Pixels[3]);
+		EXPECT_NE(Pixels[2], Pixels[3]);
 		Component->UnregisterComponent();
 		ASSERT_EQ(Capture(.75, Pixels[4]), ERenderViewResult::Success);
 		EXPECT_NE(Pixels[3], Pixels[4]);

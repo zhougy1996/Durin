@@ -121,7 +121,7 @@ namespace
 		-> std::pair<FVector3, FVector3>
 	{
 		std::vector<FVector4f> V;
-		const std::array Parameters{S.Amplitude, S.Wavelength, S.Speed, S.Steepness};
+		const auto Parameters = PackWaterWaveData(S);
 		for (const auto& N : Input.IR.Nodes)
 		{
 			auto A = [&](uint32 I) -> FVector4f { return V.at(N.Inputs.at(I)); };
@@ -160,10 +160,15 @@ namespace
 
 	auto CheckQueries(const MIR::FCompilerInput& Input = WaterMaterialRecipe::BuildInput()) -> void
 	{
-		std::array<FWaterSurfaceSettings, 4> Cases;
+		std::array<FWaterSurfaceSettings, 7> Cases;
 		Cases[1].Amplitude = 0;
 		Cases[2].Extent = {128, 128}; Cases[2].Wavelength = 64; Cases[2].Amplitude = 2; Cases[2].Steepness = 1;
 		Cases[3].Extent = {8, 8}; Cases[3].Wavelength = 2; Cases[3].Amplitude = .29f; Cases[3].Steepness = .5f; Cases[3].Speed = 4;
+		Cases[4].Waves = {{{2, -1}, .75f, .8f}, {{0, 1}, .25f, 1.4f}};
+		Cases[5].Waves.resize(MaxWaterWaves);
+		for (uint32 I = 0; I < MaxWaterWaves; ++I)
+			Cases[5].Waves[I] = {{1, double(I) - 3}, .125f, .25f + .2f * I};
+		Cases[6].Waves.clear();
 		for (const auto& S : Cases)
 		{
 			Require(bool(ValidateWaterSurface(S)), "Valid water settings rejected.");
@@ -184,9 +189,12 @@ namespace
 			}
 			Require(!QueryWaterSurface(S, S.Extent * 2., 0), "Outside extent query returned water.");
 			Require(!QueryWaterSurface(S, {0, 0}, std::numeric_limits<double>::infinity()), "Nonfinite time accepted.");
-			Require(!QueryWaterSurface(S, {0, 0}, std::numeric_limits<double>::max()), "Overflowing phase returned a nonfinite surface.");
+			if (!S.Waves.empty())
+				Require(!QueryWaterSurface(S, {0, 0}, std::numeric_limits<double>::max()), "Overflowing phase returned a nonfinite surface.");
 			auto Grid = MakeWaterGrid(S);
 			Require(Grid && Grid->LODResources[0].GetNumVertices() <= 257 * 257, "Grid allocation bound exceeded.");
+			if (S.Waves.empty())
+				Require(Grid->LODResources[0].GetNumVertices() == 4, "Flat wave group needs only one cell.");
 			const auto UVs = Grid->LODResources[0].VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.GetTexCoords()[0];
 			const auto Indices = Grid->LODResources[0].IndexBuffer.GetIndices();
 			for (size_t I = 0; I + 2 < Indices.size(); I += 3 * std::max<size_t>(1, Indices.size() / 300))
@@ -203,10 +211,30 @@ namespace
 		Require(!ValidateWaterSurface(Invalid), "Overturning waves accepted.");
 		Invalid = Cases[0]; Invalid.Extent = {128, 128}; Invalid.Wavelength = 2;
 		Require(!ValidateWaterSurface(Invalid), "Unbounded grid accepted.");
+		Invalid = Cases[0]; Invalid.Waves.resize(MaxWaterWaves + 1);
+		Require(!ValidateWaterSurface(Invalid), "Wave group exceeding GPU capacity accepted.");
+		Invalid = Cases[0]; Invalid.Waves.front().Direction = {0, 0};
+		Require(!ValidateWaterSurface(Invalid), "Zero wave direction accepted.");
+		Invalid = Cases[0]; Invalid.Waves.front().AmplitudeRatio = 1;
+		Require(!ValidateWaterSurface(Invalid), "Excessive total wave weight accepted.");
 		auto* Component = NewObject<DWaterSurfaceComponent>(nullptr, NAME_None);
 		auto S = Cases[0]; S.Elevation = 3;
 		Require(bool(Component->SetSettings(S)), "Component settings failed.");
 		Require(Component->QuerySurface({0, 0, 0}, .75).has_value(), "Component query failed.");
+		struct FTestWaveGenerator final : IWaterWaveGenerator
+		{
+			std::vector<FWaterWave> Waves;
+			auto GenerateWaves() const -> std::vector<FWaterWave> override { return Waves; }
+		};
+		FTestWaveGenerator Generator;
+		Generator.Waves = Invalid.Waves;
+		Require(!Component->SetWaveGenerator(Generator) && Component->GetSettings() == S,
+			"Invalid generated waves changed component settings.");
+		Generator.Waves = Cases[4].Waves;
+		Require(bool(Component->SetWaveGenerator(Generator)), "Valid generated waves rejected.");
+		S.Waves = Cases[4].Waves;
+		Generator.Waves.clear();
+		Require(Component->GetSettings() == S, "Component did not retain a snapshot of generated waves.");
 		S.Amplitude = 0; S.Elevation = 7;
 		Require(bool(Component->SetSettings(S)), "Parameter edit failed.");
 		Require(std::abs(Component->QuerySurface({0, 0, 0}, .75)->Position.z - 7) < 1.e-8, "Query retained stale edited settings.");
@@ -279,6 +307,7 @@ int main(int Argc, char** Argv)
 			auto* Actor = Cast<AWaterSurfaceActor>(Level->GetActors()[0].Get());
 			Require(Actor && Actor->GetRootComponent() == Actor->GetWaterComponent(), "Saved water actor composition changed.");
 			auto Expected = FWaterSurfaceSettings{}; Expected.Extent = {24, 20}; Expected.Elevation = 2.5f; Expected.Amplitude = .2f;
+			Expected.Waves = {{{1, 2}, .7f, 1.1f}, {{-3, 1}, .3f, .6f}};
 			Require(Actor->GetWaterComponent()->GetSettings() == Expected, "Saved water parameters changed across the runtime boundary.");
 			Require(Actor->GetWaterComponent()->QuerySurface({0, 0, 0}, .75).has_value(), "Saved water query failed.");
 			if (Cooked)
@@ -341,6 +370,7 @@ int main(int Argc, char** Argv)
 			auto* Water = Level->SpawnActor<AWaterSurfaceActor>("Water");
 			Require(Water && Water->GetWaterComponent(), "Water actor construction failed.");
 			auto S = Water->GetWaterComponent()->GetSettings(); S.Extent = {24, 20}; S.Elevation = 2.5f; S.Amplitude = .2f;
+			S.Waves = {{{1, 2}, .7f, 1.1f}, {{-3, 1}, .3f, .6f}};
 			Require(bool(Water->GetWaterComponent()->SetSettings(S)), "Settings mutation failed.");
 			Require(bool(SavePackage(Package)), "Level save failed.");
 			const auto Unloaded = CollectPackageExports(std::array{TWeakObjectPtr<DPackage>(Package)});

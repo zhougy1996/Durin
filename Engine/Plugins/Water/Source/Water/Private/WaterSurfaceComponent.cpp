@@ -6,6 +6,7 @@
 #include "Logging/LogMacros.h"
 #include "Materials/MaterialInterface.h"
 #include "Math/Operations.h"
+#include "Rendering/PrimitiveCustomData.h"
 #include "Rendering/SceneInterface.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "RenderingThread.h"
@@ -15,6 +16,8 @@ namespace Durin
 {
 	namespace
 	{
+		static_assert(FWaterWaveData{}.size() <= PrimitiveCustomDataFloatCount);
+
 		class FWaterSceneProxy final : public FStaticMeshSceneProxy
 		{
 		public:
@@ -50,7 +53,13 @@ namespace Durin
 		if (Settings == Value) return {};
 		Settings = Value;
 		MarkPackageDirty();
-		if (IsRegistered()) { SynchronizeSurface(); MarkRenderStateDirty(); }
+		if (IsRegistered())
+		{
+			// The replacement proxy publishes the new wave data with its grid and bounds.
+			DestroyRenderState();
+			SynchronizeSurface();
+			MarkRenderStateDirty();
+		}
 		return {};
 	}
 
@@ -58,8 +67,7 @@ namespace Durin
 	{
 		const auto Validation = ValidateWaterSurface(Settings);
 		if (!Validation) { Diagnostic = Validation.error(); Geometry.reset(); return; }
-		const std::array Values{Settings.Amplitude, Settings.Wavelength, Settings.Speed, Settings.Steepness};
-		verify(SetCustomPrimitiveData(0, Values));
+		verify(SetCustomPrimitiveData(0, PackWaterWaveData(Settings)));
 		if (!GetRenderScene()) { Geometry.reset(); return; }
 		auto Data = MakeWaterGrid(Settings);
 		Geometry = std::shared_ptr<FStaticMeshRenderData>(Data.release(), [](FStaticMeshRenderData* P) {
@@ -70,6 +78,13 @@ namespace Durin
 		EnqueueRenderCommand("InitializeWaterGeometry", [Owner = Geometry](FRHICommandListImmediate& Commands) {
 			if (!Owner->InitResources(Commands)) DURIN_ERROR("Water grid render-resource initialization failed.");
 		});
+	}
+
+	auto DWaterSurfaceComponent::SetWaveGenerator(const IWaterWaveGenerator& Generator) -> std::expected<void, std::string>
+	{
+		auto Candidate = Settings;
+		Candidate.Waves = Generator.GenerateWaves();
+		return SetSettings(Candidate);
 	}
 
 	auto DWaterSurfaceComponent::ResolveMaterial() -> FMaterialRenderProxyRef
@@ -138,7 +153,11 @@ namespace Durin
 	{
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
-		if (Event.MemberProperty->NamePrivate == FName("Settings") && IsRegistered()) SynchronizeSurface();
+		if (Event.MemberProperty->NamePrivate == FName("Settings") && IsRegistered())
+		{
+			DestroyRenderState();
+			SynchronizeSurface();
+		}
 		MarkRenderStateDirty();
 	}
 	auto DWaterSurfaceComponent::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>

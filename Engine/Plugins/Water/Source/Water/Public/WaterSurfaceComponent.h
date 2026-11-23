@@ -17,6 +17,7 @@ namespace Durin
 	public:
 		WATER_API explicit DWaterSurfaceComponent(const FObjectInitializer& Initializer);
 		WATER_API auto SetSettings(const FWaterSurfaceSettings& Value) -> std::expected<void, std::string>;
+		WATER_API auto SetWaveGenerator(const IWaterWaveGenerator& Generator) -> std::expected<void, std::string>;
 		auto GetSettings() const -> const FWaterSurfaceSettings& { return Settings; }
 		auto GetDiagnostic() const -> const std::string& { return Diagnostic; }
 		// Projects the point along component-local Z. Returns world position/normal.

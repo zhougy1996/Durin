@@ -56,27 +56,32 @@ namespace Durin::WaterMaterialRecipe
 		const auto UV = B.Add({.Opcode = Op::UVChannel, .ResultType = Type::Float2, .Inputs = {Zero}});
 		auto Channel = [&](uint8 I) { return B.Add({.Opcode = Op::Swizzle, .Inputs = {UV}, .Payload = MIR::FSwizzle{1, {I}}}); };
 		const auto X = Channel(0), Y = Channel(1), Time = B.Add({.Opcode = Op::Time});
-		std::array<uint32, 4> Parameters;
-		for (uint32 I = 0; I < 4; ++I) Parameters[I] = B.Add({.Opcode = Op::PrimitiveCustomData, .Payload = MIR::FCustomDataRead{I}});
+		const auto ReadParameter = [&](uint32 Index) {
+			return B.Add({.Opcode = Op::PrimitiveCustomData, .Payload = MIR::FCustomDataRead{Index}});
+		};
+		std::array<uint32, WaterWaveDataStart> Parameters;
+		for (uint32 I = 0; I < Parameters.size(); ++I) Parameters[I] = ReadParameter(I);
 		const auto BaseK = B.B(Op::Divide, B.C(6.28318530718f), Parameters[1]);
+		const auto Gravity = B.C(9.81f);
 		uint32 DX = Zero, DY = Zero, DZ = Zero, TXX = One, TXY = Zero, TXZ = Zero, TYY = One, TYZ = Zero;
-		for (const auto& Wave : WaterWaves)
+		for (uint32 I = 0; I < MaxWaterWaves; ++I)
 		{
-			const auto A = B.B(Op::Multiply, Parameters[0], B.C(Wave.AmplitudeRatio));
-			const auto K = B.B(Op::Multiply, BaseK, B.C(Wave.WavenumberRatio));
+			const uint32 Slot = WaterWaveDataStart + I * WaterWaveDataStride;
+			const auto DirectionX = ReadParameter(Slot), DirectionY = ReadParameter(Slot + 1);
+			const auto A = B.B(Op::Multiply, Parameters[0], ReadParameter(Slot + 2));
+			const auto K = B.B(Op::Multiply, BaseK, ReadParameter(Slot + 3));
 			const auto QA = B.B(Op::Multiply, Parameters[3], A);
-			const auto DirectionX = B.C(float(Wave.Direction.x)), DirectionY = B.C(float(Wave.Direction.y));
 			const auto Dot = B.B(Op::Add, B.B(Op::Multiply, X, DirectionX), B.B(Op::Multiply, Y, DirectionY));
-			const auto Omega = B.B(Op::Multiply, Parameters[2], B.U(Op::Sqrt, B.B(Op::Multiply, B.C(9.81f), K)));
+			const auto Omega = B.B(Op::Multiply, Parameters[2], B.U(Op::Sqrt, B.B(Op::Multiply, Gravity, K)));
 			const auto Phase = B.B(Op::Subtract, B.B(Op::Multiply, K, Dot), B.B(Op::Multiply, Omega, Time));
 			const auto Sin = B.U(Op::Sine, Phase), Cos = B.U(Op::Cosine, Phase);
 			const auto Horizontal = B.B(Op::Multiply, QA, Cos), Derivative = B.B(Op::Multiply, B.B(Op::Multiply, QA, K), Sin);
 			DX = B.B(Op::Add, DX, B.B(Op::Multiply, Horizontal, DirectionX));
 			DY = B.B(Op::Add, DY, B.B(Op::Multiply, Horizontal, DirectionY));
 			DZ = B.B(Op::Add, DZ, B.B(Op::Multiply, A, Sin));
-			TXX = B.B(Op::Subtract, TXX, B.B(Op::Multiply, Derivative, B.C(float(Wave.Direction.x * Wave.Direction.x))));
-			TXY = B.B(Op::Subtract, TXY, B.B(Op::Multiply, Derivative, B.C(float(Wave.Direction.x * Wave.Direction.y))));
-			TYY = B.B(Op::Subtract, TYY, B.B(Op::Multiply, Derivative, B.C(float(Wave.Direction.y * Wave.Direction.y))));
+			TXX = B.B(Op::Subtract, TXX, B.B(Op::Multiply, Derivative, B.B(Op::Multiply, DirectionX, DirectionX)));
+			TXY = B.B(Op::Subtract, TXY, B.B(Op::Multiply, Derivative, B.B(Op::Multiply, DirectionX, DirectionY)));
+			TYY = B.B(Op::Subtract, TYY, B.B(Op::Multiply, Derivative, B.B(Op::Multiply, DirectionY, DirectionY)));
 			const auto Vertical = B.B(Op::Multiply, B.B(Op::Multiply, A, K), Cos);
 			TXZ = B.B(Op::Add, TXZ, B.B(Op::Multiply, Vertical, DirectionX));
 			TYZ = B.B(Op::Add, TYZ, B.B(Op::Multiply, Vertical, DirectionY));

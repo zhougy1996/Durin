@@ -15,8 +15,8 @@ qualified platform is Win64; the descriptor excludes other platforms.
 
 `AWaterSurfaceActor` owns a `DWaterSurfaceComponent` root. Generic reflected
 editing exposes its `Settings` and optional `Material`. Full XY dimensions,
-local elevation, amplitude, base wavelength, speed and steepness persist with
-the Level. No Water editor module is required. Positive uniform scale,
+local elevation, amplitude, base wavelength, speed, steepness and the wave
+group persist with the Level. No Water editor module is required. Positive uniform scale,
 translation and rotation are supported; use Extent for independent dimensions.
 Nonuniform, zero, negative or mirrored scale produces a local diagnostic and
 no render proxy or component query surface.
@@ -40,10 +40,14 @@ P.z  = elevation + sum(A * sin(theta))
 N    = normalize(cross(dP/dp.x, dP/dp.y))
 ```
 
-The three directions are (1,0), (0.6,0.8), (-0.8,0.6). Amplitude ratios are
-0.6/0.3/0.1 and wavenumber ratios are 1/1.37/0.73. The base wavenumber is
-2*pi/wavelength, omega is speed*sqrt(9.81*k), and Q is Steepness. Analytic
-derivatives produce the visible and queried normal. Edges move freely.
+`Settings.Waves` accepts up to five waves. The default group, also used when
+an older Level has no saved wave group, has directions (1,0), (0.6,0.8),
+(-0.8,0.6), amplitude ratios 0.6/0.3/0.1 and wavenumber ratios 1/1.37/0.73.
+An empty group gives a flat surface. Each direction is normalized for
+evaluation, A is the surface amplitude times the wave amplitude ratio, and
+k is the wave wavenumber ratio times 2*pi/wavelength. Omega is
+speed*sqrt(9.81*k), and Q is Steepness. Analytic derivatives produce the visible
+and queried normal. Edges move freely.
 
 | Setting | Default | Admission range |
 | --- | --- | --- |
@@ -54,12 +58,19 @@ derivatives produce the visible and queried normal. Edges move freely.
 | Speed | 1 | 0..4 |
 | Steepness | 0.3 | 0..1 |
 
-All inputs must be finite. Additionally, sum(abs(Q*A*k)) must not exceed 0.5.
-Grid spacing is at most base wavelength*0.73/32 (approximately the shortest
-wavelength/32), and each axis has at most
+All inputs must be finite. Directions must be nonzero, amplitude ratios must
+be in 0..1 and sum to at most 1 (within Float32 rounding tolerance), and
+wavenumber ratios must be in 0.125..4. The sum of abs(Q*A*k) must not exceed 0.5.
+Grid spacing is approximately the shortest nonzero-amplitude wavelength/32,
+with one cell per axis when all weights are zero. Each axis has at most
 256 cells (at most 66049 vertices). Extent/wavelength combinations exceeding
 that limit are rejected before allocation. Setters, reflected edit proposals
 and loaded object graphs enforce the same settings contract.
+
+A native `IWaterWaveGenerator` can generate the group procedurally.
+`DWaterSurfaceComponent::SetWaveGenerator` calls it once and applies the returned
+waves through `SetSettings`. The saved group is independent of the generator's
+lifetime, and invalid output leaves the current group in place.
 
 `EvaluateWaterSurface` evaluates validated parameters at undisplaced XY.
 `QueryWaterSurface` inverts the displaced XY map by bounded contraction, then
@@ -117,8 +128,10 @@ prepares platform data before serialization. This is an architectural comparison
 against public Epic documentation, not a claim of source equivalence.
 
 An assigned material must implement the same wave convention. Primitive custom
-data slots 0..3 are reserved for amplitude, wavelength, speed and steepness.
-Read local p from UV0; transform the computed local WPO direction to World.
+data slots 0..3 hold amplitude, wavelength, speed and steepness. Slots 4..23
+hold five groups of four floats in order: normalized direction X and Y,
+amplitude ratio, wavenumber ratio. Unused slots in this range read as zero.
+Read local p from UV0 and transform the computed local WPO direction to World.
 The flat mesh tangent basis permits the analytic local normal to feed the
 Tangent/Normal terminal through a spatially classified identity swizzle. See
 [material vertex evaluation](../Rendering/Materials/MaterialVertexEvaluation.md).
