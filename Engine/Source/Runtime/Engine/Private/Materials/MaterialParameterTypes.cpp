@@ -301,7 +301,7 @@ namespace Durin
 			return std::unexpected("Translucent ClearCoat is unsupported.");
 		if (Properties.ShadingModel == EMaterialShadingModel::SingleLayerWater && Properties.BlendMode == EMaterialBlendMode::Translucent)
 			return std::unexpected("Single Layer Water requires Opaque or Masked blending.");
-		if (Properties.RefractionMethod > EMaterialRefractionMethod::IndexOfRefractionFromF0
+		if (Properties.RefractionMethod > EMaterialRefractionMethod::PixelNormalOffset
 			|| !std::isfinite(Properties.RefractionDepthBias))
 			return std::unexpected("Material refraction settings are invalid.");
 		switch (Properties.DepthWritePolicy)

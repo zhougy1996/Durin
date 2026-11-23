@@ -48,10 +48,11 @@ namespace Durin::WaterMaterialRecipe
 		FWaterMaterialBuilder B;
 		B.Input.StaticProperties.bTwoSided = true;
 		B.Input.StaticProperties.ShadingModel = EMaterialShadingModel::SingleLayerWater;
-		B.Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
+		B.Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::PixelNormalOffset;
 		B.Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).Literal = {.02f, .18f, .24f};
 		B.Input.IR.GetAttribute(EMaterialProperty::MP_Roughness).Literal = {.22f};
 		B.Input.IR.GetAttribute(EMaterialProperty::MP_Opacity).Literal = {0.f};
+		B.Input.IR.GetAttribute(EMaterialProperty::MP_Refraction).Literal = {1.33f};
 		const auto Zero = B.C(0), One = B.C(1);
 		const auto UV = B.Add({.Opcode = Op::UVChannel, .ResultType = Type::Float2, .Inputs = {Zero}});
 		auto Channel = [&](uint8 I) { return B.Add({.Opcode = Op::Swizzle, .Inputs = {UV}, .Payload = MIR::FSwizzle{1, {I}}}); };

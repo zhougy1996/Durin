@@ -133,14 +133,21 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
         viewport, input.pos.xy, viewForward, surfaceDepth, slopeTolerance);
     float2 offset = 0.0;
 #if DURIN_MATERIAL_REFRACTION_METHOD != 0
-    float authoredIor = waterIor;
-#if DURIN_MATERIAL_REFRACTION_METHOD == 1
-    authoredIor = surface.refraction;
-#endif
     float3 viewNormal = normalize(mul((float3x3)MaterialView.WorldToView, normal));
+#if DURIN_MATERIAL_REFRACTION_METHOD == 3
+    float3 vertexNormal = normalize(mul((float3x3)MaterialView.WorldToView, shading.normalFrame.geometricNormal));
+    float3 distortionNormal = vertexNormal - viewNormal;
+#else
+    float3 distortionNormal = viewNormal;
+#endif
+#if DURIN_MATERIAL_REFRACTION_METHOD == 2
+    float distortionStrength = waterIor;
+#else
+    float distortionStrength = surface.refraction;
+#endif
     if (background.valid)
     {
-        float2 distortion = WaterDistortionPixels(WaterView, viewport.zw, viewNormal, viewForward, authoredIor,
+        float2 distortion = WaterDistortionPixels(WaterView, viewport.zw, distortionNormal, viewForward, distortionStrength,
             max(background.depth - surfaceDepth, 0.0) * 100.0,
             asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)), background.open);
         float2 target = ClampWaterPixel(ClampWaterPixel(input.pos.xy, viewport) + distortion, viewport);

@@ -82,7 +82,9 @@ namespace Durin
 		if (Model == EMaterialShadingModel::ClearCoat) Result.insert(Result.end(), {P::MP_ClearCoat, P::MP_ClearCoatRoughness});
 		if (Blend == EMaterialBlendMode::Translucent || bWater) Result.push_back(P::MP_Opacity);
 		if (Blend == EMaterialBlendMode::Masked) Result.push_back(P::MP_OpacityMask);
-		if (bWater && Properties.RefractionMethod == EMaterialRefractionMethod::IndexOfRefraction) Result.push_back(P::MP_Refraction);
+		if (bWater && (Properties.RefractionMethod == EMaterialRefractionMethod::IndexOfRefraction
+			|| Properties.RefractionMethod == EMaterialRefractionMethod::PixelNormalOffset))
+			Result.push_back(P::MP_Refraction);
 		return Result;
 	}
 }

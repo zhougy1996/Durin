@@ -80,6 +80,7 @@ inline auto AuthorWaterMaterial(const std::filesystem::path& Destination) -> voi
 	Outputs.Get(EMaterialProperty::MP_BaseColor).SetConstant({.02f, .18f, .24f});
 	Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({.22f});
 	Outputs.Get(EMaterialProperty::MP_Opacity).SetConstant({0.f});
+	Outputs.Get(EMaterialProperty::MP_Refraction).SetConstant({1.33f});
 	constexpr FGuid WorldDisplacementPort{0x57415452u, 0x504f5254u, 1, 1};
 	constexpr FGuid TangentNormalPort{0x57415452u, 0x504f5254u, 1, 2};
 	Outputs.Get(EMaterialProperty::MP_WorldPositionOffset) = FMaterialExpressionInput{Call, 0, WorldDisplacementPort};
@@ -104,7 +105,7 @@ inline auto AuthorWaterMaterial(const std::filesystem::path& Destination) -> voi
 	FMaterialStaticProperties Properties;
 	Properties.bTwoSided = true;
 	Properties.ShadingModel = EMaterialShadingModel::SingleLayerWater;
-	Properties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
+	Properties.RefractionMethod = EMaterialRefractionMethod::PixelNormalOffset;
 	if (auto R = Material->SetStaticProperties(Properties); !R) throw std::runtime_error(R.error());
 	if (auto R = Material->SetMaterialExpressions(Nodes, Outputs); !R)
 		throw std::runtime_error(R.Diagnostics.empty() ? "Water source material graph validation failed." : R.Diagnostics.front().Message);

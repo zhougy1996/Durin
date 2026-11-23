@@ -707,6 +707,35 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	ASSERT_FALSE(HasFailure());
 	EXPECT_FLOAT_EQ(ReadChannel(Refraction, 160, 120, 0), 0.0f);
 
+	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::PixelNormalOffset;
+	Input.IR.GetAttribute(P::MP_Refraction).Literal = {1.329431f};
+	PublishWater();
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	ASSERT_FALSE(HasFailure());
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 0), -Offset, .05f);
+
+	// Aim an oblique camera at the same point on the flat bed.
+	const FSceneView TopDownView = View;
+	View.ViewLocation = {-1.8, 0, 2.4};
+	View.ViewMatrix[0][0] = .6;
+	View.ViewMatrix[2][0] = -.8;
+	View.ViewMatrix[0][2] = .8;
+	View.ViewMatrix[2][2] = .6;
+	View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, 0, 1};
+	PublishWater();
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	ASSERT_FALSE(HasFailure());
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 0), 0.f, .01f);
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 1), 0.f, .01f);
+	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
+	PublishWater();
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	ASSERT_FALSE(HasFailure());
+	EXPECT_GT(std::abs(ReadChannel(Refraction, 160, 120, 1)), 1.f);
+	View = TopDownView;
+	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, .5f, .8660254f};
+
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
 	MIR::FCompilerInput ForegroundInput{.StaticProperties = {.ShadingModel = EMaterialShadingModel::Unlit, .bTwoSided = true},
 		.Environment = Environment};

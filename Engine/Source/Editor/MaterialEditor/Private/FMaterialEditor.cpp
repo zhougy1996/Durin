@@ -781,7 +781,7 @@ namespace Durin::MaterialEditor
 			{
 				int Refraction = static_cast<int>(Properties.RefractionMethod);
 				bChanged |= DetailsStyle::EditRow("Refraction", [&] {
-					return ImGui::Combo("##Value", &Refraction, "None\0Index of Refraction\0Index of Refraction from F0\0");
+					return ImGui::Combo("##Value", &Refraction, "None\0Index of Refraction\0Index of Refraction from F0\0Pixel Normal Offset\0");
 				});
 				Properties.RefractionMethod = static_cast<EMaterialRefractionMethod>(Refraction);
 				if (Properties.RefractionMethod != EMaterialRefractionMethod::None)

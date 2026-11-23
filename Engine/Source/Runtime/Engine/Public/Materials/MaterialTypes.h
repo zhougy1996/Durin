@@ -90,6 +90,7 @@ namespace Durin
 		None = 0,
 		IndexOfRefraction = 1,
 		IndexOfRefractionFromF0 = 2,
+		PixelNormalOffset = 3,
 	};
 
 	// Controls depth writes independently from the blend-mode default.

@@ -30,7 +30,9 @@ PhaseG and RGB Color Scale Behind Water.
 Disconnected inputs use zero coefficients, PhaseG zero and white scale. Water
 Opacity controls surface versus volume contributions independently of Opacity
 Mask, which controls coverage. The refraction method can disable distortion,
-derive the index of refraction from dielectric F0, or use an authored index.
+use an authored index, derive the index from dielectric F0, or use Pixel Normal Offset.
+Pixel Normal Offset uses the view-space vertex normal minus the shading normal,
+scaled by the authored Refraction input minus one. A flat normal gives zero offset at any angle.
 Above water, the desktop pass offsets the background lookup using the view-space
 surface normal, IOR, horizontal projection scale and viewport dimensions. Depth
 bias and shallow water fade the offset near contact. The lookup stays inside the

@@ -3775,12 +3775,15 @@ TEST(FMaterialSingleLayerWaterTests, CompilesTypedWaterOutputAndReplaysCookedEnt
 	ASSERT_NE(LiveWater, nullptr);
 	LiveWater->AbsorptionCoefficients = LiveWater->ColorScaleBehindWater;
 	LiveWater->ColorScaleBehindWater = {};
-	for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked})
+	using Method = EMaterialRefractionMethod;
+	for (const auto& [Blend, Refraction] : {
+		std::pair{EMaterialBlendMode::Opaque, Method::IndexOfRefractionFromF0},
+		std::pair{EMaterialBlendMode::Masked, Method::IndexOfRefraction},
+		std::pair{EMaterialBlendMode::Opaque, Method::PixelNormalOffset}})
 	{
-		SCOPED_TRACE(static_cast<int>(Blend));
+		SCOPED_TRACE(static_cast<int>(Refraction));
 		Properties.BlendMode = Blend;
-		Properties.RefractionMethod = Blend == EMaterialBlendMode::Masked
-			? EMaterialRefractionMethod::IndexOfRefraction : EMaterialRefractionMethod::IndexOfRefractionFromF0;
+		Properties.RefractionMethod = Refraction;
 		Properties.RefractionDepthBias = 2.0f;
 		ASSERT_TRUE(Material->SetStaticProperties(Properties));
 		const auto Capture = SnapshotMaterialCompilerInput(*Material, Environment);
@@ -3803,7 +3806,7 @@ TEST(FMaterialSingleLayerWaterTests, CompilesTypedWaterOutputAndReplaysCookedEnt
 			EXPECT_EQ(Job.Source.contains("FMaterialCustomOutputs"), WaterColor) << Job.EntryPoints[0];
 		}
 		EXPECT_EQ(IR.GetAttribute(P::MP_Opacity).Literal.X, .2f);
-		EXPECT_EQ(IR.GetAttribute(P::MP_Refraction).Literal.X, Blend == EMaterialBlendMode::Masked ? 1.25f : 1.0f);
+		EXPECT_EQ(IR.GetAttribute(P::MP_Refraction).Literal.X, Refraction == Method::IndexOfRefractionFromF0 ? 1.0f : 1.25f);
 		const auto Compiled = MIR::Compile(Capture.Snapshot->Input);
 		ASSERT_TRUE(Compiled) << FormatMaterialProgramDiagnostics(Compiled.Diagnostics);
 		const auto& Entries = Compiled.GetShaderMap().Entries;

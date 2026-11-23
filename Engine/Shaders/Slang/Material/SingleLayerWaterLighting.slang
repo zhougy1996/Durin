@@ -110,7 +110,7 @@ public float3 WaterIncidentDirection(FWaterViewUniform view, float3 viewPosition
 }
 
 public float2 WaterDistortionPixels(FWaterViewUniform view, float2 viewSize, float3 viewNormal,
-    float3 forward, float ior, float separationCm, float depthBiasCm, bool open)
+    float3 forward, float strength, float separationCm, float depthBiasCm, bool open)
 {
     // Projection rows give screen right and down in Durin view space.
     float3 right = view.Projection[0].xyz - forward * dot(view.Projection[0].xyz, forward);
@@ -120,7 +120,7 @@ public float2 WaterDistortionPixels(FWaterViewUniform view, float2 viewSize, flo
     float fade = open ? 1.0 : saturate(separationCm / range - depthBiasCm) * saturate(separationCm / 30.0);
     // UE's mono FOV/aspect correction leaves the unscaled view width on both axes.
     // Durin renders the scene snapshot at the active viewport's native resolution.
-    return screenNormal * viewSize * (viewSize.x * length(right) * (ior - 1.0) * 0.00023 * 4.0 * fade);
+    return screenNormal * viewSize * (viewSize.x * length(right) * (strength - 1.0) * 0.00023 * 4.0 * fade);
 }
 
 public float WaterSchlickPhase(float g, float rayLightCosine)
