@@ -339,47 +339,60 @@ TEST(FMaterialGraphOperationsTests, GroupedConfigurationAndOrdinaryOwnerEditsRep
 		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 		const auto OriginalName = Material->GetFName();
 		const auto OriginalProperties = Material->GetStaticProperties();
+		const auto OriginalRoughness = Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Capture();
 		FMaterialConfiguration Configuration{Material->GetDomain(), OriginalProperties};
 		Configuration.Properties.ShadingModel = EMaterialShadingModel::Unlit;
+		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
 		Tests::FTestEditorTransactorOwner History;
+		const auto Pin = FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_Roughness);
 		const FName EditedName(bConfigurationFirst ? "RenamedAfterConfiguration" : "RenamedBeforeConfiguration");
 		{
 			FScopedTransaction Scope("Grouped material edit");
 			if (bConfigurationFirst) ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configuration));
 			ASSERT_TRUE(Material->Modify(false));
 			Material->Rename(EditedName);
+			ASSERT_TRUE(Graph->GetRootNode()->PinDefaultValueChanged(Pin,
+				{.Kind = EMaterialInputDefaultKind::Literal, .Literal = {.X = .375f}}));
 			if (!bConfigurationFirst) ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configuration));
 		}
 		ASSERT_EQ(History->GetQueueLength(), 1u);
-		EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 2u);
+		EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 1u);
+		const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 		ASSERT_TRUE(History->Undo());
 		EXPECT_EQ(Material->GetFName(), OriginalName);
 		EXPECT_EQ(Material->GetStaticProperties(), OriginalProperties);
+		EXPECT_EQ(*Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness), OriginalRoughness);
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 1);
 		ASSERT_TRUE(History->Redo());
 		EXPECT_EQ(Material->GetFName(), EditedName);
 		EXPECT_EQ(Material->GetStaticProperties(), Configuration.Properties);
+		EXPECT_FLOAT_EQ(Graph->FindInputPin(Pin)->InlineDefault.Literal.X, .375f);
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 2);
 	}
 }
 
-TEST(FMaterialGraphOperationsTests, GroupedConfigurationAloneOnlyRecordsItsDomainChange)
+TEST(FMaterialGraphOperationsTests, AnonymousConfigurationRestoresDomainAndSchedulesOneGenerationPerReplay)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	const auto Original = Material->GetStaticProperties();
-	FMaterialConfiguration Configuration{Material->GetDomain(), Original};
-	Configuration.Properties.ShadingModel = EMaterialShadingModel::Unlit;
+	const FMaterialConfiguration Original{Material->GetDomain(), Material->GetStaticProperties()};
+	const FMaterialConfiguration Configuration{EMaterialDomain::PostProcess, {.ShadingModel = EMaterialShadingModel::Unlit}};
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Tests::FTestEditorTransactorOwner History;
-	{
-		FScopedTransaction Scope("Grouped configuration");
-		ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configuration));
-	}
+	ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configuration));
 	ASSERT_EQ(History->GetQueueLength(), 1u);
 	EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 1u);
+	EXPECT_EQ(Material->GetDomain(), Configuration.Domain);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 1);
 	ASSERT_TRUE(History->Undo());
-	EXPECT_EQ(Material->GetStaticProperties(), Original);
+	EXPECT_EQ(Material->GetDomain(), Original.Domain);
+	EXPECT_EQ(Material->GetStaticProperties(), Original.Properties);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 2);
 	ASSERT_TRUE(History->Redo());
+	EXPECT_EQ(Material->GetDomain(), Configuration.Domain);
 	EXPECT_EQ(Material->GetStaticProperties(), Configuration.Properties);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 3);
 }
 
 TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndTransactional)
@@ -3021,6 +3034,8 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	ASSERT_TRUE(Instance->SetParent(Material));
 	ASSERT_TRUE(Instance->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.8f)));
 	ASSERT_TRUE(MaterialEditing::SetParameterValue(*Material, Id, FMaterialParameterValue::MakeScalar(.6f)));
+	ASSERT_EQ(Transactions->GetQueueLength(), 1u);
+	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 2u);
 	for (const auto& E : Material->GetExpressionCollection().Expressions)
 		if (const auto* Parameter = Cast<DMaterialExpressionScalarParameter>(E.Get())) EXPECT_FLOAT_EQ(Parameter->DefaultValue, .6f);
 	ASSERT_TRUE(Transactions->Undo());
@@ -4134,6 +4149,21 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		EXPECT_EQ(AuthoringGraph->FindNode(Id)->GetView().Presentation.DisplayName, "After move");
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(Read(), Later);
+
+		Transactions->Reset();
+		ASSERT_TRUE(Move.Begin(*AuthoringGraph, std::array{Id, OtherId}, Transactions.Get()));
+		const std::array GroupPositions{FMaterialGraphNodePresentation{Id, 700, 240},
+			FMaterialGraphNodePresentation{OtherId, 1300, 80}};
+		ASSERT_TRUE(Move.Apply(GroupPositions));
+		EXPECT_EQ(Read(), Later);
+		ASSERT_TRUE(Move.Commit());
+		ASSERT_EQ(Transactions->GetQueueLength(), 1u);
+		EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 2u);
+		EXPECT_EQ(AuthoringGraph->FindNode(Id)->GetView().Presentation.X, 700);
+		EXPECT_EQ(AuthoringGraph->FindNode(OtherId)->GetView().Presentation.X, 1300);
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_EQ(Read(), Later);
+		EXPECT_EQ(SemanticRevision(), Revision);
 	}
 }
 
@@ -4476,9 +4506,18 @@ TEST(FMaterialGraphOperationsTests, ParameterSessionRejectionsReportFailureAndAl
 	Definition.Id = Id;
 	Definition.Value = FMaterialParameterValue::MakeScalar(.5f);
 	ASSERT_TRUE(MaterialEditing::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(Edit.Apply(FMaterialParameterValue::MakeScalar(.25f)));
+	EXPECT_FALSE(Edit.Commit());
 	ASSERT_TRUE(Edit.Cancel());
 	EXPECT_FALSE(Edit.IsActive());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .75f);
+
+	ASSERT_TRUE(Edit.Begin(*Material, Id));
+	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.5f)));
+	ASSERT_TRUE(Material->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.8f)));
+	EXPECT_FALSE(Edit.Commit());
+	ASSERT_TRUE(Edit.Cancel());
+	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .8f);
 }
 
 TEST(FMaterialGraphOperationsTests, BaseParameterMutationRetainsFailuresBeforePublication)
@@ -4847,33 +4886,44 @@ TEST(FMaterialGraphOperationsTests, CommandStatusAndFailurePresentationAreIndepe
 	EXPECT_TRUE(FormatMaterialGraphCommandResult(NoChange).empty());
 }
 
-namespace
-{
-	struct FMaterialRecordTestAccess : FTransaction { using Record = FObjectRecord; };
-}
-
-TEST(FMaterialGraphOperationsTests, ParameterReplayRetainsMessageAndAllowsRepair)
+TEST(FMaterialGraphOperationsTests, SharedParameterPreviewRecordsOnlyDeclarationsAndRetainsTextures)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	FMaterialParameterDefinition Definition;
-	Definition.Id = FGuid::NewGuid();
-	Definition.Name = "ReplayValue";
-	Definition.Type = EMaterialParameterType::Scalar;
-	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
-	FMaterialRecordTestAccess::Record Record(GraphEditInternals::MakeMaterialGraphParameterTransaction(*Material,
-		Definition.Id, Definition.Value, FMaterialParameterValue::MakeScalar(.75f)));
-	const auto Failed = Record.Apply(false, EPropertyChangeOrigin::Redo);
-	ASSERT_FALSE(Failed);
-	const auto Message = Failed.error();
-	EXPECT_EQ(Message, std::format("Material declaration does not exist. [parameter {}]", Definition.Id.ToString()));
-	ASSERT_TRUE(MaterialEditing::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(Record.Apply(false, EPropertyChangeOrigin::Redo));
-	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .75f);
-	ASSERT_TRUE(Record.Apply(true, EPropertyChangeOrigin::Undo));
-	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .25f);
-	EXPECT_EQ(Failed.error(), Message);
+	auto* Original = NewObject<DTexture2D>(nullptr, "HistoryTextureBefore");
+	auto* Replacement = NewObject<DTexture2D>(nullptr, "HistoryTextureAfter");
+	const TWeakObjectPtr<DTexture2D> Before(Original), After(Replacement);
+	const auto Id = FGuid::NewGuid();
+	const auto Parameter = MaterialEditing::CreateParameter(*Material, {.Id = Id, .Name = "SharedTexture",
+		.Type = EMaterialParameterType::Texture, .Value = FMaterialParameterValue::MakeTexture(Original)},
+		ETransactionMode::NotTransactable).transform(Testing::ExpressionNodeId);
+	ASSERT_TRUE(Parameter);
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(Graph->DuplicateNodes(std::array{*Parameter}, 100, 0, ETransactionMode::NotTransactable));
+	Tests::FTestEditorTransactorOwner History;
+	FMaterialGraphParameterEditSession Session;
+	ASSERT_TRUE(Session.Begin(*Material, Id, History.Get()));
+	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeTexture(Replacement)));
+	ASSERT_TRUE(Session.Commit());
+	ASSERT_EQ(History->GetQueueLength(), 1u);
+	EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 2u);
+	EXPECT_FALSE(std::ranges::contains(History->GetTransaction(0)->GetTransactionObjects(), Material.Get()));
+	const auto CheckValue = [&](DTexture* Expected) {
+		ASSERT_NE(Expected, nullptr);
+		const auto* Definition = Material->FindParameterDefinition(Id);
+		ASSERT_NE(Definition, nullptr);
+		EXPECT_EQ(Definition->Value.GetTexture().Texture.Get(), Expected);
+		for (const auto& Expression : Material->GetExpressionCollection().Expressions)
+			EXPECT_EQ(Cast<DMaterialExpressionTextureParameter>(Expression.Get())->DefaultValue.Texture.Get(), Expected);
+	};
+	CollectGarbage(EObjectFlags::Standalone);
+	CheckValue(After.Get());
+	ASSERT_TRUE(History->Undo());
+	CheckValue(Before.Get());
+	CollectGarbage(EObjectFlags::Standalone);
+	ASSERT_TRUE(History->Redo());
+	CheckValue(After.Get());
 }
 
 TEST(FMaterialGraphOperationsTests, ResetAndReenableConstantsRetainValuesAndUndoState)

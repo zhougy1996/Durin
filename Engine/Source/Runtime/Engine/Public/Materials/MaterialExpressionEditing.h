@@ -9,6 +9,7 @@
 namespace Durin
 {
 class DMaterial;
+class DMaterialExpressionParameter;
 #if DURIN_WITH_EDITORONLY_DATA
 	struct FMaterialRootInputEdits
 	{
@@ -23,6 +24,8 @@ class DMaterial;
 	struct FMaterialExpressionEditing
 	{
 		ENGINE_API static auto GetExpressions(DObject& Owner) -> std::vector<TObjectPtr<DMaterialExpression>>&;
+		ENGINE_API static auto GetParameterDeclarations(const DMaterial& Owner, const FMaterialParameterDefinition& Definition)
+			-> std::expected<std::vector<DMaterialExpressionParameter*>, std::string>;
 		ENGINE_API static void ApplyRootEdits(DMaterial& Owner, const FMaterialRootInputEdits& Edits);
 		ENGINE_API static auto SetRootInputs(DMaterial& Owner, FMaterialRootInputs Inputs) -> bool;
 		ENGINE_API static void VisitRootConnections(DMaterial& Owner, const std::function<void(FMaterialExpressionInput&)>& Visit);

@@ -1,5 +1,6 @@
 #include "MaterialParameterMutation.h"
 #include "MaterialExpressionOwnership.h"
+#include "Materials/MaterialExpressionEditing.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/ObjectCacheContext.h"
@@ -165,27 +166,45 @@ namespace Durin
 		if (const auto Valid = ValidateMaterialConfiguration(Configuration.Domain, Properties); !Valid)
 			return {.Diagnostics = {{.Message = Valid.error()}}};
 		Properties.GeometryUsage &= uint8(~4u);
-		const bool bDomainChanged = Domain != Configuration.Domain;
-		if (!bDomainChanged && StaticProperties == Properties) return {.bSucceeded = true};
-		const bool bShaderIdentityChanged = bDomainChanged
-			|| CanonicalizeMaterialShaderProperties(StaticProperties) != CanonicalizeMaterialShaderProperties(Properties);
-		// Publish the complete configuration before scheduling a single generation.
+		const FMaterialConfiguration Previous{Domain, StaticProperties};
+		if (Domain == Configuration.Domain && StaticProperties == Properties) return {.bSucceeded = true};
 		Domain = Configuration.Domain;
 		StaticProperties = Properties;
+		PublishMaterialEdit(Previous);
+		return {.bSucceeded = true};
+	}
+
+	auto DMaterial::PublishMaterialEdit(const FMaterialConfiguration& Previous, bool bGraphChanged, bool bGraphCodeChanged) -> void
+	{
+		const bool bDomainChanged = Previous.Domain != Domain;
+		const bool bConfigurationChanged = bDomainChanged || Previous.Properties != StaticProperties;
+		const bool bShaderChanged = bGraphCodeChanged || bDomainChanged
+			|| CanonicalizeMaterialShaderProperties(Previous.Properties) != CanonicalizeMaterialShaderProperties(StaticProperties);
+#if DURIN_WITH_EDITORONLY_DATA
+		PublishedConfiguration = {Domain, StaticProperties};
+#endif
 		FObjectCacheContext Context;
-		if (bShaderIdentityChanged)
+		if (bShaderChanged)
 		{
 			AdvanceRevision(CompilationState.AuthoredRevision);
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this, &Context);
 		}
-		InvalidateMaterialCompilation(false, !bDomainChanged, &Context);
-		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState, bDomainChanged, &Context);
+		if (bConfigurationChanged || bGraphCodeChanged)
+			InvalidateMaterialCompilation(false, !bDomainChanged && !bGraphCodeChanged, &Context);
+		auto Dirty = EMaterialRenderDirtyFlags::None;
+		if (bConfigurationChanged)
+		{
+			MarkPackageDirty();
+			Dirty |= EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState;
+		}
+		if (bGraphChanged)
+			Dirty |= bGraphCodeChanged ? EMaterialRenderDirtyFlags::ShaderMap : EMaterialRenderDirtyFlags::DynamicParameters;
+		if (Dirty != EMaterialRenderDirtyFlags::None)
+			MarkRenderDataDirty(Dirty, bDomainChanged || bGraphChanged, &Context);
 		Context.EndDiscovery();
 #if DURIN_WITH_EDITORONLY_DATA
 		GraphChanges.Publish(*this);
 #endif
-		return {.bSucceeded = true};
 	}
 
 	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>
@@ -244,15 +263,9 @@ namespace Durin
 		if (!bCooked)
 		{
 #if DURIN_WITH_EDITORONLY_DATA
-			std::vector<DMaterialExpressionParameter*> Owners;
-			for (const auto& Expression : ExpressionCollection.Expressions)
-				if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Id)
-				{
-					if (Parameter->GetParameterDefinition() != *Entry) return std::unexpected(std::format("{} [parameter {}]", "The parameter expression disagrees with its declaration.", Id.ToString()));
-					Owners.push_back(Parameter);
-				}
-			if (Owners.empty()) return std::unexpected(std::format("{} [parameter {}]", "The parameter has no authored expression owner.", Id.ToString()));
-			for (auto* Parameter : Owners)
+			const auto Owners = FMaterialExpressionEditing::GetParameterDeclarations(*this, *Entry);
+			if (!Owners) return std::unexpected(Owners.error());
+			for (auto* Parameter : *Owners)
 			{
 				const auto Applied = Parameter->SetParameterDefinition(Definition);
 				require(Applied);
@@ -460,6 +473,9 @@ namespace Durin
 	{
 		Super::PostLoad();
 		StaticProperties.GeometryUsage &= uint8(~4u);
+#if DURIN_WITH_EDITORONLY_DATA
+		PublishedConfiguration = {Domain, StaticProperties};
+#endif
 		if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation)
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Validation.error());
@@ -518,43 +534,37 @@ namespace Durin
 	auto DMaterial::PostEditChangeProperty(
 		const FPropertyChangedEvent& Event) -> void
 	{
-		if ((Event.Origin == EPropertyChangeOrigin::Undo || Event.Origin == EPropertyChangeOrigin::Redo)
-			&& Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("ExpressionCollection")) return;
 #if DURIN_WITH_EDITORONLY_DATA
-		FObjectCacheContext Context;
-		Super::PostEditChangePropertyWithContext(Event, Context);
-		if (!Event.MemberProperty) return;
-		const FName Name = Event.MemberProperty->NamePrivate;
-		if (Name == FName("StaticProperties")) InvalidateMaterialCompilation(false, true, &Context);
-		if (Name == FName("ExpressionCollection") || (Name == FName("StaticProperties")
-			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationState.LastObservedShaderProperties))
+		const auto Name = Event.MemberProperty ? Event.MemberProperty->NamePrivate : NAME_None;
+		const bool bGraphChanged = Name == FName("ExpressionCollection");
+		const bool bConfigurationChanged = Name == FName("Domain") || Name == FName("StaticProperties");
+		if (!bGraphChanged && !bConfigurationChanged)
 		{
-			if (Name == FName("ExpressionCollection"))
+			Super::PostEditChangeProperty(Event);
+			if (Event.MemberProperty) GraphChanges.Publish(*this);
+			return;
+		}
+		// Object replay restores every participant before PostTransacted publishes the edit.
+		if (Event.Origin == EPropertyChangeOrigin::Undo || Event.Origin == EPropertyChangeOrigin::Redo) return;
+		DObject::PostEditChangeProperty(Event);
+		const auto Previous = PublishedConfiguration;
+		bool bGraphCodeChanged = false;
+		if (bGraphChanged)
+		{
+			std::vector<FMaterialParameterDefinition> Schema;
+			if (DeriveExpressionParameterSchema(ExpressionCollection, Schema))
 			{
-				std::vector<FMaterialParameterDefinition> Schema;
 				FXxHash128 Code;
-				if (!DeriveExpressionParameterSchema(ExpressionCollection, Schema)) return;
-				// An editable graph may have compiler diagnostics. Invalidate failed
-				// graphs too, so an old successful preview cannot mask the new error.
+				// Invalidate failed drafts too, so a previous preview cannot hide the error.
 				const bool bCompilable = static_cast<bool>(ValidateExpressionGraph(&Code));
 				ParameterSchema = std::move(Schema);
-				const bool bShaderChanged = !bCompilable || Code != ObservedExpressionCode;
+				bGraphCodeChanged = !bCompilable || Code != ObservedExpressionCode;
 				ObservedExpressionCode = Code;
-				if (!bShaderChanged)
-				{
-					MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true, &Context);
-					Context.EndDiscovery();
-					GraphChanges.Publish(*this);
-					return;
-				}
-				AdvanceRevision(MaterialProgramRevision);
+				if (bGraphCodeChanged) AdvanceRevision(MaterialProgramRevision);
 			}
-			AdvanceAuthoredRevision(&Context);
-			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this, &Context);
-			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap, Name == FName("ExpressionCollection"), &Context);
+			else if (Previous.Domain == Domain && Previous.Properties == StaticProperties) return;
 		}
-		Context.EndDiscovery();
-		GraphChanges.Publish(*this);
+		PublishMaterialEdit(Previous, bGraphChanged, bGraphCodeChanged);
 #else
 		Super::PostEditChangeProperty(Event);
 #endif

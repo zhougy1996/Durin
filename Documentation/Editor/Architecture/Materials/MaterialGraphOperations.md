@@ -635,8 +635,9 @@ validated publication and compensation boundary.
 Layout gestures keep draft coordinates on the canvas. A completed gesture
 records only the moved objects. Whole-object replay restores the moved
 expression's historical fields and preserves later changes on stationary
-expressions. Parameter gestures replay through the owner's expression-backed
-parameter setter.
+expressions. A committed parameter edit records each declaration expression
+sharing the parameter GUID. Replay restores the declarations together and
+rebuilds the material's parameter schema from the settled graph.
 
 Material-instance color overrides and graph color defaults share the color picker
 and its popup lifetime. Both preview while the popup is open and commit one undo
@@ -649,10 +650,14 @@ Graph scalar, vector and color controls collect input during drawing and use
 the [shared frame settlement](../PropertyEditing/ReflectedPropertyEditing.md#edit-session-lifecycle)
 after all rows are drawn. The current parameter's final value and terminal action
 are processed before applying a new parameter's proposal, regardless of draw
-order. The graph's parameter session still owns preview, rollback and history
-through the domain command path.
-These retained custom responsibilities and participants are listed in the
-[transactor consumer audit](../Transactions/Transactors.md#structural-history-and-barriers).
+order. The parameter session owns preview and cancellation. It captures the
+pre-gesture value on the declaration expressions when the gesture commits.
+
+Material configuration records the material before writing its domain and
+static properties. Replay publishes configuration, expression and root changes
+after all objects have been restored. Shader-affecting changes schedule a
+compile generation. Parameter defaults and pipeline-only settings refresh
+render data through their respective publication paths.
 
 Abandoned or rejected edit scopes restore local writes without revisions or
 notifications. This domain compensation does not change generic `Modify()` or

@@ -3,7 +3,6 @@
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionConstant.h"
-#include "Graph/MaterialGraphChange.h"
 #include "Materials/Material.h"
 #include "DObject/Class.h"
 #include "DObject/Property.h"
@@ -38,12 +37,11 @@ namespace Durin::MaterialEditor::GraphEditInternals
 			auto CaptureAfter() -> std::expected<void, FPropertySnapshotError>
 			{ return CapturePropertyValuePayload(Property(), Object(), Index(), After); }
 			auto IsNoOp() const -> bool { return Before == After; }
-			auto Restore(bool bBefore) const -> FMaterialChangeResult
+			auto Restore(bool bBefore) const -> std::expected<void, std::string>
 			{
-				if (!Property()) return {{.Code = EMaterialChangeError::MemberUnavailable}};
+				if (!Property()) return std::unexpected("The graph member is unavailable.");
 				const auto Restored = RestorePropertyValuePayload(Property(), Object(), Index(), bBefore ? Before : After);
-				if (!Restored) return {{.Code = EMaterialChangeError::PropertyRestore,
-					.PropertyCause = std::make_shared<FPropertySnapshotError>(Restored.error())}};
+				if (!Restored) return std::unexpected(ToString(Restored.error()));
 				return {};
 			}
 		};
@@ -320,7 +318,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 				for (const auto& Node : Impl->Original) Expressions.emplace_back(Node.Get());
 			}
 			for (auto* Member : Changed)
-				if (auto Result = Member->Restore(true); !Result) return RejectCommand(FormatMaterialChangeError(Result.Error));
+				if (auto Result = Member->Restore(true); !Result) return RejectCommand(Result.error());
 		}
 		const bool Nested = Transactions && Transactions->IsActive();
 		FScopedTransaction Recording("MaterialGraph", Description, &Impl->Owner, Transactions != nullptr);
@@ -359,7 +357,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 				{
 					for (auto* Original : Changed) if (!Original->Restore(true)) std::terminate();
 					if (!Nested) Recording.Cancel();
-					return RejectCommand(FormatMaterialChangeError(Result.Error));
+					return RejectCommand(Result.error());
 				}
 			if (bStructural) Expressions.swap(Accepted);
 		}

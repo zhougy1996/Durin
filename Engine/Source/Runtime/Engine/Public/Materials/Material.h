@@ -119,7 +119,10 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 		FMaterialGraphChangeSource GraphChanges;
 		uint64 LastGraphReplayOperation = 0;
+		// The last published configuration survives reflected transaction loads.
+		FMaterialConfiguration PublishedConfiguration;
 #endif
+		auto PublishMaterialEdit(const FMaterialConfiguration& Previous, bool bGraphChanged = false, bool bGraphCodeChanged = false) -> void;
 		auto AdvanceAuthoredRevision(FObjectCacheContext* Context = nullptr) -> void;
 #if DURIN_WITH_EDITORONLY_DATA
 		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;

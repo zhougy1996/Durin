@@ -1,6 +1,7 @@
 #include "MaterialGraphEditInternals.h"
 #include "Graph/MaterialGraphInteraction.h"
 #include "Materials/MaterialExpressionParameter.h"
+#include "Materials/MaterialExpressionEditing.h"
 #include "Materials/Material.h"
 #include "MaterialGraph.h"
 
@@ -115,6 +116,7 @@ namespace Durin::MaterialEditor
 	{
 		TWeakObjectPtr<DMaterial> Material;
 		FGuid ParameterId;
+		std::vector<TWeakObjectPtr<DMaterialExpressionParameter>> Declarations;
 		FMaterialParameterValue BeforeValue;
 		FMaterialParameterValue CurrentValue;
 		TStrongObjectPtr<DTexture> BeforeTexture;
@@ -122,8 +124,20 @@ namespace Durin::MaterialEditor
 		DTransactor* Transactions = nullptr;
 		bool bActive = false;
 
+		auto ResolveDeclarations(const DMaterial& Owner, const FMaterialParameterDefinition& Definition) const
+			-> std::expected<std::vector<DMaterialExpressionParameter*>, std::string>
+		{
+			auto Current = FMaterialExpressionEditing::GetParameterDeclarations(Owner, Definition);
+			if (!Current) return Current;
+			if (!std::ranges::equal(*Current, Declarations, std::ranges::equal_to{}, std::identity{},
+				[](const auto& Declaration) { return Declaration.Get(); }))
+				return std::unexpected("The material parameter declarations changed during the preview.");
+			return Current;
+		}
+
 		auto Finish() -> std::expected<void, std::string>
 		{
+			Declarations.clear();
 			BeforeTexture.Reset();
 			CurrentTexture.Reset();
 			bActive = false;
@@ -155,6 +169,10 @@ namespace Durin::MaterialEditor
 		if (!Material.ResolveParameterValue(ParameterId, Resolved)
 			|| !Resolved.Definition)
 			return std::unexpected("The material parameter definition is unavailable.");
+		const auto Declarations = FMaterialExpressionEditing::GetParameterDeclarations(Material, *Resolved.Definition);
+		if (!Declarations) return std::unexpected(Declarations.error());
+		Impl->Declarations.clear();
+		for (auto* Declaration : *Declarations) Impl->Declarations.emplace_back(Declaration);
 		Impl->Material = &Material;
 		Impl->ParameterId = ParameterId;
 		Impl->BeforeValue = Resolved.Value;
@@ -177,8 +195,13 @@ namespace Durin::MaterialEditor
 			Impl->bActive = false;
 			return std::unexpected("The material graph owner is no longer available.");
 		}
+		const auto* Definition = Material->FindParameterDefinition(Impl->ParameterId);
+		if (!Definition || Definition->Value != Impl->CurrentValue)
+			return std::unexpected("The material rejected the parameter value. The parameter changed during the preview.");
 		if (Value == Impl->CurrentValue)
 			return false;
+		if (const auto Declarations = Impl->ResolveDeclarations(*Material, *Definition); !Declarations)
+			return std::unexpected("The material rejected the parameter value. " + Declarations.error());
 		FScopedPackageDirtySuppression SuppressPackageRevision;
 		if (const auto Applied = Material->SetParameterValue(Impl->ParameterId, Value); !Applied)
 			return std::unexpected("The material rejected the parameter value. " + Applied.error());
@@ -206,17 +229,35 @@ namespace Durin::MaterialEditor
 		if (Impl->BeforeValue == Impl->CurrentValue) return Impl->Finish();
 		if (Impl->Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Impl->Transactions)
 			return std::unexpected("The editor transactor is busy.");
+		const auto* Definition = Material->FindParameterDefinition(Impl->ParameterId);
+		if (!Definition || Definition->Value != Impl->CurrentValue)
+			return std::unexpected("The material parameter changed during the preview.");
+		const auto Declarations = Impl->ResolveDeclarations(*Material, *Definition);
+		if (!Declarations) return std::unexpected(Declarations.error());
 		{
-			FScopedTransaction Recording("MaterialGraph", "Edit material parameter", nullptr,
-				Impl->Transactions && !Impl->Transactions->IsActive());
+			const bool bNested = Impl->Transactions && Impl->Transactions->IsActive();
+			FScopedTransaction Recording("MaterialGraph", "Edit material parameter", Material, Impl->Transactions != nullptr);
 			if (Impl->Transactions)
 			{
-				std::string Error;
-				const auto Recorded = Impl->Transactions->StoreUndo(
-					MakeMaterialGraphParameterTransaction(
-						*Material, Impl->ParameterId,
-						Impl->BeforeValue, Impl->CurrentValue), &Error);
-				if (!Recorded) return std::unexpected("Unable to record the graph edit. " + Error);
+				if (!Recording.IsOutstanding()) return std::unexpected("Unable to start the parameter transaction.");
+				FScopedPackageDirtySuppression Suppress;
+				const auto Preview = *Definition;
+				auto Before = Preview;
+				Before.Value = Impl->BeforeValue;
+				for (auto* Declaration : *Declarations)
+				{
+					// The preview remains published. Only the declaration being captured
+					// needs its pre-gesture value while the transactor reads it.
+					Declaration->SetFlags(EObjectFlags::Transactional);
+					const auto Restored = Declaration->SetParameterDefinition(Before);
+					const bool bRecorded = Restored && Declaration->Modify(false);
+					if (Restored) require(Declaration->SetParameterDefinition(Preview));
+					if (!bRecorded)
+					{
+						if (!bNested) Recording.Cancel();
+						return std::unexpected(Restored ? "Unable to record the graph edit." : Restored.error());
+					}
+				}
 			}
 			Material->MarkPackageDirty();
 		}
@@ -233,6 +274,9 @@ namespace Durin::MaterialEditor
 		if (!Material)
 			return std::unexpected("The material graph owner is no longer available.");
 		if (Impl->BeforeValue == Impl->CurrentValue) return Impl->Finish();
+		if (const auto* Definition = Material->FindParameterDefinition(Impl->ParameterId);
+			Definition && Definition->Value != Impl->CurrentValue)
+			return Impl->Finish();
 		FScopedPackageDirtySuppression SuppressPackageRevision;
 		if (const auto Restored = Material->SetParameterValue(Impl->ParameterId, Impl->BeforeValue); !Restored)
 			return std::unexpected("The material rejected the original parameter value. " + Restored.error());

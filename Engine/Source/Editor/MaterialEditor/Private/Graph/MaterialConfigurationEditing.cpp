@@ -1,37 +1,9 @@
 #include "MaterialEditingOperations.h"
 #include "MaterialGraphEditSession.h"
-#include "DObject/Package.h"
 
 namespace Durin::MaterialEditor::MaterialEditing
 {
 	using namespace GraphEditInternals;
-
-	namespace
-	{
-
-		class FMaterialConfigurationChange final : public FMaterialCommandChange
-		{
-		public:
-			FMaterialConfigurationChange(DMaterial& Target, FMaterialConfiguration InBefore, FMaterialConfiguration InAfter)
-				: Material(&Target), Before(InBefore), After(InAfter), Packages{Target.GetPackage()} {}
-			auto GetDescription() const -> std::string_view override { return "Change Material Configuration"; }
-			auto GetOwningModule() const -> std::string_view override { return "MaterialEditor"; }
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto GetModifiedObjects() const -> std::vector<DObject*> override { return {Material.Get()}; }
-			auto Replay(ETransactionOperation Operation) -> FMaterialChangeResult override
-			{
-				if (!Material.IsValid()) return {{.Code = EMaterialChangeError::TargetUnavailable}};
-				const auto Result = Material.Get()->SetMaterialConfiguration(Operation == ETransactionOperation::Undo ? Before : After);
-				if (!Result) return {{.Code = EMaterialChangeError::MaterialWrite, .Message = FormatMaterialProgramDiagnostics(Result.Diagnostics)}};
-				return {};
-			}
-		private:
-			TWeakObjectPtr<DMaterial> Material;
-			FMaterialConfiguration Before, After;
-			std::array<DPackage*, 1> Packages;
-		};
-
-	}
 
 	auto SetConfiguration(DMaterial& Material, const FMaterialConfiguration& Configuration, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
@@ -44,16 +16,27 @@ namespace Durin::MaterialEditor::MaterialEditing
 		const FMaterialConfiguration Before{Material.GetDomain(), Material.GetStaticProperties()};
 		if (Before.Domain == Configuration.Domain && Before.Properties == Configuration.Properties)
 			return {.Status = EMaterialGraphCommandStatus::NoChange};
-		FScopedTransaction Recording("MaterialGraph", "Change Material Configuration", nullptr, Transactions != nullptr);
+		const bool bNested = Transactions && Transactions->IsActive();
+		FScopedTransaction Recording("MaterialGraph", "Change Material Configuration", &Material, Transactions != nullptr);
 		if (Transactions)
 		{
-			std::string Error;
-			const auto Recorded = Transactions->StoreUndo(std::make_unique<FMaterialConfigurationChange>(Material, Before, Configuration), &Error);
-			if (!Recorded) return RejectCommand("Unable to record the configuration edit. " + Error);
+			if (!Recording.IsOutstanding()) return RejectCommand("Unable to start the configuration transaction.");
+			FScopedPackageDirtySuppression Suppress;
+			Material.SetFlags(EObjectFlags::Transactional);
+			if (!Material.Modify(false))
+			{
+				if (!bNested) Recording.Cancel();
+				return RejectCommand("Unable to record the material configuration.");
+			}
 		}
 		const auto Result = Material.SetMaterialConfiguration(Configuration);
-		if (!Result) { Recording.Cancel(); return RejectCommand("The material configuration was rejected.", Result.Diagnostics); }
-		return {.Status = EMaterialGraphCommandStatus::Succeeded};
+		if (!Result)
+		{
+			if (!bNested) Recording.Cancel();
+			return RejectCommand("The material configuration was rejected.", Result.Diagnostics);
+		}
+		return {.Status = Before.Domain == Material.GetDomain() && Before.Properties == Material.GetStaticProperties()
+			? EMaterialGraphCommandStatus::NoChange : EMaterialGraphCommandStatus::Succeeded};
 	}
 
 	auto SetUseMaterialAttributes(DMaterial& Material, bool bEnabled, ETransactionMode Mode) -> FMaterialGraphCommandResult

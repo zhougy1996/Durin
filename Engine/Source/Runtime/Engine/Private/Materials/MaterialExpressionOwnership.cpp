@@ -75,12 +75,12 @@ namespace Durin
 	{
 		if (Event.Type != ETransactionObjectEventType::UndoRedo) return;
 		if (std::ranges::any_of(Event.Change.ChangedProperties, [](FName Name) {
-			static const std::array RootProperties{
-				FName("ExpressionCollection"), FName("MaterialAttributes"), FName("bUseMaterialAttributes"),
+			static const std::array AuthoredProperties{
+				FName("Domain"), FName("StaticProperties"), FName("ExpressionCollection"), FName("MaterialAttributes"), FName("bUseMaterialAttributes"),
 				FName("BaseColor"), FName("Normal"), FName("Metallic"), FName("Roughness"),
 				FName("AmbientOcclusion"), FName("EmissiveColor"), FName("Opacity"), FName("OpacityMask"),
 				FName("WorldPositionOffset"), FName("Specular"), FName("ClearCoat"), FName("ClearCoatRoughness"), FName("Refraction")};
-			return std::ranges::contains(RootProperties, Name);
+			return std::ranges::contains(AuthoredProperties, Name);
 		}))
 			FMaterialExpressionEditing::Publish(*this, Event.OperationId);
 		else if (std::ranges::any_of(Event.Change.ChangedProperties, [](FName Name) { return Name == "EditorX" || Name == "EditorY"; }))
@@ -113,6 +113,22 @@ namespace Durin
 		auto* Function = Cast<DMaterialFunction>(&Owner);
 		check(Function);
 		return Function->ExpressionCollection.Expressions;
+	}
+
+	auto FMaterialExpressionEditing::GetParameterDeclarations(const DMaterial& Owner, const FMaterialParameterDefinition& Definition)
+		-> std::expected<std::vector<DMaterialExpressionParameter*>, std::string>
+	{
+		std::vector<DMaterialExpressionParameter*> Declarations;
+		for (const auto& Expression : Owner.GetExpressionCollection().Expressions)
+			if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Definition.Id)
+			{
+				if (Parameter->GetParameterDefinition() != Definition)
+					return std::unexpected(std::format("The parameter expression disagrees with its declaration. [parameter {}]", Definition.Id.ToString()));
+				Declarations.push_back(Parameter);
+			}
+		if (Declarations.empty())
+			return std::unexpected(std::format("The parameter has no authored expression owner. [parameter {}]", Definition.Id.ToString()));
+		return Declarations;
 	}
 
 	auto FMaterialExpressionEditing::SetRootInputs(DMaterial& Owner, FMaterialRootInputs Inputs) -> bool

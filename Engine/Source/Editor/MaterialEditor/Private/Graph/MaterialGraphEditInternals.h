@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Graph/MaterialGraphChange.h"
-
 #include "CoreMinimal.h"
 #include "Materials/Material.h"
 
@@ -45,12 +43,5 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		return Function->SetFunctionPresentation({.Nodes = std::move(Value.Nodes)})
 			? EMaterialGraphPresentationResult::Changed : EMaterialGraphPresentationResult::Rejected;
 	}
-
-	MATERIALEDITOR_API auto MakeMaterialGraphParameterTransaction(
-		DMaterial& Material,
-		FGuid ParameterId,
-		FMaterialParameterValue BeforeValue,
-		FMaterialParameterValue AfterValue)
-		-> std::unique_ptr<FMaterialCommandChange>;
 
 }

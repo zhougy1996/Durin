@@ -1,7 +1,7 @@
 #include "MaterialGraphEditInternals.h"
-#include "Graph/MaterialGraphInteraction.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionParameter.h"
+#include "Materials/MaterialExpressionEditing.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionTextureParameter.h"
@@ -250,25 +250,52 @@ namespace Durin::MaterialEditor
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
-		FMaterialGraphParameterEditSession Session;
-		const auto Begun = Session.Begin(Material, ParameterId, Transactions);
-		if (!Begun) return RejectCommand(Begun.error());
-		FScopedTransaction Recording("MaterialGraph", "Edit material parameter", nullptr, Transactions != nullptr);
-		if (Transactions && !Recording.IsOutstanding()) return RejectCommand("The editor could not begin the material parameter transaction.");
-		auto Applied = Session.Apply(std::move(Value));
-		if (!Applied) return RejectCommand(Applied.error());
-		std::expected<void, std::string> Committed;
-		if (Transactions && !Transactions->IsActive()) Committed = std::unexpected("The parameter transaction was cancelled.");
-		else Committed = Session.Commit();
-		if (!Committed)
+		const auto* Definition = Material.FindParameterDefinition(ParameterId);
+		if (!Definition) return RejectCommand("The material parameter definition is unavailable.");
+		if (Definition->Value == Value) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (!Definition->Value.HasSameType(Value)) return RejectCommand("The material rejected the parameter value. The value has an incompatible texture dimension or type.");
+		auto Candidate = *Definition;
+		Candidate.Value = Value;
+		if (const auto Valid = ValidateMaterialParameterDefinitions(std::span(&Candidate, 1)); !Valid)
+			return RejectCommand(std::string(GetMaterialParameterErrorText(Valid.Error)));
+		const auto Declarations = FMaterialExpressionEditing::GetParameterDeclarations(Material, *Definition);
+		if (!Declarations) return RejectCommand(Declarations.error());
+		const auto Before = Definition->Value;
+		const TStrongObjectPtr<DTexture> BeforeTexture(Before.GetType() == EMaterialParameterType::Texture ? Before.GetTexture().Texture.Get() : nullptr);
+		const bool bNested = Transactions && Transactions->IsActive();
+		FScopedTransaction Recording("MaterialGraph", "Edit material parameter", &Material, Transactions != nullptr);
+		if (Transactions)
 		{
-			// A direct command has no interactive owner to retain a rejected preview.
-			// Preserve its admission failure even if restoring the preview also fails.
-			const auto Cleanup = Session.Cancel();
-			if (!Cleanup) Committed.error() += " Failed to restore the parameter preview. " + Cleanup.error();
-			return RejectCommand(std::move(Committed.error()));
+			if (!Recording.IsOutstanding()) return RejectCommand("The editor could not begin the material parameter transaction.");
+			FScopedPackageDirtySuppression Suppress;
+			for (auto* Declaration : *Declarations)
+			{
+				Declaration->SetFlags(EObjectFlags::Transactional);
+				if (Declaration->Modify(false)) continue;
+				if (!bNested) Recording.Cancel();
+				return RejectCommand("Unable to record the graph edit.");
+			}
 		}
-		return {.Status = *Applied ? EMaterialGraphCommandStatus::Succeeded : EMaterialGraphCommandStatus::NoChange};
+	const auto RecordingId = Transactions ? GUndo->GetContext().TransactionId : FTransactionId(0);
+	const auto Applied = [&] {
+		FScopedPackageDirtySuppression Suppress;
+		return Material.SetParameterValue(ParameterId, Value);
+	}();
+		if (!Applied)
+		{
+			if (Transactions && !bNested) Recording.Cancel();
+			return RejectCommand("The material rejected the parameter value. " + Applied.error());
+		}
+	if (Transactions && (!GUndo || GUndo->GetContext().TransactionId != RecordingId))
+		{
+			FScopedPackageDirtySuppression Suppress;
+			std::string Error = "The parameter transaction was cancelled.";
+			if (const auto Restored = Material.SetParameterValue(ParameterId, Before); !Restored)
+				Error += " Failed to restore the parameter value. " + Restored.error();
+			return RejectCommand(std::move(Error));
+		}
+	Material.MarkPackageDirty();
+		return {};
 	}
 
 	auto MaterialEditing::PromoteSurfaceOutputToParameter(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode)
