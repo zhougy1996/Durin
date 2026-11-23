@@ -352,10 +352,7 @@ namespace Durin::MaterialEditor
 		{
 			Document.PortDraft.Name = Document.PortName.data();
 			if (Document.bOutputPort) { Document.PortDraft.bRequired = false; Document.PortDraft.Default = {}; }
-			auto Renamed = *Port;
-			Renamed.Name = Document.PortDraft.Name;
-			const auto Result = Renamed == Document.PortDraft
-				? Node->OnRenameNode(Renamed.Name) : Node->SetFunctionPort(Document.PortDraft);
+			const auto Result = Node->SetFunctionPort(Document.PortDraft);
 			if (Result) Document.PortBaseline = Document.PortDraft;
 			else ErrorMessage = FormatMaterialGraphCommandResult(Result);
 		}

@@ -347,7 +347,9 @@ TEST_F(FMaterialEditingSessionTests, ReconstructNodeReadsRenamedFunctionPinsAndR
 	EXPECT_EQ(InputNode->OnRenameNode("Amount").Status, EMaterialGraphCommandStatus::NoChange);
 	EXPECT_EQ(Transactions->GetQueueLength(), BeforeRename);
 	ASSERT_TRUE(InputNode->OnRenameNode("Factor"));
-	ASSERT_TRUE(OutputNode->OnRenameNode(Port.Name));
+	EXPECT_EQ(Transactions->GetUndoContext().Description, "Rename Function Port");
+	ASSERT_TRUE(OutputNode->SetFunctionPort(Port));
+	EXPECT_EQ(Transactions->GetUndoContext().Description, "Rename Function Port");
 	EXPECT_EQ(Transactions->GetQueueLength(), BeforeRename + 2);
 	CheckBindings("Factor", "Renamed");
 	ASSERT_TRUE(Transactions->Undo());

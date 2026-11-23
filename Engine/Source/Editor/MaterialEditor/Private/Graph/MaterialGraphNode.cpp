@@ -107,6 +107,20 @@ namespace Durin::MaterialEditor
 		auto* Target = GetTerminalPort(Expression);
 		if (!Function || !Target || Target->Id != Port.Id) return RejectCommand("The function port is unavailable.");
 		if (*Target == Port) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		auto Renamed = *Target;
+		Renamed.Name = Port.Name;
+		if (Renamed == Port)
+		{
+			auto Signature = Function->GetFunctionSignature();
+			auto& Ports = Cast<DMaterialExpressionFunctionInput>(Expression) ? Signature.Inputs : Signature.Outputs;
+			const auto Entry = std::ranges::find(Ports, Port.Id, &FMaterialFunctionPort::Id);
+			if (Entry == Ports.end()) return RejectCommand("The function port is unavailable.");
+			Entry->Name = Port.Name;
+			if (auto Validation = ValidateMaterialFunctionSignature(Signature); !Validation)
+				return RejectCommand("The function signature is invalid.", std::move(Validation.Diagnostics));
+			return EditExpressions(*Function, *Admission, "Rename Function Port", {&Expression, 1},
+				[&] { Target->Name = std::move(Port.Name); });
+		}
 		const auto Duplicated = DuplicateObject(Expression, nullptr, NAME_None);
 		if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
 		TStrongObjectPtr<DMaterialExpression> Draft(Cast<DMaterialExpression>(*Duplicated));
