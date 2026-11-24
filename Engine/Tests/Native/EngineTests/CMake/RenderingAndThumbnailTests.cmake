@@ -220,6 +220,13 @@ durin_add_native_test(StaticMeshThumbnailTests
 	HEAVY_RUNTIME_RATIONALE "Exercises the StaticMeshEditor-owned thumbnail extension and cache lifecycle."
 )
 
+set(_thumbnail_water_test_library)
+set(_thumbnail_water_test_definition DURIN_THUMBNAIL_WATER_TESTS=0)
+if(WIN32 AND TARGET Water)
+	set(_thumbnail_water_test_library Water)
+	set(_thumbnail_water_test_definition DURIN_THUMBNAIL_WATER_TESTS=1)
+endif()
+
 durin_add_native_test(ThumbnailVulkanTests
 	KIND ${_durin_vulkan_integration_kind}
 	DOMAINS material thumbnail
@@ -271,6 +278,8 @@ durin_add_native_test(ThumbnailVulkanTests
 		TextureEditor
 		MeshBuilder
 		TextureCompressor
+		${_thumbnail_water_test_library}
+	COMPILE_DEFINITIONS ${_thumbnail_water_test_definition}
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -279,3 +288,5 @@ durin_add_native_test(ThumbnailVulkanTests
 	HEAVY_RUNTIME_RATIONALE
 		"Exercises thumbnail generation, disk readback, resource revision recovery, and cancellation on Vulkan."
 )
+unset(_thumbnail_water_test_library)
+unset(_thumbnail_water_test_definition)

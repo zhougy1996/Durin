@@ -141,13 +141,6 @@ namespace Durin
 			}
 			return "The rendered-thumbnail renderer returned an unknown failure.";
 		}
-
-		auto HasRejectedVisibleGeometry(const FSceneViewStatistics& Statistics)
-			-> bool
-		{
-			if (Statistics.Visibility.VisiblePrimitives == 0) return false;
-			return Statistics.StaticMesh.DrawCalls == 0;
-		}
 	} // namespace
 
 	struct FThumbnailCapture::FImpl
@@ -363,8 +356,7 @@ namespace Durin
 				else if (!bPending)
 				{
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-					FSceneViewStatistics Statistics;
-					const FSceneViewRenderRequest Request{Scene, View, RenderTarget, false, Options, &Statistics};
+					const FSceneViewRenderRequest Request{Scene, View, RenderTarget, false, Options};
 					const auto Progress = Renderer->PrepareViewResources(CommandList, Request, Preparation);
 					ERenderViewResult RenderResult = Progress.State == ERenderResourcePreparationState::Ready
 						? Renderer->RenderView(CommandList, Request)
@@ -380,9 +372,6 @@ namespace Durin
 					bPending = RenderResult == ERenderViewResult::RendererResourcesPending;
 					if (!bPending && RenderResult != ERenderViewResult::Success)
 						Error = GetRenderFailureDiagnostic(RenderResult);
-					else if (!bPending && HasRejectedVisibleGeometry(Statistics))
-						Error = "The rendered-thumbnail scene contained visible geometry, "
-							"but the renderer produced no geometry draw calls.";
 					else if (!bPending) Readback = CommandList.EnqueueTextureReadback(RenderTarget);
 				}
 				std::lock_guard Lock(Capture->Mutex);

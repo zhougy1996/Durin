@@ -21,6 +21,7 @@
 #include "Threading/TaskRuntime.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
+#include "Misc/Paths.h"
 #include "VulkanEngineTestSupport.h"
 #include "Materials/MaterialTestSupport.h"
 #include "Materials/MaterialCompileLifecycle.h"
@@ -155,6 +156,8 @@ namespace
 		{
 			if (!bStarted) return;
 			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+			// Collect retired thumbnail renderers before unloading their preview assets.
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			for (const auto& Path : Packages)
 			{
 				EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
@@ -225,6 +228,51 @@ namespace
 		bool bStarted = false;
 	};
 } // namespace
+
+#if DURIN_THUMBNAIL_WATER_TESTS
+TEST_F(FThumbnailVulkanTests, DefaultWaterCaptureCompletesOnPreviewSphere)
+{
+	using namespace Durin;
+	const auto RegisteredMounts = FMountPaths::GetRegisteredMountPoints();
+	std::vector<FMountPoint> Mounts(RegisteredMounts.begin(), RegisteredMounts.end());
+	if (std::ranges::none_of(Mounts, [](const FMountPoint& Mount) { return Mount.VirtualRoot == "/Plugins/Water/"; }))
+	{
+		Mounts.push_back({.VirtualRoot = "/Plugins/Water/", .Owner = EMountOwner::Extension,
+			.Root = std::filesystem::path(FPaths::EngineDir()) / "Plugins/Water/Content", .bAutoScan = true});
+	}
+	Testing::FScopedMountRegistryFixture WaterMount(Mounts);
+	ASSERT_TRUE(WaterMount.IsValid()) << WaterMount.GetError();
+	ASSERT_NE(FModuleManager::Get().LoadModule("Water"), nullptr);
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath MaterialPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Plugins/Water/Materials/DefaultWater", MaterialPath));
+	const auto Catalog = FindPackageExact(MaterialPath);
+	ASSERT_TRUE(Catalog);
+	ASSERT_EQ(Catalog->TopLevelAssets.size(), 1u);
+	const auto& Asset = Catalog->TopLevelAssets.front();
+	const FAssetData Fingerprint{.AssetPath = Asset.AssetPath, .AssetClassName = Asset.AssetClassName};
+	DThumbnailManager Manager;
+	auto Registration = Manager.RegisterCustomRenderer(DMaterial::StaticClass(),
+		MaterialEditor::DMaterialThumbnailRenderer::StaticClass());
+	ASSERT_TRUE(Registration);
+	Tests::FThumbnailTestUIBackend Backend;
+	Tests::FScopedActiveUIBackend BackendScope(Backend);
+	FAssetThumbnailPool Pool(Manager, {.MaximumResourceWaitFrames = 0},
+		{.CacheRoot = Testing::GetTestWorkDirectory() / "DefaultWaterThumbnail"});
+	ASSERT_TRUE(WaitForResourcePublication([&] {
+		ProcessAsyncLoading();
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		Pool.AccessTexture(Fingerprint, EAssetThumbnailPriority::Visible);
+		Pool.Tick();
+		const auto State = Pool.Find(Fingerprint.AssetPath).State;
+		return State == EAssetThumbnailState::Ready || State == EAssetThumbnailState::Failed;
+	}));
+	const auto Result = Pool.Find(Fingerprint.AssetPath);
+	ASSERT_EQ(Result.State, EAssetThumbnailState::Ready) << Result.Diagnostic;
+	EXPECT_NE(Result.Texture, nullptr);
+	EXPECT_EQ(Pool.GetStats().Generation.Readbacks, 1u);
+}
+#endif
 
 TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 {
