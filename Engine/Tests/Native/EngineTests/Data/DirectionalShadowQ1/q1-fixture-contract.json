@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "capturePath": "FDirectionalShadowBaselineVulkanTests.CapturesFrozenLitArtifactsAndSubTexelMotion",
+  "capturePath": "FDirectionalShadowBaselineVulkanTests.ValidatesShadowBehaviorAndSubTexelMotion",
   "entryBaseline": "../DirectionalShadowQ0/selected-metrics.json",
   "productionFilter": "Medium",
   "productionFilterChanged": true,

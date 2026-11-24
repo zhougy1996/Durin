@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "capturePath": "FDirectionalShadowBaselineVulkanTests.CapturesFrozenLitArtifactsAndSubTexelMotion",
+  "capturePath": "FDirectionalShadowBaselineVulkanTests.ValidatesShadowBehaviorAndSubTexelMotion",
   "renderMode": "Lit",
   "backend": "Vulkan",
   "camera": {
