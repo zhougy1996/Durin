@@ -684,67 +684,64 @@ namespace Durin
 				if (!Pipeline) continue;
 				const auto Pass = FState::MaterialPass(*Pipeline);
 				const auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
-				bool Ready = Material.has_value();
-				std::string Error = Ready ? std::string{} : "Missing prepared material uniform.";
-				auto& Scope = BuildScopes[PassKey];
-				if (!Scope) Scope = std::make_unique<FPassBuildScope>(ResolvedView.CachedDrawLists,
-					*ResolvedView.DrawCommandStorage, ResolvedView.GetMeshDrawCommandPass(PassKey), BindingCache);
-				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory, {Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend, PassKey.Pass == EMeshPipelinePass::GBuffer && Pipeline->GetInitializer().Description.RenderTargets.NumColorRenderTargets == 5}, Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer,
-					Draw.Command->PipelineKey.Depth.CompareOp == ERHIDepthCompareOp::GreaterOrEqual};
-				std::shared_ptr<const FMeshDrawCommand> Cached;
-				FCachedMeshDrawCommand CachedSelection;
-				if (Ready)
-				{
-					if (Cacheable)
-						if (const auto Selected = Record.SelectedCachedCommands.find(PassKey); Selected != Record.SelectedCachedCommands.end())
-							CachedSelection = Selected->second;
-					Cached = CachedSelection.Command;
-					auto& Processor = Scope->GetProcessor(PassKey.Pass, Cacheable && !Cached);
-					FMeshDrawCommandBuildInput Input{CommandList, *Primitive, Draw, Pipeline, *Material,
-						ResolvedView.GetFallbackPrimitiveUniform(Draw.PrimitiveIndex), ResolvedView.ViewUniforms[Pass], Lighting, {}, LocalLights};
-					const auto& SceneData = ResolvedView.GPUScenePrimitives[Draw.PrimitiveIndex];
-					if (Factory->SupportsGPUScene() && SceneData.Buffers)
-					{ Input.GPUScene = SceneData.Buffers->GetShaderParameters(); Input.InstanceIdOffset = SceneData.InstanceIdOffset; }
+				auto& MeshPass = ResolvedView.GetMeshDrawCommandPass(PassKey);
+				auto PreparePass = [&]() -> FShaderCompletion {
+					if (!Material) return FShaderCompletion::Failure("Missing prepared material uniform.");
 
-					if (Cacheable && !Cached)
+					FCachedMeshDrawCommand Cached;
+					if (Cacheable)
 					{
-						const auto Result = Processor.AddMeshBatch(Batch, Input); Ready = static_cast<bool>(Result);
-						if (!Ready) Error = Result.Error;
-						if (Ready) CachedSelection = ResolvedView.CachedDrawLists->FindCachedCommand(
-							FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId, Primitive->BatchId,
-								*Pipeline, Material->Uniform.Buffer), *Primitive->SceneInfo.Resolve());
-						if (Ready) { Cached = CachedSelection.Command; Ready = static_cast<bool>(Cached); if (!Ready) Error = "Published cached mesh command could not be selected."; }
+						const auto Selected = Record.SelectedCachedCommands.find(PassKey);
+						if (Selected != Record.SelectedCachedCommands.end()) Cached = Selected->second;
 					}
-					if (Ready && Cached)
+					const auto& SceneData = ResolvedView.GPUScenePrimitives[Draw.PrimitiveIndex];
+					const auto* Buffers = Factory->SupportsGPUScene() ? SceneData.Buffers.get() : nullptr;
+					const uint32 InstanceOffset = Buffers ? SceneData.InstanceIdOffset : INDEX_NONE_U32;
+					const auto& Shaders = Pipeline->GetInitializer();
+					const FMeshDrawCommandBindingCache::FPassGroupKey GroupKey{PassKey.Pass, Shaders.VertexShader.get(),
+						Shaders.FragmentLayout, Buffers ? Buffers->InstanceIds.GetReference() : nullptr};
+					auto Group = Cacheable ? BindingCache.PassGroups.find(GroupKey) : BindingCache.PassGroups.end();
+
+					if (!Cached.Command || Group == BindingCache.PassGroups.end())
 					{
-						const auto& Shaders = Pipeline->GetInitializer();
-						const FMeshDrawCommandBindingCache::FPassGroupKey GroupKey{PassKey.Pass, Shaders.VertexShader.get(),
-							Shaders.FragmentLayout, Input.GPUScene.GPUSceneInstanceIds.Buffer};
-						auto Group = BindingCache.PassGroups.find(GroupKey);
+						auto& Scope = BuildScopes[PassKey];
+						if (!Scope) Scope = std::make_unique<FPassBuildScope>(ResolvedView.CachedDrawLists,
+							*ResolvedView.DrawCommandStorage, MeshPass, BindingCache);
+						auto& Processor = Scope->GetProcessor(PassKey.Pass, Cacheable && !Cached.Command);
+						FMeshDrawCommandBuildInput Input{CommandList, *Primitive, Draw, Pipeline, *Material,
+							ResolvedView.GetFallbackPrimitiveUniform(Draw.PrimitiveIndex), ResolvedView.ViewUniforms[Pass], Lighting, {}, LocalLights};
+						if (Buffers) Input.GPUScene = Buffers->GetShaderParameters();
+						Input.InstanceIdOffset = InstanceOffset;
+
+						if (!Cached.Command)
+						{
+							const auto& Key = Draw.Command->PipelineKey;
+							const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory,
+								{Key.Rasterizer, Key.Depth, Key.ColorBlend, PassKey.Pass == EMeshPipelinePass::GBuffer && Shaders.Description.RenderTargets.NumColorRenderTargets == 5},
+								Key.Topology, {}, Draw.Command->bSupportsGBuffer, Key.Depth.CompareOp == ERHIDepthCompareOp::GreaterOrEqual};
+							const auto Built = Processor.AddMeshBatch(Batch, Input);
+							if (!Built || !Cacheable) return Built;
+							Cached = ResolvedView.CachedDrawLists->FindCachedCommand(
+								FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId, Primitive->BatchId,
+									*Pipeline, Material->Uniform.Buffer), *Primitive->SceneInfo.Resolve());
+							if (!Cached.Command) return FShaderCompletion::Failure("Published cached mesh command could not be selected.");
+						}
 						if (Group == BindingCache.PassGroups.end())
 						{
-							auto PassBindings = std::make_shared<FMeshPassBindings>();
-							const auto Result = Processor.PreparePassBindings(Input, BindingCache, *PassBindings);
-							Ready = static_cast<bool>(Result);
-							if (!Ready) Error = Result.Error;
-							else Group = BindingCache.PassGroups.emplace(GroupKey, std::move(PassBindings)).first;
-						}
-						if (Ready)
-						{
-							const auto Bias = bShadow && Draw.RasterBias ? *Draw.RasterBias : Cached->DepthBias;
-							ResolvedView.GetMeshDrawCommandPass(PassKey).AddCachedMeshDrawCommand(Cached, CachedSelection.Info,
-								Group->second, Bias, Input.InstanceIdOffset, Draw.ResolvedIndex);
+							auto Bindings = std::make_shared<FMeshPassBindings>();
+							const auto Built = Processor.PreparePassBindings(Input, BindingCache, *Bindings);
+							if (!Built) return Built;
+							Group = BindingCache.PassGroups.emplace(GroupKey, std::move(Bindings)).first;
 						}
 					}
-					else if (Ready)
-					{
-						const auto Result = Processor.AddMeshBatch(Batch, Input, Cached); Ready = static_cast<bool>(Result);
-						if (!Ready) Error = Result.Error;
-					}
-				}
-				if (!Ready)
+					const auto Bias = bShadow && Draw.RasterBias ? *Draw.RasterBias : Cached.Command->DepthBias;
+					MeshPass.AddCachedMeshDrawCommand(std::move(Cached.Command), std::move(Cached.Info),
+						Group->second, Bias, InstanceOffset, Draw.ResolvedIndex);
+					return {};
+				};
+				if (const auto Result = PreparePass(); !Result)
 				{
-					DURIN_ERROR("Mesh pass binding collection failed: pass={}, error={}", static_cast<uint8>(PassKey.Pass), Error);
+					DURIN_ERROR("Mesh pass binding collection failed: pass={}, error={}", static_cast<uint8>(PassKey.Pass), Result.Error);
 					Record.bReady = false; AllReady = false; break;
 				}
 			}

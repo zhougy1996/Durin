@@ -13,8 +13,9 @@ Ordinary static meshes now share admitted batches between the receiver and its
 cascades. See [render-thread alignment Stage 2](UERenderThreadMechanismAlignment.md#stage-2-build-a-dependency-driven-preparation-pipeline)
 for the workload comparison. Stage 3 now projects unit-w orthographic bounds
 by center and half-extent, with the general path resolving ambiguous boundaries.
-The [warm command-hit resource profile](#warm-command-hit-resource-profile)
-prioritizes binding assembly after the command and pass group both hit.
+The renderer reuses the existing pass bindings directly when the draw command
+and pass group both hit. The [warm command-hit resource profile](#warm-command-hit-resource-profile)
+records the selection and the matched-frame comparison.
 
 Baseline measurement is complete at `6ccf6abdc`. Temporary instrumentation was
 removed, eight source files were restored with matching original hashes, and
@@ -754,14 +755,12 @@ Cached material refresh runs on first group/pass use. The earlier profile
 measured a per-draw material-currentness check in a different command lookup
 implementation.
 
-The first candidate is to look up the existing pass binding group before
-constructing a full draw-build input or fetching its processor on a cached
-command hit. The group key needs the pass, shaders/layout and instance-ID
+The selected change looks up the existing pass binding group before constructing
+a full draw-build input or fetching its processor on a cached command hit.
+The group key needs the pass, shaders/layout and instance-ID
 buffer. A group hit still needs the current bias, instance offset, source
 index and retained command/info/pass owners. Group misses and uncached draws
-still need the complete input. Verify with opaque and masked casters, multiple
-materials and GPUScene buffers before judging a candidate from warm single-
-material fixtures. Appending visible records is a larger measured scope but
+still need the complete input. Appending visible records is a larger measured scope but
 includes required lifetime and per-view work.
 
 Uninstrumented resource preparation measured 0.4302 ms before and 0.4319 ms
@@ -772,6 +771,25 @@ include clock overhead and cannot be added to their parents or treated as
 recoverable time. Raw frame rows, uninstrumented summaries and the analysis
 script are in ignored `Build/ShadowResourceProfile-*` and
 `Build/ShadowResourceProbes/`. Both renderer sources were restored byte-for-byte.
+
+On 2026-11-24 a temporary Release binary alternated the reference and selected
+implementations in four-frame ABBA blocks, reversing the order on alternate
+runs. Each of six runs used the existing 30 warm-up and 120 measured frames
+(60 per variant). For 128 casters / 384 hits the median of run medians for
+binding preparation fell from 0.2207 to 0.1741 ms. Total shadow resource
+preparation fell from 0.4525 to 0.4066 ms, with a 9–11% reduction in every
+paired run. Five boxes / ten hits measured 0.0866 and 0.0884 ms in total;
+the direction varied between runs.
+
+Separate uninstrumented processes also varied in unrelated logical preparation
+(128-caster run medians 0.478 and 0.671 ms across the two variants). Their
+resource medians were 0.438 and 0.497 ms. The matched-frame result isolates
+the CPU change more closely. Raw runs and summaries are under ignored
+`Build/PassGroupHit-*`. The paired implementation and timers were removed.
+With the final Release binary, cached and uncached runs each matched all 106
+reference images and their metrics file byte-for-byte. Eight focused Vulkan
+cases passed, including masked material collections, instance grouping,
+multi-batch geometry, cache invalidation, spline mirrors and hit proxies.
 
 ## Implementation Stages
 
@@ -824,6 +842,8 @@ appropriate primitive/material boundary and views reference compact frame facts.
   cache hit/build counts; record UE-informed priorities and remove probes.
 - [x] Split Collector.Add checks/moves/insertion and optimize command-local entry
   lookup while retaining exact current-value checks; remove temporary probes.
+- [x] Reuse pass bindings on a selected-command/group hit before constructing
+  per-draw build inputs; measure warm binding and total resource preparation.
 - [ ] Separate current primitive-state validation from shared material/resource
   validation; reuse each within a command without losing current-value checks.
 - [ ] Reduce repeated complete Batch/Record construction, owner copies and small
