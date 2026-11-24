@@ -132,6 +132,10 @@ namespace
 			{
 			case EMaterialProgramOpcode::Constant: { const auto C = N.GetLiteral(); R = {C.X, C.Y, C.Z, C.W}; break; }
 			case EMaterialProgramOpcode::UVChannel: R = {float(P.x), float(P.y), 0, 0}; break;
+			case EMaterialProgramOpcode::WorldPosition: R = {float(P.x), float(P.y), float(S.Elevation), 1}; break;
+			case EMaterialProgramOpcode::TransformPosition: R = A(0); break; // Identity view for the reference sample.
+			case EMaterialProgramOpcode::Saturate: R.x = std::clamp(A(0).x, 0.f, 1.f); break;
+			case EMaterialProgramOpcode::Lerp: R.x = std::lerp(A(0).x, A(1).x, A(2).x); break;
 			case EMaterialProgramOpcode::Time: R.x = float(Time); break;
 			case EMaterialProgramOpcode::InstanceCustomData: R.x = Instance.at(std::get<MIR::FCustomDataRead>(N.Payload).Index); break;
 			case EMaterialProgramOpcode::PrimitiveCustomData: R.x = Parameters.at(std::get<MIR::FCustomDataRead>(N.Payload).Index); break;
@@ -157,6 +161,10 @@ namespace
 			V.push_back(R);
 		}
 		const auto Offset = FVector3(V.at(Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).ExpressionIndex));
+		const auto& Refraction = Input.IR.GetAttribute(EMaterialProperty::MP_Refraction);
+		Require(Refraction.bExpression && std::abs(V.at(Refraction.ExpressionIndex).x
+			- std::lerp(1.15f, 1.02f, std::clamp(float(P.x) / 50.f, 0.f, 1.f))) < 1.e-5f,
+			"Default water refraction differs from the view-depth curve.");
 		const auto Normal = FVector3(V.at(Input.IR.GetAttribute(EMaterialProperty::MP_Normal).ExpressionIndex));
 		return {FVector3(P, S.Elevation) + Offset, Normal};
 	}

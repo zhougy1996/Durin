@@ -27,9 +27,11 @@ The horizontal derivative bound protects inverse convergence. The shortest activ
 
 `DefaultWater` uses Single Layer Water and calls the plugin's `GerstnerWaves` material function. UV0 carries undisplaced local XY. The outputs are world-space displacement and a tangent-space normal. Optical defaults live in the [material authoring recipe](../../../Engine/Tests/Fixtures/WaterSurface/AuthorWaterMaterial.h). The renderer owns [Single Layer Water shading](../Rendering/Materials/MaterialSystem.md#single-layer-water).
 
-The material uses Opaque routing, Opacity 0 and Pixel Normal Offset with a
-Refraction input of 1.33. The Gerstner normal drives distortion relative to the
-mesh normal.
+The material uses Opaque routing, Opacity 0 and Pixel Normal Offset. Its
+Refraction input decreases linearly from 1.15 at zero view depth to 1.02 at
+50 metres, then stays at 1.02. View depth is the water surface position along
+the camera's forward axis. The Gerstner normal drives distortion relative to
+the mesh normal.
 
 When changing the wave payload, update the CPU packers and the [material expression](../../../Engine/Plugins/Water/Source/Water/Private/MaterialExpressionGerstnerWaves.cpp) together. Primitive floats 0–3 carry amplitude, wavelength, speed and steepness. The next 28 floats carry seven direction-XY, amplitude-ratio and wavenumber-ratio records. The default instance carries the remaining nine as direction angle in radians and the same two ratios. Zero amplitude disables a record.
 

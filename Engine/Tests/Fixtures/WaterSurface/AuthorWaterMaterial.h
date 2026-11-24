@@ -7,6 +7,10 @@
 #include "Asset/PackageSerialization.h"
 #include "AssetRegistry/Scan.h"
 #include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialExpressionArithmetic.h"
+#include "Materials/MaterialExpressionScene.h"
+#include "Materials/MaterialExpressionTransform.h"
+#include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
@@ -80,7 +84,30 @@ inline auto AuthorWaterMaterial(const std::filesystem::path& Destination) -> voi
 	Outputs.Get(EMaterialProperty::MP_BaseColor).SetConstant({.02f, .18f, .24f});
 	Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({.22f});
 	Outputs.Get(EMaterialProperty::MP_Opacity).SetConstant({0.f});
-	Outputs.Get(EMaterialProperty::MP_Refraction).SetConstant({1.33f});
+	auto* WorldPosition = NewObject<DMaterialExpressionWorldPosition>(nullptr, NAME_None);
+	WorldPosition->EditorLayout = {true, -1520, -300};
+	auto* ViewPosition = NewObject<DMaterialExpressionTransformPosition>(nullptr, NAME_None);
+	ViewPosition->Source = EMaterialCoordinateSpace::World;
+	ViewPosition->Destination = EMaterialCoordinateSpace::View;
+	ViewPosition->Input = Own(WorldPosition);
+	ViewPosition->EditorLayout = {true, -1280, -300};
+	auto* ViewDepth = NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None);
+	ViewDepth->Input = Own(ViewPosition);
+	ViewDepth->Components = {0}; // X is forward in Durin view space.
+	ViewDepth->EditorLayout = {true, -1040, -300};
+	auto* DepthFraction = NewObject<DMaterialExpressionDivide>(nullptr, NAME_None);
+	DepthFraction->A = Own(ViewDepth);
+	DepthFraction->B.SetConstant({50.f});
+	DepthFraction->EditorLayout = {true, -800, -300};
+	auto* ClampDepth = NewObject<DMaterialExpressionSaturate>(nullptr, NAME_None);
+	ClampDepth->Input = Own(DepthFraction);
+	ClampDepth->EditorLayout = {true, -560, -300};
+	auto* Refraction = NewObject<DMaterialExpressionLerp>(nullptr, NAME_None);
+	Refraction->A.SetConstant({1.15f});
+	Refraction->B.SetConstant({1.02f});
+	Refraction->Alpha = Own(ClampDepth);
+	Refraction->EditorLayout = {true, -320, -300};
+	Outputs.Get(EMaterialProperty::MP_Refraction) = Own(Refraction);
 	constexpr FGuid WorldDisplacementPort{0x57415452u, 0x504f5254u, 1, 1};
 	constexpr FGuid TangentNormalPort{0x57415452u, 0x504f5254u, 1, 2};
 	Outputs.Get(EMaterialProperty::MP_WorldPositionOffset) = FMaterialExpressionInput{Call, 0, WorldDisplacementPort};

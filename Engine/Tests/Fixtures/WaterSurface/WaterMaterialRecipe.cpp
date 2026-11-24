@@ -52,7 +52,14 @@ namespace Durin::WaterMaterialRecipe
 		B.Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).Literal = {.02f, .18f, .24f};
 		B.Input.IR.GetAttribute(EMaterialProperty::MP_Roughness).Literal = {.22f};
 		B.Input.IR.GetAttribute(EMaterialProperty::MP_Opacity).Literal = {0.f};
-		B.Input.IR.GetAttribute(EMaterialProperty::MP_Refraction).Literal = {1.33f};
+		const auto WorldPosition = B.Add({.Opcode = Op::WorldPosition, .ResultType = Type::Float3});
+		const auto ViewPosition = B.Add({.Opcode = Op::TransformPosition, .ResultType = Type::Float3, .Inputs = {WorldPosition},
+			.Payload = FMaterialTransformPayload{EMaterialCoordinateSpace::World, EMaterialCoordinateSpace::View}});
+		const auto ViewDepth = B.Add({.Opcode = Op::Swizzle, .Inputs = {ViewPosition}, .Payload = MIR::FSwizzle{1, {0}}});
+		const auto DepthFraction = B.U(Op::Saturate, B.B(Op::Divide, ViewDepth, B.C(50.f)));
+		auto& Refraction = B.Input.IR.GetAttribute(EMaterialProperty::MP_Refraction);
+		Refraction.bExpression = true;
+		Refraction.ExpressionIndex = B.Add({.Opcode = Op::Lerp, .Inputs = {B.C(1.15f), B.C(1.02f), DepthFraction}});
 		const auto Zero = B.C(0), One = B.C(1);
 		const auto UV = B.Add({.Opcode = Op::UVChannel, .ResultType = Type::Float2, .Inputs = {Zero}});
 		auto Channel = [&](uint8 I) { return B.Add({.Opcode = Op::Swizzle, .Inputs = {UV}, .Payload = MIR::FSwizzle{1, {I}}}); };
