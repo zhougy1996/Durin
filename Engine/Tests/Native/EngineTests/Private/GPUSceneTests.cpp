@@ -1028,7 +1028,6 @@ namespace
 			ASSERT_TRUE(Leader && Follower);
 			EXPECT_EQ(Leader->NumInstances, 2u); EXPECT_EQ(Leader, Follower);
 			EXPECT_EQ(Leader->SourceDrawIndex, 0u);
-			EXPECT_EQ(Leader->StateBucketId, Follower->StateBucketId);
 			EXPECT_TRUE(Resolved.GetVisibleMeshDrawCommand(Prepared.Opaque[2], {EMeshPipelinePass::Forward}));
 			EXPECT_TRUE(Resolved.GetVisibleMeshDrawCommand(Prepared.Opaque[3], {EMeshPipelinePass::Forward}));
 			EXPECT_TRUE(Resolved.GetVisibleMeshDrawCommand(Prepared.Translucent[0], {EMeshPipelinePass::Forward}));
@@ -1148,40 +1147,44 @@ namespace
 				Command.DrawParameters = FRHIDrawIndexedArguments{3, 1, 0, 0, 0};
 				return Command;
 			};
-			const auto First = Cache.Publish(KeyA, MakeCommand(A.get()), *SourceA, A, nullptr, {});
-			const auto Second = Cache.Publish(KeyB, MakeCommand(B.get()), *SourceB, B, nullptr, {});
+			const auto First = Cache.Publish(KeyA, MakeCommand(A.get()), *SourceA, A, nullptr, {}).Command;
+			const auto Second = Cache.Publish(KeyB, MakeCommand(B.get()), *SourceB, B, nullptr, {}).Command;
 			const auto InfoA = Cache.FindCachedCommand(KeyA, *SourceA).Info, InfoB = Cache.FindCachedCommand(KeyB, *SourceB).Info;
 			ASSERT_EQ(First, Second); ASSERT_NE(InfoA, InfoB);
 			EXPECT_EQ(InfoA->StateBucketId, InfoB->StateBucketId);
-			FParallelMeshDrawCommandPass Frame({EMeshPipelinePass::Forward});
-			Frame.AddCachedMeshDrawCommand(First, InfoA, std::make_shared<FMeshPassBindings>(), {});
-			Frame.AddCachedMeshDrawCommand(Second, InfoB, std::make_shared<FMeshPassBindings>(), {});
-			auto InstanceA = Frame.GetMeshDrawCommands()[0], InstanceB = Frame.GetMeshDrawCommands()[1];
-			EXPECT_TRUE(InstanceA.MatchesForDynamicInstancing(InstanceB));
-			InstanceB.DepthBias[0] = 1.f;
-			EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(InstanceB));
-			InstanceB.DepthBias[0] = 0.f;
-			auto DifferentPass = std::make_shared<FMeshPassBindings>(*InstanceB.Pass);
-			DifferentPass->Vertex.Shader = reinterpret_cast<FRHIShader*>(uintptr_t(1));
-			InstanceB.Pass = DifferentPass.get();
-			EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(InstanceB));
-			InstanceB.Pass = Frame.GetMeshDrawCommands()[1].Pass;
 			{
-				FCachedMeshDrawCommandStorage OtherScene;
-				auto OtherSource = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(3),
-					std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
-				auto DifferentGeometry = MakeCommand(A.get());
-				std::get<FRHIDrawIndexedArguments>(DifferentGeometry.DrawParameters).IndexCount = 6;
-				const auto OtherCommand = OtherScene.Publish(KeyA, std::move(DifferentGeometry), *OtherSource, A, nullptr, {});
-				const auto OtherInfo = OtherScene.FindCachedCommand(KeyA, *OtherSource).Info;
-				EXPECT_EQ(OtherInfo->StateBucketId, InfoA->StateBucketId);
-				Frame.AddCachedMeshDrawCommand(OtherCommand, OtherInfo, std::make_shared<FMeshPassBindings>(), {});
-				auto OtherVisible = Frame.GetMeshDrawCommands().back();
-				EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(OtherVisible));
+				FParallelMeshDrawCommandPass Frame({EMeshPipelinePass::Forward});
+				Frame.AddCachedMeshDrawCommand({First, InfoA}, std::make_shared<FMeshPassBindings>(), {});
+				Frame.AddCachedMeshDrawCommand({Second, InfoB}, std::make_shared<FMeshPassBindings>(), {});
+				ASSERT_TRUE(Frame.BeginRecording());
+				auto InstanceA = Frame.GetMeshDrawCommands()[0], InstanceB = Frame.GetMeshDrawCommands()[1];
+				EXPECT_TRUE(InstanceA.MatchesForDynamicInstancing(InstanceB));
+				InstanceB.DepthBias[0] = 1.f;
+				EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(InstanceB));
+				InstanceB.DepthBias[0] = 0.f;
+				auto DifferentPass = std::make_shared<FMeshPassBindings>(*InstanceB.Pass);
+				DifferentPass->Vertex.Shader = reinterpret_cast<FRHIShader*>(uintptr_t(1));
+				InstanceB.Pass = DifferentPass.get();
+				EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(InstanceB));
+				InstanceB.Pass = Frame.GetMeshDrawCommands()[1].Pass;
+				{
+					FCachedMeshDrawCommandStorage OtherScene;
+					auto OtherSource = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(3),
+						std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
+					auto DifferentGeometry = MakeCommand(A.get());
+					std::get<FRHIDrawIndexedArguments>(DifferentGeometry.DrawParameters).IndexCount = 6;
+					const auto OtherCommand = OtherScene.Publish(KeyA, std::move(DifferentGeometry), *OtherSource, A, nullptr, {}).Command;
+					const auto OtherInfo = OtherScene.FindCachedCommand(KeyA, *OtherSource).Info;
+					EXPECT_EQ(OtherInfo->StateBucketId, InfoA->StateBucketId);
+					FParallelMeshDrawCommandPass OtherFrame({EMeshPipelinePass::Forward});
+					OtherFrame.AddCachedMeshDrawCommand({OtherCommand, OtherInfo}, std::make_shared<FMeshPassBindings>(), {});
+					ASSERT_TRUE(OtherFrame.BeginRecording());
+					auto OtherVisible = OtherFrame.GetMeshDrawCommands().back();
+					EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(OtherVisible));
+				}
 			}
 			A.reset(); B.reset();
 			SourceA->RemoveCachedMeshDrawCommands();
-			EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(InstanceB));
 			EXPECT_EQ(InfoA->CommandIndex, INDEX_NONE); EXPECT_NE(InfoB->CommandIndex, INDEX_NONE);
 			EXPECT_FALSE(LifeA.expired()); EXPECT_TRUE(LifeB.expired());
 			EXPECT_EQ(Cache.FindCachedCommand(KeyB, *SourceB).Command, Second);
@@ -1191,12 +1194,11 @@ namespace
 			auto ReplacementPipeline = std::make_shared<FMeshPassPipeline>(*LifeA.lock());
 			auto Replacement = MakeCommand(ReplacementPipeline.get()); Replacement.DepthBias[0] = 1.f;
 			auto ReplacementKey = KeyB; ++ReplacementKey.Bindings[1];
-			const auto Rebuilt = Cache.Publish(ReplacementKey, Replacement, *SourceB, ReplacementPipeline, nullptr, {});
+			const auto Rebuilt = Cache.Publish(ReplacementKey, Replacement, *SourceB, ReplacementPipeline, nullptr, {}).Command;
 			EXPECT_NE(Rebuilt, Second); EXPECT_EQ(Cache.Num(), 1u);
 			EXPECT_EQ(InfoA->CommandIndex, INDEX_NONE); EXPECT_EQ(InfoB->CommandIndex, INDEX_NONE);
 			EXPECT_FALSE(Cache.FindCachedCommand(KeyB, *SourceB).Command); EXPECT_EQ(Cache.FindCachedCommand(ReplacementKey, *SourceB).Command, Rebuilt);
 			EXPECT_TRUE(LifeA.expired()); EXPECT_TRUE(LifeB.expired());
-			EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(InstanceB));
 			SourceB->RemoveCachedMeshDrawCommands();
 			EXPECT_EQ(Cache.Num(), 0u); EXPECT_FALSE(Cache.FindCachedCommand(ReplacementKey, *SourceB).Command);
 		});

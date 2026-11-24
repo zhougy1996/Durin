@@ -430,7 +430,7 @@ namespace Durin
 		ENGINE_API auto IsReadyForRendering(uint32 LODIndex = 0) const -> bool;
 		ENGINE_API auto RecalculateBounds() -> void;
 	private:
-		auto InvalidateOcclusionHistory_RenderThread() const -> void;
+		auto NotifyGeometryChanged_RenderThread() const -> void;
 		mutable std::unordered_map<FSceneInterface*, size_t> SceneReferences;
 	};
 

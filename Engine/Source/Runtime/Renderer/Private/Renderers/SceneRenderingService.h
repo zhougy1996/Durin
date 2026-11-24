@@ -99,6 +99,7 @@ namespace Durin
 		}
 
 	private:
+		friend class FPrimitiveSceneInfo;
 		friend class FSceneRenderPipeline;
 		friend class FSceneRenderer;
 		auto ReleaseDeviceResources_RenderThread() -> void;

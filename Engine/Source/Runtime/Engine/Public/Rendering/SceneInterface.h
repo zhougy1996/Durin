@@ -21,6 +21,7 @@ namespace Durin
 	struct FMaterialRenderProxyBindingUpdate;
 	struct FMaterialParameterCollectionSnapshot;
 	struct FSplineMeshRenderDynamicData;
+	struct FStaticMeshRenderData;
 
 	// Defines the game-thread publication boundary of a renderer-owned scene.
 	class FSceneInterface
@@ -54,6 +55,7 @@ namespace Durin
 		// Render-thread structural material update; parameter values stay in stable Uniforms.
 		virtual auto UpdateStaticDrawListsForMaterials(std::span<FMaterialRenderProxy* const>) -> void {}
 		virtual auto InvalidateOcclusionHistory_RenderThread() -> void {}
+		virtual auto OnStaticMeshGeometryChanged_RenderThread(const FStaticMeshRenderData&) -> void { InvalidateOcclusionHistory_RenderThread(); }
 
 		virtual auto Release() -> void = 0;
 

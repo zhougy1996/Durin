@@ -203,23 +203,12 @@ namespace Durin::RendererPrivate
 
 	auto FVisibleMeshDrawCommand::MatchesForDynamicInstancing(const FVisibleMeshDrawCommand& Other) const -> bool
 	{
-		if (!Command || !Other.Command || !Pass || !Other.Pass
-			|| (CachedInfo && CachedInfo->CommandIndex == INDEX_NONE)
-			|| (Other.CachedInfo && Other.CachedInfo->CommandIndex == INDEX_NONE)) return false;
-		// Invalidated cached commands retain their value memory, not the borrowed
-		// pipeline/resources. Reject their source metadata before dereferencing it.
+		if (!Command || !Other.Command || !Pass || !Other.Pass) return false;
 		if (!Command->bFinalized || !Other.Command->bFinalized || !Command->Pipeline || !Other.Command->Pipeline
 			|| !Command->Pipeline->GetInitializer().VertexDeclaration || !Other.Command->Pipeline->GetInitializer().VertexDeclaration
 			|| Command->IndirectArgs || Other.Command->IndirectArgs) return false;
-		// Bucket IDs are local to cached scene storage. Reset/removal invalidates
-		// source metadata before an ID can be reused, so stale/cross-scene IDs
-		// cannot replace the effective-state comparison for dynamic commands.
-		const bool SameBucket = CachedInfo && Other.CachedInfo && CachedInfo->Storage
-			&& CachedInfo->Storage == Other.CachedInfo->Storage && StateBucketId != INDEX_NONE
-			&& StateBucketId == CachedInfo->StateBucketId && Other.StateBucketId == Other.CachedInfo->StateBucketId
-			&& StateBucketId == Other.StateBucketId;
 		const bool SameCommand = Command == Other.Command;
-		return (SameBucket || SameCommand || Command->MatchesForDynamicInstancing(*Other.Command))
+		return (SameCommand || Command->MatchesForDynamicInstancing(*Other.Command))
 			&& DepthBias == Other.DepthBias
 			&& (Pass == Other.Pass || (Pass->Vertex == Other.Pass->Vertex && Pass->Fragment == Other.Pass->Fragment));
 	}
@@ -360,6 +349,7 @@ namespace Durin::RendererPrivate
 			const auto Pass = PassKey.Pass;
 			if (Target.VisibleMeshDrawCommands.empty()) continue;
 			require(!Target.bFinalized);
+			if (!Target.BeginRecording()) return false;
 			auto& Visible = Target.VisibleMeshDrawCommands;
 			std::ranges::sort(Visible, {}, &FVisibleMeshDrawCommand::SourceDrawIndex);
 			Target.SourceCommandIndices.assign(Resolved.Draws.size(), INDEX_NONE_U32);

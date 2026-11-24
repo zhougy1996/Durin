@@ -480,7 +480,7 @@ namespace Durin
 			LOD.bReadyForRendering = true;
 			bPublishedGeometry = true;
 		}
-		if (bPublishedGeometry) InvalidateOcclusionHistory_RenderThread();
+		if (bPublishedGeometry) NotifyGeometryChanged_RenderThread();
 		return true;
 	}
 
@@ -498,9 +498,9 @@ namespace Durin
 		if (!--Found->second) SceneReferences.erase(Found);
 	}
 
-	auto FStaticMeshRenderData::InvalidateOcclusionHistory_RenderThread() const -> void
+	auto FStaticMeshRenderData::NotifyGeometryChanged_RenderThread() const -> void
 	{
-		for (const auto& [Scene, References] : SceneReferences) Scene->InvalidateOcclusionHistory_RenderThread();
+		for (const auto& [Scene, References] : SceneReferences) Scene->OnStaticMeshGeometryChanged_RenderThread(*this);
 	}
 
 	auto FStaticMeshRenderData::SetLODReady_RenderThread(uint32 LODIndex, bool bReady) -> void
@@ -510,7 +510,7 @@ namespace Durin
 		require(!bReady || LOD.GeometryRecord);
 		if (LOD.bReadyForRendering == bReady) return;
 		LOD.bReadyForRendering = bReady;
-		InvalidateOcclusionHistory_RenderThread();
+		NotifyGeometryChanged_RenderThread();
 	}
 
 	auto FStaticMeshRenderData::CaptureBatchGeometry_RenderThread() const -> std::shared_ptr<const FStaticMeshBatchGeometry>
@@ -549,7 +549,7 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		if (std::ranges::any_of(LODResources, [](const auto& LOD) { return LOD.GeometryRecord != nullptr; }))
-			InvalidateOcclusionHistory_RenderThread();
+			NotifyGeometryChanged_RenderThread();
 		BatchGeometry.reset();
 		for (FStaticMeshVertexFactories& Factories
 			: LODVertexFactories | std::views::reverse)

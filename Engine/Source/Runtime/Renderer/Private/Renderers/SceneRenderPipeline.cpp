@@ -15,6 +15,7 @@
 #include "CoreGlobals.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Scene.h"
+#include "SceneInfo.h"
 #include "SceneView.h"
 #include "Shader/ShaderMapPreparation.h"
 
@@ -493,14 +494,18 @@ namespace Durin
 				FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
 					Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes) || !bPrepareOnly;
+			std::vector<RendererPrivate::FStaticMeshCommandBuildRequest> CacheRequests;
+			RendererPrivate::FMeshDrawCommandBindingCache BindingCache;
 			if (FixedPipelinesReady)
 				FixedPipelinesReady = StaticMeshRenderer.PrepareUniforms_RenderThread(CommandList,
 					Context.Logical.Scene, RenderView,
 					PreparedView.Receiver.StaticMeshes, ResolvedSceneResources.Receiver.StaticMeshes,
-					bWantsProductionDeferred, bNeedsGBuffer, false, !bPrepareOnly);
+					CacheRequests, bWantsProductionDeferred, bNeedsGBuffer, false, !bPrepareOnly);
+			if (FixedPipelinesReady && !CacheRequests.empty())
+				FPrimitiveSceneInfo::BuildCachedMeshDrawCommands(*Context.Logical.Scene, CacheRequests, BindingCache);
 			if (FixedPipelinesReady)
 				FixedPipelinesReady = StaticMeshRenderer.PrepareBindings_RenderThread(
-					CommandList, &Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
+					CommandList, BindingCache, PreparedView.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes, ResolvedSceneResources.Lighting.UniformBuffer, false,
 				ResolvedSceneResources.Lighting.GetLocalRange()) || !bPrepareOnly;
 			if (FeaturePlan.Deferred.IsEnabled())

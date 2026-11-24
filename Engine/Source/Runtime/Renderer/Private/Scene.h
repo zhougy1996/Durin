@@ -65,7 +65,7 @@ namespace Durin
 		RENDERER_API auto GetCachedMeshDrawCommands(FRHICommandListBase& Commands, const FRenderResourceGeneration& Generation)
 			-> RendererPrivate::FCachedMeshDrawCommandStorage&;
 		std::shared_ptr<FGPUScene> GPUScene;
-		RENDERER_API auto UpdateStaticMeshes() -> void;
+		RENDERER_API auto UpdateStaticMeshes() -> std::vector<FPrimitiveSceneInfo*>;
 		RENDERER_API auto UpdateStaticDrawListsForMaterials(std::span<FMaterialRenderProxy* const> Materials) -> void override;
 		// Stable world identity; renderer resource caches own native allocations.
 		std::unordered_map<FGuid, std::shared_ptr<FUniformBuffer>> ParameterCollectionUniformBuffers;
@@ -95,6 +95,7 @@ namespace Durin
 		auto GetHitProxyRevision_RenderThread() const -> uint64 { return HitProxyRevision; }
 		auto GetOcclusionRevision_RenderThread() const -> uint64 { return OcclusionRevision; }
 		auto InvalidateOcclusionHistory_RenderThread() -> void override;
+		auto OnStaticMeshGeometryChanged_RenderThread(const FStaticMeshRenderData& Mesh) -> void override;
 		auto UpdatePrimitiveOcclusion_RenderThread() -> void;
 
 		auto GetPrimitiveSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return PrimitiveSceneInfos; }

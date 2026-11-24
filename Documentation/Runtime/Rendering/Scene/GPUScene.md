@@ -2,7 +2,7 @@
 
 Summary: Define scene-owned Primitive and Instance records, incremental uploads, selected-instance shader access and allocation retirement.
 Modules: RenderCore, Engine, Renderer
-Last reviewed: 2026-11-22
+Last reviewed: 2026-11-24
 
 ## Scope and Ownership
 
@@ -227,7 +227,10 @@ Wrapper addresses do not establish compatibility. Cached commands may share a
 storage-scoped state bucket and canonical command/pipeline, while every primitive
 retains independent `FCachedMeshDrawCommandInfo` invalidation metadata. Dynamic
 commands use effective-state comparison. Frame bindings, scene buffers and bias
-must also match. Invalidated sources are rejected before borrowed resources are read.
+must also match. Before compaction, each cached pass validates its selected
+source entries and enters the scene cache's read phase. All passes release
+their read scopes before the next cache update. Culling and recording borrow
+visible commands within that interval.
 
 Cached publication requires a Pipeline owner matching the command pointer; the
 state bucket retains it until source invalidation. Dynamic storage has no standalone

@@ -67,6 +67,9 @@ namespace Durin
 		++PreparationConfigGameThread.Version;
 		MaterialPSORequests.SetPreparationConfigVersion(PreparationConfigGameThread.Version);
 		EnqueueRenderCommand("UpdateRendererPreparationConfig", [this, Config = PreparationConfigGameThread](FRHICommandListImmediate&) {
+			const auto& Previous = PreparationConfigRenderThread.Settings;
+			if (Previous.bForward != Config.Settings.bForward || Previous.bHybrid != Config.Settings.bHybrid)
+				RendererPrivate::FCachedMeshDrawCommandStorage::InvalidateMeshPreparationForAllResources(true);
 			PreparationConfigRenderThread = Config;
 			MaterialPSORequests.InvalidateOutdatedPreparationConfigs();
 			InvalidatePreparationOwners_RenderThread();

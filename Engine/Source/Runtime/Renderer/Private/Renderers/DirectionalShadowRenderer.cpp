@@ -13,6 +13,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "SceneInfo.h"
 
 namespace Durin
 {
@@ -161,13 +162,17 @@ namespace Durin
 			const auto Geometry = StaticMeshes.PrepareShadowResources_RenderThread(CommandList, Prepared, Resolved, ResourceContext);
 			bComplete = !Prepared.bResourceFailure && bool(Geometry) && bComplete;
 			if (Prepared.bResourceFailure && Prepared.ResourceFailurePrimitives.empty()) bReady = false;
+			std::vector<RendererPrivate::FStaticMeshCommandBuildRequest> CacheRequests;
+			RendererPrivate::FMeshDrawCommandBindingCache BindingCache;
 			Timings.Next("CascadeUniforms");
 			if (bReady) bReady = StaticMeshes.PrepareUniforms_RenderThread(CommandList, Scene,
-				Shadow.View.Cascades[Cascade].CasterView, Prepared, Resolved, false, false, true, bAllowPartial);
+				Shadow.View.Cascades[Cascade].CasterView, Prepared, Resolved, CacheRequests, false, false, true, bAllowPartial);
+			if (bReady && !CacheRequests.empty())
+				FPrimitiveSceneInfo::BuildCachedMeshDrawCommands(*Scene, CacheRequests, BindingCache);
 			Timings.Next("CascadeBindings");
 			if (bReady)
 			{
-				const bool bBindingsReady = StaticMeshes.PrepareBindings_RenderThread(CommandList, nullptr,
+				const bool bBindingsReady = StaticMeshes.PrepareBindings_RenderThread(CommandList, BindingCache,
 					Prepared, Resolved, {}, true);
 				bComplete = bBindingsReady && bComplete;
 				bReady = bBindingsReady || bAllowPartial;

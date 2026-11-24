@@ -12,9 +12,10 @@
 
 namespace Durin
 {
-	namespace RendererPrivate { class FCachedMeshDrawCommandStorage; struct FCachedMeshDrawCommandInfo; }
+	namespace RendererPrivate { class FCachedMeshDrawCommandStorage; struct FCachedMeshDrawCommandInfo; struct FStaticMeshCommandBuildRequest; struct FMeshDrawCommandBindingCache; }
 	class FUniformBuffer;
 	class FScene;
+	class FSceneRenderingService;
 	class FSplineMeshSceneProxy;
 	struct FSplineMeshRenderDynamicData;
 
@@ -29,13 +30,17 @@ namespace Durin
 
 		RENDERER_API ~FPrimitiveSceneInfo();
 		RENDERER_API auto BeginDeferredUpdateStaticMeshes() -> void;
-		RENDERER_API auto UpdateStaticMeshes() -> void;
+		auto RequestStaticMeshUpdate() -> void;
 		auto GetId() const -> FPrimitiveComponentId { return Id; }
 		auto GetPersistentIndex() const -> FPersistentPrimitiveIndex { return GPUSceneHandle.PersistentPrimitiveIndex; }
 		RENDERER_API auto RequestGPUSceneUpdate(EGPUSceneDirtyState Dirty) -> void;
 		FGPUScenePrimitiveHandle GPUSceneHandle;
 		uint32 InstanceSceneDataOffset = INDEX_NONE_U32;
 		uint32 NumInstanceSceneDataEntries = 0;
+		static auto CacheMeshDrawCommands(FScene* Scene, std::span<FPrimitiveSceneInfo* const> SceneInfos,
+			FSceneRenderingService& Service) -> void;
+		static auto BuildCachedMeshDrawCommands(FScene& Scene, std::span<const RendererPrivate::FStaticMeshCommandBuildRequest> Requests,
+			RendererPrivate::FMeshDrawCommandBindingCache& Bindings) -> void;
 		RENDERER_API auto RemoveCachedMeshDrawCommands() -> void;
 		RENDERER_API auto GetPrimitiveUniformBuffer(uint64 Batch) -> FUniformBuffer&;
 		RENDERER_API auto RetainPrimitiveUniformBuffers(std::span<const uint64> Batches) -> void;
@@ -65,7 +70,7 @@ namespace Durin
 		friend class RendererPrivate::FCachedMeshDrawCommandStorage;
 		RENDERER_API auto DetachFromScene() -> void;
 		RendererPrivate::FCachedMeshDrawCommandStorage* DrawLists = nullptr;
-		std::map<std::array<uint64, 5>, std::shared_ptr<RendererPrivate::FCachedMeshDrawCommandInfo>> StaticMeshCommandInfos;
+		std::map<std::array<uint64, 7>, std::shared_ptr<RendererPrivate::FCachedMeshDrawCommandInfo>> StaticMeshCommandInfos;
 		std::map<uint64, std::shared_ptr<FUniformBuffer>> PrimitiveUniformBuffers;
 		FScene* Scene = nullptr;
 		bool bNeedsStaticMeshUpdate = false;

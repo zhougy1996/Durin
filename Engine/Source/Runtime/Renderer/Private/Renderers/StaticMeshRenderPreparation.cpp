@@ -320,11 +320,11 @@ namespace Durin
 		return FStaticMeshPreparationCache::FAdmittedBatch{Entry.Snapshot, Index};
 	}
 
-	auto CollectStaticMeshView_RenderThread(
+	static auto CollectStaticMeshes_RenderThread(
 		const FRHICommandListImmediate& CommandList,
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View, ERasterMode RasterMode, ERenderPreparationMode Mode,
-		FStaticMeshPreparationCache* SharedCache)
+		FStaticMeshPreparationCache* SharedCache, bool bAllStaticLODs)
 		-> std::shared_ptr<const FCollectedStaticMeshView>
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.CollectMeshView");
@@ -373,10 +373,11 @@ namespace Durin
 			{
 				Input.Static = &Primitive;
 				// Only the fallback statistic needs projection when admission already knows the requested LOD.
-				if (bCanOverlapProjection && (Primitive.Publication->Geometry->LODs.size() <= 1
-					|| View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0))
+				if (bAllStaticLODs || (bCanOverlapProjection && (Primitive.Publication->Geometry->LODs.size() <= 1
+					|| View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0)))
 					continue;
 			}
+			if (bAllStaticLODs) continue;
 			Input.ViewFactIndex = ViewInputs.size();
 			auto& ViewInput = ViewInputs.emplace_back();
 			ViewInput.WorldBounds = SceneInfo->GetWorldBounds();
@@ -431,16 +432,23 @@ namespace Durin
 			else Primitive.ProjectionStatus.reset();
 			if (auto* Static = Input.Static)
 			{
-				const auto LOD = ViewFact ? *ViewFact->LOD
-					: FPreparedMeshLODSelection{0, ResolveAvailableStaticMeshLOD(0, Static->Publication->Geometry->LODs)};
-				auto Batch = GetAdmittedStaticBatch(Collection, *Static, *SceneInfo, LOD, Purpose,
-					SharedCache ? &SharedCache->Admission : nullptr);
-				const auto Outcome = Batch ? EGeometrySubmissionOutcome::Submitted : Batch.error();
-				++Primitive.Outcomes[static_cast<size_t>(Outcome)];
-				if (!Batch) continue;
-				auto& Captured = Primitive.Batches.emplace_back();
-				Captured.Source = std::move(*Batch);
-				Captured.RequestedLOD = LOD.Requested;
+				const auto AddLOD = [&](FPreparedMeshLODSelection LOD) {
+					auto Batch = GetAdmittedStaticBatch(Collection, *Static, *SceneInfo, LOD, Purpose,
+						SharedCache ? &SharedCache->Admission : nullptr);
+					const auto Outcome = Batch ? EGeometrySubmissionOutcome::Submitted : Batch.error();
+					++Primitive.Outcomes[static_cast<size_t>(Outcome)];
+					if (!Batch) return;
+					auto& Captured = Primitive.Batches.emplace_back();
+					Captured.Source = std::move(*Batch);
+					Captured.RequestedLOD = LOD.Requested;
+				};
+				const auto& LODs = Static->Publication->Geometry->LODs;
+				if (bAllStaticLODs)
+				{
+					for (uint32 Index = 0; Index < LODs.size(); ++Index)
+						if (LODs[Index].IsReadyForRendering()) AddLOD({Index, Index});
+				}
+				else AddLOD(ViewFact ? *ViewFact->LOD : FPreparedMeshLODSelection{0, ResolveAvailableStaticMeshLOD(0, LODs)});
 			}
 			else
 			{
@@ -536,6 +544,22 @@ namespace Durin
 			});
 		for (const auto& Work : SnapshotValidation) ResolveFactorySupport(*Work.Captured, *Work.Factory);
 		return Collected;
+	}
+
+	auto CollectStaticMeshView_RenderThread(const FRHICommandListImmediate& Commands,
+		std::span<const FPrimitiveSceneInfo* const> SceneInfos, const FSceneView& View,
+		ERasterMode RasterMode, ERenderPreparationMode Mode, FStaticMeshPreparationCache* Cache)
+		-> std::shared_ptr<const FCollectedStaticMeshView>
+	{
+		return CollectStaticMeshes_RenderThread(Commands, SceneInfos, View, RasterMode, Mode, Cache, false);
+	}
+	auto PrepareStaticMeshCommandBatches(const FRHICommandListImmediate& Commands,
+		std::span<const FPrimitiveSceneInfo* const> Dirty, const FSceneView& Policy, ERenderPreparationMode Mode,
+		FStaticMeshPreparationCache& Cache) -> FPreparedStaticMeshView
+	{
+		auto Collected = CollectStaticMeshes_RenderThread(Commands, Dirty, Policy, ERasterMode::Solid, Mode, &Cache, true);
+		auto Inputs = ResolveCollectedStaticMeshView_RenderThread(Commands, std::move(Collected), &Cache);
+		return PrepareStaticMeshInputs(*Inputs);
 	}
 
 	auto PrepareStaticMeshView_RenderThread(

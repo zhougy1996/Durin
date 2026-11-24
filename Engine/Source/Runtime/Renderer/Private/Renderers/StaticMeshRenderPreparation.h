@@ -417,7 +417,6 @@ namespace Durin
 		FGPUScene* GPUScene = nullptr;
 		std::shared_ptr<FGPUSceneDynamicContext> GPUSceneDynamicContext;
 		std::vector<FGPUScenePrimitiveData> GPUScenePrimitives;
-		RendererPrivate::FCachedMeshDrawCommandStorage* CachedDrawLists = nullptr;
 		std::shared_ptr<const FSkyLightingGeneration> Environment;
 		struct FMaterialUniform
 		{
@@ -610,6 +609,10 @@ namespace Durin
 		const FSceneView& View, ERasterMode RasterMode, ERenderPreparationMode Mode,
 		FStaticMeshPreparationCache* SharedCache = nullptr) -> FStaticMeshPreparationWork;
 	RENDERER_API auto FinishStaticMeshView(FStaticMeshPreparationWork Work) -> FPreparedStaticMeshView;
+
+	auto PrepareStaticMeshCommandBatches(const FRHICommandListImmediate& Commands,
+		std::span<const FPrimitiveSceneInfo* const> Dirty, const FSceneView& Policy, ERenderPreparationMode Mode,
+		FStaticMeshPreparationCache& Cache) -> FPreparedStaticMeshView;
 
 	RENDERER_API auto PrepareStaticMeshView_RenderThread(
 		const FRHICommandListImmediate& CommandList,

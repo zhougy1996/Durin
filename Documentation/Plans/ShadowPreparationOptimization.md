@@ -15,7 +15,26 @@ for the workload comparison. Stage 3 now projects unit-w orthographic bounds
 by center and half-extent, with the general path resolving ambiguous boundaries.
 The renderer reuses the existing pass bindings directly when the draw command
 and pass group both hit. Each shadow cascade also reserves space for the
-cached commands selected during its existing uniform preparation scan.
+cached commands selected during its existing uniform preparation scan. The pass
+retains each selected command, its invalidation info and its pass bindings in
+one ownership entry. Pass finalization validates those entries and holds the
+scene cache read-only through recording. The visible list borrows commands
+without carrying per-source invalidation metadata. On the Windows Debug editor
+preset, the recording change based on `5364ee1f9` passed 179 scene contract
+cases and the Vulkan cases `CachedCommandsInvalidateResourceChangesAndReuseNumericUpdates`
+and `StableInstancesMatchDynamicMaterialsAcrossPassesAndGPUGrouping`.
+Release timing for this change remains unmeasured. Scene primitives now publish
+ordinary static mesh commands before visibility. The scene update covers
+each ready retained LOD, both receiver depth conventions, supported GBuffer
+layouts and shadow depth. Geometry notifications retire affected source slots
+and queue their replacement even when a primitive is hidden.
+The pre-visibility update based on `1bc3b2cad` passed the Windows Debug editor
+all-target build, 179 scene contract tests, 29 Vulkan static mesh tests and the
+directional shadow behavior/sub-texel motion qualification case. The hidden
+mesh regression covers LOD readiness and disabling and restoring hybrid support.
+The publication change based on `5ca50344a` passed all 179 scene contract
+tests, four focused static-mesh Vulkan cases and the directional shadow
+behavior/sub-texel motion qualification case on the Windows Debug editor preset.
 The [warm command-hit resource profile](#warm-command-hit-resource-profile)
 records the selection and the matched-frame comparison.
 
@@ -864,6 +883,15 @@ appropriate primitive/material boundary and views reference compact frame facts.
   per-draw build inputs; measure warm binding and total resource preparation.
 - [x] Reserve the shadow pass visible list and its existing ownership arrays
   from selection counts; compare append-time growth and total resource cost.
+- [x] Pass the cached lookup result intact to submission and consolidate the
+  three per-draw ownership arrays while preserving the visible list layout.
+- [x] Validate selected cache entries at pass finalization and keep scene cache
+  updates outside the recording interval, including parallel recording.
+- [x] Move persistent command construction out of view binding assembly, batch
+  ready variants through scene primitives and return the published command
+  directly from the cached draw-list context.
+- [x] Schedule ordinary static mesh command publication from scene registration
+  and invalidation before visibility, including geometry and LOD transitions.
 - [ ] Separate current primitive-state validation from shared material/resource
   validation; reuse each within a command without losing current-value checks.
 - [ ] Reduce repeated complete Batch/Record construction, owner copies and small

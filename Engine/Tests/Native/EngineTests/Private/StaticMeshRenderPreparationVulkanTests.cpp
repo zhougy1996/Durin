@@ -4860,6 +4860,84 @@ namespace
 	};
 }
 
+TEST(FStaticMeshRenderPreparationVulkanTests, HiddenStaticMeshPublishesReadyLODsBeforeVisibility)
+{
+	using namespace Durin;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
+	InitializeDObjectSystem();
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(Tests::GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("HiddenStaticMeshCommands");
+	Lifecycle.Start(Renderer);
+	FGeometryRendererCleanup RendererCleanup(Lifecycle);
+	auto Data = MakeMultiLODRenderData();
+	struct FReleaseMesh
+	{
+		FStaticMeshRenderData& Data;
+		~FReleaseMesh()
+		{
+			EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([this](FRHICommandListImmediate&) { Data.ReleaseResources(); });
+			FlushRenderingCommands();
+		}
+	} ReleaseMesh{*Data};
+	FSceneTestOwner Scene;
+	const auto Material = MakeMaterial(EMaterialBlendMode::Opaque);
+	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate& Commands) {
+		ASSERT_TRUE(Data->InitResources(Commands));
+		Data->SetLODReady_RenderThread(2, false);
+	});
+	FlushRenderingCommands();
+	FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(831),
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector{Material}), FMatrix(1.0), false);
+	FlushRenderingCommands();
+	FSceneView View;
+	View.ViewportWidth = View.ViewportHeight = 32;
+	View.Settings.Mode.RenderMode = ERenderMode::Unlit;
+	const auto Target = FRHITextureCreateDesc::Create2D("HiddenStaticMesh", 32, 32, EPixelFormat::SRGBA8_UNORM)
+		.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource);
+	const auto RenderHidden = [&](size_t MinimumCommands) -> size_t {
+		size_t Count = 0;
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+		do
+		{
+			const auto Result = RenderPreparedGeometryView(Renderer, *Scene, View, Target, {},
+				[&](FRHICommandListImmediate& Commands, FRHITexture*) {
+					EXPECT_FALSE(Scene->GetPrimitiveSceneInfos().front()->IsVisible());
+					Count = Scene->GetCachedMeshDrawCommands(Commands, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation).Num();
+				});
+			EXPECT_EQ(Result, ERenderViewResult::Success);
+			if (Result != ERenderViewResult::Success) break;
+		} while (Count < MinimumCommands && std::chrono::steady_clock::now() < Deadline);
+		return Count;
+	};
+	const auto SetLastLODReady = [&](bool bReady) {
+		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate& Commands) {
+			Data->SetLODReady_RenderThread(2, bReady);
+			EXPECT_EQ(Scene->GetCachedMeshDrawCommands(Commands, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation).Num(), 0u);
+		});
+		FlushRenderingCommands();
+	};
+	const auto TwoLODs = RenderHidden(1);
+	ASSERT_GT(TwoLODs, 0u);
+	SetLastLODReady(true);
+	const auto ThreeLODs = RenderHidden(TwoLODs + 1);
+	ASSERT_GT(ThreeLODs, TwoLODs);
+	SetLastLODReady(false);
+	const auto Restored = RenderHidden(TwoLODs);
+	EXPECT_EQ(Restored * 3, ThreeLODs * 2);
+	auto Settings = Renderer.GetSceneRenderPreparationConfig(Scene->GetFeatureLevel()).Settings;
+	const auto OriginalSettings = Settings;
+	Settings.bHybrid = false;
+	ASSERT_TRUE(Renderer.SetPreparationSettings(Settings));
+	const auto ForwardOnly = RenderHidden(1);
+	EXPECT_LT(ForwardOnly, Restored);
+	ASSERT_TRUE(Renderer.SetPreparationSettings(OriginalSettings));
+	EXPECT_EQ(RenderHidden(Restored), Restored);
+}
+
 TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentMaterialAndPSOSelection)
 {
 	Durin::Tests::FScopedComponentPSOPrecacheMode PrecacheMode(Durin::EComponentPSOPrecacheMode::Enabled);
@@ -5153,8 +5231,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					FParallelMeshDrawCommandPass PassA({EMeshPipelinePass::ShadowDepth}), PassB({EMeshPipelinePass::ShadowDepth});
 					FCachedPassMeshDrawListContext CachedContext(Persistent, {EMeshPipelinePass::ShadowDepth}, CacheA); PassProcessor.SetDrawListContext(&CachedContext); const auto CachedContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input);
 					ASSERT_TRUE(CachedContextResult) << CachedContextResult.Error;
-                    Cached = Persistent.FindCachedCommand(FCachedMeshDrawCommandStorage::MakeKey(BindingDraw.Command.get(),
-                        Primitive->PrimitiveId, Primitive->BatchId, *Pipeline, Input.Material.Uniform.Buffer), *Source).Command;
+					const auto Published = CachedContext.GetCommandInfoAndReset();
+					ASSERT_TRUE(Published);
+					EXPECT_FALSE(CachedContext.GetCommandInfoAndReset());
+					const auto Selected = Persistent.FindCachedCommand(FCachedMeshDrawCommandStorage::MakeKey(BindingDraw.Command.get(),
+						Primitive->PrimitiveId, Primitive->BatchId, *Pipeline, Input.Material.Uniform.Buffer), *Source);
+					EXPECT_EQ(Published.Info, Selected.Info);
+					EXPECT_EQ(Published.Command, Selected.Command);
+					Cached = Published.Command;
 					ASSERT_TRUE(Cached && Cached->bCached); EXPECT_EQ(Cached->Pipeline->GetInitializer().Pass, EMeshPipelinePass::ShadowDepth);
 					EXPECT_FALSE(Cached->PassBindings.Vertex); EXPECT_FALSE(Cached->PassBindings.Fragment);
 					EXPECT_FALSE(Cached->SubmitDraw(Commands));

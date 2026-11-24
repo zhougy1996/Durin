@@ -2,7 +2,7 @@
 
 Summary: Define submission ownership, CPU preparation, resource resolution, graph execution and transactional output.
 Modules: Engine, Renderer, RenderCore, RHI
-Last reviewed: 2026-11-21
+Last reviewed: 2026-11-24
 
 ## Ownership Boundary
 
@@ -122,6 +122,20 @@ continues to report logical chunks. Join time measures the completion wait.
 - Resolved views retain fallible material, geometry and pipeline resources. Draws
   borrow retained commands/bindings. Recording performs no shader/reflection work,
   pipeline-cache lookup, material traversal or deformation allocation inside a pass.
+- Before frustum and occlusion selection, the scene drains newly registered
+  and dirty ordinary static meshes. It enumerates the ready LODs in each
+  retained publication, including those of hidden primitives, and caches solid
+  receiver and shadow commands for the enabled renderer routes. Receiver depth
+  conventions and GBuffer attachment counts occupy distinct cache slots.
+  Geometry release and LOD readiness changes retire the affected primitives'
+  slots. Shader work still pending can be retried on a subsequent scene update.
+  Changing forward or hybrid route support marks initialized scene draw lists
+  for a full static mesh update. A hit-proxy-only settings change leaves the
+  ordinary mesh commands valid.
+- A view selects those scene commands after deciding its LOD and pass. An
+  uncached ordinary variant uses frame storage for that draw. View uniforms,
+  lighting, instance IDs and cascade bias remain submission inputs. Providers
+  that only publish batches during view collection retain their existing path.
 - Persistent material, Primitive and Collection uniforms update in command order.
   View/pass values have frame owners. Same-layout updates preserve command identity;
   layout/shader/buffer replacement invalidates affected source slots.

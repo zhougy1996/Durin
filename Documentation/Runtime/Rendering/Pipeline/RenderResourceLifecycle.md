@@ -4,7 +4,7 @@ Summary: Define RenderCore resource state, deferred C++ cleanup, producer teardo
 
 Modules: RenderCore, Engine, Renderer, MonaImGui
 
-Last reviewed: 2026-11-22
+Last reviewed: 2026-11-24
 
 Scene-owned Primitive/Instance buffer mirrors, upload transactions and native
 recovery follow [Persistent GPU scene storage](../Scene/GPUScene.md). This owner
@@ -84,8 +84,11 @@ store non-owning `FMeshDrawShaderBindings`. Visible storage retains command memo
 scene cache storage retains canonical pipelines and owns cache-wide RHI
 invalidation. `FPrimitiveSceneInfo` keeps slot locations and optional fallback
 uniforms without another render-resource wrapper. Primitive updates retire their
-own entries before replacing
-sources; retained entry memory does not authorize another submission.
+entries before replacing sources. Cached pass finalization validates every
+selected entry against its scene cache before compaction. The pass holds that
+cache read-only through recording, including joined parallel tasks. Publication,
+entry retirement and reset require all recording passes to have released their
+read scopes. Borrowed visible commands are valid only within that interval.
 Scene membership exclusively owns SceneInfo. Frame references resolve its persistent
 index/generation on the render thread and cannot extend its lifetime. Dynamic
 collectors retain immutable upload records and GPUScene leases independently;

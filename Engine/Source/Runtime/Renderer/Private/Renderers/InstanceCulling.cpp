@@ -156,8 +156,6 @@ namespace Durin
 		{
 			const auto& Visible = VisibleMeshDrawCommands[Index];
 			const size_t NumSourceInstances = Visible.NumSourceDraws;
-			if (Visible.CachedInfo && Visible.CachedInfo->CommandIndex == INDEX_NONE)
-			{ Diagnostics.PreparationUnavailableCandidates += NumSourceInstances; continue; }
 			const auto* Command = Visible.Command;
 			if (!NumSourceInstances || Visible.SourceDrawIndex > Sources.size() || NumSourceInstances > Sources.size() - Visible.SourceDrawIndex)
 			{ Diagnostics.PreparationUnavailableCandidates += NumSourceInstances; continue; }
@@ -397,8 +395,7 @@ namespace Durin
 			const uint32 Before = Cache.DrawCalls;
 			auto Submit = [&]() -> bool {
 				for (uint32 Source : MeshDrawCommandInfos[DrawIndex].Fallback.GetDrawIndices())
-					if (const auto& Original = FallbackCommands[Source]; !Original.bSourceReady
-						|| (Original.CachedInfo && Original.CachedInfo->CommandIndex == INDEX_NONE)) return false;
+					if (!FallbackCommands[Source].bSourceReady) return false;
 				if (Index == InvalidArgument) return Visible.SubmitDraw(Commands, &Cache);
 				if (!OverrideArgs.IndirectArgsBuffer || !OverrideArgs.InstanceBuffer
 					|| !EnumHasAnyFlags(OverrideArgs.IndirectArgsBuffer->GetUsage(), EBufferUsageFlags::DrawIndirect)) return false;

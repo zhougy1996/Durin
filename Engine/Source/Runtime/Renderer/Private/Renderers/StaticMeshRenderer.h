@@ -38,10 +38,11 @@ namespace Durin
 	class FStaticMeshRenderer final
 	{
 	public:
+		auto SupportsPersistentDraws() const -> bool;
 		static auto NeedsGBufferModelData(const FPreparedStaticMeshView& View) -> bool;
 		auto PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView,
-			FResolvedStaticMeshView& ResolvedView) -> bool;
-			auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
+			FResolvedStaticMeshView& ResolvedView, std::optional<bool> ModelData = {}) -> bool;
+		auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, RendererPrivate::FMeshDrawCommandBindingCache& BindingCache,
 			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
 			const FRHIUniformBufferRange& Lighting, bool bShadow = false, FRHIStorageBufferRange LocalLights = {}) -> bool;
 		FStaticMeshRenderer(
@@ -86,8 +87,8 @@ namespace Durin
 
 		auto PrepareUniforms_RenderThread(FRHICommandListImmediate& CommandList,
 			FScene* Scene, const FSceneView& View, const FPreparedStaticMeshView& PreparedView,
-			FResolvedStaticMeshView& ResolvedView, bool bProductionDeferred,
-			bool bGBuffer, bool bShadow = false, bool bAllowPartial = false) -> bool;
+			FResolvedStaticMeshView& ResolvedView, std::vector<RendererPrivate::FStaticMeshCommandBuildRequest>& CacheRequests, bool bProductionDeferred,
+			bool bGBuffer, bool bShadow = false, bool bAllowPartial = false, bool bSceneUpdate = false) -> bool;
 
 	private:
 		auto PrepareSectionResources_RenderThread(const FPreparedStaticMeshPrimitive* Primitive,

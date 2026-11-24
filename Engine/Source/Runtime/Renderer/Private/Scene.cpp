@@ -467,18 +467,27 @@ namespace Durin
 	auto FPrimitiveSceneInfo::BeginDeferredUpdateStaticMeshes() -> void
 	{
 		if (Scene) Scene->InvalidateMeshPreparation();
-		if (bNeedsStaticMeshUpdate) return;
-		bNeedsStaticMeshUpdate = true;
 		RemoveCachedMeshDrawCommands();
-		if (Scene) Scene->PrimitivesNeedingStaticMeshUpdate.push_back(this);
-		else UpdateStaticMeshes();
+		RequestStaticMeshUpdate();
 	}
-	auto FPrimitiveSceneInfo::UpdateStaticMeshes() -> void
-	{ bNeedsStaticMeshUpdate = false; }
-	auto FScene::UpdateStaticMeshes() -> void
+	auto FPrimitiveSceneInfo::RequestStaticMeshUpdate() -> void
 	{
-		for (auto* Primitive : PrimitivesNeedingStaticMeshUpdate) Primitive->UpdateStaticMeshes();
-		PrimitivesNeedingStaticMeshUpdate.clear();
+		if (!Scene || bNeedsStaticMeshUpdate || Kind != EPrimitiveSceneProxyKind::StaticMesh) return;
+		bNeedsStaticMeshUpdate = true;
+		Scene->PrimitivesNeedingStaticMeshUpdate.push_back(this);
+	}
+	auto FScene::UpdateStaticMeshes() -> std::vector<FPrimitiveSceneInfo*>
+	{
+		if (CachedDrawLists && CachedDrawLists->bNeedsStaticMeshElementUpdate)
+		{
+			CachedDrawLists->bNeedsStaticMeshElementUpdate = false;
+			CachedDrawLists->Reset();
+			for (auto* Primitive : PrimitiveSceneInfos) Primitive->RequestStaticMeshUpdate();
+		}
+		std::vector<FPrimitiveSceneInfo*> Dirty;
+		Dirty.swap(PrimitivesNeedingStaticMeshUpdate);
+		for (auto* Primitive : Dirty) Primitive->bNeedsStaticMeshUpdate = false;
+		return Dirty;
 	}
 	auto FPrimitiveSceneInfo::GetSplineMeshProxy() const -> FSplineMeshSceneProxy&
 	{
@@ -489,7 +498,11 @@ namespace Durin
 	auto FPrimitiveSceneInfo::SetTransform(const FMatrix& InTransform) -> void
 	{
 		if (Scene && Proxy->GetLocalToWorld() != InTransform) ++Scene->OcclusionRevision;
+		const auto Previous = Proxy->GetPrimitiveSceneTransform();
 		Proxy->SetTransform(InTransform);
+		const auto& Current = Proxy->GetPrimitiveSceneTransform();
+		if (Current.bValid != Previous.bValid || (Current.Determinant < 0) != (Previous.Determinant < 0))
+			BeginDeferredUpdateStaticMeshes();
 		WorldBounds = TransformBounds(LocalBounds, Proxy->GetLocalToWorld());
 		RequestGPUSceneUpdate(EGPUSceneDirtyState::Transform);
 	}
@@ -537,6 +550,7 @@ namespace Durin
 		{
 			Storage.Reset();
 			Storage.Generation = Generation;
+			for (auto* Primitive : PrimitiveSceneInfos) Primitive->RequestStaticMeshUpdate();
 		}
 		if (!Storage.IsInitialized()) Storage.InitResource(Commands);
 		return Storage;
@@ -545,6 +559,18 @@ namespace Durin
 	auto FScene::InvalidateMeshPreparation() -> void
 	{
 		if (CachedDrawLists) CachedDrawLists->MeshPreparation.Reset();
+	}
+
+	auto FScene::OnStaticMeshGeometryChanged_RenderThread(const FStaticMeshRenderData& Mesh) -> void
+	{
+		CheckRenderingThread();
+		for (auto* Primitive : PrimitiveSceneInfos)
+		{
+			const auto* Proxy = dynamic_cast<const FStaticMeshSceneProxy*>(&Primitive->GetProxy());
+			if (Proxy && Proxy->GetRenderData() == &Mesh) Primitive->BeginDeferredUpdateStaticMeshes();
+		}
+		++HitProxyRevision;
+		InvalidateOcclusionHistory_RenderThread();
 	}
 
 	auto FScene::InvalidateOcclusionHistory_RenderThread() -> void
@@ -577,6 +603,7 @@ namespace Durin
 			auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform, this);
 			Info->SetVisible(bVisible);
 			GPUScene->AddPrimitive(*Info);
+			Info->RequestStaticMeshUpdate();
 			FPrimitiveSceneInfo* RawInfo = Info.get();
 			PrimitiveSceneInfos.push_back(RawInfo);
 
@@ -661,6 +688,7 @@ namespace Durin
 				++OcclusionRevision;
 				InvalidateMeshPreparation();
 				Found->second->RefreshBounds();
+				Found->second->RequestStaticMeshUpdate();
 				Found->second->RequestGPUSceneUpdate(EGPUSceneDirtyState::InstanceData);
 			}
 		});

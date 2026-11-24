@@ -85,6 +85,8 @@ namespace Durin
 		Context.Logical.Requirements = BuildSceneViewRequirements(RenderView, Options, Context.Logical.Qualification);
 		FStaticMeshPreparationCache MeshPreparationCache;
 		auto& Cache = Scene->GetCachedMeshDrawCommands(CommandList, Service.Coordinator.GetGeneration_RenderThread()).MeshPreparation;
+		const auto DirtyStaticMeshes = Scene->UpdateStaticMeshes();
+		FPrimitiveSceneInfo::CacheMeshDrawCommands(Scene, DirtyStaticMeshes, Service);
 		Cache.BeginSubmission();
 		const bool bObserveCache = IsViewRenderTelemetryObserved();
 		struct FEndCommandSubmission
