@@ -337,8 +337,6 @@ namespace Durin
 			Candidate.TexelWorldSize = {
 				2.0 * HalfX / Resolution,
 				2.0 * HalfY / Resolution};
-			Candidate.Bias = CalculateDirectionalShadowBias(
-				Candidate.TexelWorldSize, 1.0, BiasSettings);
 			double CenterX = (Minimum.x + Maximum.x) * 0.5;
 			double CenterY = (Minimum.y + Maximum.y) * 0.5;
 			CenterX = std::round(CenterX / Candidate.TexelWorldSize.x)
@@ -350,6 +348,15 @@ namespace Durin
 			Minimum.y = CenterY - HalfY;
 			Maximum.y = CenterY + HalfY;
 			Minimum.z -= DirectionalShadowCasterExtrusion;
+			Candidate.Bias = CalculateDirectionalShadowBias(
+				Candidate.TexelWorldSize, 1.0, BiasSettings);
+			// Caster extrusion expands the light depth span even in close-ups.
+			// The corner of the square PCF footprint is its furthest comparison.
+			const double FootprintDepth = Filter.FootprintRadiusTexels
+				* Math::Length(Candidate.TexelWorldSize)
+				/ (Maximum.z - Minimum.z);
+			Candidate.Bias.ComparisonDepth *= static_cast<float>(
+				std::min(1.0, FootprintDepth / DirectionalShadowComparisonDepthBias));
 			Candidate.CasterVolume.Minimum = Minimum;
 			Candidate.CasterVolume.Maximum = Maximum;
 			Candidate.LightViewMatrix = BuildWorldToLight(Right, Up, Forward);

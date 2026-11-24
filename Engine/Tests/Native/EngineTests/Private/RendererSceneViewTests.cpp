@@ -987,9 +987,15 @@ namespace Durin
 		for (uint32 Index = 0; Index < Tuned.CascadeCount; ++Index)
 		{
 			const auto& Bias = Tuned.Cascades[Index].Bias;
+			const auto& Cascade = Baseline.Cascades[Index];
+			const double DepthSpan = Cascade.CasterVolume.Maximum.z - Cascade.CasterVolume.Minimum.z;
+			const float FootprintDepth = static_cast<float>(Cascade.Filter.FootprintRadiusTexels
+				* Math::Length(Cascade.TexelWorldSize) / DepthSpan);
+			EXPECT_FLOAT_EQ(Cascade.Bias.ComparisonDepth,
+				std::min(DirectionalShadowComparisonDepthBias, FootprintDepth));
 			EXPECT_FLOAT_EQ(Bias.RasterConstant, Baseline.Cascades[Index].Bias.RasterConstant * 0.5f);
 			EXPECT_FLOAT_EQ(Bias.RasterSlope, Baseline.Cascades[Index].Bias.RasterSlope * 0.25f);
-			EXPECT_FLOAT_EQ(Bias.ComparisonDepth, DirectionalShadowComparisonDepthBias * 0.5f);
+			EXPECT_FLOAT_EQ(Bias.ComparisonDepth, Baseline.Cascades[Index].Bias.ComparisonDepth * 0.5f);
 			EXPECT_GT(Bias.NormalWorld, 0.0f);
 			EXPECT_LE(Bias.NormalWorld, DirectionalShadowMaximumNormalOffset);
 			EXPECT_FLOAT_EQ(Uniform.DirectionalShadow.Cascades[Index].TexelBias.z, Bias.ComparisonDepth);

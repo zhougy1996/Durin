@@ -205,6 +205,7 @@ namespace
 		uint32 ShadowResolution = Durin::FSceneViewDirectionalShadowSettings::DefaultResolution;
 		double ShadowDistance = Durin::FSceneViewDirectionalShadowSettings::DefaultMaxDistance;
 		bool bCullCamera = false;
+		bool bEnableFXAA = true;
 	};
 
 	// Workers receive the policy selected before dispatch, never the environment.
@@ -1005,6 +1006,24 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 		Fixture.ShadowDistance = Distance;
 		Fixtures.push_back(std::move(Fixture));
 	}
+	const size_t SlopedReference = Fixtures.size();
+	auto SlopedFloor = Fixtures[1];
+	SlopedFloor.Name += "_unshadowed";
+	SlopedFloor.bCastShadows = false;
+	Fixtures.push_back(SlopedFloor);
+	const size_t WallFoot = Fixtures.size();
+	// Top-down orthographic view. The vertical wall spans z=[0.3, 0.7]
+	// and meets the floor just left of the center pixel. Its shadow falls to +X.
+	FFixture WallFloor{.Name = "wall_floor_contact",
+		.Primitives = {{{0.0, 0.0, 0.3}, {0.88, 0.88, 1.0}},
+			{{-0.0055, 0.0, 0.5}, {0.2, 0.7, 1.0}, -90.0}},
+		.LightDirection = {1.0, 0.0, -1.0},
+		.FilterQuality = Durin::EDirectionalShadowFilterQuality::Medium,
+		.bEnableFXAA = false};
+	Fixtures.push_back(WallFloor);
+	WallFloor.Name += "_unshadowed";
+	WallFloor.bCastShadows = false;
+	Fixtures.push_back(WallFloor);
 	const size_t OffCameraStart = Fixtures.size();
 	for (auto Candidate : {Durin::EDirectionalShadowCandidate::SingleMap, Durin::EDirectionalShadowCandidate::ThreeCascades})
 	{
@@ -1095,6 +1114,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				View.ViewportWidth = CaptureWidth;
 				View.ViewportHeight = CaptureHeight;
 				View.Settings.Mode.RenderMode = Fixture.RenderMode;
+				View.Settings.PostProcess.bEnableFXAA = Fixture.bEnableFXAA;
 				View.Settings.Mode.VisibilityMode = Fixture.bCullCamera
 					? Durin::EViewVisibilityMode::Normal : Durin::EViewVisibilityMode::FrustumCullingDisabled;
 				View.Settings.DirectionalShadow.DiagnosticMode =
@@ -1211,6 +1231,31 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	}
 
 	ASSERT_EQ(Captures.size(), Fixtures.size());
+	for (const size_t SlopedIndex : {size_t{1}, MediumParityStart + 1, HighParityStart + 1})
+		EXPECT_EQ(CountChangedPixels(Captures[SlopedIndex], Captures[SlopedReference], 2), 0u)
+			<< Fixtures[SlopedIndex].Name;
+	int MaxContactExcess = 0;
+	int MaxLitLoss = 0;
+	int MinShadowContrast = 255;
+	for (uint32 Y = CaptureHeight / 4; Y < 3 * CaptureHeight / 4; ++Y)
+	{
+		const uint32 FootX = CaptureWidth / 2;
+		const int Interior = LuminanceAt(Captures[WallFoot], FootX + 12, Y);
+		MinShadowContrast = std::min(MinShadowContrast,
+			LuminanceAt(Captures[WallFoot + 1], FootX + 12, Y) - Interior);
+		for (uint32 X = FootX; X < FootX + 4; ++X)
+			MaxContactExcess = std::max(MaxContactExcess,
+				LuminanceAt(Captures[WallFoot], X, Y) - Interior);
+		for (uint32 X = CaptureWidth / 4; X < FootX - 2; ++X)
+			MaxLitLoss = std::max(MaxLitLoss, LuminanceAt(Captures[WallFoot + 1], X, Y)
+				- LuminanceAt(Captures[WallFoot], X, Y));
+	}
+	EXPECT_GT(MinShadowContrast, 30) << "wall must cast a visible shadow";
+	EXPECT_LE(MaxContactExcess, 2) << "bright seam along the wall foot";
+	EXPECT_LE(MaxLitLoss, 2) << "self-shadowing on the exposed floor";
+	std::cout << "Wall-floor max seam excess=" << MaxContactExcess
+		<< ", max exposed-floor loss=" << MaxLitLoss
+		<< ", min shadow contrast=" << MinShadowContrast << '\n';
 	for (size_t Index = OffCameraStart; Index < Fixtures.size(); Index += 2)
 		EXPECT_GT(CountChangedPixels(Captures[Index], Captures[Index + 1], 2), 0u) << Fixtures[Index].Name;
 	EXPECT_EQ(Captures[RecordingParityStart], Captures[RecordingParityStart + 1]);
