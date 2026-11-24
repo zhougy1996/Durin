@@ -81,13 +81,6 @@ namespace Durin::LevelEditor
 			TViewportModeOption{EVolumetricCloudQuality::Reference, "Reference"}
 		};
 
-		constexpr std::array VolumetricCloudDebugOptions = {
-			TViewportModeOption{EVolumetricCloudDebugMode::Radiance, "Cloud Radiance"},
-			TViewportModeOption{EVolumetricCloudDebugMode::Transmittance, "Transmittance"},
-			TViewportModeOption{EVolumetricCloudDebugMode::TemporalStatus, "Temporal Status"},
-			TViewportModeOption{EVolumetricCloudDebugMode::ShadowVisibility, "Shadow Visibility"}
-		};
-
 		constexpr std::array DirectionalShadowBiasDiagnosticOptions = {
 			TViewportModeOption{EDirectionalShadowDiagnosticMode::ShadowDepthCoverage, "Shadow Depth Coverage"},
 			TViewportModeOption{EDirectionalShadowDiagnosticMode::ReceiverUnbiased, "Receiver Unbiased"},
@@ -112,77 +105,240 @@ namespace Durin::LevelEditor
 		};
 
 		template<typename T, size_t Size>
-		auto GetModeLabel(T CurrentMode, const std::array<TViewportModeOption<T>, Size>& Options) -> const char*
+		auto GetModeLabel(T CurrentMode, const std::array<TViewportModeOption<T>, Size>& Options,
+			const char* Fallback = "Unknown") -> const char*
 		{
 			for (const TViewportModeOption<T>& Option : Options)
 			{
 				if (Option.Value == CurrentMode) return Option.Label;
 			}
-			return "Unknown";
+			return Fallback;
 		}
 
-		template<typename T, size_t Size, typename FSetMode>
-		auto DrawModeOptions(T CurrentMode, const std::array<TViewportModeOption<T>, Size>& Options, FSetMode&& SetMode) -> void
+		template<typename T, size_t Size>
+		auto DrawModeEntries(T& CurrentMode, const std::array<TViewportModeOption<T>, Size>& Options) -> bool
 		{
+			bool bChanged = false;
 			for (const TViewportModeOption<T>& Option : Options)
 			{
-				if (ImGui::RadioButton(Option.Label, Option.Value == CurrentMode)) SetMode(Option.Value);
+				const bool bSelected = Option.Value == CurrentMode;
+				if (ImGui::Selectable(Option.Label, bSelected) && !bSelected)
+				{
+					CurrentMode = Option.Value;
+					bChanged = true;
+				}
+				if (bSelected) ImGui::SetItemDefaultFocus();
 			}
+			return bChanged;
 		}
 
-		auto DrawDirectionalShadowDiagnosticOptions(FViewportClient* ViewportClient) -> void
+		template<typename T, size_t Size>
+		auto DrawModeRow(const char* Label, T& CurrentMode,
+			const std::array<TViewportModeOption<T>, Size>& Options, bool bEnabled = true,
+			MonaImGui::PropertyEdit::FLabelTooltip Tooltip = nullptr) -> bool
 		{
-			if (ViewportClient == nullptr) return;
-			const FSceneViewSettings CurrentSettings = ViewportClient->GetViewSettings();
-			const EDirectionalShadowDiagnosticMode CurrentMode =
-				CurrentSettings.DirectionalShadow.DiagnosticMode;
-			auto SetMode = [ViewportClient](EDirectionalShadowDiagnosticMode Mode) {
-				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
-				Settings.DirectionalShadow.DiagnosticMode = Mode;
-				Settings.DirectionalShadow.bShowContactDebug = false;
-				ViewportClient->SetViewSettings(Settings);
+			ImGui::PushID(Label);
+			MonaImGui::PropertyEdit::BeginRow(Label, false, 0.0f, Tooltip);
+			ImGui::BeginDisabled(!bEnabled);
+			bool bChanged = false;
+			if (ImGui::BeginCombo("##Value", GetModeLabel(CurrentMode, Options)))
+			{
+				bChanged = DrawModeEntries(CurrentMode, Options);
+				ImGui::EndCombo();
+			}
+			ImGui::EndDisabled();
+			MonaImGui::PropertyEdit::EndRow();
+			ImGui::PopID();
+			return bChanged;
+		}
+
+		auto DrawToggleRow(const char* Label, bool& bValue, bool bEnabled = true,
+			MonaImGui::PropertyEdit::FLabelTooltip Tooltip = nullptr) -> bool
+		{
+			ImGui::PushID(Label);
+			MonaImGui::PropertyEdit::BeginRow(Label, false, 0.0f, Tooltip);
+			ImGui::BeginDisabled(!bEnabled);
+			const bool bChanged = ImGui::Checkbox("##Value", &bValue);
+			ImGui::EndDisabled();
+			MonaImGui::PropertyEdit::EndRow();
+			ImGui::PopID();
+			return bChanged;
+		}
+
+		auto DrawShadowSettings(FSceneViewDirectionalShadowSettings& Shadows) -> bool
+		{
+			constexpr std::array ResolutionOptions = {
+				TViewportModeOption<uint32>{256, "256"},
+				TViewportModeOption<uint32>{512, "512"},
+				TViewportModeOption<uint32>{1024, "1024"},
+				TViewportModeOption<uint32>{2048, "2048 (Default)"},
+				TViewportModeOption<uint32>{4096, "4096"}
 			};
 
-			if (ImGui::RadioButton("Contact Shadow Contribution",
-				CurrentSettings.DirectionalShadow.bShowContactDebug))
+			bool bChanged = DrawModeRow("Resolution", Shadows.Resolution, ResolutionOptions);
+			MonaImGui::PropertyEdit::BeginRow("Max Distance");
+			ImGui::SetNextItemWidth(-ImGui::CalcTextSize("Reset").x
+				- 2.0f * ImGui::GetStyle().FramePadding.x - ImGui::GetStyle().ItemSpacing.x);
+			float Distance = static_cast<float>(Shadows.MaxDistance);
+			if (ImGui::DragFloat("##ShadowMaxDistance", &Distance, 1.0f,
+				static_cast<float>(FSceneViewDirectionalShadowSettings::MinimumMaxDistance),
+				static_cast<float>(FSceneViewDirectionalShadowSettings::MaximumMaxDistance),
+				"%.1f", ImGuiSliderFlags_AlwaysClamp))
 			{
-				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
-				Settings.DirectionalShadow.DiagnosticMode = EDirectionalShadowDiagnosticMode::Lit;
-				Settings.DirectionalShadow.bEnableContactShadows = true;
-				Settings.DirectionalShadow.bShowContactDebug = true;
-				ViewportClient->SetViewSettings(Settings);
+				Shadows.MaxDistance = Distance;
+				bChanged = true;
 			}
-			ImGui::Separator();
-			if (ImGui::BeginMenu("Coverage and Bias"))
+			ImGui::SameLine();
+			if (ImGui::Button("Reset"))
 			{
-				DrawModeOptions(CurrentMode, DirectionalShadowBiasDiagnosticOptions, SetMode);
-				ImGui::EndMenu();
+				Shadows.MaxDistance = FSceneViewDirectionalShadowSettings::DefaultMaxDistance;
+				bChanged = true;
 			}
-			if (ImGui::BeginMenu("Filtering"))
+			MonaImGui::PropertyEdit::EndRow();
+
+			bChanged |= DrawModeRow("Filter Quality", Shadows.FilterQuality, DirectionalShadowQualityOptions);
+			if (DrawToggleRow("Contact Shadows", Shadows.bEnableContactShadows))
 			{
-				DrawModeOptions(CurrentMode, DirectionalShadowFilterDiagnosticOptions, SetMode);
-				ImGui::EndMenu();
+				if (!Shadows.bEnableContactShadows) Shadows.bShowContactDebug = false;
+				bChanged = true;
 			}
-			if (ImGui::BeginMenu("Cascades"))
-			{
-				DrawModeOptions(CurrentMode, DirectionalShadowCascadeDiagnosticOptions, SetMode);
-				ImGui::EndMenu();
-			}
+			bChanged |= DrawModeRow("Visibility Route", Shadows.ContactRoutePreference, ContactShadowRouteOptions,
+				true, "Contact shadow visibility. Compute Only disables fragment fallback for A/B testing.");
+			return bChanged;
 		}
 
-		auto DrawDirectionalShadowQualityOptions(FViewportClient* ViewportClient) -> void
+		auto DrawShadowDebugRow(FSceneViewDirectionalShadowSettings& Shadows) -> bool
 		{
-			if (ViewportClient == nullptr) return;
-			const EDirectionalShadowFilterQuality CurrentQuality =
-				ViewportClient->GetViewSettings().DirectionalShadow.FilterQuality;
-			DrawModeOptions(CurrentQuality, DirectionalShadowQualityOptions,
-				[ViewportClient](EDirectionalShadowFilterQuality Quality) {
-					FSceneViewSettings Settings = ViewportClient->GetViewSettings();
-					Settings.DirectionalShadow.FilterQuality = Quality;
-					ViewportClient->SetViewSettings(Settings);
-				});
+			constexpr const char* ContactContribution = "Contact Shadow Contribution";
+			const char* Preview = "Off";
+			if (Shadows.bShowContactDebug)
+			{
+				Preview = ContactContribution;
+			}
+			else if (Shadows.DiagnosticMode != EDirectionalShadowDiagnosticMode::Lit)
+			{
+				const char* Label = GetModeLabel(Shadows.DiagnosticMode, DirectionalShadowBiasDiagnosticOptions, nullptr);
+				if (!Label) Label = GetModeLabel(Shadows.DiagnosticMode, DirectionalShadowFilterDiagnosticOptions, nullptr);
+				if (!Label) Label = GetModeLabel(Shadows.DiagnosticMode, DirectionalShadowCascadeDiagnosticOptions);
+				Preview = Label;
+			}
+
+			MonaImGui::PropertyEdit::BeginRow("Shadow");
+			bool bChanged = false;
+			if (ImGui::BeginCombo("##ShadowDebugView", Preview))
+			{
+				if (ImGui::Selectable(ContactContribution, Shadows.bShowContactDebug))
+				{
+					Shadows.DiagnosticMode = EDirectionalShadowDiagnosticMode::Lit;
+					Shadows.bEnableContactShadows = true;
+					Shadows.bShowContactDebug = true;
+					bChanged = true;
+				}
+				if (Shadows.bShowContactDebug) ImGui::SetItemDefaultFocus();
+
+				ImGui::SeparatorText("Coverage and Bias");
+				bool bModeChanged = DrawModeEntries(Shadows.DiagnosticMode, DirectionalShadowBiasDiagnosticOptions);
+				ImGui::SeparatorText("Filtering");
+				bModeChanged |= DrawModeEntries(Shadows.DiagnosticMode, DirectionalShadowFilterDiagnosticOptions);
+				ImGui::SeparatorText("Cascades");
+				bModeChanged |= DrawModeEntries(Shadows.DiagnosticMode, DirectionalShadowCascadeDiagnosticOptions);
+				if (bModeChanged)
+				{
+					Shadows.bShowContactDebug = false;
+					bChanged = true;
+				}
+				ImGui::EndCombo();
+			}
+			MonaImGui::PropertyEdit::EndRow();
+			return bChanged;
 		}
 
+		auto DrawViewportRenderSettings(FViewportClient& Client, FLevelEditorViewportClient* EditorClient,
+			const FLevelEditorContext& Context, const FViewportToolbarCapabilities& Capabilities) -> void
+		{
+			using namespace MonaImGui::PropertyEdit;
+
+			const FTableConfig TableConfig{
+				.PropertyColumnWeight = 0.4f,
+				.MinimumPropertyColumnWidthInEm = 9.5f,
+				.CellPadding = {MonaImGui::ScaleUI(5.0f), MonaImGui::ScaleUI(2.0f)},
+				.Flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit
+			};
+			if (!BeginTable("##RenderSettings", TableConfig)) return;
+
+			FSceneViewSettings Settings = Client.GetViewSettings();
+			bool bChanged = DrawModeRow("Shading", Settings.Mode.RenderMode, RenderModeOptions);
+			bChanged |= DrawModeRow("Rasterization", Settings.Mode.RasterMode, RasterModeOptions);
+
+			if (BeginGroup("PostProcessing", "Post Processing"))
+			{
+				bChanged |= DrawToggleRow("GTAO", Settings.AmbientOcclusion.bEnabled, true,
+					"Ground Truth Ambient Occlusion for indirect environment lighting in Solid Lit views.");
+				bChanged |= DrawModeRow("GTAO Quality", Settings.AmbientOcclusion.Quality,
+					GroundTruthAmbientOcclusionQualityOptions);
+				bChanged |= DrawToggleRow("Bloom", Settings.PostProcess.bEnableBloom);
+				bChanged |= DrawModeRow("Bloom Resolution", Settings.PostProcess.BloomResolution,
+					BloomResolutionOptions, Settings.PostProcess.bEnableBloom);
+				bChanged |= DrawToggleRow("FXAA", Settings.PostProcess.bEnableFXAA);
+				EndGroup();
+			}
+
+			if (BeginGroup("DirectionalShadows", "Directional Shadows", ImGuiTreeNodeFlags_None))
+			{
+				bChanged |= DrawShadowSettings(Settings.DirectionalShadow);
+				EndGroup();
+			}
+
+			if (BeginGroup("VolumetricClouds", "Volumetric Clouds", ImGuiTreeNodeFlags_None))
+			{
+				bChanged |= DrawModeRow("Quality", Settings.VolumetricCloud.Quality,
+					VolumetricCloudQualityOptions, true, "Volumetric cloud quality for this view.");
+				EndGroup();
+			}
+
+			if ((EditorClient || Context.World) && BeginGroup("Overlays", "Overlays", ImGuiTreeNodeFlags_None))
+			{
+				if (EditorClient)
+				{
+					bool bShowGrid = EditorClient->IsGridVisible();
+					if (DrawToggleRow("World Grid", bShowGrid, Capabilities.bCanEditScene))
+						EditorClient->SetGridVisible(bShowGrid);
+				}
+				if (Context.World)
+				{
+					bool bShowCollision = Context.World->IsCollisionDebugDrawEnabled();
+					if (DrawToggleRow("Collision", bShowCollision, Capabilities.bCanToggleCollision))
+						Context.World->SetCollisionDebugDrawEnabled(bShowCollision);
+				}
+				EndGroup();
+			}
+
+			if (BeginGroup("DebugViews", "Debug Views", ImGuiTreeNodeFlags_None))
+			{
+				constexpr std::array CloudDebugOptions = {
+					TViewportModeOption{EVolumetricCloudDebugMode::Lit, "Off"},
+					TViewportModeOption{EVolumetricCloudDebugMode::Radiance, "Cloud Radiance"},
+					TViewportModeOption{EVolumetricCloudDebugMode::Transmittance, "Transmittance"},
+					TViewportModeOption{EVolumetricCloudDebugMode::TemporalStatus, "Temporal Status"},
+					TViewportModeOption{EVolumetricCloudDebugMode::ShadowVisibility, "Shadow Visibility"}
+				};
+				bChanged |= DrawShadowDebugRow(Settings.DirectionalShadow);
+				bChanged |= DrawModeRow("Volumetric Clouds", Settings.VolumetricCloud.DebugMode, CloudDebugOptions);
+				BeginRow("Diagnostics");
+				if (ImGui::Button("Reset Debug Views"))
+				{
+					Settings.DirectionalShadow.DiagnosticMode = EDirectionalShadowDiagnosticMode::Lit;
+					Settings.DirectionalShadow.bShowContactDebug = false;
+					Settings.VolumetricCloud.DebugMode = EVolumetricCloudDebugMode::Lit;
+					bChanged = true;
+				}
+				EndRow();
+				EndGroup();
+			}
+
+			EndTable();
+			if (bChanged) Client.SetViewSettings(Settings);
+		}
 		auto Add(const ImVec2& A, const ImVec2& B) -> ImVec2 { return ImVec2(A.x + B.x, A.y + B.y); }
 		auto Mul(const ImVec2& Value, float Scale) -> ImVec2 { return ImVec2(Value.x * Scale, Value.y * Scale); }
 
@@ -740,11 +896,6 @@ namespace Durin::LevelEditor
 		if (RenderSettingsClient != nullptr)
 		{
 			const FSceneViewSettings& Settings = RenderSettingsClient->GetViewSettings();
-			Layout.bEnableFXAA = Settings.PostProcess.bEnableFXAA;
-			Layout.bEnableGroundTruthAmbientOcclusion =
-				Settings.AmbientOcclusion.bEnabled;
-			Layout.GroundTruthAmbientOcclusionQuality =
-				Settings.AmbientOcclusion.Quality;
 			Layout.RenderMode = Settings.Mode.RenderMode;
 			Layout.RasterMode = Settings.Mode.RasterMode;
 		}
@@ -959,248 +1110,18 @@ namespace Durin::LevelEditor
 			ImGui::OpenPopup("ViewModePopup");
 		}
 
-		SetNextToolbarPopupPosition(Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize);
-		if (ImGui::BeginPopup("ViewModePopup"))
+		if (bRenderSettingsAvailable)
 		{
-			if (Layout.bRenderSettingsTargetIsPlayWindow)
+			SetNextToolbarPopupPosition(Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize);
+			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(390.0f), 0.0f));
+			if (ImGui::BeginPopup("ViewModePopup"))
 			{
-				ImGui::TextDisabled("Target: Play Window");
+				ImGui::TextUnformatted(Layout.bRenderSettingsTargetIsPlayWindow
+					? "Play Window Render Options" : "Render Options");
 				ImGui::Separator();
+				DrawViewportRenderSettings(*RenderSettingsClient, ViewportClient, Context, Capabilities);
+				ImGui::EndPopup();
 			}
-			if (ImGui::BeginMenu("Shading"))
-			{
-				DrawModeOptions(Layout.RenderMode, RenderModeOptions, [RenderSettingsClient](ERenderMode Mode) {
-					if (RenderSettingsClient == nullptr) return;
-					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.Mode.RenderMode = Mode;
-					RenderSettingsClient->SetViewSettings(Settings);
-				});
-				ImGui::EndMenu();
-			}
-			if (ImGui::BeginMenu("Rasterization"))
-			{
-				DrawModeOptions(Layout.RasterMode, RasterModeOptions, [RenderSettingsClient](ERasterMode Mode) {
-					if (RenderSettingsClient == nullptr) return;
-					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.Mode.RasterMode = Mode;
-					RenderSettingsClient->SetViewSettings(Settings);
-				});
-				ImGui::EndMenu();
-			}
-			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Shadows"))
-			{
-				if (ImGui::BeginMenu("Directional Shadows"))
-				{
-					if (ImGui::BeginMenu("Resolution"))
-					{
-						constexpr std::array Options = {
-							TViewportModeOption<uint32>{256, "256"},
-							TViewportModeOption<uint32>{512, "512"},
-							TViewportModeOption<uint32>{1024, "1024"},
-							TViewportModeOption<uint32>{2048, "2048 (Default)"},
-							TViewportModeOption<uint32>{4096, "4096"}
-						};
-						DrawModeOptions(RenderSettingsClient->GetViewSettings().DirectionalShadow.Resolution,
-							Options, [RenderSettingsClient](uint32 Resolution) {
-								auto Settings = RenderSettingsClient->GetViewSettings();
-								Settings.DirectionalShadow.Resolution = Resolution;
-								RenderSettingsClient->SetViewSettings(Settings);
-							});
-						ImGui::EndMenu();
-					}
-					if (ImGui::BeginMenu("Distance"))
-					{
-						auto Settings = RenderSettingsClient->GetViewSettings();
-						float Distance = static_cast<float>(Settings.DirectionalShadow.MaxDistance);
-						if (ImGui::DragFloat("Max Distance", &Distance, 1.0f,
-							static_cast<float>(FSceneViewDirectionalShadowSettings::MinimumMaxDistance),
-							static_cast<float>(FSceneViewDirectionalShadowSettings::MaximumMaxDistance),
-							"%.1f", ImGuiSliderFlags_AlwaysClamp))
-						{
-							Settings.DirectionalShadow.MaxDistance = Distance;
-							RenderSettingsClient->SetViewSettings(Settings);
-						}
-						if (ImGui::Button("Reset to Default"))
-						{
-							Settings.DirectionalShadow.MaxDistance = FSceneViewDirectionalShadowSettings::DefaultMaxDistance;
-							RenderSettingsClient->SetViewSettings(Settings);
-						}
-						ImGui::EndMenu();
-					}
-					if (ImGui::BeginMenu("Filter Quality"))
-					{
-						DrawDirectionalShadowQualityOptions(RenderSettingsClient);
-						ImGui::EndMenu();
-					}
-					if (ImGui::BeginMenu("Contact Shadows"))
-					{
-						const FSceneViewSettings CurrentSettings =
-							RenderSettingsClient->GetViewSettings();
-						bool bEnabled =
-							CurrentSettings.DirectionalShadow.bEnableContactShadows;
-						if (ImGui::Checkbox("Enabled", &bEnabled))
-						{
-							FSceneViewSettings Settings =
-								RenderSettingsClient->GetViewSettings();
-							Settings.DirectionalShadow.bEnableContactShadows = bEnabled;
-							if (!bEnabled)
-								Settings.DirectionalShadow.bShowContactDebug = false;
-							RenderSettingsClient->SetViewSettings(Settings);
-						}
-						ImGui::Separator();
-						if (ImGui::BeginMenu("Visibility Route"))
-						{
-							DrawModeOptions(
-								CurrentSettings.DirectionalShadow.ContactRoutePreference,
-								ContactShadowRouteOptions,
-								[RenderSettingsClient](EContactShadowRoutePreference Route) {
-									FSceneViewSettings Settings =
-										RenderSettingsClient->GetViewSettings();
-									Settings.DirectionalShadow.ContactRoutePreference = Route;
-									RenderSettingsClient->SetViewSettings(Settings);
-								});
-							ImGui::Separator();
-							ImGui::TextDisabled(
-								"Compute Only disables fragment fallback for A/B testing.");
-							ImGui::EndMenu();
-						}
-						ImGui::EndMenu();
-					}
-					ImGui::EndMenu();
-				}
-				ImGui::EndMenu();
-			}
-			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Post Processing"))
-			{
-				if (ImGui::BeginMenu("GTAO"))
-				{
-					bool bEnabled = Layout.bEnableGroundTruthAmbientOcclusion;
-					if (ImGui::Checkbox("Enabled", &bEnabled))
-					{
-						FSceneViewSettings Settings =
-							RenderSettingsClient->GetViewSettings();
-						Settings.AmbientOcclusion.bEnabled = bEnabled;
-						RenderSettingsClient->SetViewSettings(Settings);
-					}
-					if (ImGui::IsItemHovered())
-						ImGui::SetTooltip(
-							"Ground Truth Ambient Occlusion for indirect environment lighting in Solid Lit views.");
-					ImGui::Separator();
-					ImGui::TextDisabled("Quality");
-					DrawModeOptions(
-						Layout.GroundTruthAmbientOcclusionQuality,
-						GroundTruthAmbientOcclusionQualityOptions,
-						[RenderSettingsClient](EGroundTruthAmbientOcclusionQuality Quality) {
-							FSceneViewSettings Settings =
-								RenderSettingsClient->GetViewSettings();
-							Settings.AmbientOcclusion.Quality = Quality;
-							RenderSettingsClient->SetViewSettings(Settings);
-						});
-					ImGui::EndMenu();
-				}
-				bool bEnableBloom = RenderSettingsClient->GetViewSettings().PostProcess.bEnableBloom;
-				if (ImGui::Checkbox("Bloom", &bEnableBloom))
-				{
-					auto Settings = RenderSettingsClient->GetViewSettings();
-					Settings.PostProcess.bEnableBloom = bEnableBloom;
-					RenderSettingsClient->SetViewSettings(Settings);
-				}
-				if (ImGui::BeginMenu("Bloom Resolution", bEnableBloom))
-				{
-					DrawModeOptions(
-						RenderSettingsClient->GetViewSettings().PostProcess.BloomResolution,
-						BloomResolutionOptions,
-						[RenderSettingsClient](EBloomResolution Resolution) {
-							auto Settings = RenderSettingsClient->GetViewSettings();
-							Settings.PostProcess.BloomResolution = Resolution;
-							RenderSettingsClient->SetViewSettings(Settings);
-						});
-					ImGui::EndMenu();
-				}
-				if (ImGui::BeginMenu("FXAA"))
-				{
-					bool bEnabled = Layout.bEnableFXAA;
-					if (ImGui::Checkbox("Enabled", &bEnabled))
-					{
-						FSceneViewSettings Settings =
-							RenderSettingsClient->GetViewSettings();
-						Settings.PostProcess.bEnableFXAA = bEnabled;
-						RenderSettingsClient->SetViewSettings(Settings);
-					}
-					ImGui::EndMenu();
-				}
-				ImGui::EndMenu();
-			}
-			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Volumetric Clouds"))
-			{
-				ImGui::TextDisabled("Quality");
-				DrawModeOptions(
-					RenderSettingsClient->GetViewSettings().VolumetricCloud.Quality,
-					VolumetricCloudQualityOptions,
-					[RenderSettingsClient](EVolumetricCloudQuality Quality) {
-						FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-						Settings.VolumetricCloud.Quality = Quality;
-						RenderSettingsClient->SetViewSettings(Settings);
-					});
-				ImGui::Separator();
-				ImGui::TextDisabled("Quality is view-only and does not dirty the level.");
-				ImGui::EndMenu();
-			}
-			ImGui::Separator();
-			if (ImGui::BeginMenu("Overlays"))
-			{
-				if (ViewportClient != nullptr)
-				{
-					if (!Capabilities.bCanEditScene) ImGui::BeginDisabled();
-					bool bShowGrid = ViewportClient->IsGridVisible();
-					if (ImGui::Checkbox("World Grid", &bShowGrid))
-						ViewportClient->SetGridVisible(bShowGrid);
-					if (!Capabilities.bCanEditScene) ImGui::EndDisabled();
-				}
-				if (Context.World)
-				{
-					if (!Capabilities.bCanToggleCollision) ImGui::BeginDisabled();
-					bool bShowCollision = Context.World->IsCollisionDebugDrawEnabled();
-					if (ImGui::Checkbox("Collision", &bShowCollision))
-						Context.World->SetCollisionDebugDrawEnabled(bShowCollision);
-					if (!Capabilities.bCanToggleCollision) ImGui::EndDisabled();
-				}
-				ImGui::EndMenu();
-			}
-			ImGui::Separator();
-			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Debug Views"))
-			{
-				if (ImGui::Selectable("Reset Debug Views", false, ImGuiSelectableFlags_DontClosePopups))
-				{
-					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.DirectionalShadow.DiagnosticMode = EDirectionalShadowDiagnosticMode::Lit;
-					Settings.DirectionalShadow.bShowContactDebug = false;
-					Settings.VolumetricCloud.DebugMode = EVolumetricCloudDebugMode::Lit;
-					RenderSettingsClient->SetViewSettings(Settings);
-				}
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("Disable all diagnostic views without changing production rendering settings.");
-				ImGui::Separator();
-				if (ImGui::BeginMenu("Shadow"))
-				{
-					DrawDirectionalShadowDiagnosticOptions(RenderSettingsClient);
-					ImGui::EndMenu();
-				}
-				if (ImGui::BeginMenu("Volumetric Clouds"))
-				{
-					const EVolumetricCloudDebugMode Current =
-						RenderSettingsClient->GetViewSettings().VolumetricCloud.DebugMode;
-					DrawModeOptions(Current, VolumetricCloudDebugOptions,
-						[RenderSettingsClient](EVolumetricCloudDebugMode Mode) {
-							FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-							Settings.VolumetricCloud.DebugMode = Mode;
-							RenderSettingsClient->SetViewSettings(Settings);
-						});
-					ImGui::EndMenu();
-				}
-				ImGui::EndMenu();
-			}
-			ImGui::EndPopup();
 		}
 		if (!bRenderSettingsAvailable) ImGui::EndDisabled();
 

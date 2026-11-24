@@ -28,10 +28,6 @@ namespace Durin::LevelEditor
 	// Retains responsive toolbar group placement for the current viewport size.
 	struct FViewportToolbarLayout
 	{
-		bool bEnableFXAA = true;
-		bool bEnableGroundTruthAmbientOcclusion = true;
-		EGroundTruthAmbientOcclusionQuality GroundTruthAmbientOcclusionQuality =
-			EGroundTruthAmbientOcclusionQuality::HalfResolution;
 		ERenderMode RenderMode = ERenderMode::Lit;
 		ERasterMode RasterMode = ERasterMode::Solid;
 		std::string EditModeLabel;
