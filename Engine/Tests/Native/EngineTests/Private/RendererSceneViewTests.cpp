@@ -757,6 +757,24 @@ namespace Durin
 			EXPECT_NEAR(Shadow.SplitDepths[Boundary], Expected, 1.0e-10);
 			EXPECT_LT(Shadow.SplitDepths[Boundary - 1],
 				Shadow.SplitDepths[Boundary]);
+			const auto& FarCascade = Shadow.Cascades[Boundary];
+			EXPECT_DOUBLE_EQ(FarCascade.NearDepth, Shadow.SplitDepths[Boundary]);
+			for (uint32 Corner = 0; Corner < 4; ++Corner)
+			{
+				const FVector3& Receiver = FarCascade.ReceiverCorners[Corner];
+				EXPECT_NEAR(Receiver.x, FarCascade.TransitionStartDepth, 1.0e-9);
+				for (const auto Layer : {Boundary - 1, Boundary})
+				{
+					const FVector4 Projected = Shadow.Cascades[Layer].WorldToShadowMatrix
+						* FVector4(Receiver, 1.0);
+					const FVector3 UVZ = FVector3(Projected) / Projected.w;
+					for (uint32 Axis = 0; Axis < 3; ++Axis)
+					{
+						EXPECT_GE(UVZ[Axis], -1.0e-9);
+						EXPECT_LE(UVZ[Axis], 1.0 + 1.0e-9);
+					}
+				}
+			}
 		}
 		for (uint32 CascadeIndex = 0;
 			CascadeIndex < DirectionalShadowCascadeCount; ++CascadeIndex)

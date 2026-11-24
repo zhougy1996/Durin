@@ -465,19 +465,19 @@ namespace Durin
 			const double FarDepth = Candidate.SplitDepths[CascadeIndex + 1];
 			if (!std::isfinite(NearDepth) || !std::isfinite(FarDepth)
 				|| FarDepth <= NearDepth + MatrixEpsilon) return false;
+			const double TransitionStart = CascadeIndex == 0 ? NearDepth
+				: NearDepth - DirectionalShadowTransitionFraction
+					* (FarDepth - NearDepth);
 			std::array<FVector3, 8> SliceCorners{};
 			if (RequestedCandidate == EDirectionalShadowCandidate::ThreeCascades)
 			{
 				if (!BuildReceiverSlice(
-						ReceiverFrustum, NearDepth, FarDepth, SliceCorners)) return false;
+						ReceiverFrustum, TransitionStart, FarDepth, SliceCorners)) return false;
 			}
 			else
 			{
 				SliceCorners = LegacyCorners;
 			}
-			const double TransitionStart = CascadeIndex == 0 ? NearDepth
-				: NearDepth - DirectionalShadowTransitionFraction
-					* (FarDepth - NearDepth);
 			if (!TryFitCascade(SliceCorners, Candidate.Resolution, Filter, Light.ShadowBias, Right, Up, Forward,
 					CascadeIndex, NearDepth, FarDepth, TransitionStart,
 					Candidate.Cascades[CascadeIndex])) return false;
