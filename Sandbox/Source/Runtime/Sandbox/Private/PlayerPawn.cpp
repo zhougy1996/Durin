@@ -33,10 +33,7 @@ namespace Durin::Sandbox
 		VisualComponent = CreateDefaultComponent<DStaticMeshComponent>("GrayboxVisual");
 		verify(VisualComponent->SetCollisionProfileName(CollisionProfile::NoCollision));
 		verify(VisualComponent->SetupAttachment(CapsuleComponent.Get()));
-		FTransform VisualTransform;
-		VisualTransform.Translation = GameplayTuning::VisualOffset;
-		VisualTransform.Scale3D = GameplayTuning::VisualScale;
-		VisualComponent->SetRelativeTransform(VisualTransform);
+		VisualComponent->SetRelativeTransform(CapsulePose);
 
 		CameraComponent = CreateDefaultComponent<DCameraComponent>("GameplayCamera");
 		verify(CameraComponent->SetupAttachment(CapsuleComponent.Get()));
@@ -52,7 +49,14 @@ namespace Durin::Sandbox
         auto* Defaults = bConfigured && FSoftObjectPath::TryCreate(Settings.DefaultData, DefaultData) && DefaultData.IsTopLevelAsset()
             ? LoadObject<DPlayerPawnDefaults>(DefaultData) : nullptr;
         if (Defaults && Defaults->Mesh)
-            VisualComponent->SetStaticMesh(Defaults->Mesh.Get());
+        {
+            auto* Mesh = Defaults->Mesh.Get();
+            const double BoxSide = Mesh->GetNormalizedSize();
+            const double Diameter = 2.0 * CapsuleComponent->GetCapsuleRadius();
+            const double Height = 2.0 * CapsuleComponent->GetCapsuleHalfHeight();
+            VisualComponent->SetRelativeScale3D(FVector3(Diameter, Diameter, Height) / BoxSide);
+            VisualComponent->SetStaticMesh(Mesh);
+        }
         else
             DURIN_WARN("Sandbox pawn defaults '{}' could not supply a mesh; the pawn remains playable without a visual.", Settings.DefaultData);
 

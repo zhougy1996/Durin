@@ -28,7 +28,5 @@ namespace Durin::Sandbox::GameplayTuning
 	inline constexpr double MaximumStepHeight = 0.45;
 	inline constexpr double WalkableFloorZ = 0.7;
 	inline constexpr uint32 MaximumMovementSweeps = 5;
-	inline constexpr FVector3 VisualOffset{0.0, 0.0, 1.0};
-	inline constexpr FVector3 VisualScale{0.5, 0.5, 1.0};
 	inline constexpr FVector3 CameraOffset{-6.0, 0.0, 3.0};
 }
