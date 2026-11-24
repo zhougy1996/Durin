@@ -1,4 +1,5 @@
 #include "CoreMinimal.h"
+#include "Yaml/Yaml.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
 #include <gtest/gtest.h>
@@ -51,14 +52,21 @@ namespace Durin::VulkanRHI
 
 	TEST(FVulkanInstanceNegotiationTests, ValidationPolicyIsConfigurationAware)
 	{
-		EXPECT_TRUE(ResolveVulkanValidationPolicy(nullptr, true, false).bRequestDiagnostics);
-		EXPECT_FALSE(ResolveVulkanValidationPolicy("auto", false, false).bRequestDiagnostics);
-		EXPECT_TRUE(ResolveVulkanValidationPolicy("on", false, false).bRequestDiagnostics);
-		EXPECT_FALSE(ResolveVulkanValidationPolicy("off", true, false).bRequestDiagnostics);
-		EXPECT_FALSE(ResolveVulkanValidationPolicy("on", true, true).bRequestDiagnostics);
-		const FVulkanValidationPolicy Invalid = ResolveVulkanValidationPolicy("invalid", true, false);
-		EXPECT_TRUE(Invalid.bInvalidSetting);
-		EXPECT_TRUE(Invalid.bRequestDiagnostics);
+		FYamlDocument Config;
+		ASSERT_TRUE(Config.Parse("On: on\nOff: off\nLegacy: auto\nInvalid: [on]\n"));
+		const auto Root = Config.GetRootView();
+		const auto Missing = ResolveVulkanValidationPolicy(Root.GetView("Missing"), false);
+		EXPECT_FALSE(Missing.bRequestDiagnostics);
+		EXPECT_FALSE(Missing.bInvalidSetting);
+		EXPECT_TRUE(ResolveVulkanValidationPolicy(Root.GetView("On"), false).bRequestDiagnostics);
+		EXPECT_FALSE(ResolveVulkanValidationPolicy(Root.GetView("Off"), false).bRequestDiagnostics);
+		EXPECT_FALSE(ResolveVulkanValidationPolicy(Root.GetView("On"), true).bRequestDiagnostics);
+		for (const char* Key : {"Legacy", "Invalid"})
+		{
+			const auto Invalid = ResolveVulkanValidationPolicy(Root.GetView(Key), false);
+			EXPECT_TRUE(Invalid.bInvalidSetting);
+			EXPECT_FALSE(Invalid.bRequestDiagnostics);
+		}
 	}
 
 	TEST(FVulkanInstanceNegotiationTests,

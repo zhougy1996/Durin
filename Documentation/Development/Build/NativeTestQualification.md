@@ -27,7 +27,7 @@ failure into a pass.
 
 `VulkanQueueQualificationTests` is a headless, authored-shader qualification
 target. Run `./DevTool test VulkanQueueQualificationTests --mode qualification
---report` with `DURIN_VULKAN_VALIDATION=on`. Native-event cases require
+--report`. The fixture enables `VulkanRHI.Validation`. Native-event cases require
 synchronization2 and native events and fail on unsupported devices rather than
 counting full-barrier fallback as a pass. On MoltenVK, select
 `'*NativeAliasing*'` to run only the native aliasing cases; use
@@ -87,7 +87,8 @@ On Windows, `VulkanCreationQualificationTests` and
 until test-process exit. Before the first `RHIInit`, the fixture creates and
 destroys a minimal Vulkan instance on the test main thread and acquires one reference to the validation
 DLL selected by the Vulkan loader. The bootstrap is outside measured rounds.
-It runs only when engine policy requests diagnostics; an unavailable validation
+The fixtures enable `VulkanRHI.Validation` in Debug and disable it in Release.
+The bootstrap runs only when engine policy requests diagnostics. An unavailable validation
 layer leaves ordinary RHI capability negotiation in control. Initializing the
 DLL on a short-lived RHI owner thread and retaining it afterward is insufficient
 and caused crashes in the tested layer. It does not use an SDK path override

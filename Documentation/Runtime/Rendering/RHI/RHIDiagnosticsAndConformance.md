@@ -6,13 +6,24 @@ and diagnostic shutdown ownership.
 
 Modules: RHI, VulkanRHI, MetalRHI, RenderCore, ApplicationCore
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-24
 
 ## Diagnostic Configuration and Lifetime
 
-`DURIN_VULKAN_VALIDATION` accepts `auto`, `on`, and `off`. Invalid or unset
-input resolves to `auto`; Shipping always disables diagnostics. The Khronos
-validation layer and `VK_EXT_debug_utils` are independent optional facilities.
+For a source editor launch, set `VulkanRHI.Validation` in the project's
+`Configs/DurinEditor.yaml` or in `Saved/Configs/DurinEditor.yaml` beside the
+runtime executable. Game uses `DurinGame.yaml`. Restart the application to
+apply the setting.
+
+```yaml
+VulkanRHI:
+  Validation: on
+```
+
+`on` requests diagnostics in Debug and Release. `off` and an absent setting
+disable them. Invalid values are logged once and resolve to `off`.
+Shipping always disables diagnostics. The Khronos validation layer and
+`VK_EXT_debug_utils` are independent optional facilities requested by this setting.
 Their absence or debug-messenger creation failure never prevents an otherwise
 supported backend from starting.
 

@@ -4,6 +4,7 @@
 #include "DynamicRHI.h"
 #include "Modules/ModuleManager.h"
 #include "RHIGlobals.h"
+#include "VulkanValidationTestConfig.h"
 #include <gtest/gtest.h>
 
 namespace Durin::VulkanRHI
@@ -23,15 +24,11 @@ namespace Durin::VulkanRHI
 			{
 				PreviousExecutionMode = ExistingMode;
 			}
-			if (const char* ExistingValidation =
-				std::getenv("DURIN_VULKAN_VALIDATION"))
-			{
-				PreviousValidationMode = ExistingValidation;
-			}
 			if (const char* Existing = std::getenv("DURIN_VULKAN_FULL_DESCRIPTOR_VALIDATION"))
 				PreviousDescriptorValidationMode = Existing;
 			_putenv_s("DURIN_VULKAN_FULL_DESCRIPTOR_VALIDATION", "off");
 			_putenv_s("DURIN_RHI_EXECUTION", "threaded");
+			ASSERT_TRUE(ValidationConfig.Set(DURIN_BUILD_DEBUG ? "on" : "off"));
 		}
 
 		auto TearDown() -> void override
@@ -43,14 +40,12 @@ namespace Durin::VulkanRHI
 			ExpectVulkanModuleUnloaded();
 			_putenv_s("DURIN_RHI_EXECUTION",
 				PreviousExecutionMode ? PreviousExecutionMode->c_str() : "");
-			_putenv_s("DURIN_VULKAN_VALIDATION",
-				PreviousValidationMode ? PreviousValidationMode->c_str() : "");
 			_putenv_s("DURIN_VULKAN_FULL_DESCRIPTOR_VALIDATION",
 				PreviousDescriptorValidationMode ? PreviousDescriptorValidationMode->c_str() : "");
 		}
 
 		std::optional<std::string> PreviousExecutionMode;
-		std::optional<std::string> PreviousValidationMode;
 		std::optional<std::string> PreviousDescriptorValidationMode;
+		FScopedVulkanValidationTestConfig ValidationConfig;
 	};
 }

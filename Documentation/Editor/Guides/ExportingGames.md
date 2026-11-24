@@ -75,7 +75,6 @@ Vulkan driver/runtime; an archive does not install them. Debug CRT requires an
 explicit development environment. See [delivery layout and writable storage](../../Runtime/Application/GameDeployment.md#delivery-layout-and-writable-storage)
 and [export completion](../../Runtime/Application/GameExport.md#invocation-and-completion).
 
-For an SDK-independent Debug runtime check, set `DURIN_VULKAN_VALIDATION=off`.
-Debug's default `auto` mode uses an installed Vulkan validation layer when
-available; the layer is optional development tooling, separate from the Vulkan
-driver/runtime prerequisite.
+Debug runtime checks use the default validation setting of `off`. An installed
+Vulkan validation layer is optional development tooling. To request it, use the
+[Vulkan application setting](../../Runtime/Rendering/RHI/RHIDiagnosticsAndConformance.md#diagnostic-configuration-and-lifetime).

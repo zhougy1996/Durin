@@ -5,6 +5,7 @@
 #include "VulkanTestSupport.h"
 #include "PCH.VulkanRHI.h"
 #include "VulkanExtensions.h"
+#include "VulkanValidationTestConfig.h"
 #ifdef _WIN32
 #include "Windows/WindowsPlatform.h"
 #include <dxgi1_4.h>
@@ -27,8 +28,8 @@ namespace Durin::VulkanRHI
 	inline auto PrepareCreationQualificationValidationLayer() -> bool
 	{
 #ifdef _WIN32
-		if (!ResolveVulkanValidationPolicy(std::getenv("DURIN_VULKAN_VALIDATION"),
-			DURIN_BUILD_DEBUG != 0, DURIN_BUILD_SHIPPING != 0).bRequestDiagnostics) return true;
+		if (!ResolveVulkanValidationPolicy(GetModuleConfig("VulkanRHI").GetView("Validation"),
+			DURIN_BUILD_SHIPPING != 0).bRequestDiagnostics) return true;
 		static const bool Prepared = [] {
 			const HMODULE Loader = LoadLibraryW(L"vulkan-1.dll");
 			if (!Loader) return false;
@@ -196,7 +197,9 @@ namespace Durin::VulkanRHI
 	inline auto WriteCreationHost(std::ostream& Stream) -> void
 	{
 		Stream << "build_debug=" << DURIN_BUILD_DEBUG << " build_shipping=" << DURIN_BUILD_SHIPPING << '\n';
-		for (const char* Name : {"DURIN_RHI_EXECUTION", "DURIN_VULKAN_VALIDATION", "VK_LAYER_DISABLES"})
+		Stream << "VulkanRHI.Validation="
+			<< GetModuleConfig("VulkanRHI").GetView("Validation").GetString("off") << '\n';
+		for (const char* Name : {"DURIN_RHI_EXECUTION", "VK_LAYER_DISABLES"})
 		{
 			const char* Value = std::getenv(Name);
 			Stream << Name << '=' << (Value ? Value : "<unset>") << '\n';

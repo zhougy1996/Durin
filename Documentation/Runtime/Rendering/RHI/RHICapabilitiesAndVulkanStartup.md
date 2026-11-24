@@ -84,11 +84,9 @@ requested. Surface maintenance activates only with its complete optional
 dependency. Required absence fails before `vkCreateInstance`; optional absence
 is logged once and startup continues.
 
-`DURIN_VULKAN_VALIDATION` accepts `auto`, `on`, and `off`. Unset or invalid
-values resolve to `auto`; invalid input is logged once. `auto` requests
-diagnostics only in Debug, `on` requests them in Debug or Release, `off` never
-requests them, and Shipping always disables them. The Khronos validation layer
-and debug-utils extension are independent optional diagnostics.
+Vulkan diagnostics are off by default. Use the
+[application YAML setting](RHIDiagnosticsAndConformance.md#diagnostic-configuration-and-lifetime)
+to request them before instance creation.
 
 On macOS, the MoltenVK layer-settings extension and its instance feature chain
 are attached only when advertised. A non-portability ICD can therefore run the

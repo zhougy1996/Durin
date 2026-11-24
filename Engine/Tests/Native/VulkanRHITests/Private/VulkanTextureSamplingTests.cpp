@@ -29,6 +29,7 @@
 #include "VulkanDevice.h"
 #include "VulkanContext.h"
 #include "VulkanRHITestEnvironment.h"
+#include "VulkanValidationTestConfig.h"
 
 namespace Durin
 {
@@ -2039,6 +2040,9 @@ namespace Durin
 
 	TEST(FVulkanTextureSamplingTests, DualUseTextureBindsStorageThenSampledInlineAndThreaded)
 	{
+		VulkanRHI::FScopedVulkanValidationTestConfig ValidationConfig;
+		ASSERT_TRUE(ValidationConfig.Set("on"));
+
 		FShaderCompileOptions Options;
 		Options.EntryPoints = {"VertexMain", "StorageMain", "SampleMain"};
 		Options.Frequencies = {EShaderFrequency::Vertex,
@@ -2055,23 +2059,17 @@ namespace Durin
 			struct FRHIScope
 			{
 				std::optional<std::string> PreviousExecution;
-				std::optional<std::string> PreviousValidation;
 				explicit FRHIScope(const char* Value)
 				{
 					if (const char* Existing = std::getenv("DURIN_RHI_EXECUTION"))
 						PreviousExecution = Existing;
-					if (const char* Existing = std::getenv("DURIN_VULKAN_VALIDATION"))
-						PreviousValidation = Existing;
 					_putenv_s("DURIN_RHI_EXECUTION", Value);
-					_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 				}
 				~FRHIScope()
 				{
 					if (GDynamicRHI) RHIExit();
 					_putenv_s("DURIN_RHI_EXECUTION",
 						PreviousExecution ? PreviousExecution->c_str() : "");
-					_putenv_s("DURIN_VULKAN_VALIDATION",
-						PreviousValidation ? PreviousValidation->c_str() : "");
 				}
 			} Scope(Mode);
 			ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestInitializationContext()));

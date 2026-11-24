@@ -22,6 +22,7 @@
 
 #include "ApplicationCoreGlobals.h"
 #include "VulkanDescriptorSets.h"
+#include "Misc/AppConfig.h"
 #include "Misc/Version.h"
 #include "Profiling/Profiling.h"
 
@@ -475,13 +476,13 @@ namespace Durin::VulkanRHI
 			BuildVulkanInstanceExtensionRequest(ExtensionRequestInput);
 		NegotiationInput.PlatformRequiredExtensions = ExtensionRequest.RequiredExtensions;
 		const FVulkanValidationPolicy ValidationPolicy = ResolveVulkanValidationPolicy(
-			std::getenv("DURIN_VULKAN_VALIDATION"), DURIN_BUILD_DEBUG != 0, DURIN_BUILD_SHIPPING != 0);
+			GetModuleConfig("VulkanRHI").GetView("Validation"), DURIN_BUILD_SHIPPING != 0);
 		if (ValidationPolicy.bInvalidSetting)
 		{
 			static std::atomic_bool bLoggedInvalidValidationSetting = false;
 			if (!bLoggedInvalidValidationSetting.exchange(true))
 			{
-				DURIN_ERROR("Invalid DURIN_VULKAN_VALIDATION value; expected 'auto', 'on', or 'off'. Using 'auto'.");
+				DURIN_ERROR("Invalid VulkanRHI.Validation setting. Expected 'on' or 'off'. Using 'off'.");
 			}
 		}
 		NegotiationInput.bRequestDiagnostics = ValidationPolicy.bRequestDiagnostics;

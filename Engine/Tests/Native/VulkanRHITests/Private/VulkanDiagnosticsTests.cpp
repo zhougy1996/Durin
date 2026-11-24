@@ -184,14 +184,14 @@ namespace Durin::VulkanRHI
 
 	TEST_F(FVulkanDiagnosticsIntegrationTests, OptionalDiagnosticsFollowValidationPolicy)
 	{
-		for (const char* Policy : {"off", "on"})
+		for (const std::string_view Policy : {"", "off", "on", "auto"})
 		{
 			SCOPED_TRACE(Policy);
-			_putenv_s("DURIN_VULKAN_VALIDATION", Policy);
+			ASSERT_TRUE(ValidationConfig.Set(Policy));
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
 				const auto& Availability = static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDiagnosticAvailability();
-				const bool Requested = std::string_view(Policy) == "on";
+				const bool Requested = Policy == "on" && !DURIN_BUILD_SHIPPING;
 				EXPECT_EQ(Availability.bRequested, Requested);
 				EXPECT_EQ(Availability.bDebugUtilsActive, Requested && Availability.bDebugUtilsSupported);
 				EXPECT_EQ(Availability.bMessengerActive, Availability.bDebugUtilsActive);
@@ -207,7 +207,7 @@ namespace Durin::VulkanRHI
 		for (const char* Mode : {"inline", "threaded"})
 		{
 			_putenv_s("DURIN_RHI_EXECUTION", Mode);
-			_putenv_s("DURIN_VULKAN_VALIDATION", "on");
+			ASSERT_TRUE(ValidationConfig.Set("on"));
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
 				static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDebugUtils().ResetStatistics();
@@ -297,7 +297,7 @@ namespace Durin::VulkanRHI
 		for (const char* Mode : {"inline", "threaded"})
 		{
 			_putenv_s("DURIN_RHI_EXECUTION", Mode);
-			_putenv_s("DURIN_VULKAN_VALIDATION", "off");
+			ASSERT_TRUE(ValidationConfig.Set("off"));
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
 				auto& Immediate = FRHICommandListImmediate::Get();
@@ -521,7 +521,7 @@ namespace Durin::VulkanRHI
 	TEST_F(FVulkanDiagnosticsIntegrationTests,
 		DiagnosticSnapshotComposesAuthoritiesAndResetPreservesLiveState)
 	{
-		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
+		ASSERT_TRUE(ValidationConfig.Set("on"));
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
 			FGPUTimingQueryRHIRef Query = GDynamicRHI->RHICreateGPUTimingQuery();
@@ -603,7 +603,7 @@ namespace Durin::VulkanRHI
 	{
 		std::array<FRHIDiagnosticSnapshot, 2> Snapshots;
 		const std::array Modes{"inline", "threaded"};
-		_putenv_s("DURIN_VULKAN_VALIDATION", "off");
+		ASSERT_TRUE(ValidationConfig.Set("off"));
 		for (size_t Index = 0; Index < Modes.size(); ++Index)
 		{
 			SCOPED_TRACE(Modes[Index]);

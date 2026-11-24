@@ -95,6 +95,7 @@ namespace Durin
 		protected:
 			auto SetUp() -> void override
 			{
+				ASSERT_TRUE(ValidationConfig.Set(DURIN_BUILD_DEBUG ? "on" : "off"));
 				ASSERT_TRUE(VulkanRHI::PrepareCreationQualificationValidationLayer());
 				ASSERT_TRUE(VulkanRHI::ConfigureCreationQualificationAffinity());
 				ASSERT_TRUE(VulkanRHI::ConfigureCreationQualificationHighQos());
@@ -110,6 +111,7 @@ namespace Durin
 				_putenv_s("DURIN_RHI_EXECUTION", PreviousMode ? PreviousMode->c_str() : "");
 			}
 			std::optional<std::string> PreviousMode;
+			VulkanRHI::FScopedVulkanValidationTestConfig ValidationConfig;
 		};
 	}
 

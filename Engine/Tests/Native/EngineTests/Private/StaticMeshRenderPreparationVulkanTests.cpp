@@ -3207,8 +3207,11 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 #if !defined(NDEBUG) || DURIN_WITH_TRACY
                 FAIL() << "Release GPUScene sampling requires Release with Tracy disabled.";
 #endif
-                const char* Validation = std::getenv("DURIN_VULKAN_VALIDATION");
-                ASSERT_TRUE(Validation && std::string_view(Validation) == "off");
+                FRHIDiagnosticAvailability Diagnostics;
+                GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+                    Diagnostics = GDynamicRHI->RHIGetDiagnosticSnapshot().Availability;
+                });
+                ASSERT_FALSE(Diagnostics.bRequested);
                 // Exclusive external GPU ownership is admitted by the operator;
                 // neither this fixture nor a CTest resource lock can establish it.
             }

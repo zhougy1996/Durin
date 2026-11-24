@@ -15,6 +15,7 @@
 #include "VulkanBuffer.h"
 #include "VulkanTexture.h"
 #include "VulkanTransition.h"
+#include "VulkanValidationTestConfig.h"
 #include <gtest/gtest.h>
 
 namespace Durin::VulkanRHI
@@ -50,6 +51,7 @@ namespace Durin::VulkanRHI
 				Backend = std::make_unique<FEnvironment>("DURIN_RHI_BACKEND", "vulkan");
 				Execution = std::make_unique<FEnvironment>("DURIN_RHI_EXECUTION", GetParam());
 				Split = std::make_unique<FEnvironment>("DURIN_VULKAN_SPLIT_BARRIERS", "1");
+				ASSERT_TRUE(ValidationConfig.Set("on"));
 				GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 				GIsGameThreadIdInitialized = true;
 				ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
@@ -62,6 +64,7 @@ namespace Durin::VulkanRHI
 			}
 		private:
 			std::unique_ptr<FEnvironment> Backend, Execution, Split;
+			FScopedVulkanValidationTestConfig ValidationConfig;
 		};
 		class FVulkanAliasImageAllocator final : public FRDGAllocator
 		{

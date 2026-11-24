@@ -33,7 +33,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile(ShaderPath.string(), Options);
 		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
-		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
+		ASSERT_TRUE(ValidationConfig.Set("on"));
 		for (const bool FullValidation : {false, true})
 		for (const uint32 Variant : {0u, 1u, 2u})
 		for (const char* Mode : {"inline", "threaded"})
@@ -185,7 +185,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile(ShaderPath.string(), Options);
 		ASSERT_TRUE(Compiled) << FormatShaderCompilerErrors(Compiled.Errors);
-		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
+		ASSERT_TRUE(ValidationConfig.Set("on"));
 		for (const char* Mode : {"inline", "threaded"})
 		{
 			SCOPED_TRACE(Mode);
@@ -370,7 +370,7 @@ namespace Durin::VulkanRHI
 		std::array<Durin::FByteBuffer, 2> ModePixels;
 		std::array<FRHIDiagnosticSnapshot, 2> ModeSnapshots;
 		const std::array Modes{"inline", "threaded"};
-		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
+		ASSERT_TRUE(ValidationConfig.Set("on"));
 		for (size_t ModeIndex = 0; ModeIndex < Modes.size(); ++ModeIndex)
 		{
 			SCOPED_TRACE(Modes[ModeIndex]);

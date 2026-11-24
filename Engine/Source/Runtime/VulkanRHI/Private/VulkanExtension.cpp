@@ -1,4 +1,5 @@
 #include "VulkanExtensions.h"
+#include "Yaml/Yaml.h"
 
 namespace Durin::VulkanRHI
 {
@@ -18,21 +19,14 @@ namespace Durin::VulkanRHI
 	}
 
 	auto ResolveVulkanValidationPolicy(
-		const char* ConfiguredMode,
-		bool bDebugBuild,
+		FYamlNodeView ConfiguredMode,
 		bool bShippingBuild) -> FVulkanValidationPolicy
 	{
 		FVulkanValidationPolicy Result;
-		if (bShippingBuild) return Result;
-		const std::string_view Mode = ConfiguredMode ? ConfiguredMode : "auto";
-		if (Mode == "off") return Result;
-		if (Mode == "on")
-		{
-			Result.bRequestDiagnostics = true;
-			return Result;
-		}
-		if (Mode != "auto") Result.bInvalidSetting = true;
-		Result.bRequestDiagnostics = bDebugBuild;
+		if (!ConfiguredMode.IsValid()) return Result;
+		const std::string Mode = ConfiguredMode.GetString();
+		Result.bRequestDiagnostics = Mode == "on" && !bShippingBuild;
+		Result.bInvalidSetting = Mode != "on" && Mode != "off";
 		return Result;
 	}
 

@@ -4,6 +4,8 @@
 
 #include "VulkanRHIAPI.h"
 
+namespace Durin { class FYamlNodeView; }
+
 namespace Durin::VulkanRHI
 {
 	// Classifies why a Vulkan requirement may be activated or rejected.
@@ -65,8 +67,7 @@ namespace Durin::VulkanRHI
 	};
 
 	VULKANRHI_API auto ResolveVulkanValidationPolicy(
-		const char* ConfiguredMode,
-		bool bDebugBuild,
+		FYamlNodeView ConfiguredMode,
 		bool bShippingBuild) -> FVulkanValidationPolicy;
 	VULKANRHI_API auto BuildVulkanInstanceExtensionRequest(
 		const FVulkanInstanceExtensionRequestInput& Input)
