@@ -23,8 +23,8 @@ namespace Durin
 
 		FDefaultMaterialServiceState GDefaultMaterialService;
 		FMaterialRenderProxyRef GDefaultMaterialProxy_RenderThread;
-		constexpr std::array<std::string_view, 1> GBuiltInCookRoots{
-			DefaultMaterialPackagePath};
+		constexpr std::array<std::string_view, 2> GBuiltInCookRoots{
+			DefaultMaterialPackagePath, "/Engine/Materials/DefaultCubeSky"};
 
 		auto CheckDefaultMaterialGameThread() -> void
 		{

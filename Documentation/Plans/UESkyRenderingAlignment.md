@@ -19,6 +19,18 @@ depth-equal test with depth writes off, the forward background order, and the
 current position upstream of water and cloud composition. Each submitted view,
 including previews and auxiliary views, supplies its own projection and override.
 
+Stage 1 has an authored `/Engine/Materials/DefaultCubeSky` asset. Its Unlit
+emissive graph samples in the world-position-minus-camera-position direction
+and multiplies linear radiance by `SkyTint` and `SkyIntensity`. It is an
+Engine built-in Cook root. The Win64 Debug Sandbox Game receipt, 10-package
+Cook and source-independent stage export passed. The Vulkan dome test loads
+the saved asset, binds the HDR texture and compares its center pixel to the
+legacy draw. This test removes the scene sky and supplies matching view,
+projection and combined matrices so the background cannot satisfy the check.
+The original Stage 0 mesh-interior image included the scene background and
+is superseded by this isolated check. Production draw integration, component
+override and cooked runtime rendering remain open.
+
 **Consumer inventory.** LevelEditor placement creates or transactionally
 replaces a visible SkyBox and rejects ambiguous placement. The scene accepts
 one cubemap proxy. A hidden actor publishes none. View preparation first

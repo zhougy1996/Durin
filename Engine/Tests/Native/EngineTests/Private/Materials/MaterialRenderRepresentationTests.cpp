@@ -310,8 +310,8 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	EXPECT_FALSE(Resolved.PlanningPassIdentity.bTwoSided);
 
 	const auto CookRoots = Durin::GetEngineBuiltInCookRoots();
-	ASSERT_EQ(CookRoots.size(), 1u);
-	EXPECT_EQ(CookRoots[0], Durin::DefaultMaterialPackagePath);
+	EXPECT_NE(std::ranges::find(CookRoots, Durin::DefaultMaterialPackagePath), CookRoots.end());
+	EXPECT_NE(std::ranges::find(CookRoots, "/Engine/Materials/DefaultCubeSky"), CookRoots.end());
 
 	Durin::ShutdownDefaultMaterialService();
 	EXPECT_FALSE(Durin::IsDefaultMaterialServiceAvailable());

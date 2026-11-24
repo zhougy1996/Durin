@@ -520,8 +520,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		if (!Render(MakePrincipalAxisView({1.0 - EdgeOffset, 1.0, 0.0}, {}, 17, 17), Result->FaceBoundary[1])) return;
 		if (!Render(MakePrincipalAxisView(Directions[0], {1.e9 + 19.0, -1.e9 - 7.0, 4.0}, 17, 17), Result->Translated)) return;
 		auto Perspective = MakePrincipalAxisView(Directions[0], {}, 17, 17);
-		Perspective.ViewProjectionMatrix = glm::perspectiveLH_ZO(glm::half_pi<double>(), 1.0, 0.1, 1000.0)
-			* Perspective.ViewProjectionMatrix;
+		Perspective.ViewMatrix = Perspective.ViewProjectionMatrix;
+		Perspective.ProjectionMatrix = glm::perspectiveLH_ZO(glm::half_pi<double>(), 1.0, 0.1, 1000.0);
+		Perspective.ViewProjectionMatrix = Perspective.ProjectionMatrix * Perspective.ViewMatrix;
 		if (!Render(Perspective, Result->Perspective)) return;
 
 		Durin::FSkyBoxSceneData RotatedSky;
@@ -658,8 +659,30 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			const auto Center = (8 * 17 + 8) * 4;
 			EXPECT_GT(int(Result->MeshPrototype[Center + 1]), 200);
 			EXPECT_LT(int(Result->MeshPrototype[Center]), 8);
+			FSoftObjectPath MaterialPath;
+			ASSERT_TRUE(FSoftObjectPath::TryCreate("/Engine/Materials/DefaultCubeSky.DefaultCubeSky", MaterialPath));
+			auto* CubeMaterial = LoadObject<DMaterial>(MaterialPath);
+			ASSERT_NE(CubeMaterial, nullptr);
+			ASSERT_TRUE(CubeMaterial->SetTextureParameterValue("SkyTexture", HdrCubeResult.Asset));
+			ASSERT_TRUE(CubeMaterial->SetVectorParameterValue("SkyTint", FVector3(HdrTint)));
+			ASSERT_TRUE(CubeMaterial->SetScalarParameterValue("SkyIntensity", HdrIntensity));
+			FAssetCompilingManager::Get().FinishCompilationForObject(*CubeMaterial);
+			ASSERT_TRUE(CubeMaterial->GetMaterialCompileStatus().IsCurrent());
+			Dome->SetMaterial(CubeMaterial);
+			auto MaterialProxy = Dome->CreateSceneProxy();
+			ASSERT_TRUE(MaterialProxy);
+			FSceneInterfaceTestAccess::AddPrimitiveProxy(Scene, Id, std::move(MaterialProxy), glm::scale(FMatrix(1), FVector3(-4)));
+			FByteBuffer MaterialPixels;
+			const bool MaterialDrawn = Render(Perspective, MaterialPixels);
+			FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Id);
+			FlushRenderingCommands();
+			Sphere->ReleaseResources();
+			ASSERT_TRUE(MaterialDrawn);
+			ExpectRgbNear(MaterialPixels, 17, 8, 8, HdrSourceColors[0], 12);
 		};
+		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
 		PrototypeDome();
+		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
 		Durin::FMatrix OccluderTransform = glm::translate(
 			Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5)
 		);
