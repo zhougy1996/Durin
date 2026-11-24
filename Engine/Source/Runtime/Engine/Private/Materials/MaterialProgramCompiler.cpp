@@ -279,6 +279,23 @@ namespace Durin
 		return {};
 	}
 
+	auto ValidateMaterialCompileRequest(const MIR::FCompilerInput& Input) -> std::string
+	{
+		if (auto Validation = ValidateMaterialNormalizationEnvironment(Input); !Validation) return FormatMaterialProgramDiagnostics(Validation.Diagnostics);
+		if (Input.Environment.BuilderVersion != GetMaterialBuildVersion() || Input.Environment.AdapterVersion != GetMaterialCompileAdapterVersion())
+			return "Material compiler environment identity, target, pass contract, or dependency bounds are invalid.";
+		if (Input.Sources.size() > MaterialFunctionMaxExpandedNodes) return "IR source metadata count exceeds its bound.";
+		uint64 Bytes = 0;
+		for (const auto& Source : Input.Sources)
+		{
+			Bytes += sizeof(Source) + Source.FunctionAssetPath.capacity() + Source.CallPath.capacity() * sizeof(FGuid);
+			if (Source.ExpressionIndex >= Input.IR.Nodes.size() || Source.CallPath.size() > MaterialFunctionMaxCallDepth || Source.FunctionAssetPath.size() > MaterialProgramMaxStringBytes
+				|| Bytes > MaterialFunctionMaxClosureBytes || (Source.InputIndex && *Source.InputIndex >= MaterialProgramMaxNodeInputCount) || (Source.UVFieldIndex && *Source.UVFieldIndex >= 4))
+				return "IR source metadata is invalid or exceeds its bound.";
+		}
+		return {};
+	}
+
 	auto ValidateMaterialNormalizationEnvironment(const MIR::FCompilerInput& Input) -> MIR::FNormalizationResult
 	{
 		MIR::FNormalizationResult Result;
@@ -696,6 +713,28 @@ namespace Durin
 		return {};
 	}
 
+	// Both the pre-translation request and final map depend on the effective registered permutations.
+	auto AppendMaterialShaderDependencies(FByteBuffer& Bytes, const FMaterialStaticProperties& StaticProperties,
+		const FMaterialCompilerEnvironment& Environment, EMaterialDomain Domain) -> void
+	{
+		const auto ShaderProperties = CanonicalizeMaterialShaderProperties(StaticProperties);
+		const auto Selected = SelectMaterialShaderEntries(StaticProperties, Environment.bIncludeEditorPasses, Domain, &Environment);
+		AppendLittleEndian(Bytes, static_cast<uint32>(Selected.size()));
+		for (const auto& Name : Selected)
+		{
+			const auto& D = *FindMaterialShaderEntry(Name);
+			AppendString(Bytes, D.ShaderType); AppendString(Bytes, D.Name);
+			AppendLittleEndian(Bytes, static_cast<uint8>(D.Frequency)); AppendLittleEndian(Bytes, D.PermutationId);
+			const auto Options = GetMaterialShaderCompilationOptions(Name, ShaderProperties, Domain, Environment);
+			AppendLittleEndian(Bytes, uint32(Options.Macros.size()));
+			for (const auto& M : Options.Macros) { AppendString(Bytes, M.Name); AppendLittleEndian(Bytes, uint8(M.Value.has_value())); if (M.Value) AppendString(Bytes, *M.Value); }
+			if (D.VertexFactory) {
+				const auto* VF = D.VertexFactory(); AppendString(Bytes, VF->GetName());
+				for (const auto Module : VF->GetShaderDescription().ShaderModules) AppendString(Bytes, Module); AppendString(Bytes, VF->GetShaderDescription().MaterialEntryInclude);
+			}
+		}
+	}
+
 	static auto BuildInputIdentity(
 		const FMaterialStaticProperties& StaticProperties, const FMaterialCompilerEnvironment& Environment,
 		std::span<const FMaterialParameterCollectionLayout> ActiveCollections,
@@ -761,21 +800,7 @@ namespace Durin
 		// Static selection is already represented by the selected normalized MIR.
 		// Do not salt the program identity with the request configuration itself:
 		// distinct configurations that select identical code share one retained program.
-		const auto Selected = SelectMaterialShaderEntries(StaticProperties, Environment.bIncludeEditorPasses, Domain, &Environment);
-		AppendLittleEndian(Bytes, static_cast<uint32>(Selected.size()));
-		for (const auto& Name : Selected)
-		{
-			const auto& D = *FindMaterialShaderEntry(Name);
-			AppendString(Bytes, D.ShaderType); AppendString(Bytes, D.Name);
-			AppendLittleEndian(Bytes, static_cast<uint8>(D.Frequency)); AppendLittleEndian(Bytes, D.PermutationId);
-			const auto Options = GetMaterialShaderCompilationOptions(Name, ShaderProperties, Domain, Environment);
-			AppendLittleEndian(Bytes, uint32(Options.Macros.size()));
-			for (const auto& M : Options.Macros) { AppendString(Bytes, M.Name); AppendLittleEndian(Bytes, uint8(M.Value.has_value())); if (M.Value) AppendString(Bytes, *M.Value); }
-			if (D.VertexFactory) {
-				const auto* VF = D.VertexFactory(); AppendString(Bytes, VF->GetName());
-				for (const auto Module : VF->GetShaderDescription().ShaderModules) AppendString(Bytes, Module); AppendString(Bytes, VF->GetShaderDescription().MaterialEntryInclude);
-			}
-		}
+		AppendMaterialShaderDependencies(Bytes, StaticProperties, Environment, Domain);
 		return {.Digest = FXxHash128::HashBuffer(Bytes)};
 	}
 

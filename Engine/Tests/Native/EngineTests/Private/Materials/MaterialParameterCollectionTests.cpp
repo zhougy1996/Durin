@@ -305,6 +305,9 @@ TEST_F(FMaterialParameterCollectionTests,
 	ASSERT_TRUE(First);
 	ASSERT_EQ(First->ActiveCollections.size(), 1u);
 	ASSERT_EQ(First->GetShaderMap().CollectionLayouts.size(), 1u);
+	auto MissingConsumerCollection = *First;
+	MissingConsumerCollection.ActiveCollections.clear();
+	EXPECT_FALSE(ValidateMaterialProgram(MissingConsumerCollection));
 	EXPECT_TRUE(First->GetShaderMap().CollectionLayouts.front().DefaultPayload.empty());
 	EXPECT_TRUE(First->GetShaderMap().CollectionLayouts.front().AssetPath.empty());
 	const auto FirstIdentity = First->GetShaderMap().ShaderMapId;

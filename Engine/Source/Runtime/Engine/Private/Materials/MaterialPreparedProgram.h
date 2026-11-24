@@ -11,6 +11,9 @@ namespace Durin
 	auto ValidateMaterialStageSequence(std::span<const FShaderCode> Stages, const FMaterialRenderLayout& Layout,
 		const FMaterialCompilerResourceLimits& Limits, const FMaterialShaderEntrySet& OrderedEntries)
 		-> FMaterialLayoutValidationResult;
+	auto ValidateMaterialShaderBindings(const FShaderReflectionData& Reflection, const FShaderParameterSchema& Schema,
+		EShaderFrequency Frequency, const FMaterialRenderLayout& Layout, std::span<const FMaterialParameterCollectionLayout> Collections)
+		-> std::expected<std::vector<FMaterialShaderBinding>, std::string>;
 	auto FinalizeMaterialCompilationOutput(FMaterialCompilationOutput& Output, FMaterialProgramIdentity Identity,
 		std::string_view Target, std::span<const FShaderCode> Stages, std::vector<FMaterialProgramDiagnostic>& Diagnostics) -> bool;
 	auto GetMaterialVertexFactorySourceRoots() -> std::vector<std::string>;
@@ -63,5 +66,15 @@ namespace Durin
 		bool bForceRecompile) -> FGeneratedShaderCompileRequest;
 
 	auto PrepareMaterialProgram(const MIR::FCompilerInput& Input) -> FMaterialPreparedProgram;
+	namespace MaterialBuildPrivate
+	{
+		auto FindShaderMapIdForRequest(FMaterialProgramIdentity RequestId, const MIR::FCompilerInput& Input,
+			std::vector<FMaterialTranslationSource>& Sources) -> FMaterialProgramIdentity;
+		auto RecordShaderMapRequest(FMaterialProgramIdentity RequestId, const FMaterialShaderMap& Map,
+			std::span<const FMaterialTranslationSource> Sources) -> void;
+	}
+	auto ValidateMaterialCompileRequest(const MIR::FCompilerInput& Input) -> std::string;
+	auto AppendMaterialShaderDependencies(FByteBuffer& Bytes, const FMaterialStaticProperties& Properties,
+		const FMaterialCompilerEnvironment& Environment, EMaterialDomain Domain) -> void;
 	auto ValidateMaterialNormalizationEnvironment(const MIR::FCompilerInput& Input) -> MIR::FNormalizationResult;
 }

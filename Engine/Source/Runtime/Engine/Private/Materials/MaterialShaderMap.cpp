@@ -1,4 +1,5 @@
 #include "Materials/MaterialShaderMap.h"
+#include "MaterialPreparedProgram.h"
 namespace Durin
 {
 	FMaterialShaderMap::FMaterialShaderMap() = default;
@@ -28,7 +29,18 @@ namespace Durin
 	namespace
 	{
 		std::mutex CacheMutex;
-		std::unordered_map<FMaterialProgramIdentity, std::shared_ptr<const FMaterialShaderMap>> Programs;
+		constexpr uint64 MaxMapBytes = 8ull * 1024 * 1024;
+		constexpr uint64 MaxCacheBytes = 256ull * 1024 * 1024;
+		// Equivalent raw requests can share a final map. Retain the most recent source remap.
+		struct FRetainedEntry {
+			std::shared_ptr<const FMaterialShaderMap> Map;
+			uint64 MapBytes;
+			FMaterialProgramIdentity RequestId;
+			struct FSourceIndex { uint32 Ordinal, ExpressionIndex; };
+			std::vector<FSourceIndex> Sources;
+			auto Size() const -> uint64 { return MapBytes + Sources.capacity() * sizeof(FSourceIndex); }
+		};
+		std::unordered_map<FMaterialProgramIdentity, FRetainedEntry> Programs;
 		std::deque<FMaterialProgramIdentity> Order;
 		uint64 Bytes = 0;
 	}
@@ -82,23 +94,55 @@ namespace Durin
 		return Size;
 	}
 	auto FMaterialShaderMap::FindId(FMaterialProgramIdentity Identity) -> std::shared_ptr<const FMaterialShaderMap>
-	{ std::lock_guard Lock(CacheMutex); const auto Found = Programs.find(Identity); return Found == Programs.end() ? nullptr : Found->second; }
+	{ std::lock_guard Lock(CacheMutex); const auto Found = Programs.find(Identity); return Found == Programs.end() ? nullptr : Found->second.Map; }
+
+	auto MaterialBuildPrivate::FindShaderMapIdForRequest(FMaterialProgramIdentity RequestId,
+		const MIR::FCompilerInput& Input, std::vector<FMaterialTranslationSource>& Sources) -> FMaterialProgramIdentity
+	{
+		std::lock_guard Lock(CacheMutex);
+		const auto Entry = std::ranges::find_if(Programs, [&](const auto& Pair) { return Pair.second.RequestId == RequestId; });
+		if (Entry == Programs.end()) return {};
+		Sources.reserve(Entry->second.Sources.size());
+		for (const auto& Index : Entry->second.Sources) {
+			auto& Location = Sources.emplace_back(FMaterialTranslationSource{Input.Sources[Index.Ordinal], Index.Ordinal});
+			Location.Source.ExpressionIndex = Index.ExpressionIndex;
+		}
+		return Entry->first;
+	}
+
+	auto MaterialBuildPrivate::RecordShaderMapRequest(FMaterialProgramIdentity RequestId, const FMaterialShaderMap& Map,
+		std::span<const FMaterialTranslationSource> Sources) -> void
+	{
+		std::lock_guard Lock(CacheMutex);
+		const auto Found = Programs.find(Map.ShaderMapId);
+		if (Found == Programs.end() || Found->second.Map.get() != &Map) return;
+		auto& Entry = Found->second;
+		if (Entry.RequestId == RequestId) return;
+		std::vector<FRetainedEntry::FSourceIndex> Indices;
+		Indices.reserve(Sources.size());
+		for (const auto& Location : Sources) Indices.push_back({Location.Ordinal, Location.Source.ExpressionIndex});
+		const auto Size = Entry.MapBytes + Indices.capacity() * sizeof(FRetainedEntry::FSourceIndex);
+		if (Size > MaxMapBytes || Bytes - Entry.Size() + Size > MaxCacheBytes) return;
+		Bytes = Bytes - Entry.Size() + Size;
+		Entry.Sources = std::move(Indices);
+		Entry.RequestId = RequestId;
+	}
 
 	auto FMaterialShaderMap::Register(std::shared_ptr<const FMaterialShaderMap> ShaderMap, bool Replace)
 		-> std::shared_ptr<const FMaterialShaderMap>
 	{
 		if (!ShaderMap || ShaderMap->CompiledShaders.empty()) return ShaderMap;
-		const auto Size = ShaderMap->GetRetainedBytes(); if (Size > 8ull * 1024 * 1024) return ShaderMap;
+		const auto Size = ShaderMap->GetRetainedBytes(); if (Size > MaxMapBytes) return ShaderMap;
 		std::lock_guard Lock(CacheMutex);
 		const auto Found = Programs.find(ShaderMap->ShaderMapId);
 		if (Found != Programs.end()) {
-			if (!Replace) return Found->second;
-			Bytes -= Found->second->GetRetainedBytes(); Programs.erase(Found); std::erase(Order, ShaderMap->ShaderMapId);
+			if (!Replace) return Found->second.Map;
+			Bytes -= Found->second.Size(); Programs.erase(Found); std::erase(Order, ShaderMap->ShaderMapId);
 		}
-		while (!Order.empty() && (Programs.size() >= 128 || Bytes + Size > 256ull * 1024 * 1024)) {
-			const auto Old = Order.front(); Order.pop_front(); Bytes -= Programs.at(Old)->GetRetainedBytes(); Programs.erase(Old);
+		while (!Order.empty() && (Programs.size() >= 128 || Bytes + Size > MaxCacheBytes)) {
+			const auto Old = Order.front(); Order.pop_front(); Bytes -= Programs.at(Old).Size(); Programs.erase(Old);
 		}
-		Bytes += Size; Programs.emplace(ShaderMap->ShaderMapId, ShaderMap); Order.push_back(ShaderMap->ShaderMapId); return ShaderMap;
+		Bytes += Size; Programs.emplace(ShaderMap->ShaderMapId, FRetainedEntry{ShaderMap, Size}); Order.push_back(ShaderMap->ShaderMapId); return ShaderMap;
 	}
 
 	auto FMaterialShaderMap::ClearCache() -> void { std::lock_guard Lock(CacheMutex); Programs.clear(); Order.clear(); Bytes = 0; }

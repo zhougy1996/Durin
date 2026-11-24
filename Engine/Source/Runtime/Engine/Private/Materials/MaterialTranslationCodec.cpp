@@ -154,6 +154,13 @@ namespace Durin::MaterialBuildPrivate
 			return true;
 		}
 	}
+	auto CaptureTranslationInput(const MIR::FCompilerInput& Input) -> std::shared_ptr<const FMaterialTranslationInput>
+	{
+		auto Bytes = EncodeTranslationInput(Input);
+		if (!Bytes) return {};
+		return std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Bytes, FXxHash128::HashBuffer(Bytes->GetBytes())});
+	}
+
 	auto EncodeTranslationInput(const MIR::FCompilerInput& Captured) -> std::optional<FSharedByteBuffer>
 	{
 		auto Parameters = Captured.Parameters;
@@ -216,7 +223,7 @@ namespace Durin::MaterialBuildPrivate
 			if (!MIR::EncodeCanonical(Result.IR, Canonical)) return {};
 			if (SemanticIdentity(Product) != Result.Identity) return {};
 			const auto& Environment = Consumer.Environment;
-			const auto Expected = BuildMaterialCompilationOutput(Result.IR, Result.Layout, Result.ActiveParameters, Result.ActiveCollections, Product.StaticProperties, Environment, Result.Identity);
+			auto Expected = BuildMaterialCompilationOutput(Result.IR, Result.Layout, Result.ActiveParameters, Result.ActiveCollections, Product.StaticProperties, Environment, Result.Identity);
 			if (Result.Domain != Expected.Domain || Result.Entries != Expected.Entries) return {};
 			Result.Identity = BuildMaterialProgramIdentity(Consumer.StaticProperties, Consumer.Environment, Result.ActiveCollections, Canonical, Result.Layout, Consumer.IR.Domain);
 			for (const auto& Collection : Result.ActiveCollections)
@@ -224,7 +231,20 @@ namespace Durin::MaterialBuildPrivate
 				const auto Current = std::ranges::find(Consumer.Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
 				if (Current == Consumer.Collections.end() || !Collection.HasCompatibleSchema(*Current)) return {};
 			}
-			static_cast<FMaterialCompilationOutput&>(Result) = BuildMaterialCompilationOutput(Result.IR, Result.Layout, Result.ActiveParameters, Result.ActiveCollections, Consumer.StaticProperties, Consumer.Environment, Result.Identity);
+			if (Product.StaticProperties == Consumer.StaticProperties)
+			{
+				// The validated analysis used this consumer's environment. Only its program identity changes.
+				for (auto& Entry : Expected.Entries)
+				{
+					Entry.Shader.Material.ProgramIdentity = Result.Identity;
+					if (Entry.Mesh) Entry.Mesh->Material.Material.ProgramIdentity = Result.Identity;
+				}
+				static_cast<FMaterialCompilationOutput&>(Result) = std::move(Expected);
+			}
+			else
+			{
+				static_cast<FMaterialCompilationOutput&>(Result) = BuildMaterialCompilationOutput(Result.IR, Result.Layout, Result.ActiveParameters, Result.ActiveCollections, Consumer.StaticProperties, Environment, Result.Identity);
+			}
 		}
 		else if (Result.Diagnostics.empty()) return {};
 		for (auto& Location : Product.Sources)

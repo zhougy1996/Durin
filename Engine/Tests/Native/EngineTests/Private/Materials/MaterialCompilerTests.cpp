@@ -1,4 +1,5 @@
 #include "Shader/MaterialShader.h"
+#include "MaterialShaderRegistrationTestFixture.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionArithmetic.h"
@@ -35,50 +36,6 @@
 namespace
 {
 	using namespace Durin;
-    class FM15VFParameterOwner {
-    public:
-        DURIN_BEGIN_SHADER_PARAMETERS(FM15VFParameterOwner)
-#include "Tests/M15VFParameters.inl"
-        DURIN_END_SHADER_PARAMETERS();
-        static auto GetParametersMetadata() -> const FShaderParametersMetadata*
-        { return GetShaderParametersMetadataOrNull<FM15VFParameterOwner>(); }
-    };
-	// A registered extension reuses Local geometry code without changing compiler selection.
-	auto GetM15TestFactory() -> const Durin::FVertexFactoryType*
-	{
-		using namespace Durin;
-		static const FVertexFactoryType Type("M15TestVertexFactory", EVertexFactoryFlags::None, nullptr,
-			{.ShaderModules = {"VertexFactory.LocalVertexFactory"}, .MaterialEntryInclude = "Tests/M15MaterialEntry.slang",
-			 .ShouldCompile = [](const FShaderPermutationParameters& P) { return P.Target == VulkanShaderTarget && P.PermutationId == 37; },
-			 .ModifyEnvironment = [](const FShaderPermutationParameters& P, FShaderCompileOptions& O) {
-				O.Macros.emplace_back("DURIN_M15_VF_PROOF", std::to_string(P.PermutationId));
-			 }, .ParametersMetadata = FM15VFParameterOwner::GetParametersMetadata()});
-		return &Type;
-	}
-	class FM15TestVertexShader final : public Durin::FMeshMaterialShader
-	{
-	public:
-		static auto GetMaterialCompilationDescription() -> Durin::FMaterialShaderEntryDescriptor
-		{ return {.Entry = Durin::EMaterialShaderEntry::LocalVertex, .GeometryUsage = 8, .PassUsage = 1,
-			.PermutationId = 37, .VertexFactory = &GetM15TestFactory}; }
-		static auto ShouldCompileMaterialPermutation(const Durin::FMaterialShaderPermutationParameters& P) -> bool
-		{
-			return P.Domain == Durin::EMaterialDomain::Surface && P.Quality == Durin::EMaterialQualityLevel::Low
-				&& P.FeatureLevel == Durin::ERHIFeatureLevel::SM5 && P.PermutationId == 37
-				&& (P.Properties.GeometryUsage & 8) && P.VertexFactoryType == GetM15TestFactory();
-		}
-		static auto ModifyMaterialCompilationEnvironment(const Durin::FMaterialShaderPermutationParameters& P,
-			Durin::FShaderCompileOptions& O) -> void
-		{ O.Macros.emplace_back("DURIN_M15_POLICY_PROOF", std::to_string(uint8(P.Quality))); }
-        DURIN_BEGIN_SHADER_PARAMETERS(FM15TestVertexShader)
-#include "Tests/M15VFParameters.inl"
-#include "Material/ViewParameters.inl"
-#include "Material/GPUSceneParameters.inl"
-        DURIN_END_SHADER_PARAMETERS();
-		DURIN_DECLARE_MESH_MATERIAL_SHADER(FM15TestVertexShader, Durin::FMeshMaterialShader,
-			"/Engine/StaticMeshBasePass", Durin::EShaderFrequency::Vertex, "VertexMain");
-	};
-	DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FM15TestVertexShader);
 
 	auto FindCompiledMaterialStage(const Durin::FMaterialShaderMap& Map, std::string_view Name) -> const Durin::FShaderCode&
 	{
@@ -542,7 +499,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 	EXPECT_TRUE(FindCompiledMaterialStage(Selected.GetShaderMap(), "FragmentMain").Code.SharesStorageWith(FindCompiledMaterialStage(Pixel.GetShaderMap(), "FragmentMain").Code));
 	EXPECT_TRUE(FindCompiledMaterialStage(Selected.GetShaderMap(), "VertexMain").Code.SharesStorageWith(FindCompiledMaterialStage(Pixel.GetShaderMap(), "VertexMain").Code));
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Selected));
-	for (uint32 Kind = 0; Kind < 4; ++Kind)
+	for (uint32 Kind = 0; Kind < 5; ++Kind)
 	{
 		auto Broken = Selected;
 		auto BrokenArtifact = std::make_shared<FMaterialShaderMap>(Selected.GetShaderMap());
@@ -551,6 +508,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 		if (Kind == 1) BrokenArtifact->CompiledShaders.push_back(Cold.GetShaderMap().CompiledShaders[5]);
 		if (Kind == 2) BrokenArtifact->Entries[0].Shader.OutputLayout.Version++;
 		if (Kind == 3) BrokenArtifact->CompiledShaders[0].Frequency = EShaderFrequency::Fragment;
+		if (Kind == 4) BrokenArtifact->CompiledShaders[0].Code = {};
 		EXPECT_FALSE(ValidateMaterialCompilerResult(Broken));
 	}
 	FByteBuffer Bytes;
@@ -784,6 +742,30 @@ TEST(FMaterialTranslationTests, CanonicalInputAndTypedOutputHaveIndependentConsu
 	const auto Restored = DecodeTranslationProduct(Encoded->GetBytes(), Identity, Input);
 	ASSERT_TRUE(Restored);
 	EXPECT_EQ(Restored->Diagnostics, Product.Diagnostics);
+	ASSERT_EQ(Product.StaticProperties, Input.StaticProperties);
+	auto TwoSided = Input;
+	TwoSided.StaticProperties.bTwoSided = true;
+	ASSERT_NE(Product.StaticProperties, TwoSided.StaticProperties);
+	ASSERT_EQ(Product.StaticProperties, CanonicalizeMaterialShaderProperties(TwoSided.StaticProperties));
+	const auto Fallback = DecodeTranslationProduct(Encoded->GetBytes(), Identity, TwoSided);
+	ASSERT_TRUE(Fallback);
+	const auto CheckEntries = [&](const FMaterialTranslatedProgram& Loaded, const MIR::FCompilerInput& Consumer)
+	{
+		const auto Rebuilt = BuildMaterialCompilationOutput(Loaded.IR, Loaded.Layout, Loaded.ActiveParameters,
+			Loaded.ActiveCollections, Consumer.StaticProperties, Consumer.Environment, Loaded.Identity);
+		EXPECT_EQ(Loaded.Entries, Rebuilt.Entries);
+		EXPECT_EQ(Loaded.Requirements, Rebuilt.Requirements);
+		EXPECT_TRUE(std::ranges::any_of(Loaded.Entries, [](const auto& Entry) { return Entry.Mesh.has_value(); }));
+	};
+	CheckEntries(*Restored, Input);
+	CheckEntries(*Fallback, TwoSided);
+	auto InvalidEntry = Product;
+	ASSERT_FALSE(InvalidEntry.Entries.empty());
+	InvalidEntry.Entries.front().ParameterSchemaIdentity = {};
+	const auto InvalidBytes = EncodeTranslationProduct(InvalidEntry, Identity);
+	ASSERT_TRUE(InvalidBytes);
+	EXPECT_FALSE(DecodeTranslationProduct(InvalidBytes->GetBytes(), Identity, Input));
+	EXPECT_FALSE(DecodeTranslationProduct(InvalidBytes->GetBytes(), Identity, TwoSided));
 	EXPECT_FALSE(DecodeTranslationProduct(Encoded->GetBytes(), {1, 2}, Input));
 	EXPECT_FALSE(DecodeTranslationProduct(Encoded->GetBytes().first(Encoded->size() - 1), Identity, Input));
 	FByteBuffer Wrong(Encoded->begin(), Encoded->end());

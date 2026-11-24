@@ -171,6 +171,8 @@ namespace Durin
 			auto& Map = Build.Output.Resource.ShaderMap;
 			Build.Output.Resource = {.ShaderMap = FMaterialShaderMap::Register(Map, ShaderMap->Force)};
 		}
+		if (Build && ShaderMap->CanonicalIdentity.IsValid() && Build.Output.Diagnostics.empty())
+			RecordShaderMapRequest(ShaderMap->CanonicalIdentity, *Build.Output.Resource.ShaderMap, ShaderMap->Sources);
 		auto& Programs = CompilingPrograms[ShaderMap->Force];
 		const auto Existing = Programs.find(ShaderMap->ShaderMapId);
 		if (Existing != Programs.end() && Existing->second.lock() == ShaderMap) Programs.erase(Existing);
@@ -327,6 +329,17 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	auto MaterialBuildPrivate::FMaterialCompilation::Start(std::shared_ptr<FMaterialCompilation> ShaderMap) -> void
 	{
+		if (!ShaderMap->Force && ShaderMap->CanonicalIdentity.IsValid()) {
+			const auto Id = FindShaderMapIdForRequest(ShaderMap->CanonicalIdentity, *ShaderMap->Input, ShaderMap->Sources);
+			if (Id.IsValid()) {
+				if (auto Map = FMaterialShaderMap::FindId(Id)) {
+					{ std::lock_guard Lock(ShaderMap->Mutex); ShaderMap->ShaderMapId = Id; }
+					return CompleteCompilation(ShaderMap, {.Output = {.Resource = {.ShaderMap = std::move(Map)},
+						.Status = EMaterialProgramStatus::Ok}, .RetainedHit = true});
+				}
+				ShaderMap->Sources.clear();
+			}
+		}
 		MaterialBuildPrivate::SubmitTranslation(ShaderMap->Input, ShaderMap->Force, *ShaderMap->BuildOwner,
 			[ShaderMap](FMaterialTranslatedProgram Product) {
 				try { ProcessTranslation(ShaderMap, std::move(Product)); }

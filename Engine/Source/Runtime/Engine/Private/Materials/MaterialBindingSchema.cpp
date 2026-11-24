@@ -1,4 +1,5 @@
 #include "Materials/MaterialBindingSchema.h"
+#include "MaterialPreparedProgram.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Shader/MaterialShader.h"
 #include "Shader/ShaderParameterMetadataBuilder.h"
@@ -127,11 +128,19 @@ namespace Durin
     {
         auto Schema = BuildMaterialParameterSchema(ShaderType, Layout, Collections);
         if (!Schema) return std::unexpected(Schema.error());
+        return ValidateMaterialShaderBindings(Reflection, *Schema, Frequency, Layout, Collections);
+    }
+
+    auto ValidateMaterialShaderBindings(const FShaderReflectionData& Reflection, const FShaderParameterSchema& Schema,
+        EShaderFrequency Frequency, const FMaterialRenderLayout& Layout,
+        std::span<const FMaterialParameterCollectionLayout> Collections)
+        -> std::expected<std::vector<FMaterialShaderBinding>, std::string>
+    {
         const auto Stage = Frequency == EShaderFrequency::Vertex ? EShaderStageFlags::Vertex : EShaderStageFlags::Fragment;
         if ((Frequency != EShaderFrequency::Vertex && Frequency != EShaderFrequency::Fragment)
             || std::ranges::any_of(Reflection.ResourceBindings, [&](const auto& B) { return B.StageFlags != Stage; }))
             return std::unexpected("Material parameter stage is incompatible");
-        auto Result = DescribeMaterialShaderBindings(Reflection, *Schema);
+        auto Result = DescribeMaterialShaderBindings(Reflection, Schema);
         if (!Result) return Result;
         for (auto& B : *Result)
         {

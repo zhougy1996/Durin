@@ -1019,8 +1019,15 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				return {.Error = EMaterialLayoutError::InvalidField};
 			PreviousCollection = Collection.CollectionId;
 		}
+		if (Artifact.CollectionLayouts.empty() && Result.ActiveCollections.empty())
+		{
+			// The output contract already checked reflection against this layout and empty collection set.
+			auto OrderedEntries = Artifact.RequiredEntries;
+			std::ranges::sort(OrderedEntries);
+			return ValidateMaterialStageSequence(Artifact.CompiledShaders, Artifact.Layout, {}, OrderedEntries);
+		}
 		return ValidateMaterialCompiledStages(
-			Artifact.CompiledShaders, Artifact.Layout, {}, Result.ActiveCollections, Result.GetShaderMap().RequiredEntries);
+			Artifact.CompiledShaders, Artifact.Layout, {}, Result.ActiveCollections, Artifact.RequiredEntries);
 	}
 
 	auto ValidateMaterialStageSequence(std::span<const FShaderCode> Stages,
@@ -1123,40 +1130,49 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		return Translation;
 	}
 
+	static auto MakeCommonMaterialShaderRequest(const FMaterialTranslatedProgram& Translation,
+		bool bForceRecompile) -> FGeneratedShaderCompileRequest
+	{
+		FGeneratedShaderCompileRequest Request;
+		Request.Target = Translation.Target == "metal-library-1" ? MetalLibraryShaderTarget
+			: Translation.Target == "metal-msl-2.0" ? MetalShaderTarget : VulkanShaderTarget;
+		Request.AllowedImportVirtualPrefixes = {"/Engine/"};
+		Request.bForceRecompile = bForceRecompile;
+		Request.MaximumOutputBytes = 8ull * 1024 * 1024;
+		const auto ManifestOptions = MakeMaterialShaderCompileOptions(Request.Target, {.OpacityMaskThreshold = 0.5f});
+		const auto FactoryRoots = GetMaterialVertexFactorySourceRoots();
+		for (const auto& Dependency : Translation.Dependencies)
+		{
+			const bool IsMaterialEnvironment = Dependency.VirtualPath == "/Engine/MaterialCompilerEnvironment";
+			if (!IsMaterialEnvironment && !std::ranges::contains(FactoryRoots, Dependency.VirtualPath)) continue;
+			FShaderSourceTreeDescription Tree;
+			Tree.VirtualPath = Dependency.VirtualPath;
+			Tree.ContentHash = Dependency.ContentHash;
+			Tree.EntryPoints = ManifestOptions.EntryPoints;
+			Tree.Frequencies = ManifestOptions.Frequencies;
+			Tree.Macros = ManifestOptions.Macros;
+			Tree.bCompleteClosure = true;
+			if (IsMaterialEnvironment) Request.ExpectedSourceTree = std::move(Tree);
+			else Request.AdditionalSourceTrees.push_back(std::move(Tree));
+		}
+		return Request;
+	}
+
 	auto MakeMaterialShaderCompileRequest(const FMaterialTranslatedProgram& Translation,
 		bool bForceRecompile) -> FGeneratedShaderCompileRequest
 	{
 		if (!Translation) return {};
-		const auto& Result = Translation;
-		FGeneratedShaderCompileRequest Request;
-		Request.Target = Result.Target == "metal-library-1" ? MetalLibraryShaderTarget
-			: Result.Target == "metal-msl-2.0"
-			? MetalShaderTarget : VulkanShaderTarget;
-		Request.VirtualPath = "/Generated/Materials/" + Result.Identity.ToString();
-		Request.Source = Result.GeneratedSource;
-		auto Options = MakeMaterialShaderCompileOptions(Request.Target, CanonicalizeMaterialShaderProperties(Translation.StaticProperties));
+		auto Request = MakeCommonMaterialShaderRequest(Translation, bForceRecompile);
+		Request.VirtualPath = "/Generated/Materials/" + Translation.Identity.ToString();
+		Request.Source = Translation.GeneratedSource;
+		Request.Macros = MakeMaterialShaderCompileOptions(Request.Target, CanonicalizeMaterialShaderProperties(Translation.StaticProperties)).Macros;
 		auto OrderedEntries = Translation.RequiredEntries;
 		std::ranges::sort(OrderedEntries);
 		for (const auto& Name : OrderedEntries)
 		{
 			const auto& Entry = *FindMaterialShaderEntry(Name);
-			Request.EntryPoints.emplace_back(Entry.Name); Request.Frequencies.push_back(Entry.Frequency);
-		}
-		Request.Macros = std::move(Options.Macros);
-		Request.AllowedImportVirtualPrefixes = {
-			"/Engine/"};
-		Request.bForceRecompile = bForceRecompile;
-		Request.MaximumOutputBytes = 8ull * 1024 * 1024;
-		const auto ManifestOptions = MakeMaterialShaderCompileOptions(Request.Target, {.OpacityMaskThreshold = 0.5f});
-		const auto FactoryRoots = GetMaterialVertexFactorySourceRoots();
-		for (const auto& Dependency : Result.Dependencies) {
-			if (Dependency.VirtualPath != "/Engine/MaterialCompilerEnvironment" && !std::ranges::contains(FactoryRoots, Dependency.VirtualPath)) continue;
-			FShaderSourceTreeDescription Tree;
-			Tree.VirtualPath = Dependency.VirtualPath; Tree.ContentHash = Dependency.ContentHash;
-			Tree.EntryPoints = ManifestOptions.EntryPoints;
-			Tree.Frequencies = ManifestOptions.Frequencies; Tree.Macros = ManifestOptions.Macros; Tree.bCompleteClosure = true;
-			if (Dependency.VirtualPath == "/Engine/MaterialCompilerEnvironment") Request.ExpectedSourceTree = std::move(Tree);
-			else Request.AdditionalSourceTrees.push_back(std::move(Tree));
+			Request.EntryPoints.emplace_back(Entry.Name);
+			Request.Frequencies.push_back(Entry.Frequency);
 		}
 		return Request;
 	}
@@ -1166,8 +1182,12 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 	{
 		std::vector<FGeneratedShaderCompileRequest> Requests;
 		if (!Translation) return Requests;
-		auto Base = MakeMaterialShaderCompileRequest(Translation, bForceRecompile);
-		Base.Source.clear();
+		const auto CommonRequest = MakeCommonMaterialShaderRequest(Translation, bForceRecompile);
+		FMaterialCompilerEnvironment Environment;
+		Environment.Target = Translation.Target;
+		Environment.Quality = Translation.Quality;
+		Environment.FeatureLevel = Translation.FeatureLevel;
+		Environment.bIncludeEditorPasses = Translation.bIncludeEditorPasses;
 		for (const auto& Contract : Translation.Entries)
 		{
 			const auto* Descriptor = FindMaterialShaderEntry(Contract.Shader.ShaderType);
@@ -1187,17 +1207,14 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 						return false;
 				return true;
 			});
-			auto Request = Base;
+			auto Request = CommonRequest;
 			if (!GenerateMaterialProgramSlangImpl(Projected, Translation.Layout, Translation.ActiveCollections, Request.Source,
 				Vertex ? EMaterialEvaluationStage::Vertex : EMaterialEvaluationStage::Pixel, Descriptor->VertexFactory ? Descriptor->VertexFactory() : nullptr)) return {};
 			Request.VirtualPath = "/Generated/MaterialStages/" + FXxHash128::HashBuffer(Request.Source).ToString();
 			Request.EntryPoints = {Contract.Shader.EntryPoint}; Request.Frequencies = {Contract.Shader.Frequency};
-			FMaterialCompilerEnvironment Environment;
-			Environment.Target = Translation.Target; Environment.Quality = Translation.Quality; Environment.FeatureLevel = Translation.FeatureLevel;
-			Environment.bIncludeEditorPasses = Translation.bIncludeEditorPasses;
 			Request.Macros = GetMaterialShaderCompilationOptions(Contract.Shader.ShaderType,
 				Translation.StaticProperties, Translation.IR.Domain, Environment).Macros;
-            Request.Macros.emplace_back("DURIN_PARAMETER_SCHEMA", std::format("\"{}\"", Contract.ParameterSchemaIdentity.ToString()));
+			Request.Macros.emplace_back("DURIN_PARAMETER_SCHEMA", std::format("\"{}\"", Contract.ParameterSchemaIdentity.ToString()));
 			if (!std::ranges::any_of(Request.Macros, [](const auto& M) { return M.Name == "DURIN_STAGE_PARAMETER_SPACES"; }))
 				Request.Macros.emplace_back("DURIN_STAGE_PARAMETER_SPACES", "1");
 			Requests.push_back(std::move(Request));

@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-11-23
+Last reviewed: 2026-11-24
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -682,113 +682,41 @@ not invoke template creation, and unsupported graphs require deliberate reconstr
 
 ## Compile Lifecycle and Cooked Programs
 
-`FMaterialCompilerResult` owns request configuration, Collection defaults,
-diagnostics and timing observations. Its immutable Engine `FMaterialShaderMap`
-owns program identity and target metadata, the active parameter contract, render
-layout, requirements, Collection schemas, dependencies and complete Shader collection.
-Optional `FMaterialProgramDebugData` on the ShaderMap shares MIR
-and generated source; cooked programs omit it. The result reads program metadata
-and debug data through its ShaderMap, without storing duplicate fields.
-Configuration/default rebinding copies only the result wrapper. The synchronous
-build path and asynchronous publication share the same compiled map. The cache
-retains ShaderMaps directly; it does not retain request-result wrappers or the
-first request's Collection defaults and asset paths. A retained hit creates a
-result using the current request's configuration and compatible Collection data.
-The value-returning `MIR::Compile` compatibility API copies that wrapper explicitly.
-Proxy parameter indices follow ShaderMap identity, so rebinding defaults or an
-equivalent configuration does not rebuild the parameter mapping. Existing
-assembly, publication, Cook and Renderer validation boundaries remain in force.
-Cache retention accounts for shared ShaderMap backing storage.
+The GameThread captures the graph, expanded functions, declarations, source locations
+and effective properties into a detached request for one material resource.
+`FShaderCompilingManager` owns admission, request coalescing, stage jobs and
+completion. It participates in the [asset compilation aggregate](../../Assets/Build/AssetCompilation.md)
+as `Durin.Shader`. The material lifecycle owns edit scheduling and installation.
 
-[Shader stage selection and sharing](MaterialShaderStages.md) owns geometry/Pass
-usage declarations, editor/Game stage sets and reusable stage cache identities.
+1. Validate the request, including builder and adapter versions, before coalescing.
+   The request key covers the encoded translation input, compiler, target, pass contract,
+   source dependencies and effective registered shader and vertex factory permutations.
+2. For ordinary asset requests, resolve the request key to a retained map ID and
+   call `FMaterialShaderMap::FindId` before translation. Each resident map remembers
+   its latest raw request and normalized source ordinals. Reconstruct locations from
+   the current capture. Eviction, replacement or clearing the map drops this association.
+3. On a miss, submit `Material.Translate`, then look up or join by the final
+   normalized program identity. Different raw requests can share the same final map.
+   Compile the [required stages](MaterialShaderStages.md) on a final miss. Force
+   bypasses retained lookup and cache reads. Register a successful map before
+   retiring its in-flight identity.
+4. Deliver asynchronous asset results through the same mailbox on a hit or miss.
+   The GameThread checks the
+   resource still owns the request, binds current parameters and collection defaults,
+   validates the program and publishes it. Cooked maps omit the optional MIR and
+   generated-source debug data.
 
-Engine registers `DMaterial` and `DMaterialInstance` with its
-[asset-compilation aggregate](../../Assets/Build/AssetCompilation.md) between task-system
-startup and shutdown. `DMaterialInterface` owns non-reflected compilation state.
-Engine's `FShaderCompilingManager` directly implements `IAssetCompilingManager`.
-The asset framework registers it once as `Durin.Shader`, routing material classes
-to the same manager that owns global Shader requests. There is no separate
-material asset compiler or material-program compiling manager.
-The manager owns one active material compilation collection, captured-request and
-semantic identity indexes, and a result mailbox. Detached resource dependencies live
-on each Engine-private `FMaterialCompilation`; asset capture, edit scheduling,
-dependency invalidation and installation remain in the material lifecycle.
-`FMaterialCompilation::Compile` admits an internal request and returns its handle.
-The request owns cancellation, resource dependencies, translation,
-Shader job-group handle and completion callback. A null handle means the manager
-is stopped or the call is invalid; execution pressure never rejects a request. Final assembly constructs a separate `FMaterialShaderMap`;
-the public map has no compilation entry point, compiling ID, request state or
-translation/Shader compiler assembly interface. `MaterialCompileTypes.h` and
-`ShaderCompilingManager.h` are Engine-private implementation headers. External
-asset consumers use the material lifecycle and asset-compilation interfaces.
-`ShaderCompilingManagerAssets.cpp` owns aggregate integration, reload dispatch
-and owner pumps; `MaterialCompileLifecycle.cpp` owns edit scheduling, request
-initialization and installation. Capture and submission form one resource operation;
-callers do not initialize request state separately. `RequestId` is an attempt identity, not an authored-content version.
-The shared manager owns admission, translation and assembly tasks, semantic
-identity joining, atomic cache publication, priority, cancellation, end-boundary
-waits and cleanup. Asset admission derives from the manager and asset framework
-state. Completed requests release captures and task owners through
-one cleanup path after callbacks finish; mailbox publication remains a GameThread step.
-Material stage jobs and global Shader preparation share its indexed completion,
-two-job dispatch window and aggregate output allowance. Material ShaderMaps have
-no second stage queue, dispatch driver, output slots or reservation counters.
-ShaderBuild remains an independent source/compiler/DDC backend and depends on
-neither Engine nor the asset framework. Engine owns the authored compilation
-entry points; RenderCore owns source-independent values and GPU resources.
-Stopping admission rejects new public material and Shader requests while allowing
-already-admitted material translations to submit their stage jobs and drain.
-Asset statistics count each resource dependency once; its lower-level Shader job
-group is not counted again. Standalone Shader job groups participate in the same
-remaining-work count and `FinishAllCompilation`. ShaderMap does not access manager
-locks or containers directly.
-`BindMaterialProgramCollections` is the private configuration/default binding interface. Cache
-hits and shared compilation subscribers bind at request completion; fanout does
-not prebind subscriber results. The manager
-binds each captured asset request when it prepares publication.
-`FindId`, `Register` and content cache accounting belong to ShaderMap;
-request-result rebinding belongs to the private lifecycle; the old program-cache service is removed. Persistent translation and
-individual Shader DDC formats remain unchanged. `FinishCompilation`, `CancelCompilation`,
-`IsCompiling` and `ProcessAsyncTasks` provide waiting, cancellation, end-boundary
-queries and cleanup. Assets, synchronous tools and Cook use this same
-submission interface. A material-to-current-request index covers compilation, detached fanout and
-queued publication, avoiding full request scans for status and cancellation.
-The compiler directly applies completed material results and updates
-outstanding-consumer counts internally. Completion operations own their
-notification batches; callers supply neither publication callbacks nor separate
-counter updates.
-Accepted first and coalesced requests both use `Running`; editor presentation
-does not distinguish them as separate execution phases. TaskRuntime queues CPU
-work and the shared Shader job driver dispatches stage work. There is no material
-capacity-admission result or owner-side capacity retry.
-Canonical captured requests coalesce through the manager's request index;
-that index does not own a second active collection or cleanup path.
-Each private request uses the manager's semantic identity index to share compilation and
-fan out results across assets, synchronous tools and Cook; no reverse joining callback transfers asset
-consumers between separate compile records. Each subscriber retains its own cancellation
-latch, normalized source mapping and configuration. Removing its last asset
-consumer cancels that subscription. The shared producer cancels only when all
-subscriptions cancel, and selected finish waits for its shared request end.
-Cancellation and priority resolve the producer through the existing in-flight
-identity index and verify that the request is still one of its dependencies.
-There is no reverse producer pointer on each subscriber; a replacement producer
-under the same identity cannot be affected by an older request.
-Cancellation observers run outside the manager lock before latched flags are
-rechecked under that lock.
-GameThread snapshots root graph/declarations, expanded functions, source mappings
-and effective owner properties into a detached request. A task-backed
-`Material.Translate` session normalizes MIR and generates Slang; successful
-translations join by final semantic program identity before asynchronous
-a shared Shader job-group submission. A CPU continuation validates and assembles
-the exact required set, then the GameThread mailbox applies the qualified candidate. Neither
-translation nor Shader cache I/O holds a material producer worker. Workers retain no
-`DObject`, editor, Renderer, RHI, registry, or borrowed-container state. The
-only synchronous compatibility path is process bootstrap or tooling without an
-active compiling manager; construction in a running engine does not compile
-before its object handle exists. `PostLoad`, authored edits, reload, and the
-explicit editor action use the asynchronous owner. MaterialEditor selects a
-transient working-copy root edit policy: Automatic coalesces semantic edits for 400 ms, Manual
+Subscribers keep independent cancellation, source attribution and configuration.
+Cancel the producer only when all subscriptions cancel. Wait for the shared
+owner's end boundary before retiring its work. Stopping admission still permits
+admitted requests to submit their remaining stage jobs and drain.
+
+For changes to lookup or invalidation, run `MaterialCompileLifecycleTests`
+for publication and registration changes, and `MaterialCompilerTests` for
+translation repair and map sharing. Measure end-to-end retained hits with
+`FMaterialQualificationTests.RetainedShaderMapRequestToPublication` in qualification mode.
+
+MaterialEditor selects a transient working-copy root edit policy: Automatic coalesces semantic edits for 400 ms, Manual
 leaves the authored revision unsubmitted, and Immediate preserves non-editor
 callers' existing behavior. Loaded instances inherit the root policy. Scheduled
 edit deadlines live in material-side scheduling state and use their own bounded
@@ -900,27 +828,10 @@ collection defaults/asset paths and consumer source
 GUIDs/paths. Cached locations use snapshot-relative ordinals and remap for each
 consumer; final program identity binds the current compiler, target and verified
 immutable dependency closure. Typed invalid hits rebuild once without querying
-the cache. Force bypasses translation, retained programs and Shader output reuse.
-Captured canonical bytes and input identity are reused for submission and hit
-repair. Translation produces a dedicated CPU product with paired source/ordinal
-records; final assembly alone creates shader-bearing compiler results. Inline and
-task execution share completion, typed validation, repair and retained-program
-handling, with waiting restricted to the caller boundary. The program manager owns
-program lookup and retention policy for asset, synchronous and Cook builds.
-Lookup/join and completion coordinate through the same manager lock: successful
-results enter retention before their in-flight identity is removed. Manager
-callbacks return configuration-bound results; synchronous wrappers and Cook do
-not bind the same input again. Asset fanout still binds each coalesced consumer's
-configuration and Collection defaults, and publication refreshes live defaults.
-Registration installs
-the translation function once; Engine startup explicitly opens sessions and
-shutdown closes/drains them. Submission never reopens closed sessions. Translation
-completion explicitly selects compile, retained reuse, or joining a program
-flight. Canonical asset flights retain their consumer accounting; semantic joining
-tracks the existing program's completion boundary. Consumer validation runs once per
-submission; typed hit repair reuses that validated immutable input and preserves
-structured normalization errors. Program-cache entries retain their charged size
-for replacement and eviction.
+the cache. A forced request rebuilds the translation and shader outputs.
+Capture and typed cache repair share the immutable encoded bytes and their digest.
+Repair retries once under the same request owner. Engine opens the translation
+session at startup and drains it at shutdown.
 Completion detaches consumers under the manager lock, builds per-consumer results
 outside it, then commits the mailbox under the lock. Detached completions remain
 visible to owner queries and cancellation, and their compile records remain retained

@@ -1,4 +1,6 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
+#include "MaterialShaderRegistrationTestFixture.h"
+#include "Materials/MaterialTranslation.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionSwitch.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -404,6 +406,75 @@ namespace
 			return Object;
 		}
 	};
+}
+
+TEST_F(FMaterialAsyncCompileTests, RetainedRequestTracksShaderAndVertexFactoryRegistrations)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("RetainedRegistrationChanges");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialCompilerEnvironment Environment;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, VulkanShaderTarget));
+	Environment.Quality = EMaterialQualityLevel::Low;
+	Environment.FeatureLevel = ERHIFeatureLevel::SM5;
+	auto Capture = SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_TRUE(Capture);
+	auto Input = Capture.Snapshot->Input;
+	Input.StaticProperties.GeometryUsage = 8;
+	Input.StaticProperties.PassUsage = 1;
+	struct FRestore {
+		~FRestore() { UseAlternateShaderMacro = false; UseAlternateFactory = false; UseAlternateShaderType = false; }
+	} Restore;
+	auto Compile = [&](bool Force = false) {
+		EXPECT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*Material, Input, Force));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+		return Material->GetAcceptedCompiledProgram(Environment.FeatureLevel, Environment.Quality);
+	};
+	auto Initial = Compile();
+	ASSERT_TRUE(Initial);
+	const auto Before = MaterialBuildPrivate::GetTranslationStats();
+	auto Warm = Compile();
+	ASSERT_TRUE(Warm);
+	EXPECT_EQ(Warm->ShaderMap, Initial->ShaderMap);
+	EXPECT_EQ(MaterialBuildPrivate::GetTranslationStats().Hits, Before.Hits);
+	EXPECT_EQ(MaterialBuildPrivate::GetTranslationStats().Producers, Before.Producers);
+
+	UseAlternateShaderMacro = true;
+	auto ShaderChange = Compile();
+	ASSERT_TRUE(ShaderChange);
+	EXPECT_NE(ShaderChange->GetShaderMap().ShaderMapId, Initial->GetShaderMap().ShaderMapId);
+	// Register a different shader under the same input, entry point and source path.
+	static const auto Alternate = MakeMeshMaterialShaderType<FM15TestVertexShader>(
+		"FM15AlternateVertexShader", FM15TestVertexShader::MeshMaterialShaderVirtualPath(),
+		EShaderFrequency::Vertex, "VertexMain", FM15TestVertexShader::GetParametersMetadata());
+	UseAlternateShaderType = true;
+	auto RegistrationChange = Compile();
+	ASSERT_TRUE(RegistrationChange);
+	EXPECT_NE(RegistrationChange->GetShaderMap().ShaderMapId, ShaderChange->GetShaderMap().ShaderMapId);
+	EXPECT_TRUE(std::ranges::contains(RegistrationChange->GetShaderMap().RequiredEntries, Alternate.GetName()));
+
+	UseAlternateFactory = true;
+	auto FactoryChange = Compile();
+	ASSERT_TRUE(FactoryChange);
+	EXPECT_NE(FactoryChange->GetShaderMap().ShaderMapId, RegistrationChange->GetShaderMap().ShaderMapId);
+	EXPECT_TRUE(std::ranges::any_of(FactoryChange->GetShaderMap().Entries, [](const auto& Entry) {
+		return Entry.Mesh && Entry.Mesh->VertexFactoryType == "M15AlternateVertexFactory";
+	}));
+
+	auto Forced = Compile(true);
+	ASSERT_TRUE(Forced);
+	EXPECT_NE(Forced->ShaderMap, FactoryChange->ShaderMap);
+	EXPECT_EQ(Forced->GetShaderMap().ShaderMapId, FactoryChange->GetShaderMap().ShaderMapId);
+	++Input.Environment.BuilderVersion;
+	EXPECT_FALSE(Compile());
+	--Input.Environment.BuilderVersion;
+	++Input.Environment.AdapterVersion;
+	EXPECT_FALSE(Compile());
+	--Input.Environment.AdapterVersion;
+	FMaterialShaderMap::ClearCache();
+	auto AfterClear = Compile();
+	ASSERT_TRUE(AfterClear);
+	EXPECT_NE(AfterClear->ShaderMap, Forced->ShaderMap);
 }
 
 TEST_F(FMaterialAsyncCompileTests, ShaderPrecompileModesFinishAuthoredWorkAndReusePendingRequests)

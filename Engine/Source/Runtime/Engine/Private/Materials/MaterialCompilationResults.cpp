@@ -70,17 +70,20 @@ namespace Durin
 			++MaterialStatistics.AcceptedRequests; ++MaterialStatistics.FailedRequests; ++OutstandingMaterialConsumers;
 		};
 		if (!IsAcceptingMaterialRequests()) { Fail("Shader compilation manager is stopped."); return; }
-		auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(*Request->CompilerInput);
-		if (!Encoded) { Fail("Material translation input could not be encoded."); return; }
-		auto TranslationInput = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Encoded, FXxHash128::HashBuffer(Encoded->GetBytes())});
+		const auto& Captured = *Request->CompilerInput;
+		if (auto Error = ValidateMaterialCompileRequest(Captured); !Error.empty()) { Fail(std::move(Error)); return; }
+		auto TranslationInput = MaterialBuildPrivate::CaptureTranslationInput(Captured);
+		if (!TranslationInput) { Fail("Material translation input could not be encoded."); return; }
 		FBinaryWriter Identity;
 		Identity.WriteHash128(TranslationInput->Identity);
-		const auto& Environment = Request->CompilerInput->Environment;
+		const auto& Environment = Captured.Environment;
 		Identity.WriteString(Environment.CompilerIdentity); Identity.WriteString(Environment.Target); Identity.WriteU32(Environment.PassContractVersion);
 		auto Dependencies = Environment.Dependencies;
 		std::ranges::sort(Dependencies, {}, &FMaterialCompilerDependency::VirtualPath);
 		for (const auto& Dependency : Dependencies) { Identity.WriteString(Dependency.VirtualPath); Identity.WriteHash128(Dependency.ContentHash); }
-		const FMaterialCompileKey Key{.Identity = {.Digest = FXxHash128::HashBuffer(Identity.GetBytes())}, .bForceRecompile = Request->bForceRecompile};
+		auto RequestBytes = Identity.TakeBytes();
+		AppendMaterialShaderDependencies(RequestBytes, Captured.StaticProperties, Environment, Captured.IR.Domain);
+		const FMaterialCompileKey Key{.Identity = {.Digest = FXxHash128::HashBuffer(RequestBytes)}, .bForceRecompile = Request->bForceRecompile};
 		FShaderMapPtr NewShaderMap;
 		{
 			std::lock_guard Lock(MaterialMutex);
