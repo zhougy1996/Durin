@@ -4,7 +4,7 @@ Summary: Define whole-object and array operation records, collector ownership, a
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-11-22
+Last reviewed: 2026-11-24
 
 ## Scope
 
@@ -20,16 +20,11 @@ run on the game thread under CoreDObject's synchronous collection contract.
 
 ## Custom Replay Results
 
-`FCommandChange` exposes synchronous Apply/Revert with a generic owned message
-and a recovery-required disposition. It carries no Actor or Material error types,
-deferred completion, or synchronous qualification flag. Initial domain execution
-is separate from StoreUndo retention; Undo calls Revert and Redo calls Apply.
-
-LevelEditor transform gizmo changes retain typed `FActorChangeError` in their
-domain adapter. MaterialEditor owns its independent `FMaterialChangeError`,
-including material diagnostic causes. Domain composition and rollback preserve
-these causes until conversion at the generic history boundary. During Undo or Redo, any domain error or exception follows the buffer execution-failure contract.
-Descriptions/details are presentation metadata and do not store failure state.
+Undo calls Revert and Redo calls Apply on already-recorded commands.
+ValidateReplay can refuse an operation before writes begin. During execution
+the buffer reports a command error or exception as a terminal fault. A domain
+error's recovery flag does not change the buffer's behavior.
+See [replay outcomes](Transactors.md#replay-outcomes).
 
 Bound custom records retain an exact owning object for UE-style per-object
 recording and object summaries. Custom changes declare modified objects through

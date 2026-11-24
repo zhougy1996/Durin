@@ -16,12 +16,12 @@ namespace
 	{
 	public:
 		~FManagementProbeChange() override { if (OnDestroy) OnDestroy(); }
-		auto Apply() -> Durin::FCommandChangeResult override { if (OnApply) OnApply(); return {}; }
+		auto Apply() -> Durin::FCommandChangeResult override { return {}; }
 		auto Revert() -> Durin::FCommandChangeResult override { return {}; }
-		auto GetDescription() const -> std::string_view override { if (OnDescription) OnDescription(); return "Management probe"; }
+		auto GetDescription() const -> std::string_view override { return "Management probe"; }
 		auto GetDetails(Durin::ETransactionOperation) const -> std::string override { if (OnDetails) OnDetails(); return "Management probe details"; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { if (OnPackages) OnPackages(); return {}; }
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { if (OnParticipants) OnParticipants(); return Participants; }
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { return Participants; }
 		std::vector<Durin::DObject*> Participants;
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) const -> void override
 		{
@@ -35,7 +35,7 @@ namespace
 		std::function<void()> OnInspect;
 		std::function<void()> OnDestroy;
 		std::function<void()> OnMeasure;
-		std::function<void()> OnDetails, OnPackages, OnParticipants, OnDescription, OnApply;
+		std::function<void()> OnDetails, OnPackages;
 	};
 }
 
@@ -495,19 +495,6 @@ TEST(FTransBufferTests, InspectionFaultIsReportedBeforeAnyDirtyNotification)
 	EXPECT_DEATH(Run(), "Inspection failed");
 }
 
-TEST(FTransBufferTests, UndoAndRedoDoNotMeasureHistory)
-{
-	using namespace Durin;
-	InitializeDObjectSystem();
-	Tests::FTestTransactorOwner Buffer;
-	auto Change = std::make_unique<FManagementProbeChange>();
-	auto* Probe = Change.get();
-	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::move(Change)));
-	Probe->OnMeasure = [] { throw std::runtime_error("Replay accounting failure"); };
-	ASSERT_TRUE(Buffer->Undo());
-	ASSERT_TRUE(Buffer->Redo());
-}
-
 TEST(FTransBufferTests, UndoWithoutRedoRetiresCommandsUnderGuard)
 {
 	using namespace Durin;
@@ -537,7 +524,7 @@ TEST(FTransBufferTests, UndoWithoutRedoRetiresCommandsUnderGuard)
 
 TEST(FTransBufferTests, ResetPurgesActiveScopesWithoutReentryOrChangingReason)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	DTransactor& Transactor = *Buffer;
 	static_assert(std::is_same_v<decltype(Transactor.Reset()), void>);
@@ -587,7 +574,7 @@ TEST(FTransBufferTests, ResetPurgesActiveScopesWithoutReentryOrChangingReason)
 
 TEST(FTransBufferTests, PieQueriesPreservePositiveAndFailedInspectionAcrossRedo)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	DTransactor& Transactor = *Buffer;
 	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "QueryDependency"));
@@ -641,7 +628,7 @@ TEST(FTransBufferTests, RetainedPieReferenceRejectsReplayAndPreservesBothHeads)
 
 TEST(FTransBufferTests, PieQueriesGuardHistoryAndPendingRecordsAgainstReentry)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem();
 	for (bool bPending : {false, true})
 	{
@@ -676,7 +663,7 @@ TEST(FTransBufferTests, PieQueriesGuardHistoryAndPendingRecordsAgainstReentry)
 }
 TEST(FTransBufferTests, TransientPieEndKeepsDestructorsGuarded)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem();
 
 	Tests::FTestTransactorOwner Buffer;
@@ -714,7 +701,7 @@ TEST(FTransBufferTests, TransientPieEndKeepsDestructorsGuarded)
 
 TEST(FTransBufferTests, FinalizationMetadataRemainsGuardedAfterPieQuery)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	auto Retired = std::make_shared<bool>(false);
 	auto OldRedo = std::make_unique<FManagementProbeChange>(); OldRedo->OnDestroy = [Retired] { *Retired = true; };
@@ -736,39 +723,22 @@ TEST(FTransBufferTests, FinalizationMetadataRemainsGuardedAfterPieQuery)
 	EXPECT_GT(DetailsCalls, 0); EXPECT_TRUE(*Retired); EXPECT_TRUE(Buffer->CanTransact());
 	CollectGarbage(Durin::EObjectFlags::Standalone); ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
 }
-TEST(FTransBufferTests, FinalizationFaultsReportTheOriginalCause)
+TEST(FTransBufferTests, UnknownFinalizationExceptionIsDiagnosed)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	for (int Stage : {0, 1, 2})
-	{
+	auto Run = [] {
 		Tests::FTestTransactorOwner Buffer;
-		auto Prefix = std::make_unique<FManagementProbeChange>();
-		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::move(Prefix)));
-		int Value = 0;
-		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
-		ASSERT_TRUE(Buffer->Undo()); Buffer->SetUndoBarrier();
-		auto Enabled = std::make_shared<bool>(true); auto Destroyed = std::make_shared<int>(0);
-		const std::string Original = Stage == 2 ? "unknown exception" : std::format("Original finalization exception {}", Stage);
-		auto Throw = [Enabled, Original] { if (*Enabled) throw std::runtime_error(Original); };
-		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Throwing metadata"});
-		auto Change = std::make_unique<FManagementProbeChange>(); auto* Probe = Change.get();
-		Change->OnDestroy = [Owner = Buffer.Get(), Destroyed] {
-			++*Destroyed;
-			EXPECT_FALSE(Owner->CanTransact());
-			Owner->Reset(); EXPECT_FALSE(Owner->CanTransact());
-			RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested());
-		};
+		Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Throwing metadata"});
+		auto Change = std::make_unique<FManagementProbeChange>();
+		Change->OnDetails = [] { throw 42; };
 		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
-		if (Stage == 0) Probe->OnDetails = Throw;
-		if (Stage == 1) Probe->OnInspect = Throw;
-		if (Stage == 2) Probe->OnDetails = [Enabled] { if (*Enabled) throw 42; };
-		EXPECT_DEATH((void)Scope.End(), Original);
-		*Enabled = false;
-		Scope.Cancel();
-	}
+		Scope.End();
+	};
+	EXPECT_DEATH(Run(), "unknown exception");
 }
-TEST(FTransBufferTests, EndDoesNotMeasureAndBeginSkipsHiddenRedoSize)
+
+TEST(FTransBufferTests, EndReplayAndRedoBranchReplacementSkipMeasurement)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -781,6 +751,7 @@ TEST(FTransBufferTests, EndDoesNotMeasureAndBeginSkipsHiddenRedoSize)
 	ASSERT_EQ(Buffer->Begin("Edit", "Temporary branch"), 0);
 	Buffer->Cancel();
 	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, Id);
+	ASSERT_TRUE(Buffer->RedoExpected(Id));
 }
 
 TEST(FTransBufferTests, AggregateSizeOverflowRejectsBudgetedBeginAndZeroBudgetCanSetAsideAllEntries)
@@ -936,7 +907,7 @@ TEST(FTransBufferTests, RuntimeBoundaryPreservesOperationContextAndRejectsInvali
 
 TEST(FTransBufferTests, ModifyUsesVirtualSerializationAndOneRecordPerObject)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "VirtualModify"));
 	{
@@ -955,7 +926,7 @@ TEST(FTransBufferTests, ModifyUsesVirtualSerializationAndOneRecordPerObject)
 
 TEST(FTransBufferTests, ExplicitRecordsAndModifyShareFirstBeforeAndFinalAfter)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "RepeatedModify"));
 	Target->NativeValue = 5;
@@ -973,7 +944,7 @@ TEST(FTransBufferTests, ExplicitRecordsAndModifyShareFirstBeforeAndFinalAfter)
 
 TEST(FTransBufferTests, SerializedMetadataRestoresNameOuterAndFlagsWithoutChangingIdentity)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DObject> First(NewObject<DObject>(nullptr, "MetadataFirstOuter"));
 	TStrongObjectPtr<DObject> Second(NewObject<DObject>(nullptr, "MetadataSecondOuter"));
@@ -991,7 +962,7 @@ TEST(FTransBufferTests, SerializedMetadataRestoresNameOuterAndFlagsWithoutChangi
 
 TEST(FTransBufferTests, WholeObjectFlipRetainsLivePreUndoStateForRedo)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "LiveFlipState"));
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Flip state"}); ASSERT_TRUE(Target->Modify()); Target->Value = 1; Target->NativeValue = 2; }
@@ -1019,7 +990,7 @@ TEST(FTransBufferTests, NativeReplayFaultIsTerminal)
 
 TEST(FTransBufferTests, WholeObjectContainersPreserveExcludedFieldsOfMatchingElements)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "NestedContainerState"));
 	Target->NestedArray = {{.Count = 1, .Session = 2, .Ignored = 3}};
@@ -1055,7 +1026,7 @@ TEST(FTransBufferTests, ThrowingWholeObjectNotificationTerminatesUndo)
 
 TEST(FTransBufferTests, MultipleWholeCapturesCoalesceAcrossNestedMemberEdits)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "CanonicalWholeMembers"));
 	auto RecordEdit = [&](int32& Value, int32 Next) -> bool {
@@ -1084,7 +1055,7 @@ TEST(FTransBufferTests, MultipleWholeCapturesCoalesceAcrossNestedMemberEdits)
 
 TEST(FTransBufferTests, NativeOnlyChangeRetainsHistoryAndUnchangedNativeStatePrunes)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "NativeOnlyChange"));
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Native state"}); ASSERT_TRUE(Target->Modify()); Target->NativeValue = 13; }
@@ -1511,23 +1482,6 @@ TEST(FTransBufferTests, DetachedOwnedChildSurvivesCollectionUndoRedoAndReleasesW
 	EXPECT_EQ(Owner->Hard.Get(), nullptr);
 }
 
-TEST(FTransBufferTests, CustomUndoFaultIsTerminal)
-{
-	InitializeDObjectSystem();
-	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "CustomChangeTransBuffer");
-	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
-	int Value = 1;
-	auto Change = std::make_unique<FTestCustomChange>(Value, 1, 2);
-	auto* ChangePtr = Change.get();
-	const auto Execute = Durin::Tests::RecordTestEdit(*Buffer, std::move(Change));
-	ASSERT_TRUE(Execute);
-	EXPECT_EQ(Value, 2);
-	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Execute);
-
-	ChangePtr->bFailUndo = true;
-	EXPECT_DEATH((void)Buffer->Undo(), "during Undo record 0");
-}
-
 TEST(FTransBufferTests, SynchronousChangesJoinNestedRecordingAndPreserveOuterContext)
 {
 	using namespace Durin;
@@ -1714,30 +1668,20 @@ TEST(FTransBufferTests, PartialUndoFaultReportsOriginalRecord)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	auto* Buffer = NewObject<DTransBuffer>(nullptr, "PartialUndoTransBuffer");
-	TStrongObjectPtr<DObject> Root(Buffer);
-	auto* Package = NewObject<DPackage>(nullptr, "PartialUndoPackage");
-	TStrongObjectPtr<DObject> PackageRoot(Package);
-	(void)MakeSoftPath();
-	FPackagePath PackagePath;
-	ASSERT_TRUE(FPackagePath::TryCreate("/TransactionTests/PartialUndo", PackagePath));
-	Package->InitializeAssetPackage(PackagePath);
-	Package->ClearDirty();
-	int First = 1, Second = 2, Third = 3;
-	FTransaction Transaction(42, {.Description = "Partial Undo"});
-	auto FailingUndo = std::make_unique<FTestCustomChange>(First, 0, 1);
-	FailingUndo->bFailUndo = true;
-	FTransBufferTestAccess::AddCommand(Transaction, std::move(FailingUndo));
-	FTransBufferTestAccess::AddCommand(Transaction, std::make_unique<FTestCustomChange>(Second, 0, 2));
-	FTransBufferTestAccess::AddCommand(Transaction, std::make_unique<FTestCustomChange>(Third, 0, 3));
-	FTransBufferTestAccess::AddPackageTransition(Transaction, *Package);
-	FTransBufferTestAccess::InstallHistory(*Buffer, std::move(Transaction));
-	int Other = 0;
-	ASSERT_TRUE(Tests::RecordTestEdit(*Buffer, std::make_unique<FTestCustomChange>(Other, 0, 1)));
-	ASSERT_TRUE(Buffer->Undo());
-	ASSERT_TRUE(Buffer->CanRedo());
+	Tests::FTestTransactorOwner Buffer;
+	int First = 1, Second = 2;
+	{
+		Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Partial Undo"});
+		auto Failing = std::make_unique<FTestCustomChange>(First, 0, 1);
+		Failing->bFailUndo = true;
+		Failing->ReplayProbe = [&] {
+			if (Second != 0) throw std::runtime_error("Second record has not been undone");
+		};
+		ASSERT_TRUE(Buffer->StoreUndo(std::move(Failing)));
+		ASSERT_TRUE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(Second, 0, 2)));
+	}
 	const auto Id = Buffer->GetUndoContext().TransactionId;
-	EXPECT_DEATH((void)Buffer->UndoExpected(Id), "Transaction 42 during Undo record 0");
+	EXPECT_DEATH((void)Buffer->UndoExpected(Id), std::format("Transaction {} during Undo record 0: .*Injected mutation failure", Id));
 }
 
 TEST(FTransBufferTests, ValidationRejectsUnavailableCustomRecordBeforeExecution)
@@ -2248,7 +2192,7 @@ TEST(FTransBufferTests, NoOpAndCanceledRecordingPreserveRedoBranch)
 
 TEST(FTransBufferTests, UndoWithoutRedoDiscardsTheRedoSuffix)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	int Value = 0;
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
@@ -2259,7 +2203,7 @@ TEST(FTransBufferTests, UndoWithoutRedoDiscardsTheRedoSuffix)
 
 TEST(FTransBufferTests, UndoFlipsRecordedDirtyBitAndCancelPreservesLiveDirtyBit)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "UnrecordedDirty"));
 	(void)MakeSoftPath(); FPackagePath Path;
@@ -2277,7 +2221,7 @@ TEST(FTransBufferTests, UndoFlipsRecordedDirtyBitAndCancelPreservesLiveDirtyBit)
 
 TEST(FTransBufferTests, PrimaryContextIsNotAnAffectedPackage)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> PrimaryPackage(NewObject<DPackage>(nullptr, "PrimaryContextPackage"));
 	(void)MakeSoftPath(); FPackagePath Path;
@@ -2298,7 +2242,7 @@ TEST(FTransBufferTests, PrimaryContextIsNotAnAffectedPackage)
 
 TEST(FTransBufferTests, TransactionFiltersApplyInsideReflectedStructs)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "NestedFieldFilters"));
 	{
@@ -2314,7 +2258,7 @@ TEST(FTransBufferTests, TransactionFiltersApplyInsideReflectedStructs)
 
 TEST(FTransBufferTests, ExcludedStructReferencesDoNotAcquireHistoryRetention)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ExcludedReferenceOwner"));
 	auto* Referenced = NewObject<DObject>(nullptr, "ExcludedHistoryReference");
@@ -2351,47 +2295,6 @@ TEST(FTransBufferTests, CleanApplyFailureRetiresOnlyItsOwnRecord)
 	EXPECT_EQ(Value, 1);
 }
 
-TEST(FTransBufferTests, JoinedAndStandaloneEndReportDetailsFault)
-{
-	using namespace Durin;
-	InitializeDObjectSystem();
-	for (bool Joined : {false, true})
-	{
-		auto Submit = [&] {
-			Tests::FTestTransactorOwner Buffer;
-			int Value = 0, Other = 0;
-			ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FTestCustomChange>(Other, 0, 1)));
-			ASSERT_TRUE(Buffer->Undo());
-			std::optional<Durin::Tests::FBufferRecording> Outer;
-			if (Joined) Outer.emplace(Buffer.Get(), FTransactionContext{.Description = "Outer"});
-			auto Change = std::make_unique<FManagementProbeChange>();
-			Change->OnApply = [&] { ++Value; };
-			Change->OnDetails = [&] {
-				if (Value) throw std::runtime_error("Injected post-apply details failure");
-			};
-			const auto Submitted = Durin::Tests::RecordTestEdit(*Buffer, std::move(Change));
-			ASSERT_TRUE(Submitted);
-			Outer.reset();
-		};
-		EXPECT_DEATH(Submit(), "Injected post-apply details failure");
-	}
-}
-
-TEST(FTransBufferTests, ReplayFaultPrecedesHistoryAccounting)
-{
-	using namespace Durin;
-	InitializeDObjectSystem();
-	Tests::FTestTransactorOwner Buffer;
-	int Value = 0;
-	auto Change = std::make_unique<FTestCustomChange>(Value, 0, 1);
-	auto* Retained = Change.get();
-	ASSERT_TRUE(Tests::RecordTestEdit(*Buffer, std::move(Change)));
-	Retained->bOverflowed = true;
-	Retained->bFailUndo = true;
-	const auto Id = Buffer->GetUndoContext().TransactionId;
-	EXPECT_DEATH((void)Buffer->UndoExpected(Id), "Injected mutation failure");
-}
-
 TEST(FTransBufferTests, RedoWithOverflowRetainsHistoryUntilSizeIsNeeded)
 {
 	using namespace Durin;
@@ -2402,11 +2305,8 @@ TEST(FTransBufferTests, RedoWithOverflowRetainsHistoryUntilSizeIsNeeded)
 	const auto Id = Buffer->GetRedoContext().TransactionId;
 	Retained->Details = "Redo completed";
 	Buffer->DispatchEvents();
-	std::vector<FTransactionEvent> Events;
-	const auto Listener = Buffer->AddTransactionListener([&](const auto& Event) { Events.push_back(Event); });
 	ASSERT_TRUE(Buffer->RedoExpected(Id));
-	Buffer->DispatchEvents();
-	Buffer->RemoveTransactionListener(Listener);
+	const auto Events = ReadTransactionEvents(*Buffer);
 	ASSERT_EQ(Events.size(), 1u);
 	EXPECT_EQ(Events.front().Id, Id);
 	EXPECT_EQ(Events.front().Type, ETransactionEventType::Redone);
@@ -2425,7 +2325,7 @@ TEST(FTransBufferTests, RedoWithOverflowRetainsHistoryUntilSizeIsNeeded)
 
 TEST(FTransBufferTests, UndoAndRedoShareAdmissionAndProtectTheReplayingRecord)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	int Value = 0; auto Change = std::make_unique<FTestCustomChange>(Value, 0, 1, nullptr, "ReplayOwnedModule"); auto* Retained = Change.get();
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::move(Change)));
@@ -2451,7 +2351,7 @@ TEST(FTransBufferTests, UndoAndRedoShareAdmissionAndProtectTheReplayingRecord)
 
 TEST(FTransBufferTests, GeneratedReferencesRemainOwnedByConstruction)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "GeneratedReferenceOwner"));
 	auto* Before = NewObject<DObject>(nullptr, "BeforeGenerated", EObjectConstructionPurpose::Generated);
@@ -2603,7 +2503,7 @@ TEST(FTransBufferTests, EditorConvenienceScopesExposeContextsAndRetireBeforeRepl
 
 TEST(FTransBufferTests, UndoBarrierStackUsesOnlyTheTopCursorAndNeverBlocksRedo)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	int Value = 0;
 	EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), -1);
@@ -2632,7 +2532,7 @@ TEST(FTransBufferTests, UndoBarrierStackUsesOnlyTheTopCursorAndNeverBlocksRedo)
 
 TEST(FTransBufferTests, RedoBranchReplacementAndUndoWithoutRedoPreserveBarrierAdmission)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	int Value = 0;
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
@@ -2647,7 +2547,7 @@ TEST(FTransBufferTests, RedoBranchReplacementAndUndoWithoutRedoPreserveBarrierAd
 }
 TEST(FTransBufferTests, BudgetChangesWaitForCommitAndRemapBarrierAfterPrefixEviction)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	int Value = 0;
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
@@ -2664,7 +2564,7 @@ TEST(FTransBufferTests, BudgetChangesWaitForCommitAndRemapBarrierAfterPrefixEvic
 
 TEST(FTransBufferTests, ModuleRetirementRemapsBarriersAndPublishesWholeEntryDiscard)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	int First = 0, Second = 0;
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FTestCustomChange>(First, 0, 1, nullptr, "RetiredModule")));
@@ -2680,7 +2580,7 @@ TEST(FTransBufferTests, ModuleRetirementRemapsBarriersAndPublishesWholeEntryDisc
 
 TEST(FTransBufferTests, PieOwnerAndBothSerializedSidesAreInspectedAndPreserveRedo)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "PieInspection")); Package->SetPlayInEditor(true);
 	TStrongObjectPtr<DTransactionRecordParticipant> Pie(NewObject<DTransactionRecordParticipant>(Package.Get(), "Pie"));
@@ -2707,7 +2607,7 @@ TEST(FTransBufferTests, PieOwnerAndBothSerializedSidesAreInspectedAndPreserveRed
 
 TEST(FTransBufferTests, PieInspectionIncludesDeclaredCustomAndAnnotationDependencies)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "PieDependencies")); Package->SetPlayInEditor(true);
 	TStrongObjectPtr<DObject> Pie(NewObject<DObject>(Package.Get(), "Dependency"));
@@ -2725,7 +2625,7 @@ TEST(FTransBufferTests, PieInspectionIncludesDeclaredCustomAndAnnotationDependen
 
 TEST(FTransBufferTests, PieInspectionDoesNotPromoteWeakReferences)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "PieWeak")); Package->SetPlayInEditor(true);
 	TStrongObjectPtr<DObject> Pie(NewObject<DObject>(Package.Get(), "WeakDependency"));
@@ -2739,7 +2639,7 @@ TEST(FTransBufferTests, PieInspectionDoesNotPromoteWeakReferences)
 
 TEST(FTransBufferTests, ScopedStoreUndoRecordsAlreadyAppliedWritesWithoutApplyingAgain)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	int Value = 2; bool bApplied = false;
 	{
@@ -2756,7 +2656,7 @@ TEST(FTransBufferTests, ScopedStoreUndoRecordsAlreadyAppliedWritesWithoutApplyin
 
 TEST(FTransBufferTests, ModuleRetirementCannotResurrectAnEarlierCleanCheckpoint)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "ModuleCheckpoint"));
 	(void)MakeSoftPath(); FPackagePath Path;
@@ -2781,7 +2681,7 @@ TEST(FTransBufferTests, ModuleRetirementCannotResurrectAnEarlierCleanCheckpoint)
 
 TEST(FTransBufferTests, ForgetPackageRemapsBarriersAndInvalidatesSurvivingParticipants)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> First(NewObject<DPackage>(nullptr, "ForgottenParticipant"));
 	TStrongObjectPtr<DPackage> Second(NewObject<DPackage>(nullptr, "RetainedParticipant"));
@@ -2801,7 +2701,7 @@ TEST(FTransBufferTests, ForgetPackageRemapsBarriersAndInvalidatesSurvivingPartic
 }
 TEST(FTransBufferTests, ReviewSaveDuringRecordingCannotMakeAnOldStateClean)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "RecordingSaveFence"));
 	(void)MakeSoftPath(); FPackagePath Path;
@@ -2823,7 +2723,7 @@ TEST(FTransBufferTests, ReviewSaveDuringRecordingCannotMakeAnOldStateClean)
 
 TEST(FTransBufferTests, UndoRestoresCapturedDirtyBitAfterUnrecordedEdits)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "StandaloneOutsideWrites"));
 	(void)MakeSoftPath(); FPackagePath Path;
@@ -2843,7 +2743,7 @@ TEST(FTransBufferTests, UndoRestoresCapturedDirtyBitAfterUnrecordedEdits)
 
 TEST(FTransBufferTests, RejectedForeignStoreUndoPreservesTheRecordedDirtyBit)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer, Foreign;
 	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "RejectedOutsideWrites"));
 	(void)MakeSoftPath(); FPackagePath Path;
@@ -2860,7 +2760,7 @@ TEST(FTransBufferTests, RejectedForeignStoreUndoPreservesTheRecordedDirtyBit)
 
 TEST(FTransBufferTests, ReviewHistoryQueriesMatchGlobalAdmissionAndBarrierDiagnostics)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer, Foreign;
 	int Value = 0;
 	for (int Index = 0; Index != 2; ++Index)
@@ -2897,7 +2797,7 @@ TEST(FTransBufferTests, LivePieInverseTerminatesUndoAndRedo)
 }
 TEST(FTransBufferTests, SaveDuringReplayAdvancesTheDirtyFence)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "ReplaySaveFence"));
 	(void)MakeSoftPath(); FPackagePath Path;

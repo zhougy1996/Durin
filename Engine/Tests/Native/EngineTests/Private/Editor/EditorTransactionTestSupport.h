@@ -16,20 +16,12 @@ namespace Durin
 		static auto AddCommand(FTransaction& Transaction, std::unique_ptr<FCommandChange> Change) -> void
 		{ Transaction.AddRecord(std::move(Change)); }
 
-		static auto AddPackageTransition(FTransaction& Transaction, DPackage& Package) -> void
-		{ Transaction.PackageRecords.push_back({FPersistentObjectRef(&Package), Package.IsDirty(), 0}); }
-
 		static auto CaptureIndex(const FTransaction& Transaction) { return Transaction.CaptureIndex.get(); }
 
 		static auto InitializeMemoryBudget(DTransBuffer& Buffer, size_t Bytes) -> void
 		{
 			check(Bytes != 0 && Buffer.NextTransactionId == 1 && !Buffer.Pending && Buffer.History.empty());
 			Buffer.MemoryBudget = Bytes;
-		}
-		static auto InstallHistory(DTransBuffer& Buffer, FTransaction Transaction) -> void
-		{
-			Buffer.History.push_back(std::make_unique<FTransaction>(std::move(Transaction)));
-			Buffer.Cursor = 1;
 		}
 		static auto SetHistoryBusy(DTransBuffer& Buffer, bool bBusy) -> void
 		{

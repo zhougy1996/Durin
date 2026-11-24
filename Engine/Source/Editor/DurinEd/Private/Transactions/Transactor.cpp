@@ -1464,26 +1464,25 @@ namespace Durin
 		const size_t NextCursor = bUndo ? Index.value_or(UndoLimit)
 			: (Index ? *Index + 1 : History.size());
 		if (NextCursor == Cursor) return FailWithReason(OutError, bUndo ? "Nothing to undo." : "Nothing to redo.");
-		// An expired-only transition can still retire the Redo suffix. Keep a
-		// live entry for failure reporting until publication has completed.
-		FTransaction& Transaction = *History[Index.value_or(bUndo ? Cursor - 1 : Cursor)];
-		const auto ReplayId = Transaction.GetId();
+		// Undo(false) may release the selected entry before publication completes.
+		const auto ReplayId = History[Index.value_or(bUndo ? Cursor - 1 : Cursor)]->GetId();
 		check(HistoryRevision != std::numeric_limits<uint64>::max());
 		++HistoryRevision;
 		Guard = EHistoryGuard::Mutating;
 		const auto Operation = bUndo ? ETransactionOperation::Undo : ETransactionOperation::Redo;
 		try
 		{
-			FTransaction::FReplayResult Outcome;
-			auto InversePackages = Transaction.PackageRecords;
-			for (auto& Inverse : InversePackages)
-				if (auto* Package = Cast<DPackage>(Inverse.Package.Resolve()))
-				{
-					Inverse.bWasDirty = Package->IsDirty();
-					Inverse.SaveCount = GetTransactionPackageSaveCount(*Package);
-				}
 			if (Index)
 			{
+				auto& Transaction = *History[*Index];
+				FTransaction::FReplayResult Outcome;
+				auto InversePackages = Transaction.PackageRecords;
+				for (auto& Inverse : InversePackages)
+					if (auto* Package = Cast<DPackage>(Inverse.Package.Resolve()))
+					{
+						Inverse.bWasDirty = Package->IsDirty();
+						Inverse.SaveCount = GetTransactionPackageSaveCount(*Package);
+					}
 				if (auto Applied = Transaction.Apply(bUndo, bUndo ? EPropertyChangeOrigin::Undo : EPropertyChangeOrigin::Redo, Outcome); !Applied)
 				{
 					auto& Error = Applied.error();
@@ -1491,9 +1490,6 @@ namespace Durin
 					Guard = EHistoryGuard::None;
 					return FailWithReason(OutError, Error.Message);
 				}
-			}
-			if (Index)
-			{
 				for (size_t Slot = 0; Slot < Transaction.PackageRecords.size(); ++Slot)
 				{
 					auto& Record = Transaction.PackageRecords[Slot];

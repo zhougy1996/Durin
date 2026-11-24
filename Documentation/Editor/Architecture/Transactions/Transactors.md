@@ -6,8 +6,6 @@ Modules: Core, CoreDObject, Engine, DurinEd
 
 Last reviewed: 2026-11-24
 
-A reflected editor action rechecks recording after marking its target dirty and before invoking native code.
-
 ## Service Ownership
 
 The process has one active `DEditorEngine`, published during activation rather
@@ -16,25 +14,15 @@ Windows, documents, tools and script sessions share this ordered history.
 `DEngine` exposes BeginTransaction, EndTransaction, CancelTransaction and
 CanTransact; the editor implements them through its transactor.
 
-DTransactor requires all recording, history and package-recording capabilities
-through pure virtual functions. Concrete implementations cannot inherit silent
-no-op or unsupported behavior. The base owns listener registration and history identity. Callers open a transaction before editing and use StoreUndo for an already-applied custom change.
+Core defines the game-thread recording pointer `GUndo` and the
+[runtime capture interface](../../../Runtime/ObjectSystem/Transactions.md).
+Outermost Begin publishes its transaction there. While it is published, another
+buffer cannot start recording. Object edits capture through virtual `Modify`.
+Commands submit already-applied changes through `StoreUndo`. Host callbacks
+request GC and the host collects after the operation returns.
 
-Core defines the [runtime transaction contracts](../../../Runtime/ObjectSystem/Transactions.md),
-including custom changes, context, `ITransaction`, and ordinary
-GameThread pointer `GUndo`. Outermost Begin publishes the pending `FTransaction`;
-End, Cancel, owner retirement and destruction clear it before releasing storage.
-A competing buffer cannot begin while another recording is published. There is
-no candidate registry or host recorder binding stack. Object capture logs serialization errors. CoreDObject has no editor dependency.
-FTransaction collaborates privately with the buffer on object capture. Ordinary callers use Modify(),
-scopes and transaction results; DTransactor exposes no object-capture method or
-recording-identity query. ITransaction::SaveObject returns void. A failed whole-object snapshot invalidates the recording across nested scopes. The outer End, Cancel or Reset diagnoses the original capture error and terminates the process. ContainsObject includes additional command and array participants whose whole-object baseline may still fail to serialize.
-
-Host callback scopes guard execution and teardown, not transaction routing.
-Callbacks request GC; the host collects after the complete operation returns.
-Ending a callback never ends recording. Without a current recording, Modify
-keeps its normal dirty behavior and returns false. Undo/Redo reject an active
-recording and do not expose replay as a new recording.
+A failed whole-object snapshot invalidates the entire recording. The outer End,
+Cancel or Reset reports the original capture error and terminates the process.
 
 ## Transactions And Scoped Recording
 
@@ -62,43 +50,16 @@ recording alone. A listener exception on the current recording follows the
 recording failure contract. After listeners return, End decrements the depth
 and finalizes at zero. History listeners receive queued events after publication.
 
-The scope, capture ownership and filtering reference is the installed Epic
-UE 5.8.0 source, CL 53629095, branch `++UE5+Release-5.8`. Relevant UE files are
-`Engine/Source/Editor/UnrealEd/Private/EditorTransaction.cpp` (`SaveObject`,
-`StoreUndo`, `UTransBuffer::End/Cancel`), its `Classes/Editor/TransBuffer.h`
-(`BeginInternal`), `Private/ScopedTransaction.cpp`,
-`Engine/Source/Runtime/CoreUObject/Private/UObject/Obj.cpp` (`Modify`) and
-`Property.cpp` (`ShouldSerializeValue`), and
-`Engine/Source/Runtime/Engine/Private/Actor.cpp` (`Modify`). The
-[reference identity and behavior matrix](../../../Plans/Archive/2026-10/UE58TransactionArchitecture.md#reference-identity-and-reproduction)
-records source fingerprints and explicitly separates implemented rules from
-future architecture work. This source version's `Cancel(StartIndex)` cancels the entire active recording,
-including cancellation by an inner scope. It does not restore applied edits.
-The index is an activity count, never a history ID or an isolated savepoint.
+`Cancel(StartIndex)` cancels the entire recording, including from an inner
+scope. Applied edits remain. The start index is a nesting depth. The baseline
+for these semantics is [UE 5.8.0, CL 53629095](../../../Plans/Archive/2026-10/UE58TransactionArchitecture.md#reference-identity-and-reproduction).
 
-`FScopedTransaction` provides UE-shaped description and full-context constructors
-using the active editor. A disabled scope or unavailable editor remains inert.
-Scope construction, destruction and cancellation use the active editor.
-Passing false skips Begin for that scope. With an outer recording, a subsequent
-`Modify()` or object-bound `StoreUndo` still participates in the outer entry.
-Canceling or destroying the disabled scope leaves the outer recording active.
-Independent buffer users pair Begin with End or Cancel directly.
-After an enabled inner scope cancels, the outer scope can still report
-`IsOutstanding()` while `IsRecordingCurrent()` is false. Subsequent writes
-require a new recording to enter history. Durin checks the recording identity
-when the old scope unwinds so it cannot close a replacement transaction.
-Ordinary edit results describe the applied model change.
-Recording finalization runs synchronously, including from scoped destructors. An execution fault produces a terminal native diagnostic.
-`Reset(reason)` clears history. Map replacement, package unload and PIE check `CanTransact()` before proceeding and report admission errors at their own entry points. PIE clears history before copying changes into the editor world. Package callbacks can request a stop during copy-back. Teardown waits for copy-back to exit, including on failure, and nested copy-back is rejected. ContainsPieObjects returns bool and GetUndoSize
-reports owned history bytes. A failed or busy PIE inspection conservatively
-returns true. History events carry their own presentation details. Runtime
-`ITransaction` capture/inspection remains checked so recording and replay never
-mistake a failed traversal for an empty reference set.
-A scope stores its start index, recording ID and weak owner. It is noncopyable and
-nonmovable. `IsOutstanding()` reports successful acquisition until explicit
-cancellation. `IsRecordingCurrent()` checks whether the original recording is
-still active on its editor. Destruction and cancellation only act on that
-recording, including after external End, Cancel, Reset or host replacement. Before releasing the editor, shutdown cancels property previews and releases suspended Python scopes. Ordinary native callers must unwind their lexical scopes before host replacement.
+`FScopedTransaction` pairs Begin with End or Cancel on the original editor
+and recording. A disabled scope leaves an enclosing recording available to
+Modify and StoreUndo. After external cancellation, `IsOutstanding()` can
+still be true while `IsRecordingCurrent()` is false. The old scope can unwind
+safely after a replacement recording starts. Scopes are noncopyable and
+nonmovable. Independent buffer users pair Begin with End or Cancel directly.
 
 ### Everyday Object Editing
 
@@ -190,9 +151,9 @@ also block mutation, inspection prevents recursive head queries, and finalizatio
 hides entries while the buffer publishes or retires them.
 
 Reset cancels the complete active recording and purges history, barriers, queued
-events and package tracking without reverting applied edits or clearing package
+events and per-entry package records without reverting applied edits or clearing package
 dirty flags. It snapshots the reason before invoking record destructors and
-blocks reentrant recording, reset and inspection throughout cleanup. Unwind existing scopes before starting the next recording. Even an empty reset invalidates prepared history publication.
+blocks reentrant recording, reset and inspection throughout cleanup. Even an empty reset invalidates prepared history publication.
 A reset requested during replay is refused.
 
 ### Undo Barriers And PIE References
@@ -210,47 +171,22 @@ Barrier refusal has its own rejection reason, separate from an unexpected head
 ID. CanTransact, CanUndo and CanRedo all reject another buffer's live GUndo;
 unavailable history queries return a nonempty explanation.
 
-DPackage::IsPlayInEditor is an explicit session flag, independent of world type,
-asset persistence and object Transient flags. Editor Play creates a dedicated
-transient package for its copied world graph and retires that package after the
-render fence. Ordinary runtime worlds do not implicitly become PIE packages.
-Initialize asset packages before applying the session flag; the flag is not saved.
+PIE membership comes from the package's session flag. `ContainsPieObjects()`
+examines the visible queue, including the active entry and both recorded sides.
+It follows declared strong references from targets, primary context, commands,
+annotations, array values and package transitions. Weak and soft references
+retain their usual semantics. The buffer query conservatively returns true on a
+busy traversal or inspection error.
 
-FTransaction::ContainsPieObjects inspects targets and both serialized sides.
-Durin deliberately extends UE's record/reference-table check to every declared
-strong history edge: primary context, custom participants and dependencies,
-annotations, array values and package transitions. It does not recursively scan
-the live DObject graph or promote weak/soft edges. Queries inspect captured history
-sides; uncaptured live edits enter inspection at finalization. A buffer query
-includes pending,
-Undo and Redo entries. Checked inspection reports callback exceptions as errors;
-the ordinary buffer bool query reports possible PIE references on failure.
-Public queries guard both the buffer and each inspected transaction
-against mutation and recursive inspection. Pending, Undo and Redo references are
-inspected in stable states; a busy traversal returns a checked error (true through
-the bool facade). The previous state is restored on every
-exit. Query and history callbacks must request GC instead of executing it.
-Finalization reuses the guarded transaction query and keeps its own
-non-reentrant phase through publication or discard. GC requests
-remain pending until the owner reaches a safe point.
-Raw entry and checked head queries are available to the synchronous lifecycle
-notifications. They are unavailable during internal publication and from record
-destructors. Replay checks remain inside their replay phase guards.
-Ordinary Cancel and transient End restore the entries set aside at Begin.
-An affirmative PIE inspection during End selects the transient path. A failed
-inspection, capture, required callback or dirty notification
-during finalization reports the transaction ID, phase and original cause and
-terminates the process. The same boundary applies to exceptions from synchronous
-lifecycle listeners, including PostTransactionFinalized after the entry settles.
-Typed array capture
-rejects PIE owners before the adapter mutates the array.
+Typed arrays reject PIE owners before mutation. Outermost End treats an entry
+with PIE references as transient. During replay, an existing PIE reference
+rejects admission. A PIE reference found in a prepared or ordered inverse is
+an execution fault. Completion callbacks can change references after the final
+record check. The operation succeeds and retains its history. The next replay
+checks its selected entry at admission.
 
-Checked replay also inspects existing data and newly prepared inverses before
-publishing them. Whole-object inverses reject PIE before loading; ordered range
-inverses are inspected at their actual replay step. A PIE reference already
-present in history rejects admission. A fault during inverse capture or ordered application is terminal. After the final record check, PostEditUndo and object observers can change
-references. The completed operation retains its history and reports success.
-A later replay checks the selected entry again at admission.
+Required capture, inspection, synchronous lifecycle or dirty-notification faults
+during finalization terminate with the transaction ID, phase and original cause.
 
 ### Synchronous Object Events
 
@@ -309,73 +245,13 @@ recording changes. A metadata exception returns a failed submission and leaves
 the owner's recording and retained history intact. The caller owns any write
 performed before admission.
 
-Ordinary editor writes call `Modify` on the target before mutation. An explicitly
-object-bound command suppresses subsequent whole-object capture for that owner.
-A command that needs both forms of replay captures the owner before binding its
-change. Commands that report affected objects without binding an owner leave
-those participants eligible for later ordinary edits, including single-participant
-commands. This permits sparse domain changes and staged graph edits to compose
-with ordinary changes without forcing an extra owner serialization. Material
-layout, parameter defaults and configuration record their authored owners
-through `Modify`.
-Transactional CallInEditor targets and ordinary Actor/root edits use virtual Modify.
-NonTransactional CallInEditor targets can still execute without gaining history.
+The editor host admits replay while its editor World is open, stopped and
+outside Play. Standalone buffers have no host World. Domain owners define the
+participants of structural edits and rebuild derived state on completion.
+See [Actor structure commands](../LevelEditing/ViewportEditing.md#actor-structure-commands)
+and [component structure history](../LevelEditing/LevelEditorDetails.md#component-structure-history).
 
-The remaining custom commands have domain responsibilities beyond a field load:
-
-| Command family | Modified participants and retained responsibility |
-| --- | --- |
-| Transform gizmo | Declared target objects; arbitrary `ITransformGizmoTarget` also permits native-only targets and fallible transform setters, so the adapter retains gesture replay. |
-
-Each custom change separately enumerates collector dependencies and owned bytes.
-Material Details uses shared reflected edits for constant values. Outliner
-visibility and primary-camera edits already use scoped `Modify`; Python scopes
-use the same application recording and job cleanup, and script label setters
-route through the Actor subsystem. No alternate history is introduced for these
-consumers.
-
-Actor creation, deletion and duplication capture the Level, each edited Actor and
-the scene components whose attachments cross the selection boundary. Prepared
-Actors append to the Level and register before the batch restores cross-Actor
-attachments. Candidates retired during preparation acquire no history record.
-Duplication records admitted Actors and the final attachments between Actor roots
-in the same transaction and returns the surviving copies in selection order. Runtime spawn and editor placement
-share publication completion, including component activation and notification. Removal checks the recording before each boundary
-detach. If a callback cancels it, subsequent links and Level members stay in place.
-
-The Level snapshot owns Actor order and the primary camera. Level completion
-preserves independently published Actors. The editor host admits history replay
-only outside play and while its editor World is stopped and open. Its buffer
-applies that rule to queries, Undo and Redo, including direct callers. Standalone
-buffers have no host World. Object renames and Outer changes reject occupied
-sibling names. Replay still validates historical identity changes and the combined
-destination attachment graph before writing. Actor annotations restore tick and
-component registration. Viewport placement uses the same subsystem. Spawn
-configuration runs once before publication and Redo restores the recorded object.
-Presence captures the Actor through the base object implementation of Modify. Its
-native root needs a separate snapshot only when an attachment changes. This lets
-SkyBox Redo use the surviving component with an empty texture after asset retirement.
-
-Component creation, deletion and duplication capture the owning Actor and the
-instance component. Deletion also captures detached children. An instance has
-its creation method before its first snapshot. Actor completion reconciles the
-serialized instance list with native ownership and lifecycle. All participants
-join the caller's scope, including ordinary edits from lifecycle callbacks.
-Cancel discards the recording and leaves completed model writes in place.
-
-In UE 5.8, LevelActor.cpp captures the Level before inserting a spawned Actor.
-UWorld::RemoveActor in World.cpp can call ModifyLevel before removal.
-ULevel::Serialize includes its Actors array. ComponentEditorUtils.cpp calls
-Modify on the target Actor when adding or duplicating an instance component
-and on the component during deletion. FTransaction::SaveObject in
-EditorTransaction.cpp creates the per-object record on first capture. Durin retains absent object identities for earlier property
-history and uses transaction annotations to reconstruct native lifecycle state.
-
-Batch attachment and detachment preflight the selection, then capture and edit each
-eligible root in one scope. Later rejections leave earlier edits available for one
-Undo. The return value reports whether any root changed.
-
-Actor and Material commands retain their domain-specific errors.
+### Replay Outcomes
 
 Property replay restores owned historical payloads directly after structural,
 type, and exact-identity checks. It bypasses new-edit proposal validation and
@@ -426,42 +302,27 @@ register saves or document activation with the transactor.
 
 ## Bounds And Accounting
 
-The production soft budget is 64 MiB of owned native transaction data, without
-an entry cap. SetMemoryBudget changes the limit while idle. The next outer Begin
-applies the limit. A zero budget selects the entire old prefix when there is no
-Redo branch. Accounting includes context, record storage,
-payloads/reference tables, capture metadata, and reported custom allocations;
-it excludes the transitive retained DObject graph. GetUndoSize measures the visible
-queue on demand and returns SIZE_MAX on arithmetic overflow or when a nonempty
-queue is busy with an internal traversal. With a positive budget and no Redo
-suffix, Begin measures the old entries before changing the queue. Overflow or a
-throwing size callback rejects that Begin and preserves the heads and barriers.
-A Redo suffix or a zero budget determines the entries to set aside without
-measuring them. End, Undo and Redo can complete with an unrepresentable size.
+The default soft budget is 64 MiB of owned native history data. This covers
+records, payloads, reference tables, metadata and reported custom allocations.
+The transitive object graph is excluded. `GetUndoSize()` measures the visible
+queue on demand. An empty queue reports zero. Arithmetic overflow or a busy
+nonempty queue reports `SIZE_MAX`.
 
-The outermost Begin temporarily removes the entire Redo suffix, or, when there is
-no Redo branch, the oldest entries until the retained total is below budget.
-It appends the new transaction, sets GUndo to the queue tail, and broadcasts
-TransactionStarted on OnTransactionStateChanged, followed by OnUndoBufferChanged. Nested scopes share that entry.
-GetQueueLength, GetTransaction and GetUndoSize describe the visible queue. During
-recording GetUndoCount is zero, GetUndoContext(false) identifies the candidate,
-and checked Undo/Redo heads are unavailable. Temporarily removed entries keep
-their strong references.
+Outermost Begin sets aside the Redo suffix. With no Redo suffix it sets aside
+the oldest entries until the retained size is strictly below budget. Zero
+budget sets aside every old entry. Only the positive-budget trimming path
+measures history. Overflow or a throwing size callback rejects Begin before it
+changes the queue or barriers. End and replay do not measure history.
 
-Outermost End broadcasts PreTransactionFinalized at depth one, then captures final
-values and broadcasts TransactionFinalized at depth zero with the operation still
-open. Listeners can inspect the queue and its checked heads during this callback.
-Replay and new recordings remain guarded until finalization completes. An effective End keeps the tail and retires the removed entries. An empty,
-unchanged or PIE transaction restores the original entries, order and cursor and
-broadcasts OnUndoBufferChanged. Both paths finish with PostTransactionFinalized
-carrying only the transaction ID. Cancel broadcasts TransactionCanceled while the
-candidate is visible. It clears GUndo, restores the queue, broadcasts
-OnUndoBufferChanged, and then clears the recording depth. For a transient End,
-the restored-queue notification sees depth zero and GUndo still refers to the
-retired candidate until the callback returns.
-Executed, Discarded and Evicted records remain queued for idle dispatch. Undo/Redo
-do not trim the budget. Reset clears queued history events and retains its explicit unavailability reason; it emits no synthetic
-record event.
+| Transition | Queue visible to synchronous listeners |
+| --- | --- |
+| Outermost Begin | The new entry is the tail and `GUndo` points to it. `TransactionStarted` precedes `OnUndoBufferChanged`. Removed entries keep their strong references. |
+| Outermost End | `PreTransactionFinalized` runs at depth one and admits nested edits. `TransactionFinalized` runs at depth zero with the operation open and checked heads visible. An effective End keeps the entry and retires the entries set aside at Begin. |
+| Transient End | An empty, unchanged or PIE entry restores the previous order and cursor. `OnUndoBufferChanged` sees depth zero while `GUndo` still points to the retiring candidate. Both End paths finish with `PostTransactionFinalized` carrying the transaction ID. |
+| Cancel | `TransactionCanceled` sees the candidate. Cancel clears `GUndo`, restores the queue and broadcasts `OnUndoBufferChanged` before clearing the recording depth. |
+
+Queued history events are delivered separately through `DispatchEvents()` while
+idle. Reset clears queued events and retains the caller's unavailability reason.
 
 ## Collector And Shutdown Contract
 
