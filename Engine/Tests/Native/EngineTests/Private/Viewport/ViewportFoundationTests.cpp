@@ -535,15 +535,6 @@ TEST(FEditorTransactionManagerTests, UsesStableIdsAndRejectsStaleUndoRequests)
 	EXPECT_EQ(Value, 2);
 	EXPECT_TRUE(Manager->GetUndoContext().TransactionId == SecondId);
 
-	const std::vector<Durin::FTransactionEvent> Events = Durin::Tests::CollectTransactionEvents(*Manager);
-	ASSERT_EQ(Events.size(), 4);
-	EXPECT_EQ(Events[0].Type, Durin::ETransactionEventType::Executed);
-	EXPECT_EQ(Events[0].Details, "Counter changed forward");
-	EXPECT_EQ(Events[1].Type, Durin::ETransactionEventType::Executed);
-	EXPECT_EQ(Events[2].Type, Durin::ETransactionEventType::Undone);
-	EXPECT_EQ(Events[2].Details, "Counter changed backward");
-	EXPECT_EQ(Events[3].Type, Durin::ETransactionEventType::Redone);
-	EXPECT_EQ(Events[3].Details, "Counter changed forward");
 }
 
 TEST(FEditorTransactionManagerTests, UndoAndRedoSkipExpiredEntriesAfterInspectingThePhysicalHead)
@@ -560,7 +551,6 @@ TEST(FEditorTransactionManagerTests, UndoAndRedoSkipExpiredEntriesAfterInspectin
 	const FTransactionId Middle = Manager->GetUndoContext().TransactionId;
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FCountingTransaction>(Value)));
 	const FTransactionId Last = Manager->GetUndoContext().TransactionId;
-	(void)Tests::CollectTransactionEvents(*Manager);
 	ASSERT_EQ(Value, 12);
 	Expired = true;
 
@@ -580,8 +570,6 @@ TEST(FEditorTransactionManagerTests, UndoAndRedoSkipExpiredEntriesAfterInspectin
 	ASSERT_TRUE(Manager->RedoExpected(Middle));
 	ASSERT_TRUE(Manager->RedoExpected(Last));
 	EXPECT_EQ(Value, 22);
-	const auto Events = Tests::CollectTransactionEvents(*Manager);
-	EXPECT_EQ(std::ranges::count_if(Events, [Middle](const auto& Event) { return Event.Id == Middle; }), 1);
 }
 
 TEST(FEditorTransactionManagerTests, EachExpiredCandidateSeesItsOwnCursorPosition)
@@ -589,13 +577,14 @@ TEST(FEditorTransactionManagerTests, EachExpiredCandidateSeesItsOwnCursorPositio
 	using namespace Durin;
 	Tests::FTestTransactorOwner Manager;
 	std::vector<size_t> Counts;
-	class FExpiredChange final : public FActorCommandChange
+	class FExpiredChange final : public FCommandChange
 	{
 	public:
 		FExpiredChange(DTransactor& InBuffer, std::vector<size_t>& InCounts) : Buffer(InBuffer), Counts(InCounts) {}
 		auto GetDescription() const -> std::string_view override { return "Expired"; }
 		auto GetModifiedObjects() const -> std::vector<DObject*> override { return {}; }
-		auto Replay(ETransactionOperation) -> FActorChangeResult override { return {}; }
+		auto Apply(Durin::DObject*) -> void override {}
+		auto Revert(Durin::DObject*) -> void override {}
 		auto HasExpired(DObject*) const noexcept -> bool override
 		{
 			Counts.push_back(Buffer.GetUndoCount());
@@ -676,7 +665,6 @@ TEST(FEditorTransactionManagerTests, MixedExpiryFaultReportsOrderedRecord)
 		ASSERT_TRUE(Packages[Index]->IsDirty());
 	}
 	const auto Id = Manager->GetUndoContext().TransactionId;
-	(void)Tests::CollectTransactionEvents(*Manager);
 	Expired = true;
 	Control.bFailUndo = true;
 	EXPECT_DEATH((void)Manager->UndoExpected(Id), "during Undo record 0");
@@ -689,7 +677,6 @@ TEST(FEditorTransactionManagerTests, TerminalReplayDiagnosticIdentifiesUndoAndRe
 	Durin::Tests::FTestTransactorOwner Manager;
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FControlledTransaction>(Value, Control)));
 	const ::Durin::FTransactionId Id = Manager->GetUndoContext().TransactionId;
-	Durin::Tests::CollectTransactionEvents(*Manager);
 
 	Control.bFailUndo = true;
 	EXPECT_DEATH((void)Manager->Undo(), "Transaction 1 during Undo record 0");
@@ -699,7 +686,7 @@ TEST(FEditorTransactionManagerTests, TerminalReplayDiagnosticIdentifiesUndoAndRe
 	EXPECT_DEATH((void)Manager->Redo(), "Transaction 1 during Redo record 0");
 }
 
-TEST(FEditorTransactionManagerTests, ClearsRedoBranchAndPendingEventsOnNewCommitAndClear)
+TEST(FEditorTransactionManagerTests, NewCommitReplacesRedoBranchAndResetClearsUndo)
 {
 	int Value = 0;
 	Durin::Tests::FTestTransactorOwner Manager;
@@ -714,7 +701,6 @@ TEST(FEditorTransactionManagerTests, ClearsRedoBranchAndPendingEventsOnNewCommit
 	EXPECT_FALSE(Manager->RedoExpected(OldId));
 
 	Manager->Reset();
-	EXPECT_TRUE(Durin::Tests::CollectTransactionEvents(*Manager).empty());
 	EXPECT_FALSE(Manager->CanUndo());
 }
 
@@ -798,9 +784,9 @@ TEST(FEditorTransactionManagerTests, FailedExecutePreservesCleanPackage)
 	FTransactionControl Control;
 	Control.bFailRedo = true;
 	Durin::Tests::FTestTransactorOwner Manager;
-	EXPECT_FALSE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
+	EXPECT_THROW(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
 		Value, std::initializer_list{Package}, 1, &Control
-	)));
+	)), std::runtime_error);
 	EXPECT_EQ(Value, 0);
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_FALSE(Manager->CanUndo());

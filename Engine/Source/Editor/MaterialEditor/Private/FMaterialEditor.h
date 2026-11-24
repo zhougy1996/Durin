@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Delegates/Delegate.h"
 
 #include "Asset/MutationExtensions.h"
 #include "Toolkits/AssetEditorToolkit.h"
@@ -17,7 +18,7 @@ namespace Durin
 	class DMaterial;
 	class DMaterialInstance;
 	class DMaterialFunction;
-	struct FTransactionEvent;
+	struct FTransactionContext;
 }
 
 namespace Durin::MaterialEditor
@@ -105,7 +106,7 @@ namespace Durin::MaterialEditor
 		auto ReleaseFunctionSession() -> void;
 		auto RegisterUndo() -> void;
 		auto UnregisterUndo() -> void;
-		auto HandleTransaction(const FTransactionEvent& Event) -> void;
+		auto HandleTransaction(const FTransactionContext& Context, bool bUndo) -> void;
 		auto PostUndo(bool bSuccess) -> void;
 		auto PostRedo(bool bSuccess) -> void { PostUndo(bSuccess); }
 		auto SaveFunctionViewport() -> void;
@@ -117,7 +118,8 @@ namespace Durin::MaterialEditor
 		auto DrawInputs(FMaterialFunctionEditingSession& Document) -> void;
 		const EMaterialEditorMode Mode;
 		std::shared_ptr<FMaterialFunctionEditingSession> FunctionSession;
-		uint64 UndoHandle = 0;
+		FDelegateHandle UndoHandle;
+		FDelegateHandle RedoHandle;
 
 		std::shared_ptr<FMaterialEditingSession> EditingSession;
 		FAssetEditorSession EditorSession;

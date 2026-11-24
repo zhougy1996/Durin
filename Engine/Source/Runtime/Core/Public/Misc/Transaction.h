@@ -9,8 +9,6 @@ namespace Durin
 	class FReferenceCollector;
 
 	using FTransactionId = uint64;
-	// Identifies initial execution or one direction of historical replay.
-	enum class ETransactionOperation : uint8 { Execute, Undo, Redo };
 
 	// Owns presentation values; PrimaryObject is borrowed from the transaction owner.
 	// IDs are zero outside their corresponding transaction/operation lifetime.
@@ -22,14 +20,9 @@ namespace Durin
 		FTransactionId TransactionId = 0;
 		uint64 OperationId = 0;
 		uint64 HistoryId = 0;
+		std::string Details;
 	};
 
-	struct FCommandChangeError
-	{
-		std::string Message;
-		bool bRecoveryRequired = false;
-	};
-	using FCommandChangeResult = std::expected<void, FCommandChangeError>;
 	using FTransactionCaptureResult = std::expected<void, std::string>;
 
 	// Owns synchronous domain Undo/Redo data independently of any editor module.
@@ -37,15 +30,15 @@ namespace Durin
 	{
 	public:
 		virtual ~FCommandChange() = default;
-		virtual auto Apply() -> FCommandChangeResult = 0;
-		virtual auto Revert() -> FCommandChangeResult = 0;
+		virtual auto Apply(DObject* Object) -> void = 0;
+		virtual auto Revert(DObject* Object) -> void = 0;
 		// The history supplies the primary object when the change has one.
 		virtual auto HasExpired(DObject*) const noexcept -> bool { return false; }
 		virtual auto GetDescription() const -> std::string_view = 0;
 		// Enumerate edited objects explicitly; GC dependencies do not imply edits.
 		// Recording freezes exact participant identities independently of GC traversal.
 		virtual auto GetModifiedObjects() const -> std::vector<DObject*> = 0;
-		virtual auto GetDetails(ETransactionOperation) const -> std::string { return {}; }
+		virtual auto GetDetails() const -> std::string { return {}; }
 		virtual auto GetAffectedPackages() const -> std::span<DPackage* const> { return {}; }
 		virtual auto AddReferencedObjects(FReferenceCollector&) -> void {}
 		virtual auto GetAllocatedSize() const -> size_t { return 0; }

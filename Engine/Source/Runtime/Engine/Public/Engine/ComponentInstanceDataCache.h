@@ -69,7 +69,7 @@ namespace Durin
 		FActorComponentInstanceData() = default;
 		ENGINE_API explicit FActorComponentInstanceData(const DActorComponent& Component);
 		virtual auto ContainsData() const -> bool { return false; }
-		ENGINE_API virtual auto ApplyToComponent(DActorComponent& Component, ECacheApplyPhase Phase) const -> FCommandChangeResult;
+		ENGINE_API virtual auto ApplyToComponent(DActorComponent& Component, ECacheApplyPhase Phase) const -> void;
 		ENGINE_API auto MatchesComponent(const DActorComponent& Component, const FActorGeneratedComponentKey* CandidateKey = nullptr) const -> bool;
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override;
 		ENGINE_API auto Serialize(FArchive& Archive) -> void override;
@@ -115,7 +115,7 @@ namespace Durin
 		FSceneComponentInstanceData() = default;
 		ENGINE_API explicit FSceneComponentInstanceData(const DActorComponent& Component);
 		auto ContainsData() const -> bool override { return true; }
-		ENGINE_API auto ApplyToComponent(DActorComponent& Component, ECacheApplyPhase Phase) const -> FCommandChangeResult override;
+		ENGINE_API auto ApplyToComponent(DActorComponent& Component, ECacheApplyPhase Phase) const -> void override;
 		ENGINE_API auto Serialize(FArchive& Archive) -> void override;
 		ENGINE_API auto GetDataType() const -> const FComponentInstanceDataType& override;
 		auto GetAllocatedSize() const -> size_t override { return sizeof(*this); }
@@ -150,7 +150,7 @@ namespace Durin
 		FActorRootComponentReconstructionData() = default;
 		auto HasInstanceData() const -> bool { return bCachedGeneratedRoot || !Attached.empty(); }
 		ENGINE_API auto Validate(const AActor* ExpectedActor = nullptr) const -> FTransactionCaptureResult;
-		ENGINE_API auto ApplyToActor(AActor& Actor, bool bRequireRoot = true) const -> FCommandChangeResult;
+		ENGINE_API auto ApplyToActor(AActor& Actor, bool bRequireRoot = true) const -> std::expected<void, std::string>;
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		ENGINE_API auto Serialize(FArchive& Archive) -> void;
 		ENGINE_API auto GetAllocatedSize() const -> size_t;
@@ -172,7 +172,7 @@ namespace Durin
 		ENGINE_API auto Validate(const AActor* ExpectedActor = nullptr) const -> FTransactionCaptureResult;
 		ENGINE_API auto ValidateComponent(const DActorComponent& Component,
 			const FActorGeneratedComponentKey* CandidateKey = nullptr) const -> FTransactionCaptureResult;
-		ENGINE_API auto ApplyToActor(AActor& Actor, ECacheApplyPhase Phase) const -> FCommandChangeResult;
+		ENGINE_API auto ApplyToActor(AActor& Actor, ECacheApplyPhase Phase) const -> void;
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		ENGINE_API auto Serialize(FArchive& Archive) -> void;
 		ENGINE_API auto GetAllocatedSize() const -> size_t;

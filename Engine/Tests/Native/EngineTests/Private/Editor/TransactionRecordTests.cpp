@@ -91,8 +91,10 @@ TEST(FTransactionObjectRecordTests, AnnotationPrecedesSerializationAndPreflightD
 	auto Record = FRecordAccess::Capture(*Target); ASSERT_TRUE(Record);
 	ASSERT_EQ(Trace.size(), 2u); EXPECT_EQ(Trace[0], "annotation"); EXPECT_EQ(Trace[1], "serialize");
 	ASSERT_TRUE(Record->Validate()); EXPECT_EQ(Target->AnnotationCaptures, 1u);
-	Target->SupplementalValue = 29; ASSERT_TRUE(Record->CaptureAfter());
-	EXPECT_FALSE(Record->IsNoOp()); ASSERT_TRUE(Record->Apply(true, EPropertyChangeOrigin::Undo));
+	Target->SupplementalValue = 29; Record->CaptureAfter();
+	EXPECT_FALSE(Record->IsNoOp());
+	Record->CaptureInverse();
+	Record->Apply(EPropertyChangeOrigin::Undo);
 	auto Annotation = std::dynamic_pointer_cast<FRecordTestAnnotation>(Record->GetReplayAnnotation());
 	ASSERT_TRUE(Annotation); EXPECT_EQ(Annotation->Value, 17);
 	Target->CaptureTrace = nullptr;

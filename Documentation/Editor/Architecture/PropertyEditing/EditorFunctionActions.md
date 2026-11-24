@@ -81,7 +81,7 @@ Reconstructible transient derived caches are allowed. Complex commands need an
 explicit domain/custom-change adapter; a signature cannot prove undoability.
 
 `Cancel` discards history, not mutations. Final snapshot or history-budget failure
-may follow native execution. The adapter reports admission errors through `Context.ReportError`. After invocation the panel refreshes and the buffer reports any publication failure through its history event. Applied native writes remain in the model.
+may follow native execution. The adapter reports admission errors through `Context.ReportError`. After invocation the panel refreshes. Applied native writes remain in the model.
 
 ## Related Documentation
 

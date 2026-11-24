@@ -15,8 +15,9 @@ CoreDObject or an editor module to define a transaction or custom change.
 The editor owns the active recorder and application history, as described in
 [Transactors](../../Editor/Architecture/Transactions/Transactors.md).
 
-`Misc/Transaction.h` owns `FCommandChange`, its synchronous Apply/Revert result,
-`ETransactionOperation`, transaction context and operation identity allocation.
+`Misc/Transaction.h` owns `FCommandChange`,
+transaction context and operation identity allocation. The public `ITransaction::Apply()` runs a complete replay and returns void. Undo calls `Revert(Object)` and Redo calls `Apply(Object)`. Both return void. Object-bound records pass their resolved target and unbound commands receive null. An execution fault terminates replay with the transaction and record diagnostic.
+Object listeners receive `ETransactionObjectEventType::UndoRedo` for both directions.
 A custom change implements HasExpired when its target or dependencies can
 become unavailable. Each replay evaluates the command's current eligibility.
 A custom change declares modified objects separately through
@@ -92,8 +93,9 @@ not capture instance lifecycle annotations or activate runtime registration.
 
 `ValidateSerializedObject` checks identity, field schema and native field versions
 without loading historical fields. Callers preflight before using
-`LoadSerializedObject` to transfer the data. Its errors can follow partial
-native writes. During editor transaction replay a load fault is terminal.
+`LoadSerializedObject` to transfer the data. The load returns void. Archive errors and native
+exceptions propagate with their original reason, including after partial writes.
+Editor replay reports the transaction ID, direction and record index, then terminates.
 An anonymous object can replay against its exact recorded generation while its
 name remains empty and its Outer matches. Transferring an anonymous identity
 to a different Outer or replacing a named identity with an anonymous one fails
@@ -209,7 +211,10 @@ with the shared instance-source matcher before comparing properties-only data.
 
 Annotations may implement a pure `Validate` preflight for retained participants;
 the default succeeds. Validation failures and exceptions reject replay before
-historical fields load. Ordinary captures obtain a fresh immutable snapshot.
+historical fields load. Actor and component `PostEditUndo` restore their annotations
+through void execution hooks. A restore fault propagates to the active replay;
+ordinary construction retains its own failure result. Ordinary captures obtain
+a fresh immutable snapshot.
 `CreateSnapshot` refreshes live supplemental values from an existing annotation;
 the default calls the object factory. Specialized annotations preserve recovery
 participant scope across refreshes, even when construction removes the original

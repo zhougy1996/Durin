@@ -1527,8 +1527,7 @@ TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidat
 	ASSERT_TRUE(Captured);
 	auto Record = std::move(*Captured);
 	Object->Value = 6;
-	ASSERT_TRUE(Record.CaptureAfter());
-	Object->Value = 5;
+	Record.CaptureAfter();
 	ASSERT_TRUE(Record.Validate());
 	bool Reject = true;
 	struct FExtensionScope
@@ -1541,16 +1540,21 @@ TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidat
 			if (&Owner != Object || !Reject) return {};
 			return RejectPropertyEdit(Owner, Proposal, EPropertyEditRejection::IncompleteDraft);
 		}});
-	ASSERT_TRUE(Record.Apply(false, EPropertyChangeOrigin::Redo));
-	EXPECT_EQ(Object->Value, 6);
-	ASSERT_TRUE(History.Finalize());
-	ASSERT_TRUE(History.EndOperation());
-	ASSERT_TRUE(History.Apply(true, EPropertyChangeOrigin::Undo));
+	Record.CaptureInverse();
+	Record.Apply(EPropertyChangeOrigin::Undo);
 	EXPECT_EQ(Object->Value, 5);
-	ASSERT_TRUE(History.Apply(false, EPropertyChangeOrigin::Redo));
+	Record.CaptureInverse();
+	Record.Apply(EPropertyChangeOrigin::Redo);
+	EXPECT_EQ(Object->Value, 6);
+	History.Finalize();
+	ASSERT_TRUE(History.EndOperation());
+	History.Apply();
+	EXPECT_EQ(Object->Value, 5);
+	History.Apply();
 	EXPECT_EQ(Object->Value, 6);
 	Reject = false;
-	ASSERT_TRUE(Record.Apply(true, EPropertyChangeOrigin::Undo));
+	Record.CaptureInverse();
+	Record.Apply(EPropertyChangeOrigin::Undo);
 	EXPECT_EQ(Object->Value, 5);
 }
 

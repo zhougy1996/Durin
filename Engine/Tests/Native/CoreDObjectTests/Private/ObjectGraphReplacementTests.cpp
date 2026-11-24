@@ -263,8 +263,7 @@ TEST_F(FObjectGraphReplacementTests, SerializedCaptureAndObservationPublishToget
 	EXPECT_EQ(Owner->Capture->Context, Owner->Observation->SerializationContext);
 	ASSERT_EQ(Owner->Capture->Data->HardReferences.size(), 1u);
 	EXPECT_EQ(Owner->Capture->Data->HardReferences[0].GetKey(), FObjectKey(New));
-	auto Loaded = LoadSerializedObject(*New, *Owner->Capture);
-	ASSERT_TRUE(Loaded) << Loaded.error().Message;
+	LoadSerializedObject(*New, *Owner->Capture);
 	EXPECT_EQ(New->Value, 42);
 	EXPECT_EQ(New->Reference.Get(), New);
 	EXPECT_EQ(New->FixedReferences[0].Get(), New);
@@ -367,8 +366,7 @@ TEST_F(FObjectGraphReplacementTests, RemovedSerializedWeakReferenceClearsWithout
 	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
 	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
 	ASSERT_TRUE(Operation->TryCommit());
-	auto Loaded = LoadSerializedObject(*New, *Owner->Capture);
-	ASSERT_TRUE(Loaded) << Loaded.error().Message;
+	LoadSerializedObject(*New, *Owner->Capture);
 	EXPECT_TRUE(New->Weak.GetBase().GetKey().IsNull());
 	EXPECT_TRUE(Owner->Capture->Data->HardReferences.empty());
 	ASSERT_TRUE(Operation->Retire());
@@ -416,7 +414,7 @@ TEST_F(FObjectGraphReplacementTests, ExpiredSerializedWeakIdentityCannotBindSame
 	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
 	EXPECT_FALSE(Operation->GetMap().RemapObjectKey(ExpiredKey));
 	ASSERT_TRUE(Operation->TryCommit());
-	ASSERT_TRUE(LoadSerializedObject(*New, *Owner->Capture));
+	LoadSerializedObject(*New, *Owner->Capture);
 	EXPECT_EQ(New->Weak.GetBase().GetKey(), ExpiredKey);
 	EXPECT_FALSE(New->Weak.IsValid());
 	ASSERT_TRUE(Operation->Retire());
@@ -456,7 +454,7 @@ TEST_F(FObjectGraphReplacementTests, RetainedOrdinaryObjectCaptureRebindsPayload
 	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Owner.Get());
 	EXPECT_NE(Owner->Capture->Data, Data);
 	Owner->Reference = nullptr;
-	ASSERT_TRUE(LoadSerializedObject(*Owner, *Owner->Capture));
+	LoadSerializedObject(*Owner, *Owner->Capture);
 	EXPECT_EQ(Owner->Reference.Get(), New);
 	ASSERT_TRUE(Operation->Retire());
 }

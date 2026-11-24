@@ -156,12 +156,10 @@ namespace Durin
 		if (Target.IsNull()) return std::unexpected("Component lifecycle owner or target expired.");
 		return Target.Validate();
 	}
-	auto FComponentInstanceLifecycleState::Restore() const -> FCommandChangeResult
+	auto FComponentInstanceLifecycleState::Restore() const -> void
 	{
-		if (auto Valid = Validate(); !Valid) return std::unexpected(FCommandChangeError{Valid.error()});
-		if (auto Result = Target.Resolve()->ApplyLifecycleState(State); !Result)
-			return std::unexpected(FCommandChangeError{Result.error(), true});
-		return {};
+		if (auto Valid = Validate(); !Valid) throw std::runtime_error(Valid.error());
+		if (auto Result = Target.Resolve()->ApplyLifecycleState(State); !Result) throw std::runtime_error(Result.error());
 	}
 	auto FComponentInstanceLifecycleState::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{ Target.AddReferencedObjects(Collector); }
@@ -205,11 +203,9 @@ namespace Durin
 			|| Data.Tick.Group != DefaultTick.Group || Data.Tick.bEnabled != DefaultTick.bEnabled
 			|| Data.Tick.bRegistered != DefaultTick.bRegistered;
 	}
-	auto FActorTransactionAnnotation::RestoreDefault(AActor& Actor) -> FCommandChangeResult
+	auto FActorTransactionAnnotation::RestoreDefault(AActor& Actor) -> void
 	{
-		if (auto Result = Actor.GetPrimaryActorTick().RestoreState(GetDefaultActorTickState(Actor), Cast<DLevel>(Actor.GetOuter())); !Result)
-			return std::unexpected(FCommandChangeError{Result.error(), true});
-		return {};
+		if (auto Result = Actor.GetPrimaryActorTick().RestoreState(GetDefaultActorTickState(Actor), Cast<DLevel>(Actor.GetOuter())); !Result) throw std::runtime_error(Result.error());
 	}
 
 	auto FActorTransactionAnnotation::CreateSnapshot(const DObject& Object) const -> std::shared_ptr<ITransactionObjectAnnotation>
@@ -229,16 +225,15 @@ namespace Durin
 			if (auto Result = Info.ComponentSourceInfo.Validate(); !Result) return Result;
 		return Data.RootData.Validate();
 	}
-	auto FActorTransactionAnnotation::Restore(AActor& Actor, bool bApplyRootData) const -> FCommandChangeResult
+	auto FActorTransactionAnnotation::Restore(AActor& Actor, bool bApplyRootData) const -> void
 	{
-		if (auto Result = Validate(); !Result) return std::unexpected(FCommandChangeError{Result.error()});
-		if (Data.Target.Resolve() != &Actor) return std::unexpected(FCommandChangeError{"Actor annotation target mismatch."});
+		if (auto Result = Validate(); !Result) throw std::runtime_error(Result.error());
+		if (Data.Target.Resolve() != &Actor) throw std::runtime_error("Actor annotation target mismatch.");
 		if (auto Result = Actor.GetPrimaryActorTick().RestoreState(Data.Tick, Cast<DLevel>(Actor.GetOuter())); !Result)
-			return std::unexpected(FCommandChangeError{Result.error(), true});
-		if (bApplyRootData) if (auto Result = Data.RootData.ApplyToActor(Actor); !Result) return Result;
-		for (const auto& State : Data.ComponentLifecycle) if (auto Result = State.Validate(); !Result) return std::unexpected(FCommandChangeError{Result.error()});
-		for (const auto& State : Data.ComponentLifecycle) if (auto Result = State.Restore(); !Result) return Result;
-		return {};
+			throw std::runtime_error(Result.error());
+		if (bApplyRootData) if (auto Result = Data.RootData.ApplyToActor(Actor); !Result) throw std::runtime_error(Result.error());
+		for (const auto& State : Data.ComponentLifecycle) if (auto Result = State.Validate(); !Result) throw std::runtime_error(Result.error());
+		for (const auto& State : Data.ComponentLifecycle) State.Restore();
 	}
 	auto FActorTransactionAnnotation::AddReferencedObjects(FReferenceCollector& Collector) -> void
 	{

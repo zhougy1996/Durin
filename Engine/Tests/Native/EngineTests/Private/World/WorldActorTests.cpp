@@ -641,7 +641,7 @@ TEST(FNativeConstructionTests, InstanceSourceUsesExactIdentityOwnerKeyAndClass)
 	static_cast<Durin::DSceneComponent*>(Scene)->SetRelativeLocation({3.0, 0.0, 0.0});
 	Durin::FComponentInstanceDataCache Cache(*Actor);
 	Durin::TStrongObjectPtr<Durin::AActor> Other(Durin::NewObject<Durin::AActor>(nullptr, "WrongCacheOwner"));
-	EXPECT_FALSE(Cache.ApplyToActor(*Other, Durin::ECacheApplyPhase::NonConstructionScript));
+	EXPECT_FALSE(Cache.Validate(Other.Get()));
 	Durin::FActorRootComponentReconstructionData WrongRoot(*Other);
 	const auto BeforeConstruction = Actor->ConstructionCalls;
 	EXPECT_FALSE(Actor->RerunConstructionScripts(&Cache, &WrongRoot));

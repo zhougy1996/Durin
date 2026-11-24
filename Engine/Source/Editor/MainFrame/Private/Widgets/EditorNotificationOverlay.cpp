@@ -106,16 +106,6 @@ namespace Durin::MainFrame
 			ImGui::PopStyleColor(4);
 		}
 
-		auto TransactionErrorTitle(ETransactionOperation Operation) -> std::string_view
-		{
-			switch (Operation)
-			{
-			case ETransactionOperation::Undo: return "Failed to undo";
-			case ETransactionOperation::Redo: return "Failed to redo";
-			case ETransactionOperation::Execute:
-			default: return "Transaction error in";
-			}
-		}
 	}
 
 	auto FEditorNotificationOverlay::DrawHistoryWindow() -> void
@@ -128,20 +118,38 @@ namespace Durin::MainFrame
 
 	FEditorNotificationOverlay::~FEditorNotificationOverlay()
 	{
-		if (auto* Source = Cast<DTransactor>(ResolveObjectKey(TransactionSource))) Source->RemoveTransactionListener(TransactionListener);
+		UnbindTransactions();
+	}
+
+	auto FEditorNotificationOverlay::UnbindTransactions() -> void
+	{
+		if (auto* Source = Cast<DTransactor>(ResolveObjectKey(TransactionSource)))
+		{
+			Source->OnTransactionStateChanged().Remove(StateHandle);
+			Source->OnUndo().Remove(UndoHandle);
+			Source->OnRedo().Remove(RedoHandle);
+		}
 	}
 
 	auto FEditorNotificationOverlay::Tick(FNotificationManager& Notifications, DTransactor& Transactions) -> void
 	{
-		if (TransactionSource != FObjectKey(&Transactions))
-		{
-			if (auto* Source = Cast<DTransactor>(ResolveObjectKey(TransactionSource))) Source->RemoveTransactionListener(TransactionListener);
-			TransactionSource = FObjectKey(&Transactions);
-			TransactionListener = Transactions.AddTransactionListener([&Notifications, &Transactions](const auto& Event) {
-				PublishTransactionEvent(Notifications, Transactions, Event);
-			});
-		}
-		Transactions.DispatchEvents();
+		if (TransactionSource == FObjectKey(&Transactions)) return;
+		UnbindTransactions();
+		TransactionSource = FObjectKey(&Transactions);
+		StateHandle = Transactions.OnTransactionStateChanged().AddLambda([&](const auto& Context, auto State) {
+			if (State != ETransactionStateEventType::PostTransactionFinalized) return;
+			const auto Head = Transactions.GetUndoContext(false);
+			if (Head.TransactionId == Context.TransactionId)
+				PublishTransaction(Notifications, Transactions, Context, Head.Description, false, true);
+		});
+		UndoHandle = Transactions.OnUndo().AddLambda([&](const auto& Context, bool Succeeded) {
+			PublishTransaction(Notifications, Transactions, Context,
+				Succeeded ? std::format("Undid {}", Context.Description) : "Failed to undo", true, Succeeded);
+		});
+		RedoHandle = Transactions.OnRedo().AddLambda([&](const auto& Context, bool Succeeded) {
+			PublishTransaction(Notifications, Transactions, Context,
+				Succeeded ? std::format("Redid {}", Context.Description) : "Failed to redo", false, Succeeded);
+		});
 	}
 
 	auto FEditorNotificationOverlay::GetStatusBarHeight() const -> float
@@ -461,59 +469,40 @@ namespace Durin::MainFrame
 		ImGui::End();
 	}
 
-	auto FEditorNotificationOverlay::PublishTransactionEvent(FNotificationManager& Notifications, DTransactor& Transactions, const FTransactionEvent& Event) -> void
+	auto FEditorNotificationOverlay::PublishTransaction(FNotificationManager& Notifications, DTransactor& Transactions,
+		const FTransactionContext& Context, std::string Message, bool bOffersRedo, bool bSucceeded) -> void
 	{
-			FNotificationDesc Desc;
-			if (Event.Type == ETransactionEventType::Failed)
-			{
-				Desc.Type = ENotificationType::Error;
-				Desc.Message = std::format("{} {}", TransactionErrorTitle(Event.Operation), Event.Description);
-				Desc.Details = Event.Details;
-				Desc.DurationSeconds = 0.0f;
-				Notifications.Post(std::move(Desc));
-				return;
-			}
-
-			const bool bOffersRedo = Event.Type == ETransactionEventType::Undone;
-			Desc.Type = bOffersRedo ? ENotificationType::Info : ENotificationType::Success;
-			switch (Event.Type)
-			{
-			case ETransactionEventType::Undone: Desc.Message = std::format("Undid {}", Event.Description); break;
-			case ETransactionEventType::Redone: Desc.Message = std::format("Redid {}", Event.Description); break;
-			case ETransactionEventType::Discarded: Desc.Message = std::format("Discarded {}", Event.Description); break;
-			case ETransactionEventType::Evicted: Desc.Message = std::format("Evicted {}", Event.Description); break;
-			case ETransactionEventType::Executed:
-			default: Desc.Message = Event.Description; break;
-			}
-			Desc.Details = Event.Details;
-			Desc.Presentation = ENotificationPresentation::StatusBar;
-
-			if (Event.Type == ETransactionEventType::Discarded
-				|| Event.Type == ETransactionEventType::Evicted)
-			{
-				Notifications.Post(std::move(Desc));
-				return;
-			}
-
-			const FTransactionId Id = Event.Id;
-			const FObjectKey Source(&Transactions);
-			FNotificationAction Action;
-			Action.Label = bOffersRedo ? "Redo" : "Undo";
-			Action.IsEnabled = [Source, Id, bOffersRedo] {
-				const auto* Transactor = Cast<DTransactor>(ResolveObjectKey(Source));
-				return Transactor && Id != 0 && (bOffersRedo ? Transactor->GetRedoContext() : Transactor->GetUndoContext()).TransactionId == Id;
-			};
-			Action.Invoke = [Source, Id, bOffersRedo] {
-				auto* Transactor = Cast<DTransactor>(ResolveObjectKey(Source));
-				if (!Transactor) return;
-				std::string Error;
-				const bool bApplied = bOffersRedo
-					? Transactor->RedoExpected(Id, &Error) : Transactor->UndoExpected(Id, &Error);
-				if (!bApplied)
-					DURIN_ERROR("Unable to apply notification history action: {}",
-						Error);
-			};
-			Desc.Action = std::move(Action);
+		FNotificationDesc Desc;
+		Desc.Message = std::move(Message);
+		Desc.Details = Context.Details;
+		if (!bSucceeded)
+		{
+			Desc.Type = ENotificationType::Error;
+			Desc.DurationSeconds = 0.0f;
 			Notifications.Post(std::move(Desc));
+			return;
+		}
+		Desc.Type = bOffersRedo ? ENotificationType::Info : ENotificationType::Success;
+		Desc.Presentation = ENotificationPresentation::StatusBar;
+		const FTransactionId Id = Context.TransactionId;
+		const FObjectKey Source(&Transactions);
+		FNotificationAction Action;
+		Action.Label = bOffersRedo ? "Redo" : "Undo";
+		Action.IsEnabled = [Source, Id, bOffersRedo] {
+			const auto* Transactor = Cast<DTransactor>(ResolveObjectKey(Source));
+			return Transactor && Id != 0 && (bOffersRedo ? Transactor->GetRedoContext() : Transactor->GetUndoContext()).TransactionId == Id;
+		};
+		Action.Invoke = [Source, Id, bOffersRedo] {
+			auto* Transactor = Cast<DTransactor>(ResolveObjectKey(Source));
+			if (!Transactor) return;
+			std::string Error;
+			const bool bApplied = bOffersRedo
+				? Transactor->RedoExpected(Id, &Error) : Transactor->UndoExpected(Id, &Error);
+			if (!bApplied)
+				DURIN_ERROR("Unable to apply notification history action: {}",
+					Error);
+		};
+		Desc.Action = std::move(Action);
+		Notifications.Post(std::move(Desc));
 	}
 }

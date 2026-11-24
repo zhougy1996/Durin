@@ -138,8 +138,7 @@ namespace Durin
 			// No SCS implementation exists yet. Native construction currently creates
 			// all generated components; apply its post-construction cache once here.
 			if (InstanceData)
-				if (auto Result = InstanceData->ApplyToActor(*this, ECacheApplyPhase::PostUserConstructionScript); !Result)
-					throw std::runtime_error(Result.error().Message);
+				InstanceData->ApplyToActor(*this, ECacheApplyPhase::PostUserConstructionScript);
 			ValidateComponentOwnership();
 			NativeConstructionError.clear();
 			return true;

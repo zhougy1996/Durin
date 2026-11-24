@@ -211,7 +211,8 @@ namespace Durin
 			{
 				auto* Object = ResolveObjectKey(Entry);
 				auto* Actor = IsValid(Object) ? Cast<AActor>(Object) : nullptr;
-				if (Actor && Actor->GetOuter() == this && !ContainsActor(Actor)) Actors.emplace_back(Actor);
+				if (Actor && Actor->GetOuter() == this && !ContainsActor(Actor) && !Actor->EditConstructionSuspension)
+					Actors.emplace_back(Actor);
 			}
 			PreUndoActors.reset();
 #if DURIN_WITH_EDITOR

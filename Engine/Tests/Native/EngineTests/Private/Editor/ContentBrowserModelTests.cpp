@@ -224,24 +224,17 @@ namespace
 		~FBrowserScanRelease() { Gate->Release(); }
 	};
 
-	class FNoOpEditorTransaction final : public Durin::FActorCommandChange
+	class FNoOpEditorTransaction final : public Durin::FCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
 		{ return {}; }
 
 		auto GetDescription() const -> std::string_view override { return "No-op"; }
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
-		{
-			if (Operation == ::Durin::ETransactionOperation::Undo)
-			{
-				return {};
-			}
-			else
-			{
-				return {};
-			}
-		}
+		auto Revert(Durin::DObject*) -> void override
+		{}
+		auto Apply(Durin::DObject*) -> void override
+		{}
 	};
 
 	class FRouteOnlyThumbnailRenderer final : public DThumbnailRenderer

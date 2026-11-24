@@ -106,8 +106,8 @@ namespace
 		FReinstancedValueCommand(DTransactionRecordParticipant* Object, int32 InBefore, int32 InAfter, bool InSupport = true)
 			: Target(Object), Before(InBefore), After(InAfter), bSupport(InSupport), Packages{Object->GetPackage()} {}
 		auto HasExpired(Durin::DObject* Owner) const noexcept -> bool override { return !Owner; }
-		auto Apply() -> Durin::FCommandChangeResult override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = After; return {}; }
-		auto Revert() -> Durin::FCommandChangeResult override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = Before; return {}; }
+		auto Apply(Durin::DObject*) -> void override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = After; }
+		auto Revert(Durin::DObject*) -> void override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = Before; }
 		auto GetDescription() const -> std::string_view override { return "Reinstanced native value"; }
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { return {Target.Resolve()}; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
@@ -372,7 +372,9 @@ TEST_F(FTransactionReinstancingTests, ActorAnnotationRebindsTypedSceneCacheInPla
 	EXPECT_EQ(AfterRoot->GetRelativeLocation().x, 0.0);
 	const auto* Annotation = dynamic_cast<const FActorTransactionAnnotation*>(Source.get());
 	ASSERT_NE(Annotation, nullptr);
-	ASSERT_TRUE(Annotation->GetComponentInstanceDataCache().ApplyToActor(*AfterActor, ECacheApplyPhase::PostUserConstructionScript));
+	const auto& Cache = Annotation->GetComponentInstanceDataCache();
+	ASSERT_TRUE(Cache.Validate(AfterActor));
+	Cache.ApplyToActor(*AfterActor, ECacheApplyPhase::PostUserConstructionScript);
 	EXPECT_EQ(AfterRoot->GetRelativeLocation().x, 17.0);
 	AfterRoot->SetRelativeLocation({19.0, 0.0, 0.0});
 	FActorTransactionAnnotation CurrentAnnotation(*AfterActor);
@@ -380,7 +382,7 @@ TEST_F(FTransactionReinstancingTests, ActorAnnotationRebindsTypedSceneCacheInPla
 	ASSERT_EQ(Changes.size(), 1u); EXPECT_EQ(Changes[0].first, AfterRoot);
 	EXPECT_EQ(Changes[0].second.ChangedProperties, std::vector<FName>{"RelativeTransform"});
 	EXPECT_TRUE(Source->Validate());
-	EXPECT_FALSE(Annotation->Restore(*BeforeActor));
+	EXPECT_THROW(Annotation->Restore(*BeforeActor), std::runtime_error);
 }
 
 TEST_F(FTransactionReinstancingTests, ComponentObservationsRebindAbsentGenerationsAndTheirHistoricalReferencePaths)

@@ -1830,7 +1830,8 @@ TEST_F(FWorldSubsystemTests, StructuralActorEditingRejectsSubsystemBeginPlayBefo
 		EXPECT_EQ(World->GetPlayState(), EWorldPlayState::BeginningPlay);
 		EXPECT_FALSE(Service->SpawnActor(*Level, AActor::StaticClass(), "Beginning", {}, {false}));
 		EXPECT_FALSE(Host->GetTransactor()->Undo());
-		EXPECT_EQ(Host->GetTransactor()->GetUndoContext().TransactionId, UndoId);
+		EXPECT_EQ(Host->GetTransactor()->GetUndoContext().TransactionId, 0u);
+		EXPECT_EQ(Host->GetTransactor()->GetUndoContext(false).TransactionId, UndoId);
 	};
 	World->BeginPlay({});
 	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
@@ -1869,8 +1870,13 @@ TEST_F(FWorldSubsystemTests, StructuralActorEditingRejectsWorldShutdownRequestBe
 	EXPECT_FALSE(Host->GetTransactor()->Undo());
 	EXPECT_FALSE(Host->GetTransactor()->RedoExpected(RedoId));
 	EXPECT_EQ(Actor->GetActorLabel(), "First");
-	EXPECT_EQ(Host->GetTransactor()->GetRedoContext().TransactionId, RedoId);
-	EXPECT_EQ(Host->GetTransactor()->GetUndoContext().TransactionId, UndoId);
+	EXPECT_EQ(Host->GetTransactor()->GetRedoContext().TransactionId, 0u);
+	ASSERT_EQ(Host->GetTransactor()->GetUndoCount(), 1u);
+	const auto* RedoEntry = Host->GetTransactor()->GetTransaction(Host->GetTransactor()->GetQueueLength() - 1);
+	ASSERT_NE(RedoEntry, nullptr);
+	EXPECT_EQ(RedoEntry->GetId(), RedoId);
+	EXPECT_EQ(Host->GetTransactor()->GetUndoContext().TransactionId, 0u);
+	EXPECT_EQ(Host->GetTransactor()->GetUndoContext(false).TransactionId, UndoId);
 	Host->PreExit();
 }
 

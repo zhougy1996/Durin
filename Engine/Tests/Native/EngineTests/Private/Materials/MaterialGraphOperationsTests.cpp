@@ -3685,13 +3685,13 @@ TEST(FMaterialGraphOperationsTests, MissingAllocationRejectsTheWholeGraphReplay)
 	History.SaveObject(Child);
 	ASSERT_EQ(History.GetRecordCount(), 2u);
 	ASSERT_TRUE(Graph->RemoveNodes(std::array{Created.value()}, false));
-	ASSERT_TRUE(History.Finalize());
+	History.Finalize();
 	ASSERT_TRUE(History.EndOperation());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_EQ(GDObjectArray.Resolve(Key), nullptr);
 	const auto Before = CaptureExpressions(*Material);
 	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
-	const auto Result = History.Apply(true, EPropertyChangeOrigin::Undo);
+	const auto Result = History.Validate();
 	ASSERT_FALSE(Result);
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);

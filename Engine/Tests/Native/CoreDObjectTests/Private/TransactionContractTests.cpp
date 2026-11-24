@@ -19,8 +19,8 @@ namespace
 	{
 	public:
 		FRuntimeChange(DObject* InTarget, int& InValue) : Target(InTarget), Value(InValue) {}
-		auto Apply() -> FCommandChangeResult override { Value = 9; return {}; }
-		auto Revert() -> FCommandChangeResult override { Value = 0; return {}; }
+		auto Apply(Durin::DObject*) -> void override { Value = 9; }
+		auto Revert(Durin::DObject*) -> void override { Value = 0; }
 		auto GetDescription() const -> std::string_view override { return "Runtime transaction contract"; }
 		auto GetModifiedObjects() const -> std::vector<DObject*> override { return {Target}; }
 	private:
@@ -36,9 +36,9 @@ TEST(FRuntimeTransactionContractTests, RuntimeChangeAndObjectContractsNeedNoEdit
 	int Value = 0;
 	std::unique_ptr<FCommandChange> Change = std::make_unique<FRuntimeChange>(Object.Get(), Value);
 	EXPECT_EQ(Change->GetModifiedObjects(), (std::vector<DObject*>{Object.Get()}));
-	ASSERT_TRUE(Change->Apply());
+	Change->Apply(Object.Get());
 	EXPECT_EQ(Value, 9);
-	ASSERT_TRUE(Change->Revert());
+	Change->Revert(Object.Get());
 	EXPECT_EQ(Value, 0);
 	EXPECT_FALSE(Object->FindOrCreateTransactionAnnotation());
 	Object->PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation>{});

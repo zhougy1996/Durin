@@ -128,13 +128,13 @@ TEST(FTransactionSerializationTests, NativeTransferDoesNotAcquireAnnotations)
 	EXPECT_EQ(Object->AnnotationCaptures, 0u);
 	Object->Count = 21; Object->Session = 22; Object->Native = 23; Object->Ignored = 24;
 	ASSERT_TRUE(ValidateSerializedObject(*Object, *Captured));
-	ASSERT_TRUE(LoadSerializedObject(*Object, *Captured));
+	LoadSerializedObject(*Object, *Captured);
 	EXPECT_EQ(Object->Count, 11); EXPECT_EQ(Object->Session, 12); EXPECT_EQ(Object->Native, 13);
 	EXPECT_EQ(Object->Ignored, 24);
 	EXPECT_EQ(Object->AnnotationCaptures, 0u);
 }
 
-TEST(FTransactionSerializationTests, TransferFailureLeavesCompensationToReplayOwner)
+TEST(FTransactionSerializationTests, FailedTransferReportsErrorAfterWritingCapturedState)
 {
 	Testing::InitializeDObjectSystemForTests();
 	TStrongObjectPtr<DTransactionStateObject> Object(NewObject<DTransactionStateObject>(nullptr, "PayloadFailureOwner"));
@@ -143,10 +143,7 @@ TEST(FTransactionSerializationTests, TransferFailureLeavesCompensationToReplayOw
 	Object->Count = 41;
 	ASSERT_TRUE(ValidateSerializedObject(*Object, *Captured));
 	Object->bFailLoadOnce = true;
-	auto Loaded = LoadSerializedObject(*Object, *Captured);
-	ASSERT_FALSE(Loaded); EXPECT_FALSE(Loaded.error().bRecoveryRequired);
-	// Transfer has written the requested value; it does not capture or apply an
-	// inverse. The coordinator's existing failure contracts test compensation.
+	EXPECT_THROW(LoadSerializedObject(*Object, *Captured), std::runtime_error);
 	EXPECT_EQ(Object->Count, 31);
 }
 
@@ -160,7 +157,7 @@ TEST(FTransactionSerializationTests, VirtualSerializationIncludesNativeAndTransi
 	ASSERT_TRUE(Before) << Before.error();
 	Object->Count = 30; Object->Session = 40; Object->Ignored = 50; Object->Native = 60; Object->Deprecated = 70;
 	ASSERT_TRUE(ValidateSerializedObject(*Object, *Before));
-	ASSERT_TRUE(LoadSerializedObject(*Object, *Before));
+	LoadSerializedObject(*Object, *Before);
 	EXPECT_EQ(Object->Count, 3); EXPECT_EQ(Object->Session, 4); EXPECT_EQ(Object->Ignored, 50); EXPECT_EQ(Object->Native, 6);
 	EXPECT_EQ(Object->Deprecated, 70);
 	EXPECT_TRUE(std::ranges::any_of(Observation.SerializedTaggedData, [](const auto& Field) { return Field.Name == FName("Native") && !Field.bReflected; }));
@@ -179,7 +176,7 @@ TEST(FTransactionSerializationTests, RestoresExactNameOuterAndMutableFlagsWithou
 	auto Before = CaptureSerializedObject(*Object); ASSERT_TRUE(Before);
 	Object->Rename("Edited"); Object->SetOuterPrivate(SecondOuter.Get()); Object->SetFlags(EObjectFlags::Public | EObjectFlags::Transient);
 	ASSERT_TRUE(ValidateSerializedObject(*Object, *Before));
-	ASSERT_TRUE(LoadSerializedObject(*Object, *Before));
+	LoadSerializedObject(*Object, *Before);
 	EXPECT_EQ(Object->GetFName(), FName("Original")); EXPECT_EQ(Object->GetOuter(), FirstOuter.Get());
 	EXPECT_FALSE(Object->HasAnyObjectFlags(EObjectFlags::Public | EObjectFlags::Transient));
 	EXPECT_EQ(FObjectKey(Object.Get()), Key);
@@ -200,7 +197,7 @@ TEST(FTransactionSerializationTests, NameConflictIsDisplacedOnlyWhenLoadingTheHi
 	TStrongObjectPtr<DObject> ExistingSuffix(NewObject<DObject>(Outer.Get(), "Reserved_1"));
 	ASSERT_TRUE(ValidateSerializedObject(*Object, *Before));
 	EXPECT_EQ(Impostor->GetFName(), FName("Reserved"));
-	ASSERT_TRUE(LoadSerializedObject(*Object, *Before));
+	LoadSerializedObject(*Object, *Before);
 	EXPECT_EQ(Object->GetFName(), FName("Reserved"));
 	EXPECT_NE(Impostor->GetFName(), Object->GetFName());
 	EXPECT_NE(Impostor->GetFName(), ExistingSuffix->GetFName());
@@ -220,13 +217,13 @@ TEST(FTransactionSerializationTests, CollectorOwnedStateRetainsHardReferencesBut
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_NE(ResolveObjectKey(HardKey), nullptr); EXPECT_EQ(ResolveObjectKey(WeakKey), nullptr);
 	ASSERT_TRUE(ValidateSerializedObject(*Object, *Owner->ManagedState));
-	ASSERT_TRUE(LoadSerializedObject(*Object, *Owner->ManagedState));
+	LoadSerializedObject(*Object, *Owner->ManagedState);
 	EXPECT_EQ(Object->NativeHard, ResolveObjectKey(HardKey)); EXPECT_FALSE(Object->NativeWeak.IsValid());
 	Object->NativeHard = nullptr; Owner->ManagedState.reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(HardKey), nullptr);
 }
 
-TEST(FTransactionSerializationTests, NativeExceptionReportsRecoveryWithoutImplicitCompensation)
+TEST(FTransactionSerializationTests, NativeLoadExceptionPreservesItsDiagnosticAndAppliedWrites)
 {
 	Testing::InitializeDObjectSystemForTests();
 	TStrongObjectPtr<DTransactionStateObject> Object(NewObject<DTransactionStateObject>(nullptr, "TransferNativeException"));
@@ -234,8 +231,7 @@ TEST(FTransactionSerializationTests, NativeExceptionReportsRecoveryWithoutImplic
 	Object->Count = 17; Object->Native = 27;
 	ASSERT_TRUE(ValidateSerializedObject(*Object, *Capture));
 	Object->bThrowLoadOnce = true;
-	auto Thrown = LoadSerializedObject(*Object, *Capture); ASSERT_FALSE(Thrown);
-	EXPECT_TRUE(Thrown.error().bRecoveryRequired);
+	EXPECT_THROW(LoadSerializedObject(*Object, *Capture), std::runtime_error);
 	EXPECT_EQ(Object->Count, 0); EXPECT_EQ(Object->Native, 0);
 }
 

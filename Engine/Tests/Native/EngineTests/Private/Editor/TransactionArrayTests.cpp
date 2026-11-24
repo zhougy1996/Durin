@@ -17,7 +17,7 @@ namespace
 	}
 }
 
-TEST(FTransactionArrayTests, OrderedArrayAndWholeObjectReplaySurvivesDeletion)
+TEST(FTransactionArrayTests, WholeObjectCapturesArrayEditAndDeletion)
 {
 	InitializeDObjectSystem();
 	Tests::FTestTransactorOwner Buffer;
@@ -25,8 +25,8 @@ TEST(FTransactionArrayTests, OrderedArrayAndWholeObjectReplaySurvivesDeletion)
 	Object->Numbers = {1, 2};
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Edit range and delete owner"});
-		ASSERT_TRUE(EditNumbers(*Object, 1, 1, {3}));
 		ASSERT_TRUE(Object->Modify());
+		ASSERT_TRUE(EditNumbers(*Object, 1, 1, {3}));
 		Object->Value = 42;
 		Object->MarkAsGarbage();
 	}
@@ -55,27 +55,27 @@ TEST(FTransactionArrayTests, PieOwnerIsRejectedBeforeMutation)
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
-TEST(FTransactionArrayTests, ReplaysOrderedOverlappingOperationsAcrossRelocation)
+TEST(FTransactionArrayTests, DisjointRangesRoundTripAcrossRelocation)
 {
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "RangeOperations"));
 	Object->Numbers = {1, 2, 3, 4};
 	{
 		Durin::Tests::FBufferRecording Outer(Buffer.Get(), {.Description = "Array operations"});
-		ASSERT_TRUE(EditNumbers(*Object, 1, 1, {}));
+		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {8}));
 		Durin::Tests::FBufferRecording Inner(Buffer.Get(), {.Description = "Nested array operations"});
-		ASSERT_TRUE(EditNumbers(*Object, 0, 0, {8, 9}));
 		Object->Numbers.reserve(10000);
 		ASSERT_TRUE(EditNumbers(*Object, 2, 1, {7}));
-		ASSERT_TRUE(EditNumbers(*Object, 1, 2, {}));
+		ASSERT_TRUE(EditNumbers(*Object, 4, 0, {5}));
+		ASSERT_TRUE(EditNumbers(*Object, 5, 0, {6}));
 	}
-	EXPECT_EQ(Object->Numbers, (std::vector<int32>{8, 3, 4}));
+	EXPECT_EQ(Object->Numbers, (std::vector<int32>{8, 2, 7, 4, 5, 6}));
 	ASSERT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 4u);
 	EXPECT_EQ(Object->SerializationSaves, 0);
 	for (int Repeat = 0; Repeat != 3; ++Repeat)
 	{
 		ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 2, 3, 4}));
-		ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Object->Numbers, (std::vector<int32>{8, 3, 4}));
+		ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Object->Numbers, (std::vector<int32>{8, 2, 7, 4, 5, 6}));
 	}
 	EXPECT_EQ(Object->UndoCompletions, 6);
 }
@@ -99,19 +99,19 @@ TEST(FTransactionArrayTests, RejectsInvalidRangesAndSkipsNoOpAdapters)
 	EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 2}));
 }
 
-TEST(FTransactionArrayTests, WholeObjectFallbackAndRangeBaselinesRemainOrdered)
+TEST(FTransactionArrayTests, WholeObjectOwnsMixedStructuralAndScalarEdits)
 {
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "MixedRangeSnapshots"));
 	Object->Numbers = {1, 2, 3};
 	{
-		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Range then whole object"});
-		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Compound edit"});
 		ASSERT_TRUE(Object->Modify(false));
+		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
 		ASSERT_TRUE(EditNumbers(*Object, 1, 0, {8}));
 		Object->Value = 12;
 	}
-	EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 2u);
+	EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 1u);
 	for (int Repeat = 0; Repeat != 2; ++Repeat)
 	{
 		ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 2, 3})); EXPECT_EQ(Object->Value, 0);
@@ -229,12 +229,15 @@ TEST(FTransactionArrayTests, ArrayAnnotationsAndEventsUseTheCompletedSideOncePer
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {})); Object->SupplementalValue = 2;
 		ASSERT_TRUE(EditNumbers(*Object, 1, 0, {8})); Object->SupplementalValue = 3;
 	}
-	ASSERT_EQ(Events.size(), 1u); EXPECT_EQ(Events.back().Change.ChangedProperties, (std::vector<FName>{"Numbers"}));
-	ASSERT_TRUE(Events.back().Annotation); EXPECT_EQ(static_cast<FRecordTestAnnotation&>(*Events.back().Annotation).Value, 3);
+	EXPECT_TRUE(Events.empty());
+	const auto OriginalName = Object->GetFName();
+	Object->Trace = [&](std::string_view Phase) { if (Phase == "post") Object->Rename("ArrayAfterCompletion"); };
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Object->SupplementalValue, 1);
-	ASSERT_EQ(Events.size(), 2u); EXPECT_EQ(static_cast<FRecordTestAnnotation&>(*Events.back().Annotation).Value, 1);
+	ASSERT_EQ(Events.size(), 1u); EXPECT_TRUE(Events.back().Change.ChangedProperties.empty());
+	EXPECT_NE(Object->GetFName(), OriginalName); EXPECT_EQ(Events.back().Change.OriginalName, OriginalName);
+	ASSERT_TRUE(Events.back().Annotation); EXPECT_EQ(static_cast<FRecordTestAnnotation&>(*Events.back().Annotation).Value, 1);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Object->SupplementalValue, 3);
-	ASSERT_EQ(Events.size(), 3u); EXPECT_EQ(static_cast<FRecordTestAnnotation&>(*Events.back().Annotation).Value, 3);
+	ASSERT_EQ(Events.size(), 2u); ASSERT_TRUE(Events.back().Annotation); EXPECT_EQ(static_cast<FRecordTestAnnotation&>(*Events.back().Annotation).Value, 3);
 }
 
 TEST(FTransactionArrayTests, ReinstancingRebindsOwnerAndNestedHardAndWeakReferences)
@@ -292,6 +295,7 @@ TEST(FTransactionArrayTests, EmptyArraysAndAliasedInsertionsKeepValidRanges)
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "EmptyRange"));
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Empty and aliased arrays"});
+		ASSERT_TRUE(Object->Modify());
 		ASSERT_TRUE(EditNumbers(*Object, 0, 0, {1, 2})); Object->Numbers.shrink_to_fit();
 		ASSERT_TRUE(EditTransactionArray(*Object, Object->GetClass()->FindPropertyByName("Numbers"), Object->Numbers,
 			2, 0, std::span<const int32>(Object->Numbers)));
@@ -389,9 +393,9 @@ TEST(FTransactionArrayTests, FixedRangeStorageAndReplayDoNotDependOnContainerLen
 			else if (Operation == ETransactionArrayOperation::Remove) Object->Numbers.erase(Object->Numbers.begin() + Index);
 			else Object->Numbers[Index] = 9;
 			const auto Edited = Object->Numbers;
-			ASSERT_TRUE(Record->Apply(EPropertyChangeOrigin::Undo)); Record->CommitReplay(); Record->ClearPreparedReplay();
+			Record->CaptureInverse(); Record->Apply(EPropertyChangeOrigin::Undo); Record->ClearPreparedReplay();
 			EXPECT_EQ(Object->Numbers, std::vector<int32>(Num, 5));
-			ASSERT_TRUE(Record->Apply(EPropertyChangeOrigin::Redo)); Record->CommitReplay(); Record->ClearPreparedReplay();
+			Record->CaptureInverse(); Record->Apply(EPropertyChangeOrigin::Redo); Record->ClearPreparedReplay();
 			EXPECT_EQ(Object->Numbers, Edited);
 		}
 	}
@@ -417,7 +421,7 @@ TEST(FTransactionArrayTests, PieArrayInverseTerminatesUndoAndRedo)
 		Buffer->Reset();
 	}
 }
-TEST(FTransactionArrayTests, OrderedPieInverseFaultIsTerminal)
+TEST(FTransactionArrayTests, PieInArrayInverseStopsUndoBeforeAnyCommandLoads)
 {
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> PiePackage(NewObject<DPackage>(nullptr, "MixedPieInverse")); PiePackage->SetPlayInEditor(true);
@@ -434,14 +438,15 @@ TEST(FTransactionArrayTests, OrderedPieInverseFaultIsTerminal)
 		ASSERT_TRUE(EditTransactionArray(*First, Member, First->NestedArray, 0, 1, std::span<const FRecordNestedValue>(&Value, 1)));
 		First->SupplementalValue = 20;
 		ASSERT_TRUE(EditNumbers(*Second, 0, 1, {9})); Second->SupplementalValue = 40;
-		ASSERT_TRUE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(Counter, 0, 5)));
+		auto Command = std::make_unique<FTestCustomChange>(Counter, 0, 5);
+		Command->ReplayProbe = [](DObject*) { throw std::runtime_error("Command loaded before the inverse PIE check"); };
+		ASSERT_TRUE(Buffer->StoreUndo(std::move(Command)));
 	}
 	First->NestedArray[0].HardReference = Pie.Get();
-	int Events = 0; First->TransactionObserver = Second->TransactionObserver = [&](const auto&) { ++Events; };
-	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
+	EXPECT_DEATH((void)Buffer->Undo(), "during Undo: .*Play-in-Editor");
 }
 
-TEST(FTransactionArrayTests, OrderedInverseFaultDoesNotSendPostEditUndo)
+TEST(FTransactionArrayTests, InverseFaultDoesNotSendPostEditUndo)
 {
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> OrdinaryPackage(NewObject<DPackage>(nullptr, "CompensationTaint"));

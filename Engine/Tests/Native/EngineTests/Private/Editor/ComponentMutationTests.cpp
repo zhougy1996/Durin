@@ -1494,10 +1494,6 @@ TEST(FComponentMutationTests, CanceledCreationUnwindsBeforeReplacementRecording)
 	auto Count = F.Actor->GetComponents().size();
 	EXPECT_TRUE(F.Editor.GetActorEditor()->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false}));
 	EXPECT_EQ(F.Actor->GetComponents().size(), Count + 1);
-	const auto Events = Durin::Tests::CollectTransactionEvents(*Buffer);
-	ASSERT_FALSE(Events.empty());
-	EXPECT_EQ(Events.back().Type, ETransactionEventType::Discarded);
-	EXPECT_EQ(Events.back().Id, Original);
 	EXPECT_FALSE(Buffer->IsActive());
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	EXPECT_TRUE(Buffer->CanRedo());

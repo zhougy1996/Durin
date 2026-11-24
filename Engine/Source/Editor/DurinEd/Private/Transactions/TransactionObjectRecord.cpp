@@ -23,7 +23,7 @@ namespace Durin
 		} Check(Map);
 		AddReferencedObjects(Check);
 		if (Check.bMapped) return true;
-		for (const auto* State : {&BeforeState, &AfterState, &ReplayState, &SnapshotState})
+		for (const auto* State : {&SerializedObject, &SerializedObjectFlip, &SnapshotState})
 			if (*State && (*State)->GetSerializedCapture().HasReplacementReferences(Map)) return true;
 		return false;
 	}
@@ -36,7 +36,7 @@ namespace Durin
 			for (auto* Outer = Object->GetOuter(); Outer; Outer = Outer->GetOuter())
 				if (Map.Find(Outer)) return std::unexpected("The snapshot target has no replacement under its reinstanced owner.");
 		Target = std::move(*Reference);
-		for (auto* State : {&BeforeState, &AfterState, &ReplayState, &SnapshotState})
+		for (auto* State : {&SerializedObject, &SerializedObjectFlip, &SnapshotState})
 			if (*State)
 			{
 				auto Observation = DiffUtil::PrepareObjectReplacement((*State)->Observation, Map);
@@ -45,10 +45,7 @@ namespace Durin
 				auto Annotation = ReinstanceTransactionAnnotation((*State)->Annotation, Map);
 				if (!Annotation) return std::unexpected(Annotation.error());
 			}
-		auto Completion = ReinstanceTransactionAnnotation(CompletionAnnotation, Map);
-		if (!Completion) return std::unexpected(Completion.error());
-		if (auto Valid = Validate(); !Valid) return std::unexpected(FormatTransactionObjectRecordError(Valid.error()));
-		return {};
+		return Validate();
 	}
 
 	auto FTransaction::FWholeObjectData::Capture(DObject& Object, const FSerializedObject* CapturePolicy,
@@ -110,32 +107,22 @@ namespace Durin
 		OutBytes = Total; return true;
 	}
 
-	auto FTransaction::FWholeObjectData::Reject(std::string Message) const
-		-> std::unexpected<FTransactionObjectRecordError>
-	{
-		return std::unexpected(FTransactionObjectRecordError{.Owner = Target.GetKey(), .SerializationCause = std::move(Message)});
-	}
-
-	auto FormatTransactionObjectRecordError(const FTransactionObjectRecordError& Error) -> std::string
-	{ return Error.SerializationCause; }
-
 	auto FTransaction::FWholeObjectData::CaptureWhole(DObject& Object)
-		-> std::expected<FTransaction::FWholeObjectData, FTransactionObjectRecordError>
+		-> std::expected<FTransaction::FWholeObjectData, std::string>
 	{
 		FTransaction::FWholeObjectData Record;
 		Record.Target = FPersistentObjectRef(&Object);
 		auto State = Capture(Object);
-		if (!State) return Record.Reject(State.error());
-		Record.BeforeState = std::move(*State);
-		Record.AfterState = Record.BeforeState;
+		if (!State) return std::unexpected(State.error());
+		Record.SerializedObject = std::move(*State);
 		return Record;
 	}
 
 	auto FTransaction::FWholeObjectData::IsNoOp() const -> bool
 	{
-		return BeforeState && AfterState && !BeforeState->GetAnnotation() && !AfterState->GetAnnotation()
-			&& BeforeState->Observation.ObjectInfo == AfterState->Observation.ObjectInfo
-			&& *BeforeState->Observation.SerializedObject == *AfterState->Observation.SerializedObject && BeforeState->HasSameSchema(*AfterState);
+		return SerializedObject && SerializedObjectFlip && !SerializedObject->GetAnnotation() && !SerializedObjectFlip->GetAnnotation()
+			&& SerializedObject->Observation.ObjectInfo == SerializedObjectFlip->Observation.ObjectInfo
+			&& *SerializedObject->Observation.SerializedObject == *SerializedObjectFlip->Observation.SerializedObject && SerializedObject->HasSameSchema(*SerializedObjectFlip);
 	}
 
 	auto FTransaction::FWholeObjectData::HasExpired() const noexcept -> bool
@@ -143,24 +130,25 @@ namespace Durin
 		const auto Expired = [](const auto& State) {
 			return State && State->GetAnnotation() && State->GetAnnotation()->HasExpired();
 		};
-		return Expired(BeforeState) || Expired(AfterState);
+		return Expired(SerializedObject) || Expired(SerializedObjectFlip);
 	}
 
-	auto FTransaction::FWholeObjectData::Validate() const -> std::expected<void, FTransactionObjectRecordError>
+	auto FTransaction::FWholeObjectData::Validate() const -> FTransactionCaptureResult
 	{
 		auto* Object = Target.Get();
-		if (!Object) return Reject("Transaction object target is unavailable.");
-		if (!BeforeState || !AfterState) return Reject("Transaction object state is unavailable.");
-		if (auto Result = BeforeState->Validate(*Object); !Result) return Reject(Result.error());
-		if (auto Result = AfterState->Validate(*Object); !Result) return Reject(Result.error());
+		if (!Object) return std::unexpected("Transaction object target is unavailable.");
+		if (!SerializedObject) return std::unexpected("Transaction object state is unavailable.");
+		if (auto Result = SerializedObject->Validate(*Object); !Result) return Result;
+		if (SerializedObjectFlip) return SerializedObjectFlip->Validate(*Object);
 		return {};
 	}
 
 	// Only a field explicitly requiring an exact starting state opts into this check.
 	// The ordered tags already contain the identities of referenced objects.
-	auto FTransaction::FWholeObjectData::ValidateSource(bool bUndo) const -> FTransactionCaptureResult
+	auto FTransaction::FWholeObjectData::ValidateSource() const -> FTransactionCaptureResult
 	{
-		const auto& Source = (bUndo ? AfterState : BeforeState)->Observation;
+		const auto& SourceState = SerializedObjectFlip ? *SerializedObjectFlip : *SerializedObject;
+		const auto& Source = SourceState.Observation;
 		auto* Object = Target.Get();
 		auto RequiresMatch = [&](FName Name) {
 			const auto* Field = Object->GetClass()->FindPropertyByName(Name);
@@ -169,7 +157,7 @@ namespace Durin
 		if (!std::ranges::any_of(Source.SerializedTaggedData, [&](const auto& Tag) {
 			return Tag.bReflected && RequiresMatch(Tag.Name);
 		})) return {};
-		const auto Policy = (bUndo ? AfterState : BeforeState)->GetSerializedCapture();
+		const auto Policy = SourceState.GetSerializedCapture();
 		FDiffableObject Current;
 		if (auto Captured = CaptureSerializedObject(*Object, &Policy, &Current); !Captured) return std::unexpected(Captured.error());
 		auto Diff = DiffUtil::GenerateObjectDiff(Source, Current, {.bFullDiff = false,
@@ -180,49 +168,61 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransaction::FWholeObjectData::CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>
+	auto FTransaction::FWholeObjectData::CaptureAfter() -> void
 	{
-		if (!BeforeState) return Reject("Transaction object initial state is unavailable.");
+		if (bFinalized) return;
+		bFinalized = true;
+		if (!SerializedObject) throw std::runtime_error("Transaction object initial state is unavailable.");
 		auto* Object = Target.Get();
-		if (!Object) return Reject("Transaction final capture target is unavailable.");
-		auto State = Capture(*Object, &*BeforeState);
-		if (!State) return Reject(State.error());
-		if (!BeforeState->HasSameSchema(*State)) return Reject("Transaction field schema changed during recording.");
-		AfterState = std::move(*State);
-		return {};
+		if (!Object) throw std::runtime_error("Transaction final capture target is unavailable.");
+		auto State = Capture(*Object, &*SerializedObject);
+		if (!State) throw std::runtime_error(State.error());
+		if (!SerializedObject->HasSameSchema(*State)) throw std::runtime_error("Transaction field schema changed during recording.");
+		auto Diff = DiffUtil::GenerateObjectDiff(SerializedObject->Observation, State->Observation);
+		if (!Diff) throw std::runtime_error(Diff.error());
+		auto& Change = *Diff;
+		if (SnapshotState)
+		{
+			auto Closure = DiffUtil::GenerateObjectDiff(SnapshotState->Observation, State->Observation, {.bFullDiff = false,
+				.ShouldSkipProperty = [&](FName Name) { return !SelectedSnapshotProperties.empty() && !std::ranges::contains(SelectedSnapshotProperties, Name); }});
+			if (!Closure) throw std::runtime_error(Closure.error());
+			for (const auto Name : Closure->ChangedProperties)
+				if (!std::ranges::contains(Change.ChangedProperties, Name)) Change.ChangedProperties.push_back(Name);
+			Change.bNonPropertyDataChanged |= Closure->bNonPropertyDataChanged;
+		}
+		if (Change.HasChanges() || *SerializedObject->Observation.SerializedObject != *State->Observation.SerializedObject)
+		{
+			// UE keeps the delta; the current load slot supplies identity when the event is delivered.
+			static_cast<FTransactionObjectId&>(Change) = {};
+			FinalizedChange = std::move(Change);
+		}
+		SerializedObjectFlip = std::move(*State);
 	}
 
-	auto FTransaction::FWholeObjectData::PrepareReplay() -> std::expected<void, FTransactionObjectRecordError>
+	auto FTransaction::FWholeObjectData::CaptureInverse() -> void
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		ClearPreparedReplay();
-		if (!BeforeState) return Reject("Transaction object initial state is unavailable.");
+		if (!SerializedObject) throw std::runtime_error("Transaction object initial state is unavailable.");
 		auto* Object = Target.Get();
-		if (!Object) return Reject("Transaction inverse capture target is unavailable.");
-		auto State = Capture(*Object, &*BeforeState);
-		if (!State) return Reject(State.error());
-		ReplayState = std::move(*State);
-		CompletionAnnotation = ReplayState->GetAnnotation();
-		return {};
+		if (!Object) throw std::runtime_error("Transaction inverse capture target is unavailable.");
+		auto State = Capture(*Object, &*SerializedObject);
+		if (!State) throw std::runtime_error(State.error());
+		// Preserve the lifecycle transition recorded at finalization.
+		if (SerializedObjectFlip)
+			State->Observation.ObjectInfo.bIsPendingKill = SerializedObjectFlip->Observation.ObjectInfo.bIsPendingKill;
+		SerializedObjectFlip = std::move(*State);
 	}
 
-	auto FTransaction::FWholeObjectData::Apply(bool bBefore, EPropertyChangeOrigin Origin)
-		-> std::expected<void, FTransactionObjectRecordError>
+	auto FTransaction::FWholeObjectData::Apply(EPropertyChangeOrigin Origin) -> void
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		auto* Object = Target.Get();
-		if (!Object) return Reject("Transaction restore target is unavailable.");
-		if (!ReplayState)
-			if (auto Captured = PrepareReplay(); !Captured) return Captured;
-		auto& Desired = bBefore ? BeforeState : AfterState;
-		if (!Desired) return Reject("Transaction restore state is unavailable.");
-		CompletionAnnotation = Desired->GetAnnotation();
-		if (auto Validated = Desired->Validate(*Object); !Validated) return Reject(Validated.error());
-		if (auto Restored = LoadSerializedObject(*Object, Desired->GetSerializedCapture()); !Restored)
-			return Reject(std::move(Restored.error().Message));
-		// Per-member notifications use the same actual-field diff as object events.
-		auto Changes = DiffUtil::GenerateObjectDiff(ReplayState->Observation, Desired->Observation);
-		if (!Changes) return Reject(Changes.error());
+		if (!Object) throw std::runtime_error("Transaction restore target is unavailable.");
+		if (auto Validated = SerializedObject->Validate(*Object); !Validated) throw std::runtime_error(Validated.error());
+		LoadSerializedObject(*Object, SerializedObject->GetSerializedCapture());
+		// Per-member notifications describe the fields this load actually replaced.
+		auto Changes = DiffUtil::GenerateObjectDiff(SerializedObjectFlip->Observation, SerializedObject->Observation);
+		if (!Changes) throw std::runtime_error(Changes.error());
 		for (const auto Name : Changes->ChangedProperties)
 			if (auto* Member = Object->GetClass()->FindPropertyByName(Name))
 			{
@@ -231,60 +231,35 @@ namespace Durin
 					.Path = {&Path, 1}, .Phase = EPropertyChangePhase::Committed, .Origin = Origin});
 			}
 		Object->MarkPackageDirty();
-		return {};
-	}
-
-	auto FTransaction::FWholeObjectData::CommitReplay(bool bBefore) -> void
-	{
-		if (ReplayState)
-		{
-			auto& Inverse = bBefore ? AfterState : BeforeState;
-			// Ordered field capture may run after the transaction has flipped liveness.
-			ReplayState->Observation.ObjectInfo.bIsPendingKill = Inverse->Observation.ObjectInfo.bIsPendingKill;
-			Inverse = std::move(*ReplayState);
-		}
-		ReplayState.reset();
+		SerializedObject.swap(SerializedObjectFlip);
 	}
 
 	auto FTransaction::FWholeObjectData::BuildObjectEvents(const FTransactionContext& Context,
-		ETransactionObjectEventType Type, ETransactionOperation Operation) const
+		ETransactionObjectEventType Type, const std::shared_ptr<ITransactionObjectAnnotation>& CurrentAnnotation) const
 		-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>
 	{
-		auto* Object = Target.Get();
-		if (!Object) return std::unexpected("Transaction event target is unavailable.");
-		const bool bReplay = Type == ETransactionObjectEventType::UndoRedo;
-		const bool bUndo = Operation == ETransactionOperation::Undo;
-		FTransactionObjectChange Change;
-		std::shared_ptr<ITransactionObjectAnnotation> OriginalAnnotation, CurrentAnnotation;
-		const auto& Baseline = bReplay && bUndo ? AfterState : BeforeState;
-		if (!Baseline) return std::unexpected("Transaction event baseline is unavailable.");
-		std::optional<FSerializedObject> Live;
-		if (bReplay)
-		{
-			auto Captured = Capture(*Object, &*Baseline);
-			if (!Captured) return std::unexpected(Captured.error());
-			Live = std::move(*Captured);
-		}
-		const auto* Current = bReplay ? &*Live : (AfterState ? &*AfterState : nullptr);
-		if (!Current) return std::unexpected("Transaction event final state is unavailable.");
-		auto Diff = DiffUtil::GenerateObjectDiff(Baseline->Observation, Current->Observation);
-		if (!Diff) return std::unexpected(Diff.error());
-		Change = std::move(*Diff);
-		if (Type == ETransactionObjectEventType::Finalized && SnapshotState)
-		{
-			auto Closure = DiffUtil::GenerateObjectDiff(SnapshotState->Observation, Current->Observation, {.bFullDiff = false,
-				.ShouldSkipProperty = [&](FName Name) { return !SelectedSnapshotProperties.empty() && !std::ranges::contains(SelectedSnapshotProperties, Name); }});
-			if (!Closure) return std::unexpected(Closure.error());
-			for (const auto Name : Closure->ChangedProperties)
-				if (!std::ranges::contains(Change.ChangedProperties, Name)) Change.ChangedProperties.push_back(Name);
-			Change.bNonPropertyDataChanged |= Closure->bNonPropertyDataChanged;
-		}
-		OriginalAnnotation = Baseline->GetAnnotation(); CurrentAnnotation = Current->GetAnnotation();
 		std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>> Events;
+		if (!FinalizedChange && !CurrentAnnotation) return Events;
+		auto* Object = Target.Get();
+		if (!Object) return Events;
+		const auto& Baseline = SerializedObject;
+		FTransactionObjectChange Change = FinalizedChange.value_or(FTransactionObjectChange{});
+		static_cast<FTransactionObjectId&>(Change) = Baseline->Observation.ObjectInfo.Identity;
+		Change.OriginalFlags = Baseline->Observation.ObjectInfo.Flags;
+		if (Type == ETransactionObjectEventType::UndoRedo && Change.bHasPendingKillChange && !Object->IsGarbage())
+		{
+			const auto Policy = Baseline->GetSerializedCapture();
+			auto Live = DiffUtil::GetDiffableObject(*Object, &Policy);
+			if (!Live) return std::unexpected(Live.error());
+			auto Diff = DiffUtil::GenerateObjectDiff(Baseline->Observation, *Live);
+			if (!Diff) return std::unexpected(Diff.error());
+			Change = std::move(*Diff);
+		}
+		const auto& OriginalAnnotation = Baseline->GetAnnotation();
 		auto Add = [&](FPersistentObjectRef TargetRef, FTransactionObjectChange Value, std::shared_ptr<ITransactionObjectAnnotation> Annotation) {
-			Events.emplace_back(TargetRef, FTransactionObjectEvent{Context.TransactionId, Context.OperationId, Type, Operation, std::move(Value), std::move(Annotation)});
+			Events.emplace_back(TargetRef, FTransactionObjectEvent{Context.TransactionId, Context.OperationId, Type, std::move(Value), std::move(Annotation)});
 		};
-		if (Change.HasChanges() || OriginalAnnotation || CurrentAnnotation) Add(Target, std::move(Change), CurrentAnnotation);
+		Add(Target, std::move(Change), CurrentAnnotation);
 		if (CurrentAnnotation)
 		{
 			std::vector<std::pair<DObject*, FTransactionObjectChange>> Additional;
@@ -337,7 +312,7 @@ namespace Durin
 		// Observation owns separate baselines. Never promote or replace undo storage.
 		FTransactionObjectChange Change;
 		std::shared_ptr<ITransactionObjectAnnotation> OriginalAnnotation, CurrentAnnotation;
-		const auto& Baseline = BeforeState;
+		const auto& Baseline = SerializedObject;
 		if (!Baseline) return std::unexpected("Transaction snapshot baseline is unavailable.");
 		auto Captured = Capture(*Object, &*Baseline, SnapshotState ? &SnapshotState->Annotation : nullptr);
 		if (!Captured) return std::unexpected(Captured.error());
@@ -349,13 +324,13 @@ namespace Durin
 		if (Change.HasChanges() || CurrentAnnotation)
 		{
 			Events.emplace_back(Target, FTransactionObjectEvent{Context.TransactionId, Context.OperationId,
-				ETransactionObjectEventType::Snapshot, ETransactionOperation::Execute, std::move(Change), CurrentAnnotation});
+				ETransactionObjectEventType::Snapshot, std::move(Change), CurrentAnnotation});
 			if (CurrentAnnotation)
 				for (auto& [AdditionalObject, AdditionalChange] : CurrentAnnotation->ComputeAdditionalObjectChanges(OriginalAnnotation.get()))
 				{
 					if (!IsValid(AdditionalObject)) return std::unexpected("An annotation reported an unavailable snapshot target.");
 					if (AdditionalChange.HasChanges()) Events.emplace_back(FPersistentObjectRef(AdditionalObject), FTransactionObjectEvent{
-						Context.TransactionId, Context.OperationId, ETransactionObjectEventType::Snapshot, ETransactionOperation::Execute,
+						Context.TransactionId, Context.OperationId, ETransactionObjectEventType::Snapshot,
 						std::move(AdditionalChange), {}, ETransactionObjectChangeCreatedBy::TransactionAnnotation});
 				}
 		}
@@ -366,11 +341,9 @@ namespace Durin
 	auto FTransaction::FWholeObjectData::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
 		Target.AddReferencedObjects(Collector);
-		if (BeforeState) BeforeState->AddReferencedObjects(Collector);
-		if (AfterState) AfterState->AddReferencedObjects(Collector);
-		if (ReplayState) ReplayState->AddReferencedObjects(Collector);
+		if (SerializedObject) SerializedObject->AddReferencedObjects(Collector);
+		if (SerializedObjectFlip) SerializedObjectFlip->AddReferencedObjects(Collector);
 		if (SnapshotState) SnapshotState->AddReferencedObjects(Collector);
-		if (CompletionAnnotation) CompletionAnnotation->AddReferencedObjects(Collector);
 	}
 
 	auto FTransaction::FWholeObjectData::TryGetAllocatedSize(size_t& OutBytes) const -> bool
@@ -382,7 +355,9 @@ namespace Durin
 		};
 		if (SelectedSnapshotProperties.capacity() > std::numeric_limits<size_t>::max() / sizeof(FName)
 			|| !Add(SelectedSnapshotProperties.capacity() * sizeof(FName))) return false;
-		for (const auto* State : {&BeforeState, &AfterState, &ReplayState})
+		if (FinalizedChange && (FinalizedChange->ChangedProperties.capacity() > std::numeric_limits<size_t>::max() / sizeof(FName)
+			|| !Add(FinalizedChange->ChangedProperties.capacity() * sizeof(FName)))) return false;
+		for (const auto* State : {&SerializedObject, &SerializedObjectFlip})
 			if (*State) { size_t Size = 0; if (!(**State).TryGetAllocatedSize(Size) || !Add(Size)) return false; }
 		if (SnapshotState) { size_t Size = 0; if (!SnapshotState->TryGetAllocatedSize(Size) || !Add(Size)) return false; }
 		OutBytes = Total; return true;
@@ -391,7 +366,7 @@ namespace Durin
 	auto FTransaction::FWholeObjectData::GetAffectedPackages() const -> std::vector<DPackage*>
 	{
 		std::vector<DPackage*> Result;
-		for (const auto* State : {&BeforeState, &AfterState})
+		for (const auto* State : {&SerializedObject, &SerializedObjectFlip})
 			if (*State)
 				if (auto* Package = Cast<DPackage>((**State).Observation.ObjectInfo.Package.Resolve()); Package && !std::ranges::contains(Result, Package))
 					Result.push_back(Package);

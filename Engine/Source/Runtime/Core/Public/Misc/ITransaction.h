@@ -36,7 +36,8 @@ namespace Durin
 		virtual auto SetPrimaryObject(DObject* Object) -> void = 0;
 		virtual auto BeginOperation() -> FTransactionCaptureResult = 0;
 		virtual auto EndOperation() -> FTransactionCaptureResult = 0;
-		virtual auto Finalize() -> FTransactionCaptureResult = 0;
+		virtual auto Apply() -> void = 0;
+		virtual auto Finalize() -> void = 0;
 		virtual auto StoreUndo(DObject* Object, std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult = 0;
 		virtual auto SnapshotObject(DObject* Object, std::span<const FProperty* const> Properties = {}) -> FTransactionCaptureResult = 0;
 		virtual auto SaveArray(const FTransactionArrayCapture& Capture) -> FTransactionCaptureResult = 0;

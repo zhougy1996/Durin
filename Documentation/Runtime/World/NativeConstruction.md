@@ -109,7 +109,7 @@ limited to the synchronous derived-state pass.
 `FActorComponentInstanceSourceInfo`, `FActorComponentInstanceData` and
 `FComponentInstanceDataCache`. Component `GetComponentInstanceData` hooks supply
 supplemental instance overrides; data `ApplyToComponent` hooks restore those
-values through component APIs. The cache does not serialize authored component
+values through component APIs. Construction validates the cache against the target Actor before running the script. Both cache application and per-component hooks return void; execution faults reach the construction diagnostic. The cache does not serialize authored component
 properties a second time. The initial built-in data is Generated scene relative
 pose. Equal class-default poses are omitted using the existing default graph;
 classes explicitly lacking a CDO retain native pose data without an inferred

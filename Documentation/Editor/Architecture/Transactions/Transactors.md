@@ -48,7 +48,7 @@ does not broadcast again. A direct recursive End at depth one is refused.
 If a listener retires the recording, the original End leaves any replacement
 recording alone. A listener exception on the current recording follows the
 recording failure contract. After listeners return, End decrements the depth
-and finalizes at zero. History listeners receive queued events after publication.
+and finalizes at zero.
 
 `Cancel(StartIndex)` cancels the entire recording, including from an inner
 scope. Applied edits remain. The start index is a nesting depth. The baseline
@@ -139,7 +139,7 @@ selection and its completion annotations. The buffer consumes the transaction's
 package outcomes and event details after success. Expiry is evaluated again for the next operation. A package touched only by skipped records keeps its
 dirty state. A package touched by both kinds is marked dirty.
 
-Undo and Redo treat command detail strings as optional presentation data. A
+Command details describe the recorded edit in its original direction. Undo and Redo treat these strings as optional presentation data. A
 throwing detail provider emits a diagnostic and contributes an empty string;
 other records can still supply details. An exception from required replay work with unknown effects follows the execution-failure contract below.
 
@@ -150,13 +150,12 @@ operations. The pre-finalization listener can still open and close nested edits.
 
 Undo and Redo share the same replay admission check: the buffer must be idle,
 GUndo must be clear, and the host must permit replay. The requested direction
-selects the history head and operation reported to listeners. Both directions
+selects the history head and completion delegate. Object events use UndoRedo in either direction. Both directions
 guard the buffer against reentrant edits and replay. Cleanup and destruction
 also block mutation, inspection prevents recursive head queries, and finalization
 hides entries while the buffer publishes or retires them.
 
-Reset cancels the complete active recording and purges history, barriers, queued
-events and per-entry package records without reverting applied edits or clearing package
+Reset cancels the complete active recording and purges history, barriers and per-entry package records without reverting applied edits or clearing package
 dirty flags. It snapshots the reason before invoking record destructors and
 blocks reentrant recording, reset and inspection throughout cleanup.
 A reset requested during replay is refused.
@@ -185,10 +184,18 @@ busy traversal or inspection error.
 
 Typed arrays reject PIE owners before mutation. Outermost End treats an entry
 with PIE references as transient. During replay, an existing PIE reference
-rejects admission. A PIE reference found in a prepared or ordered inverse is
-an execution fault. Completion callbacks can change references after the final
-record check. The operation succeeds and retains its history. The next replay
+rejects admission. All inverses are inspected after capture and before the first load. A PIE
+reference at that point is an execution fault. Load and completion callbacks can
+change references after that check. The operation succeeds and retains its history. The next replay
 checks its selected entry at admission.
+
+Record `CaptureAfter()` and transaction `Finalize()` return `void`. Each whole
+record marks itself finalized before capturing its terminal state. A capture
+fault reports the transaction ID, Finalize phase, original record index and cause.
+A second direct Finalize, including one invoked by a Finalized listener, can
+deliver the stored primary delta again in the current operation. Only the first
+capture supplies the terminal annotation and its additional-object events.
+Listeners that call Finalize must bound their own recursion.
 
 Required capture, inspection, synchronous lifecycle or dirty-notification faults
 during finalization terminate with the transaction ID, phase and original cause.
@@ -196,9 +203,12 @@ during finalization terminate with the transaction ID, phase and original cause.
 ### Synchronous Object Events
 
 `PostTransacted` receives Finalized before the recording operation closes and
-`GUndo` clears. UndoRedo follows all object loads and native PostEditUndo
-completion. Components complete before their owning Actor. Events carry the
-transaction ID, live operation ID, actual changed fields, original identity and
+`GUndo` clears. Finalize selects the first record for each object. Replay calls PreEditUndo on
+first encounter in replay order and selects the last visited record for each
+object. After all loads, each object's PostEditUndo immediately precedes its
+UndoRedo notifications. Both finalization and replay visit components first,
+preserving encounter order within each group. Events carry the
+transaction ID, live operation ID, recorded delta, original identity and
 current annotation. Record events precede their annotation's additional events;
 `CreatedBy` distinguishes these sources, matching the pinned UE implementation.
 An object can receive both sources; additional events carry no primary annotation.
@@ -219,9 +229,8 @@ produce no serialized object event. A failed record stops further record applica
 During capture and object-event dispatch, Begin, End, Cancel, capture, snapshot, record changes
 and operation closure cannot invalidate the in-flight records. Modify still reports
 existing membership and may mark a package dirty; it is not an edit veto.
-Queued history listeners retain their separate idle delivery contract.
 
-`FCommandChange` owns synchronous `Apply()`/`Revert()` behavior, descriptive data,
+`FCommandChange` owns synchronous `void Apply(DObject*)` and `void Revert(DObject*)` behavior, descriptive data,
 package effects, module ownership, byte accounting, and GC references. Domains
 execute changes and call `StoreUndo(Object, Change)` to retain already-applied
 undo data. The following rules apply to the same explicitly bound object across
@@ -265,7 +274,11 @@ around the complete replay. Per-property notifications precede completion;
 domains retain their derived-state synchronization. See
 [reflected property editing](../PropertyEditing/ReflectedPropertyEditing.md#object-notification-contract).
 
-Undo and Redo return false on admission refusal or exhaustion of expired entries.
+A standalone transaction's `Apply()` returns void, starting with Undo and flipping
+direction after each application. `Validate()` checks admission for its next
+direction. The buffer selects direction from the cursor, including after it
+crosses expired entries. Undo and Redo return false on admission refusal or
+exhaustion of expired entries.
 Host, state, barrier, expected-head and read-only record validation refusals
 leave the rejected entry and its package dirty flags intact. An unresolved whole-object snapshot is skipped for
 this operation. A transaction containing only that snapshot still advances
@@ -282,10 +295,16 @@ package dirtying, history clearing or branch restoration. Successful replay
 publishes the live inverse for the opposite direction, exchanges the recorded
 package dirty state and advances the cursor. Undo(false) discards the Redo suffix.
 
-History events are queued during transitions and delivered by DispatchEvents
-to independent listeners after the transactor reaches Idle.
-UI notifications register as a listener; observers receive the same immutable
-transition data without stealing events. The queue is not a persistent journal.
+Subscribe before editing. Recording observers use `OnTransactionStateChanged`.
+Replay observers bind to `OnUndo` or `OnRedo` and receive the transaction
+context and success flag synchronously. On success, the cursor has moved and
+the operation ID is live. `UndoRedoStarted` precedes application and
+`UndoRedoFinalized` follows the directional delegate. An unavailable head
+or a rejected candidate reports false with an empty context. A record-admission
+refusal restores the candidate cursor before the directional delegate and emits
+no replay state events. Exhaustion of expired entries also reports an empty context. A
+reentrant request during notification returns false without a nested broadcast.
+Durin carries command feedback in the completion context's `Details` field. Queue observers use `OnUndoBufferChanged`.
 
 ## Package Dirty State
 
@@ -327,8 +346,7 @@ changes the queue or barriers. End and replay do not measure history.
 | Transient End | An empty, unchanged or PIE entry restores the previous order and cursor. `OnUndoBufferChanged` sees depth zero while `GUndo` still points to the retiring candidate. Both End paths finish with `PostTransactionFinalized` carrying the transaction ID. |
 | Cancel | `TransactionCanceled` sees the candidate. Cancel clears `GUndo`, restores the queue and broadcasts `OnUndoBufferChanged` before clearing the recording depth. |
 
-Queued history events are delivered separately through `DispatchEvents()` while
-idle. Reset clears queued events and retains the caller's unavailability reason.
+Reset retains the caller's unavailability reason.
 
 ## Collector And Shutdown Contract
 
@@ -342,8 +360,7 @@ garbage flag still controls ordinary access. Weak and soft payloads remain non-o
 Cancellation, branch replacement, eviction, Reset, module retirement, destruction,
 and editor shutdown erase the corresponding record data and collector edges.
 Module history retirement requires Idle, so callbacks cannot erase a record
-currently replaying. Retirement discards the entire mixed entry, publishes a
-Discarded event, remaps barriers, and marks its affected asset packages dirty. Package forgetting applies the same conservative rule to surviving
+currently replaying. Retirement discards the entire mixed entry, remaps barriers, and marks its affected asset packages dirty. Package forgetting applies the same conservative rule to surviving
 affected packages. A module cannot unload while retained custom executable code
 requires it. Clearing history releases the references held by its records.
 

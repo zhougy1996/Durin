@@ -28,10 +28,10 @@ TEST(FEngineTransactionAnnotationTests, GeneratedComponentEventsFollowSnapshotsA
 	EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::Finalized);
 	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Retired), nullptr);
 	ASSERT_TRUE(Buffer->Undo());
-	ASSERT_EQ(Events.size(), 3u); EXPECT_EQ(Events.back().Operation, ETransactionOperation::Undo);
+	ASSERT_EQ(Events.size(), 3u); EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::UndoRedo);
 	EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(0.0));
 	ASSERT_TRUE(Buffer->Redo());
-	ASSERT_EQ(Events.size(), 4u); EXPECT_EQ(Events.back().Operation, ETransactionOperation::Redo);
+	ASSERT_EQ(Events.size(), 4u); EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::UndoRedo);
 	EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(12.0, 0.0, 0.0));
 	const auto Bytes = Buffer->GetUndoSize();
 	for (int32 Index = 0; Index < 3; ++Index)
@@ -229,7 +229,7 @@ TEST(FEngineTransactionAnnotationTests, ExplicitAnnotationArchiveRoundTripsNativ
 	Actor->SetActorTickEnabled(true); Root->UnregisterComponent();
 	FActorTransactionAnnotation Restored; FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction); Restored.Serialize(Reader);
 	ASSERT_FALSE(Reader.IsError()) << Reader.GetError(); EXPECT_EQ(Reader.GetRemainingPayloadBytes(), 0u);
-	ASSERT_TRUE(Restored.Restore(*Actor)); EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Root->IsRegistered());
+	Restored.Restore(*Actor); EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Root->IsRegistered());
 	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 2u);
 }
 
@@ -476,7 +476,8 @@ TEST(FEngineTransactionAnnotationTests, RegisteredDerivedInstanceDataRoundTripsA
 	FComponentInstanceDataCache Restored; FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction); Restored.Serialize(Reader);
 	ASSERT_FALSE(Reader.IsError()) << Reader.GetError(); EXPECT_EQ(Reader.GetRemainingPayloadBytes(), 0u);
 	FTypedSceneInstanceData::AppliedValue = 0;
-	ASSERT_TRUE(Restored.ApplyToActor(*Actor, ECacheApplyPhase::PostUserConstructionScript));
+	ASSERT_TRUE(Restored.Validate(Actor));
+	Restored.ApplyToActor(*Actor, ECacheApplyPhase::PostUserConstructionScript);
 	EXPECT_EQ(FTypedSceneInstanceData::AppliedValue, 42);
 	FObjectReplacementMap Map;
 	auto Data = Component->GetComponentInstanceData(); auto Copy = Data->CreateReplacement(Map);

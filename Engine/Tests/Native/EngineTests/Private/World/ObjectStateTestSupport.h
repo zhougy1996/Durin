@@ -44,11 +44,10 @@ namespace Durin::Tests::ObjectState
 		{ return RegisterType<FTypedSceneInstanceData>("Tests.TypedSceneInstanceData"); }
 		auto Serialize(Durin::FArchive& Archive) -> void override
 		{ FSceneComponentInstanceData::Serialize(Archive); Archive << DomainValue; }
-		auto ApplyToComponent(Durin::DActorComponent& Component, Durin::ECacheApplyPhase Phase) const -> Durin::FCommandChangeResult override
+		auto ApplyToComponent(Durin::DActorComponent& Component, Durin::ECacheApplyPhase Phase) const -> void override
 		{
-			if (auto Result = FSceneComponentInstanceData::ApplyToComponent(Component, Phase); !Result) return Result;
+			FSceneComponentInstanceData::ApplyToComponent(Component, Phase);
 			AppliedValue = DomainValue;
-			return {};
 		}
 		auto GetAllocatedSize() const -> size_t override { return sizeof(*this); }
 		int32 DomainValue = 17;

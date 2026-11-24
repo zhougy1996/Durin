@@ -605,13 +605,14 @@ TEST(FSplineEditingTests, StructuralUndoAndRedoRestoreOrderAndInvalidateOldIndic
 	const auto Before = Spline->GetSplinePoints();
 	{
 		Durin::FScopedTransaction Scope("Spline point edits");
+		ASSERT_TRUE(Spline->Modify());
 		ASSERT_TRUE(Spline->InsertSplinePoint(1, FSplinePoint({100, 200, 0})));
 		ASSERT_TRUE(Spline->RemoveSplinePoint(0));
 		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
 	}
 	const auto After = Spline->GetSplinePoints();
 	const uint64 Topology = Spline->GetSplineTopologyRevision();
-	EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 3u);
+	EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 1u);
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Spline->GetSplinePoints(), Before);
 	EXPECT_GT(Spline->GetSplineTopologyRevision(), Topology);
 	EXPECT_EQ(Spline->GetEvaluationData()->GetNumSegments(), Spline->GetNumSplineSegments());

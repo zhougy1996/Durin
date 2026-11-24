@@ -48,10 +48,9 @@ namespace Durin
 		{
 			auto State = std::dynamic_pointer_cast<FComponentTransactionAnnotation>(Annotation);
 			if (!State || State->GetComponent() != this) throw std::runtime_error("Component transaction annotation is incompatible.");
-			if (!bAbsent) if (auto Result = State->Restore(); !Result) throw std::runtime_error(Result.error().Message);
+			if (!bAbsent) State->Restore();
 		}
-		else if (!bAbsent) if (auto Result = FComponentInstanceLifecycleState::DefaultFor(*this).Restore(); !Result)
-			throw std::runtime_error(Result.error().Message);
+		else if (!bAbsent) FComponentInstanceLifecycleState::DefaultFor(*this).Restore();
 		static_cast<DObject*>(this)->PostEditUndo();
 	}
 	auto DActorComponent::CaptureLifecycleState() const -> FActorComponentLifecycleState

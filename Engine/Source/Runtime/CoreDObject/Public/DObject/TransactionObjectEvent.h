@@ -37,7 +37,6 @@ namespace Durin
 		FTransactionId TransactionId = 0;
 		uint64 OperationId = 0;
 		ETransactionObjectEventType Type = ETransactionObjectEventType::Finalized;
-		ETransactionOperation Operation = ETransactionOperation::Execute;
 		FTransactionObjectChange Change;
 		std::shared_ptr<ITransactionObjectAnnotation> Annotation;
 		ETransactionObjectChangeCreatedBy CreatedBy = ETransactionObjectChangeCreatedBy::TransactionRecord;

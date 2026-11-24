@@ -347,24 +347,18 @@ namespace Durin
 		return {};
 	}
 
-	auto LoadSerializedObject(DObject& Object, const FSerializedObjectCapture& Capture) -> FCommandChangeResult
+	auto LoadSerializedObject(DObject& Object, const FSerializedObjectCapture& Capture) -> void
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FScopedPackageDirtySuppression SuppressDirty;
-		if (auto Result = ValidateSerializedObjectIdentity(Object, Capture); !Result) return std::unexpected(FCommandChangeError{Result.error()});
-		try
-		{
-			auto Excluded = Capture.Context->ExcludedMembers;
-			FSerializedObjectDataReader Reader(Object, Capture, Excluded);
-			Reader.RestoreMetadata();
-			{ auto Scope = Reader.EnterObject(Object); if (!Reader.IsError()) Object.Serialize(Reader); }
-			if (!Reader.IsError() && (Reader.GetRemainingPayloadBytes() != 0 || Reader.Schema != Capture.Context->Schema))
-				Reader.SetError("Transaction object state did not consume its complete matching schema.");
-			if (Reader.IsError()) return std::unexpected(FCommandChangeError{std::string(Reader.GetError())});
-			return {};
-		}
-		catch (const std::exception& Error) { return std::unexpected(FCommandChangeError{std::format("Transaction serialization load threw: {}", Error.what()), true}); }
-		catch (...) { return std::unexpected(FCommandChangeError{"Transaction serialization load threw an unknown exception.", true}); }
+		if (auto Result = ValidateSerializedObjectIdentity(Object, Capture); !Result) throw std::runtime_error(Result.error());
+		auto Excluded = Capture.Context->ExcludedMembers;
+		FSerializedObjectDataReader Reader(Object, Capture, Excluded);
+		Reader.RestoreMetadata();
+		{ auto Scope = Reader.EnterObject(Object); if (!Reader.IsError()) Object.Serialize(Reader); }
+		if (!Reader.IsError() && (Reader.GetRemainingPayloadBytes() != 0 || Reader.Schema != Capture.Context->Schema))
+			Reader.SetError("Transaction object state did not consume its complete matching schema.");
+		if (Reader.IsError()) throw std::runtime_error(std::string(Reader.GetError()));
 	}
 
 	auto FSerializedObject::AddReferencedObjects(FReferenceCollector& Collector) const -> void

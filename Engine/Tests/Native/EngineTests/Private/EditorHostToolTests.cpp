@@ -301,8 +301,8 @@ namespace Durin::MainFrame
 		public:
 			FChange(int& InValue, int InDelta, std::string_view InDescription, const bool* InExpired = nullptr)
 				: Value(InValue), Delta(InDelta), Description(InDescription), Expired(InExpired) {}
-			auto Apply() -> FCommandChangeResult override { Value += Delta; return {}; }
-			auto Revert() -> FCommandChangeResult override { Value -= Delta; return {}; }
+			auto Apply(Durin::DObject*) -> void override { Value += Delta; }
+			auto Revert(Durin::DObject*) -> void override { Value -= Delta; }
 			auto GetModifiedObjects() const -> std::vector<DObject*> override { return {}; }
 			auto GetDescription() const -> std::string_view override { return Description; }
 			auto HasExpired(DObject*) const noexcept -> bool override { return Expired && *Expired; }
@@ -319,8 +319,8 @@ namespace Durin::MainFrame
 		Durin::Tests::FTestTransactorOwner History;
 		FNotificationManager Notifications;
 		FEditorNotificationOverlay Overlay;
+		Overlay.Tick(Notifications, *History);
 		auto Publish = [&] {
-			Overlay.Tick(Notifications, *History);
 			Notifications.Tick(0);
 		};
 		auto Find = [&](std::string_view Message) -> const FNotification* {
@@ -343,7 +343,8 @@ namespace Durin::MainFrame
 		FirstUndo.Invoke();
 		EXPECT_EQ(Value, 1);
 
-		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*History, std::make_unique<FChange>(Value, 10, "Middle", &bExpired)));
+		const auto Middle = Durin::Tests::RecordTestEdit(*History, std::make_unique<FChange>(Value, 10, "Middle", &bExpired));
+		ASSERT_TRUE(Middle);
 		Publish();
 		const auto* MiddleNotice = Find("Middle");
 		ASSERT_TRUE(MiddleNotice && MiddleNotice->Action);
@@ -359,11 +360,11 @@ namespace Durin::MainFrame
 		ASSERT_TRUE(OldRedo.IsEnabled());
 
 		bExpired = true;
-		EXPECT_EQ(History->GetRedoContext().TransactionId, Last);
-		EXPECT_FALSE(OldRedo.IsEnabled());
+		EXPECT_EQ(History->GetRedoContext().TransactionId, Middle);
+		EXPECT_TRUE(OldRedo.IsEnabled());
 		OldRedo.Invoke();
 		EXPECT_EQ(Value, 1);
-		EXPECT_EQ(History->GetRedoContext().TransactionId, Last);
+		EXPECT_EQ(History->GetRedoContext().TransactionId, Middle);
 		History->RemoveUndoBarrier();
 		EXPECT_EQ(History->GetUndoContext().TransactionId, First);
 		EXPECT_FALSE(OldUndo.IsEnabled());

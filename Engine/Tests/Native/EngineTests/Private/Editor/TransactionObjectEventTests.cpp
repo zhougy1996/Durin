@@ -9,6 +9,8 @@ TEST(FTransactionObjectEventTests, MixedDomainCommandCapturesItsOwnerBeforeBindi
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "MixedDomainFields"));
 	EXPECT_FALSE(Target->Modify(false));
 	int DomainValue = 1;
+	std::vector<ETransactionObjectEventType> Events;
+	Target->TransactionObserver = [&](const auto& Event) { Events.push_back(Event.Type); };
 	ASSERT_EQ(Buffer->Begin("test", "Domain and ordinary fields"), 0);
 	ASSERT_TRUE(Target->Modify(false));
 	ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(DomainValue, 0, 1)));
@@ -17,8 +19,12 @@ TEST(FTransactionObjectEventTests, MixedDomainCommandCapturesItsOwnerBeforeBindi
 	Target->Value = 9;
 	EXPECT_EQ(static_cast<FTransaction*>(GUndo)->GetRecordCount(), 2u);
 	EXPECT_EQ(Buffer->End(), 1);
+	EXPECT_EQ(Events, (std::vector{ETransactionObjectEventType::Finalized}));
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(DomainValue, 0);
+	EXPECT_EQ(Events, (std::vector{ETransactionObjectEventType::Finalized, ETransactionObjectEventType::UndoRedo}));
+	Events.clear();
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 9); EXPECT_EQ(DomainValue, 1);
+	EXPECT_TRUE(Events.empty()); EXPECT_EQ(Target->UndoCompletions, 2);
 }
 
 TEST(FTransactionObjectEventTests, ExternalReferenceReplayFaultIsTerminal)
@@ -75,6 +81,8 @@ TEST(FTransactionObjectEventTests, RepeatedSnapshotsRetainOneEntryAndReleaseObse
 	const auto Saves = Target->SerializationSaves;
 	ASSERT_EQ(Buffer->Begin("test", "Bounded capture"), 0); ASSERT_TRUE(Target->Modify());
 	auto* Transaction = static_cast<FTransaction*>(GUndo);
+	size_t InitialBytes = 0;
+	ASSERT_TRUE(Transaction->TryGetOwnedSize(InitialBytes));
 	size_t PeakBytes = 0;
 	for (int32 Index = 1; Index <= 32; ++Index)
 	{
@@ -88,8 +96,9 @@ TEST(FTransactionObjectEventTests, RepeatedSnapshotsRetainOneEntryAndReleaseObse
 	}
 	EXPECT_EQ(Buffer->End(), 1);
 	const auto FinalBytes = Buffer->GetUndoSize();
-	EXPECT_EQ(FinalBytes, OrdinaryBytes); ASSERT_LT(FinalBytes, PeakBytes);
-	EXPECT_GE(PeakBytes - FinalBytes, Target->Numbers.size() * sizeof(int32));
+	ASSERT_GT(PeakBytes, InitialBytes);
+	EXPECT_GE(PeakBytes - InitialBytes, Target->Numbers.size() * sizeof(int32));
+	EXPECT_EQ(FinalBytes, OrdinaryBytes);
 	ASSERT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 1u);
 	for (uint32 Index = 0; Index < 8; ++Index)
 	{
@@ -122,7 +131,7 @@ TEST(FTransactionObjectEventTests, SynchronousEventsKeepContextAndRejectRecordin
 			EXPECT_EQ(Buffer->Begin("reentry", "reentry"), -1); EXPECT_EQ(Buffer->End(), 0);
 			Buffer->Cancel(); EXPECT_EQ(GUndo, Recording);
 			const auto Saves = Target->SerializationSaves; (void)Target->Modify(); EXPECT_EQ(Target->SerializationSaves, Saves);
-			EXPECT_FALSE(Recording->EndOperation()); EXPECT_FALSE(Recording->Finalize());
+			EXPECT_FALSE(Recording->EndOperation());
 			EXPECT_FALSE(Recording->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 0, 99)));
 			EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 		}
@@ -135,11 +144,55 @@ TEST(FTransactionObjectEventTests, SynchronousEventsKeepContextAndRejectRecordin
 	EXPECT_EQ(Events[0].Change.ChangedProperties, std::vector<FName>{"Value"}); EXPECT_TRUE(Events[0].Change.bNonPropertyDataChanged);
 	Trace.clear(); ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Trace, (std::vector<std::string>{"pre", "post", "event"}));
-	ASSERT_EQ(Events.size(), 2u); EXPECT_EQ(Events[1].Operation, ETransactionOperation::Undo);
+	ASSERT_EQ(Events.size(), 2u); EXPECT_EQ(Events[1].Type, ETransactionObjectEventType::UndoRedo);
 	EXPECT_NE(Events[0].OperationId, Events[1].OperationId);
 	ASSERT_TRUE(Buffer->Redo()); ASSERT_EQ(Events.size(), 3u);
-	EXPECT_EQ(Events[2].Operation, ETransactionOperation::Redo); EXPECT_NE(Events[1].OperationId, Events[2].OperationId);
+	EXPECT_EQ(Events[2].Type, ETransactionObjectEventType::UndoRedo); EXPECT_NE(Events[1].OperationId, Events[2].OperationId);
 	EXPECT_EQ(Events[0].TransactionId, Events[2].TransactionId);
+}
+
+TEST(FTransactionObjectEventTests, RepeatedFinalizeDispatchesRecordedDeltaWithoutRecapturing)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "RepeatedFinalize"));
+	FTransaction Transaction(42, {.Description = "Finalize twice"});
+	ASSERT_TRUE(Transaction.BeginOperation());
+	Target->bAnnotationEnabled = true;
+	Transaction.SaveObject(Target.Get());
+	Target->Value = 4;
+	// The nested call captures the second record while the first is serializing.
+	TStrongObjectPtr<DTransactionRecordParticipant> Second(NewObject<DTransactionRecordParticipant>(nullptr, "InnerCapture"));
+	Second->bAnnotationEnabled = true;
+	Transaction.SaveObject(Second.Get());
+	Second->Value = 1;
+	bool bReentered = false;
+	Target->OnTransactionSave = [&] { if (!std::exchange(bReentered, true)) Transaction.Finalize(); };
+	std::vector<bool> SecondAnnotations;
+	Second->TransactionObserver = [&](const auto& Event) { SecondAnnotations.push_back(bool(Event.Annotation)); };
+	std::vector<FTransactionObjectEvent> Events;
+	Target->TransactionObserver = [&](const FTransactionObjectEvent& Event) {
+		Events.push_back(Event);
+		if (Events.size() == 1) Transaction.Finalize();
+	};
+	const auto Saves = Target->SerializationSaves;
+	Transaction.Finalize();
+	ASSERT_EQ(Events.size(), 2u);
+	EXPECT_TRUE(Events.front().Annotation);
+	EXPECT_EQ(SecondAnnotations, (std::vector<bool>{true, false, false}));
+	Target->NativeValue = 15;
+	Transaction.Finalize();
+	ASSERT_EQ(Events.size(), 3u);
+	EXPECT_FALSE(Events[1].Annotation);
+	EXPECT_FALSE(Events[2].Annotation);
+	for (const auto& Event : Events)
+	{
+		EXPECT_EQ(Event.Type, ETransactionObjectEventType::Finalized);
+		EXPECT_EQ(Event.Change.ChangedProperties, (std::vector<FName>{"Value"}));
+		EXPECT_FALSE(Event.Change.bNonPropertyDataChanged);
+	}
+	EXPECT_EQ(Target->SerializationSaves, Saves + 1);
+	EXPECT_TRUE(Transaction.EndOperation());
 }
 
 TEST(FTransactionObjectEventTests, CancelNoOpAndCustomOnlyDoNotInventObjectEvents)
@@ -262,28 +315,34 @@ TEST(FTransactionObjectEventTests, SnapshotObserverFaultIsTerminal)
 	EXPECT_DEATH(Run(), "Injected snapshot observer failure");
 }
 
-TEST(FTransactionObjectEventTests, MultipleTargetsCompleteBeforeRecordAndAnnotationEvents)
+TEST(FTransactionObjectEventTests, RecordAndAnnotationEventsFollowEachObjectInOperationOrder)
 {
 	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> First(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationEventOwner"));
-	TStrongObjectPtr<DTransactionRecordParticipant> Second(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationEventPeer"));
+	TStrongObjectPtr<DTransactionRecordParticipant> Second(NewObject<DTransactionRecordParticipant>(First.Get(), "AnnotationEventPeer"));
 	First->bAnnotationEnabled = First->bReportAnnotationChanges = true; First->AnnotationReference = Second.Get();
 	std::vector<std::string> Trace; std::vector<FTransactionObjectEvent> PeerEvents;
 	First->Trace = [&](std::string_view Phase) { Trace.push_back(std::string(Phase) + "1"); };
 	Second->Trace = [&](std::string_view Phase) { Trace.push_back(std::string(Phase) + "2"); };
 	First->TransactionObserver = [&](const auto&) { Trace.push_back("event1"); };
 	Second->TransactionObserver = [&](const auto& Event) { Trace.push_back("event2"); PeerEvents.push_back(Event); };
-	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Record and annotation events"}); ASSERT_TRUE(First->Modify()); ASSERT_TRUE(Second->Modify()); First->SupplementalValue = 3; Second->Value = 7; }
+	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Record and annotation events"}); ASSERT_TRUE(First->Modify()); ASSERT_TRUE(Second->Modify()); First->SupplementalValue = 2; Second->Value = 7;
+		ASSERT_TRUE(GUndo->SnapshotObject(First.Get()));
+		EXPECT_EQ(Trace, (std::vector<std::string>{"event1", "event2"}));
+		Trace.clear(); PeerEvents.clear(); First->SupplementalValue = 3;
+	}
 	ASSERT_EQ(PeerEvents.size(), 2u); EXPECT_EQ(Trace, (std::vector<std::string>{"event1", "event2", "event2"}));
 	EXPECT_TRUE(PeerEvents[0].Change.bNonPropertyDataChanged); EXPECT_EQ(PeerEvents[0].CreatedBy, ETransactionObjectChangeCreatedBy::TransactionAnnotation);
 	EXPECT_FALSE(PeerEvents.back().Change.bNonPropertyDataChanged); EXPECT_EQ(PeerEvents.back().Change.ChangedProperties, std::vector<FName>{"Value"});
 	EXPECT_EQ(PeerEvents.back().CreatedBy, ETransactionObjectChangeCreatedBy::TransactionRecord);
 	EXPECT_FALSE(PeerEvents.back().Annotation); EXPECT_EQ(PeerEvents.back().Change.OriginalName, Second->GetFName());
 	Trace.clear(); ASSERT_TRUE(Buffer->Undo());
-	EXPECT_EQ(Trace, (std::vector<std::string>{"pre1", "pre2", "post1", "post2", "event1", "event2", "event2"}));
-	ASSERT_EQ(PeerEvents.size(), 4u); EXPECT_TRUE(PeerEvents[2].Change.bNonPropertyDataChanged);
+	EXPECT_EQ(Trace, (std::vector<std::string>{"pre2", "pre1", "post2", "event2", "post1", "event1", "event2"}));
+	ASSERT_EQ(PeerEvents.size(), 4u); EXPECT_FALSE(PeerEvents[2].Change.bNonPropertyDataChanged); EXPECT_TRUE(PeerEvents[3].Change.bNonPropertyDataChanged);
 	EXPECT_EQ(First->SupplementalValue, 0); EXPECT_EQ(Second->Value, 0);
+	Trace.clear(); ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Trace, (std::vector<std::string>{"pre1", "pre2", "post1", "event1", "event2", "post2", "event2"}));
 }
 
 TEST(FTransactionObjectEventTests, FinalizedAnnotationComparesTheLastSnapshotAfterReturningToOriginal)

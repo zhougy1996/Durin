@@ -26,7 +26,7 @@ namespace Durin
 		ENGINE_API auto IsDefault() const -> bool;
 		ENGINE_API auto Validate() const -> FTransactionCaptureResult;
 		ENGINE_API auto ValidateReferences() const -> FTransactionCaptureResult;
-		ENGINE_API auto Restore() const -> FCommandChangeResult;
+		ENGINE_API auto Restore() const -> void;
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		ENGINE_API auto Serialize(FArchive& Archive) -> void;
 		ENGINE_API auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
@@ -45,7 +45,7 @@ namespace Durin
 		auto IsDefault() const -> bool { return Data.IsDefault(); }
 		// Membership is settled by structural records before native completion.
 		auto Validate() const -> FTransactionCaptureResult override { return Data.ValidateReferences(); }
-		auto Restore() const -> FCommandChangeResult { return Data.Restore(); }
+		auto Restore() const -> void { Data.Restore(); }
 		auto AddReferencedObjects(FReferenceCollector& Collector) -> void override { Data.AddReferencedObjects(Collector); }
 		auto Serialize(FArchive& Archive) -> void override { Data.Serialize(Archive); }
 		auto GetAllocatedSize() const -> size_t override { return sizeof(*this); }
@@ -73,10 +73,10 @@ namespace Durin
 		ENGINE_API explicit FActorTransactionAnnotation(const AActor& Actor, const FActorTransactionAnnotation* Previous = nullptr);
 		ENGINE_API static auto CreateIfRequired(const AActor& Actor) -> std::shared_ptr<FActorTransactionAnnotation>;
 		ENGINE_API auto HasInstanceData() const -> bool;
-		ENGINE_API static auto RestoreDefault(AActor& Actor) -> FCommandChangeResult;
+		ENGINE_API static auto RestoreDefault(AActor& Actor) -> void;
 		ENGINE_API auto CreateSnapshot(const DObject& Object) const -> std::shared_ptr<ITransactionObjectAnnotation> override;
 		ENGINE_API auto Validate() const -> FTransactionCaptureResult override;
-		ENGINE_API auto Restore(AActor& Actor, bool bApplyRootData = true) const -> FCommandChangeResult;
+		ENGINE_API auto Restore(AActor& Actor, bool bApplyRootData = true) const -> void;
 		auto GetComponentInstanceDataCache() const -> const FComponentInstanceDataCache& { return Data.ComponentInstanceData; }
 		auto GetRootReconstructionData() const -> const FActorRootComponentReconstructionData& { return Data.RootData; }
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;

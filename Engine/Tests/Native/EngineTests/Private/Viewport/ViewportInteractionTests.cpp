@@ -410,7 +410,6 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Package->ClearDirty();
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_FALSE(TransformTransactions->CanUndo());
-	EXPECT_TRUE(Durin::Tests::CollectTransactionEvents(*TransformTransactions).empty());
 
 	DragInput.bCancel = false;
 	DragInput.bLeftMousePressed = true;
@@ -423,7 +422,6 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_FALSE(TransformTransactions->CanUndo());
-	EXPECT_TRUE(Durin::Tests::CollectTransactionEvents(*TransformTransactions).empty());
 
 	DragInput.bCancel = false;
 	DragInput.bLeftMousePressed = true;
@@ -436,13 +434,14 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	DragInput.bLeftMouseDown = false;
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
-	const std::vector<Durin::FTransactionEvent> TransformEvents = Durin::Tests::CollectTransactionEvents(*TransformTransactions);
-	ASSERT_EQ(TransformEvents.size(), 1);
-	EXPECT_EQ(TransformEvents.front().Description, "Translate 'Selected'");
-	EXPECT_NE(TransformEvents.front().Details.find("'Selected'"), std::string::npos);
-	EXPECT_NE(TransformEvents.front().Details.find("Location"), std::string::npos);
-	EXPECT_NE(TransformEvents.front().Details.find("Delta"), std::string::npos);
 	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_EQ(TransformTransactions->GetUndoContext().Description, "Translate 'Selected'");
+	const auto* Edit = TransformTransactions->GetTransaction(0);
+	ASSERT_NE(Edit, nullptr);
+	const auto Details = Edit->GetDetails();
+	EXPECT_NE(Details.find("'Selected'"), std::string::npos);
+	EXPECT_NE(Details.find("Location"), std::string::npos);
+	EXPECT_NE(Details.find("Delta"), std::string::npos);
 	ASSERT_TRUE(TransformTransactions->Undo());
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(TransformTransactions->Redo());
@@ -847,9 +846,6 @@ TEST(FTransformGizmoTests, DiscardedHistoryLeavesReleasedTransformAppliedAndDirt
 	Probe.Input.bLeftMouseDown = false;
 	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
 	EXPECT_FALSE(Probe.Gizmo.IsDragging());
-	const auto Events = Durin::Tests::CollectTransactionEvents(*Buffer);
-	ASSERT_FALSE(Events.empty());
-	EXPECT_EQ(Events.back().Type, Durin::ETransactionEventType::Discarded);
 	EXPECT_FALSE(Buffer->CanUndo());
 	EXPECT_TRUE(Package->IsDirty());
 	ExpectVectorNear(Probe.Objects.front()->Transform.Translation, Preview.Translation);

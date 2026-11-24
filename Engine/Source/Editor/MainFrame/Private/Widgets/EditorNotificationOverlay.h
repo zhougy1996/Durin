@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "DObject/ObjectKey.h"
+#include "Delegates/Delegate.h"
 
 namespace Durin
 {
@@ -11,7 +12,7 @@ namespace Durin
 namespace Durin
 {
 	class FNotificationManager;
-	struct FTransactionEvent;
+	struct FTransactionContext;
 }
 
 namespace Durin::MainFrame
@@ -44,9 +45,12 @@ namespace Durin::MainFrame
 
 	private:
 		static auto DrawHistory(FNotificationManager& Notifications, bool* bOpen) -> void;
-		static auto PublishTransactionEvent(FNotificationManager& Notifications, DTransactor& Transactions, const FTransactionEvent& Event) -> void;
+		auto UnbindTransactions() -> void;
+		static auto PublishTransaction(FNotificationManager& Notifications, DTransactor& Transactions, const FTransactionContext& Context, std::string Message, bool bOffersRedo, bool bSucceeded) -> void;
 		FObjectKey TransactionSource;
-		uint64 TransactionListener = 0;
+		FDelegateHandle StateHandle;
+		FDelegateHandle UndoHandle;
+		FDelegateHandle RedoHandle;
 
 		bool bFocusHistoryRequested = false;
 		bool bHistoryOpen = false;

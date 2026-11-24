@@ -108,12 +108,10 @@ namespace Durin
 		ResetOwnedComponents();
 		if (Level && (Level->GetWorld() || Level->PreUndoActors) && !Level->ContainsActor(this))
 		{
-			if (Level->PreUndoActors && std::erase(*Level->PreUndoActors, FObjectKey(this)))
-			{
-				UnregisterTickFunction();
-				for (const auto& Component : GetComponentsSnapshot())
-					if (Component) Component->UnregisterComponent();
-			}
+			if (Level->PreUndoActors) std::erase(*Level->PreUndoActors, FObjectKey(this));
+			UnregisterTickFunction();
+			for (const auto& Component : GetComponentsSnapshot())
+				if (Component) Component->UnregisterComponent();
 			// Structural absence owns activation. Retain identity and authored data
 			// without reconstructing or registering an Actor outside the Level.
 			Super::PostEditUndo();
@@ -122,8 +120,8 @@ namespace Durin
 		if (!RerunConstructionScriptsImpl(Annotation ? &Annotation->GetComponentInstanceDataCache() : nullptr,
 			Annotation ? &Annotation->GetRootReconstructionData() : nullptr)) throw std::runtime_error(NativeConstructionError.empty()
 			? "Actor transaction reconstruction failed." : NativeConstructionError);
-		const auto Restored = Annotation ? Annotation->Restore(*this, false) : FActorTransactionAnnotation::RestoreDefault(*this);
-		if (!Restored) throw std::runtime_error(Restored.error().Message);
+		if (Annotation) Annotation->Restore(*this, false);
+		else FActorTransactionAnnotation::RestoreDefault(*this);
 		if (RootComponent) RootComponent->UpdateComponentToWorld();
 		NotifyComponentsVisibilityChanged();
 		// Keep reconstruction suppressed while the default completion publishes its
@@ -582,7 +580,7 @@ namespace Durin
 				if (!ExecuteConstruction(Transform, &ApplyData))
 				{ bSucceeded = false; break; }
 				if (auto Applied = ApplyRoot.ApplyToActor(*this, RootData != nullptr); !Applied)
-				{ NativeConstructionError = Applied.error().Message; bSucceeded = false; break; }
+				{ NativeConstructionError = Applied.error(); bSucceeded = false; break; }
 				NativeConstructionError.clear();
 				if (!bNativeConstructionRequested) break;
 			}

@@ -120,7 +120,7 @@ namespace Durin::LevelEditor
 			catch (...) { return false; }
 		}
 		// Restores before/after transforms for every target changed by one gizmo drag.
-		class FTransformTargetTransaction final : public FActorCommandChange
+		class FTransformTargetTransaction final : public FCommandChange
 		{
 		public:
 			struct FEntry
@@ -156,10 +156,10 @@ namespace Durin::LevelEditor
 				return Objects;
 			}
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
-			auto GetDetails(ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != ETransactionOperation::Undo); }
+
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
-			{ return Apply(Operation != ETransactionOperation::Undo); }
+			auto Apply(Durin::DObject*) -> void override { SetTransforms(true); }
+			auto Revert(Durin::DObject*) -> void override { SetTransforms(false); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) -> void override
 			{
 				for (const FEntry& Entry : Entries)
@@ -188,15 +188,15 @@ namespace Durin::LevelEditor
 				return 1.0 - std::abs(Math::Dot(Math::Normalize(Before), Math::Normalize(After))) > Epsilon;
 			}
 
-			auto BuildDetails(bool bForward) const -> std::string
+			auto GetDetails() const -> std::string override
 			{
 				std::string Result;
 				for (const FEntry& Entry : Entries)
 				{
 					if (!Result.empty()) Result += '\n';
-					Result += std::format("'{}'", Entry.Target ? Entry.Target->GetLabel() : "Missing Target");
-					const FTransform& Before = bForward ? Entry.Before : Entry.After;
-					const FTransform& After = bForward ? Entry.After : Entry.Before;
+					Result += std::format("Recorded edit to '{}'", Entry.Target ? Entry.Target->GetLabel() : "Missing Target");
+					const FTransform& Before = Entry.Before;
+					const FTransform& After = Entry.After;
 					bool bHasChange = false;
 					if (VectorChanged(Before.Translation, After.Translation))
 					{
@@ -241,9 +241,9 @@ namespace Durin::LevelEditor
 				return {};
 			}
 
-			auto Apply(bool bAfter) -> FActorChangeResult
+			auto SetTransforms(bool bAfter) -> void
 			{
-				if (auto Valid = CheckTargets(bAfter); !Valid) return Valid;
+				if (auto Valid = CheckTargets(bAfter); !Valid) throw std::runtime_error(FormatActorChangeError(Valid.Error));
 				size_t FailedIndex = Entries.size();
 				for (size_t Index = 0; Index < Entries.size(); ++Index)
 					if (!Entries[Index].Target->SetTransform(bAfter ? Entries[Index].After : Entries[Index].Before))
@@ -253,9 +253,8 @@ namespace Durin::LevelEditor
 						if (!Entries[Index].Target->IsValid() || !SameTransform(Entries[Index].Target->GetTransform(), bAfter ? Entries[Index].After : Entries[Index].Before))
 						{ FailedIndex = Index; break; }
 				if (FailedIndex != Entries.size())
-					return {{.Code = EActorChangeError::TransformWrite,
-						.TargetLabel = Entries[FailedIndex].Target->GetLabel(), .NodeCount = Entries.size(), .MemberIndex = FailedIndex}};
-				return {};
+					throw std::runtime_error(FormatActorChangeError({.Code = EActorChangeError::TransformWrite,
+						.TargetLabel = Entries[FailedIndex].Target->GetLabel(), .NodeCount = Entries.size(), .MemberIndex = FailedIndex}));
 			}
 
 			std::string Description;

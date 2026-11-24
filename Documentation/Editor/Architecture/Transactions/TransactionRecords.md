@@ -103,8 +103,8 @@ API. Selected `SnapshotObject` calls affect observation only.
 
 The record's private editor `FSerializedObject` owns an `FDiffableObject` and
 annotation. This is distinct from CoreDObject's byte payload of the same name,
-following UE's editor/runtime ownership split. Before, final, inverse and snapshot
-states use the same storage type: each retains one identity, immutable payload,
+following UE's editor/runtime ownership split. The load slot, flip slot and recording-only
+snapshot use the same storage type: each retains one identity, immutable payload,
 compatibility context and set of tags from one Serialize call. Load/validate uses
 a temporary transfer view of that storage. Snapshot presence comes from its
 optional state; no separate presence flag or competing undo baseline is retained.
@@ -120,8 +120,10 @@ This closes an observed edit even when the final value returns to the original
 and history is pruned as a no-op. Event identity remains the original capture;
 transaction and operation IDs come from the live operation. Annotation additional
 changes also close against the last snapshot and preserve their `CreatedBy`.
-Replay events capture live state after native completion; component completion
-precedes Actor reconciliation and dispatch, as owned by the transactor.
+Ordinary replay events use the stored finalized delta. Resurrection also compares
+the live object after completion with its retained inverse baseline. Array records
+have no finalized property delta; their replay notification requires a restored
+annotation.
 Actor annotations now supply generated-component additional changes through this
 same path; their property-only observations, construction filtering and reference
 path matching are owned by
@@ -143,15 +145,20 @@ an available name and preserves the child's object identity.
 
 Historical load bypasses new-edit proposal validation and normalization.
 Reflected member notifications follow the complete load and precede object
-completion; native data does not invent reflected members. Whole-object capture, validation and application preserve a typed serialization error. Errors own
-target identity and serialization diagnostics.
-`FTransaction::FObjectRecord` formats diagnostics at the generic history boundary.
+completion; native data does not invent reflected members. Whole-object capture
+and admission validation return the original diagnostic on rejection.
 
-Replay prepares all live inverses before ordered loading, matching UE's separate
-Save and Load passes. The canonical editor record validates the desired transfer,
-and loads through CoreDObject's single serializer. Historical flips are published
-after all records and native completion succeed. A deserialization or ordered
-application fault reports the failing transaction and record, then terminates.
+Undo and Redo first capture every whole-object and array inverse in replay
+order, then load the records in that same order. Commands execute in the load pass. The editor record
+validates the desired state before loading it through CoreDObject's serializer.
+The first Modify fills only the load slot. Finalize writes the end state into
+the flip slot. After replay admission, inverse capture replaces the flip slot
+with live state while preserving the recorded lifecycle transition. Each
+whole-object load immediately swaps the slots, before PostEditUndo. The loaded
+annotation remains available in the flip slot for completion callbacks.
+Record-level `CaptureInverse` and `Apply` return `void`. A fault in either reports
+the transaction ID, replay direction, original record index and cause, then
+terminates.
 
 No-op detection applies to the complete transaction, as in UE's `IsTransient`.
 If any record or annotation retains an edit, unchanged SaveObject baselines stay
@@ -166,10 +173,10 @@ restored side's annotation through annotation-aware PostEditUndo. Completion ann
 collector-visible through callbacks and are released at operation end. An
 annotation alone retains a record despite equal serialized bytes.
 
-An object record delivers annotation-aware completion even for explicit absence.
-Custom-only participants receive ordinary completion. The base DObject overload
-forwards safely; Engine components interpret an empty serialized annotation as
-their implicit default native state. See
+The selected record supplies the completion annotation. An empty annotation normally
+invokes ordinary PostEditUndo. Durin components with a selected serialized record
+receive the annotation overload even when empty so they can restore their implicit
+default lifecycle state. See
 [native construction](../../../Runtime/World/NativeConstruction.md#transaction-reconstruction).
 
 Each retained payload enumerates its exact hard edges through the enclosing
@@ -200,17 +207,16 @@ keep exact identities, while published default graphs resolve through their
 checked class/name chains. Replay materializes a temporary exact reference table
 for the shared property decoder; general property snapshots keep exact semantics.
 
-Multiple range records retain operation order. Each inverse is captured at its
-ordered replay step, because later edits may relocate earlier ranges. Flips are
-published only after successful replay. A splice remains applied if a later callback or record fails. Zero-count operations
-and equal-value edits through the mutation adapter record nothing; raw SaveArray
-requires callers to perform the declared operation and does not infer net no-ops.
+Range records use their recorded indices in the array as it stands before the
+first load. Independent ranges can share a transaction. For overlapping edits,
+index-shifting operations that depend on each other, or changes to other fields
+of the same owner, call `Modify()` before the first write. Its whole-object
+record covers subsequent range edits. Commands and whole-object loads that
+touch the same state must agree on which record restores it.
 
-A preceding whole-object record owns subsequent array edits on that owner. A
-later whole-object capture owns its intermediate baseline and follows preceding
-range records in normal replay order. Its inverse is prepared at that ordered
-load step too, so repeated Redo cannot replace an intermediate baseline with the
-entry's initial state. Other whole-object inverses retain the pre-load pass.
+Each array load flips its range and operation for the next direction. Zero-count
+operations and equal-value edits through the mutation adapter record nothing.
+Raw SaveArray requires the caller to perform the declared operation.
 Unsupported element/container capabilities,
 bulk changes and edits that may affect siblings must explicitly capture the whole
 object before mutation. Ordinary vector operations do not record themselves.
@@ -237,7 +243,7 @@ records and their supplemental state. Durin prepares detached replacements throu
 `FObjectReplacementMap` and its existing publication protocol; collector traversal
 is observational. It does not install a transaction-private object map.
 
-Whole-object records rebind their target, before/after and flip snapshots in place.
+Whole-object records rebind their target, load and flip slots and any recording snapshot in place.
 Immutable serialized payloads use copy-on-write when embedded object keys change.
 Weak slots are remapped without adding GC ownership. Commands and ordinary
 annotations expose writable references through `AddReferencedObjects`; the

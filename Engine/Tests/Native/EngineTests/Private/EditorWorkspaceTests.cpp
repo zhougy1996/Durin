@@ -53,7 +53,7 @@ namespace
 
 	};
 
-	class FAppliedPackageEdit final : public Durin::FActorCommandChange
+	class FAppliedPackageEdit final : public Durin::FCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -69,17 +69,10 @@ namespace
 		{
 			return Package;
 		}
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
-		{
-			if (Operation == ::Durin::ETransactionOperation::Undo)
-			{
-				return {};
-			}
-			else
-			{
-				return {};
-			}
-		}
+		auto Revert(Durin::DObject*) -> void override
+		{}
+		auto Apply(Durin::DObject*) -> void override
+		{}
 
 	private:
 		std::array<Durin::DPackage*, 1> Package{};

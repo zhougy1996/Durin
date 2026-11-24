@@ -66,8 +66,8 @@ TEST(FTransactionArrayQualificationTests, FixedRangeCaptureCostsDoNotScaleWithCo
 #if defined(_MSC_VER) && defined(_DEBUG)
 			Probe.emplace();
 #endif
-			ASSERT_TRUE(Record->Apply(false, EPropertyChangeOrigin::Undo, nullptr)); Record->CommitReplay(); Record->ClearPreparedReplay();
-			ASSERT_TRUE(Record->Apply(false, EPropertyChangeOrigin::Redo, nullptr)); Record->CommitReplay(); Record->ClearPreparedReplay();
+			Record->CaptureInverse(); Record->Apply(EPropertyChangeOrigin::Undo); Record->ClearPreparedReplay();
+			Record->CaptureInverse(); Record->Apply(EPropertyChangeOrigin::Redo); Record->ClearPreparedReplay();
 #if defined(_MSC_VER) && defined(_DEBUG)
 			const size_t ReplayAllocations = AllocationCount; Probe.reset();
 #else

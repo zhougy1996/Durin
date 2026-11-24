@@ -6907,7 +6907,8 @@ TEST(FObjectModifyTests, RuntimeNeutralBridgeRequiresTransactionalParticipation)
 		auto SetPrimaryObject(DObject*) -> void override {}
 		auto BeginOperation() -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
 		auto EndOperation() -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
-		auto Finalize() -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
+		auto Apply() -> void override { ADD_FAILURE() << "Unexpected replay of capture-only recorder"; }
+		auto Finalize() -> void override {}
 		auto StoreUndo(DObject*, std::unique_ptr<FCommandChange>) -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
 		auto SnapshotObject(DObject*, std::span<const FProperty* const>) -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }
 		auto SaveArray(const FTransactionArrayCapture&) -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }

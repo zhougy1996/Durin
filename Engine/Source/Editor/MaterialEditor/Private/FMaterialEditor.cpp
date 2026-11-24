@@ -389,17 +389,13 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::OnUndo() -> bool
 	{
 		if (Mode == EMaterialEditorMode::Function && !RequestDeactivate()) return false;
-		const bool Result = EditorSession.Undo();
-		if (auto* Editor = EditorSession.GetEditor()) Editor->GetTransactor()->DispatchEvents();
-		return Result;
+		return EditorSession.Undo();
 	}
 
 	auto FMaterialEditor::OnRedo() -> bool
 	{
 		if (Mode == EMaterialEditorMode::Function && !RequestDeactivate()) return false;
-		const bool Result = EditorSession.Redo();
-		if (auto* Editor = EditorSession.GetEditor()) Editor->GetTransactor()->DispatchEvents();
-		return Result;
+		return EditorSession.Redo();
 	}
 
 	auto FMaterialEditor::DrawDocument(std::string_view Resource, DMaterialInterface* Material) -> void

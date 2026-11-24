@@ -71,7 +71,7 @@ namespace
 		}
 	};
 
-	class FCountingTransaction final : public Durin::FActorCommandChange
+	class FCountingTransaction final : public Durin::FCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -79,20 +79,17 @@ namespace
 
 		explicit FCountingTransaction(int& InValue, int InDelta = 1) : Value(InValue), Delta(InDelta) {}
 		auto GetDescription() const -> std::string_view override { return "Counting"; }
-		auto GetDetails(::Durin::ETransactionOperation Operation) const -> std::string override
+		auto GetDetails() const -> std::string override
 		{
-			return Operation == ::Durin::ETransactionOperation::Undo ? "Counter changed backward" : "Counter changed forward";
+			return "Counter changed";
 		}
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
+		auto Revert(Durin::DObject*) -> void override
 		{
-			if (Operation == ::Durin::ETransactionOperation::Undo)
-			{
-				Value -= Delta; return {};
-			}
-			else
-			{
-				Value += Delta; return {};
-			}
+			Value -= Delta;
+		}
+		auto Apply(Durin::DObject*) -> void override
+		{
+			Value += Delta;
 		}
 	private:
 		int& Value;
@@ -103,7 +100,7 @@ namespace
 		bool bFailUndo = false;
 		bool bFailRedo = false;
 	};
-	class FControlledTransaction final : public Durin::FActorCommandChange
+	class FControlledTransaction final : public Durin::FCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -111,27 +108,22 @@ namespace
 
 		FControlledTransaction(int& InValue, FTransactionControl& InControl) : Value(InValue), Control(InControl) {}
 		auto GetDescription() const -> std::string_view override { return "Controlled"; }
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
+		auto Revert(Durin::DObject*) -> void override
 		{
-			if (Operation == ::Durin::ETransactionOperation::Undo)
-			{
-				if (Control.bFailUndo) return {{.Code = Durin::EActorChangeError::InjectedMutation}};
-				--Value;
-				return {};
-			}
-			else
-			{
-				if (Control.bFailRedo) return {{.Code = Durin::EActorChangeError::InjectedMutation}};
-				++Value;
-				return {};
-			}
+			if (Control.bFailUndo) throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation}));
+			--Value;
+		}
+		auto Apply(Durin::DObject*) -> void override
+		{
+			if (Control.bFailRedo) throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation}));
+			++Value;
 		}
 	private:
 		int& Value;
 		FTransactionControl& Control;
 	};
 
-	class FPackageCountingTransaction final : public Durin::FActorCommandChange
+	class FPackageCountingTransaction final : public Durin::FCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -155,20 +147,15 @@ namespace
 		auto GetDescription() const -> std::string_view override { return "Package Counting"; }
 		auto HasExpired(Durin::DObject*) const noexcept -> bool override { return Expired && *Expired; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
+		auto Revert(Durin::DObject*) -> void override
 		{
-			if (Operation == ::Durin::ETransactionOperation::Undo)
-			{
-				if (Control && Control->bFailUndo) return {{.Code = Durin::EActorChangeError::InjectedMutation}};
-				Value -= Delta;
-				return {};
-			}
-			else
-			{
-				if (Control && Control->bFailRedo) return {{.Code = Durin::EActorChangeError::InjectedMutation}};
-				Value += Delta;
-				return {};
-			}
+			if (Control && Control->bFailUndo) throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation}));
+			Value -= Delta;
+		}
+		auto Apply(Durin::DObject*) -> void override
+		{
+			if (Control && Control->bFailRedo) throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation}));
+			Value += Delta;
 		}
 
 	private:

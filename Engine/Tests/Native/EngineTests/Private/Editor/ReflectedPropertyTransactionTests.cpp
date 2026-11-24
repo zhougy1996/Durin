@@ -210,7 +210,6 @@ TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTrans
 	EXPECT_TRUE(Transactions.Get()->CanUndo());
 	EXPECT_FALSE(Transactions.Get()->CanRedo());
 	EXPECT_EQ(Transactions.Get()->GetUndoContext(false).Description, "Edit Value");
-	ASSERT_EQ(Durin::Tests::CollectTransactionEvents(*Transactions.Get()).size(), 1u);
 
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object->Value, 7);
@@ -228,10 +227,6 @@ TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTrans
 	EXPECT_FALSE(Transactions.Get()->CanRedo());
 	ASSERT_EQ(Object->Changes.size(), 5u);
 	EXPECT_EQ(Object->Changes[4].Origin, Durin::EPropertyChangeOrigin::Redo);
-	const std::vector<Durin::FTransactionEvent> Events = Durin::Tests::CollectTransactionEvents(*Transactions.Get());
-	ASSERT_EQ(Events.size(), 2u);
-	EXPECT_EQ(Events[0].Type, Durin::ETransactionEventType::Undone);
-	EXPECT_EQ(Events[1].Type, Durin::ETransactionEventType::Redone);
 }
 
 TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRevision)
@@ -354,11 +349,6 @@ TEST(FReflectedPropertyEditSessionTests, NoOpAndCancelledEditsDoNotCreateTransac
 	EXPECT_TRUE(CancelledSession.Cancel());
 	EXPECT_EQ(Object->Value, 3);
 	EXPECT_FALSE(Transactions.Get()->CanUndo());
-	const auto Events = Durin::Tests::CollectTransactionEvents(*Transactions.Get());
-	ASSERT_EQ(Events.size(), 2u);
-	EXPECT_TRUE(std::ranges::all_of(Events, [](const auto& Event) {
-		return Event.Type == Durin::ETransactionEventType::Discarded;
-	}));
 }
 
 TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsTargetAlive)

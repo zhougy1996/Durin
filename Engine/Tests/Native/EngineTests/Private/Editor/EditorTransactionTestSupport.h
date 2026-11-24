@@ -67,18 +67,12 @@ namespace Durin::Tests
 	inline auto RecordTestEdit(DTransactor& Buffer, std::unique_ptr<FCommandChange> Change) -> FTransactionId
 	{
 		FBufferRecording Scope(&Buffer, {"TestEdit", std::string(Change->GetDescription())});
-		if (!Scope.IsOutstanding() || !Change->Apply()) return 0;
+		if (!Scope.IsOutstanding()) return 0;
+		Change->Apply(nullptr);
 		const auto Id = GUndo->GetContext().TransactionId;
 		return Buffer.StoreUndo(std::move(Change)) ? Id : 0;
 	}
 
-	inline auto CollectTransactionEvents(DTransactor& Buffer) -> std::vector<FTransactionEvent>
-	{
-		std::vector<FTransactionEvent> Events;
-		const auto Id = Buffer.AddTransactionListener([&](const auto& Event) { Events.push_back(Event); });
-		Buffer.DispatchEvents(); Buffer.RemoveTransactionListener(Id);
-		return Events;
-	}
 
 	// Editor-command tests exercise the real process editor and its own history.
 	class FTestEditorTransactorOwner final

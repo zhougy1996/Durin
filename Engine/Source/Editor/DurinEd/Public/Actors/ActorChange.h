@@ -25,23 +25,4 @@ namespace Durin
 		explicit operator bool() const { return Error.Code == EActorChangeError::None; }
 	};
 	DURINED_API auto FormatActorChangeError(const FActorChangeError& Error) -> std::string;
-
-
-	// Adapts domain diagnostics at the history boundary.
-	class FActorCommandChange : public FCommandChange
-	{
-	public:
-		virtual auto Replay(ETransactionOperation Operation) -> FActorChangeResult = 0;
-		auto Apply() -> FCommandChangeResult override { return Convert(Replay(ETransactionOperation::Redo)); }
-		auto Revert() -> FCommandChangeResult override { return Convert(Replay(ETransactionOperation::Undo)); }
-	private:
-		static auto Convert(const FActorChangeResult& Result) -> FCommandChangeResult
-		{
-			if (Result) return {};
-			bool bRecovery = false;
-			for (auto* Error = &Result.Error; Error; Error = Error->CleanupCause.get())
-				bRecovery |= Error->Code == EActorChangeError::RollbackIncomplete;
-			return std::unexpected(FCommandChangeError{FormatActorChangeError(Result.Error), bRecovery});
-		}
-	};
 }

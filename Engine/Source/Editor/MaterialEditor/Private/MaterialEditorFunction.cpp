@@ -88,33 +88,41 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialEditor::RegisterUndo() -> void
 	{
-		if (UndoHandle || !EditorSession.GetEditor()) return;
-		UndoHandle = EditorSession.GetEditor()->GetTransactor()->AddTransactionListener(
-			[Weak = weak_from_this()](const FTransactionEvent& Event) {
-				if (auto Owner = std::dynamic_pointer_cast<FMaterialEditor>(Weak.lock()); Owner && Owner->IsEditorOpen())
-					Owner->HandleTransaction(Event);
-			});
+		if (UndoHandle.IsValid() || !EditorSession.GetEditor()) return;
+		auto* Transactions = EditorSession.GetEditor()->GetTransactor();
+		auto Listener = [Weak = weak_from_this()](bool bUndo) {
+			return [Weak, bUndo](const FTransactionContext& Context, bool bSucceeded) {
+				if (auto Owner = std::dynamic_pointer_cast<FMaterialEditor>(Weak.lock()); bSucceeded && Owner && Owner->IsEditorOpen())
+					Owner->HandleTransaction(Context, bUndo);
+			};
+		};
+		UndoHandle = Transactions->OnUndo().AddLambda(Listener(true));
+		RedoHandle = Transactions->OnRedo().AddLambda(Listener(false));
 	}
 
 	auto FMaterialEditor::UnregisterUndo() -> void
 	{
-		if (UndoHandle && EditorSession.GetEditor())
-			EditorSession.GetEditor()->GetTransactor()->RemoveTransactionListener(UndoHandle);
-		UndoHandle = 0;
+		if (UndoHandle.IsValid() && EditorSession.GetEditor())
+		{
+			auto* Transactions = EditorSession.GetEditor()->GetTransactor();
+			Transactions->OnUndo().Remove(UndoHandle);
+			Transactions->OnRedo().Remove(RedoHandle);
+		}
+		UndoHandle.Reset();
+		RedoHandle.Reset();
 	}
 
-	auto FMaterialEditor::HandleTransaction(const FTransactionEvent& Event) -> void
+	auto FMaterialEditor::HandleTransaction(const FTransactionContext& Context, bool bUndo) -> void
 	{
-		if (Event.Type != ETransactionEventType::Undone && Event.Type != ETransactionEventType::Redone) return;
 		auto* Transactions = EditorSession.GetEditor()->GetTransactor();
 		std::vector<DPackage*> Packages;
 		for (size_t Index = 0; Index < Transactions->GetQueueLength(); ++Index)
-			if (const auto* Entry = Transactions->GetTransaction(Index); Entry && Entry->GetId() == Event.Id)
+			if (const auto* Entry = Transactions->GetTransaction(Index); Entry && Entry->GetId() == Context.TransactionId)
 			{ Packages = Entry->GetAffectedPackages(); break; }
 		auto* Working = FunctionSession ? static_cast<DObject*>(FunctionSession->Function())
 			: EditingSession ? EditingSession->GetWorkingMaterial() : nullptr;
 		if (!Working || !std::ranges::contains(Packages, Working->GetPackage())) return;
-		if (Event.Type == ETransactionEventType::Undone) PostUndo(true);
+		if (bUndo) PostUndo(true);
 		else PostRedo(true);
 	}
 

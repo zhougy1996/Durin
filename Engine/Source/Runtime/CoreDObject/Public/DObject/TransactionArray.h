@@ -30,8 +30,9 @@ namespace Durin
 	}
 
 	// Explicit std::vector mutation adapter. Prepare allocations before recording;
-	// successful capture is followed only by nonthrowing relocation. Other shapes
-	// and callback-driven edits must select their whole-object fallback up front.
+	// successful capture is followed only by nonthrowing relocation. Replay reads
+	// inverse ranges before loading any record. Call Owner.Modify() before the
+	// first write for overlapping structural edits or edits that also change siblings.
 	template<typename T>
 		requires std::is_copy_constructible_v<T> && std::is_nothrow_move_constructible_v<T> && std::is_nothrow_move_assignable_v<T>
 	auto EditTransactionArray(DObject& Owner, const FProperty* Member, std::vector<T>& Values,

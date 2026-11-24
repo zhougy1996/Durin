@@ -74,9 +74,8 @@ namespace Durin
 		-> std::expected<FSerializedObjectCapture, std::string>;
 	COREDOBJECT_API auto ValidateSerializedObject(DObject& Object, const FSerializedObjectCapture& Capture)
 		-> FTransactionCaptureResult;
-	// Preflight first. Failure can follow partial writes; the caller owns recovery.
-	COREDOBJECT_API auto LoadSerializedObject(DObject& Object, const FSerializedObjectCapture& Capture)
-		-> FCommandChangeResult;
+	// Validate the capture before loading. A load fault propagates after any writes already performed.
+	COREDOBJECT_API auto LoadSerializedObject(DObject& Object, const FSerializedObjectCapture& Capture) -> void;
 	// Prepare immutable copies only; callers publish through the graph participant protocol.
 	COREDOBJECT_API auto PrepareSerializedObjectReplacement(const FSerializedObjectCapture& Source,
 		const FObjectReplacementMap& Map) -> std::expected<FSerializedObjectCapture, std::string>;

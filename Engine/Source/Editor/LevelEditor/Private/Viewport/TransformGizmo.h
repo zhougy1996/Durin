@@ -11,7 +11,6 @@
 namespace Durin
 {
 	class DTransactor;
-	class FActorCommandChange;
 }
 
 namespace Durin

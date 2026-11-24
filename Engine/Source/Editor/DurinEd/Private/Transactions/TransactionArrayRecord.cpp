@@ -136,8 +136,10 @@ namespace Durin
 		return ResolveTransactionArray({.Object = Object, .Member = Member, .MemberIndex = MemberIndex, .StructPath = StructPath});
 	}
 
-	auto FTransaction::FArrayData::ValidateSourceRange() const -> FTransactionCaptureResult
+	auto FTransaction::FArrayData::ValidateSourceRange(bool bFirstLoad) const -> FTransactionCaptureResult
 	{
+		// An insertion reads no source elements; earlier loads can create its insertion point.
+		if (Oper == -1 && !bFirstLoad) return {};
 		const auto* Container = ResolveContainer();
 		if (!Container) return std::unexpected("Array replay container is unavailable.");
 		const auto Size = Member->GetOps().Num(Container);
@@ -148,6 +150,7 @@ namespace Durin
 
 	auto FTransaction::FArrayData::CaptureRange(size_t Num) const -> std::expected<FRange, std::string>
 	{
+		if (Num == 0) return FRange{};
 		const auto& Ops = Member->GetOps();
 		const void* Container = ResolveContainer();
 		const auto Size = Ops.Num(Container);
@@ -175,44 +178,47 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTransaction::FArrayData::Apply(EPropertyChangeOrigin Origin) -> FTransactionCaptureResult
+	auto FTransaction::FArrayData::CaptureInverse() -> void
 	{
-		if (auto Valid = Validate(); !Valid) return Valid;
+		if (auto Valid = Validate(); !Valid) throw std::runtime_error(Valid.error());
+		auto Captured = CaptureRange(Oper == -1 ? 0 : Count);
+		if (!Captured) throw std::runtime_error(Captured.error());
+		Inverse = std::move(*Captured);
+		if (Annotation) ReplayChange.emplace(CaptureTransactionObjectIdentity(*Target.Get()), Target.Get()->GetObjectFlags());
+		InverseAnnotation = Annotation ? Annotation->CreateSnapshot(*Target.Get()) : Target.Get()->FindOrCreateTransactionAnnotation();
+	}
+
+	auto FTransaction::FArrayData::Apply(EPropertyChangeOrigin Origin) -> void
+	{
+		if (auto Valid = Validate(); !Valid) throw std::runtime_error(Valid.error());
 		const auto& Ops = Member->GetOps();
 		const size_t RemoveCount = Oper == -1 ? 0 : Count;
-		// Capture at this ordered step, after preceding array operations have
-		// restored their indices. Saving every range from the final array is invalid.
-		auto Captured = CaptureRange(RemoveCount);
-		if (!Captured) return std::unexpected(Captured.error());
-		Inverse = std::move(*Captured);
-		InverseAnnotation = Annotation ? Annotation->CreateSnapshot(*Target.Get()) : Target.Get()->FindOrCreateTransactionAnnotation();
 		FDetachedContainerStorage Detached;
-		if (Detached.Create(Ops) != EContainerOpResult::Success) return std::unexpected("Array replay range allocation failed.");
+		if (Detached.Create(Ops) != EContainerOpResult::Success) throw std::runtime_error("Array replay range allocation failed.");
 		if (Ops.Resize(Detached.Get(), Data.size()) != EContainerOpResult::Success)
-			return std::unexpected("Array replay range construction failed.");
+			throw std::runtime_error("Array replay range construction failed.");
 		for (size_t Offset = 0; Offset < Data.size(); ++Offset)
 		{
 			void* Element = nullptr;
 			if (Ops.GetMutableAt(Detached.Get(), Offset, &Element) != EContainerOpResult::Success)
-				return std::unexpected("Array replay element lookup failed.");
+				throw std::runtime_error("Array replay element lookup failed.");
 			if (Oper == 0)
 			{
 				const void* Current = nullptr;
 				if (Ops.GetConstAt(ResolveContainer(), Index + Offset, &Current) != EContainerOpResult::Success)
-					return std::unexpected("Array replacement baseline is unavailable.");
+					throw std::runtime_error("Array replacement baseline is unavailable.");
 				if (auto Copied = Member->GetInner()->CopyAssignValue(Element, Current); !Copied)
-					return std::unexpected(ToString(Copied.error()));
+					throw std::runtime_error(ToString(Copied.error()));
 			}
 			const auto& Stored = Data[Offset];
 			auto Resolved = Stored.Payload.WithResolvedReferences(Stored.HardReferences);
-			if (!Resolved) return std::unexpected(Resolved.error());
+			if (!Resolved) throw std::runtime_error(Resolved.error());
 			if (auto Restored = RestorePropertyValuePayload(Member->GetInner(), Element, 0, *Resolved, Oper == 0); !Restored)
-				return std::unexpected(ToString(Restored.error()));
+				throw std::runtime_error(ToString(Restored.error()));
 		}
 		if (Ops.Splice(ResolveContainer(), Index, RemoveCount, Detached.Get()) != EContainerOpResult::Success)
-			return std::unexpected("Array replay splice rejected the range.");
+			throw std::runtime_error("Array replay splice rejected the range.");
 		CompletionAnnotation = Annotation;
-		bHasCompletion = true;
 		auto* Object = Target.Get();
 		const FProperty* Root = StructPath.empty() ? Member : StructPath.front();
 		const FPropertyPathSegment Path{Root};
@@ -220,12 +226,6 @@ namespace Durin
 			.Phase = EPropertyChangePhase::Committed, .Kind = Oper == 0 ? EPropertyChangeKind::ValueSet
 				: Oper == 1 ? EPropertyChangeKind::ArrayRemove : EPropertyChangeKind::ArrayAdd, .Origin = Origin});
 		Object->MarkPackageDirty();
-		return {};
-	}
-
-	auto FTransaction::FArrayData::CommitReplay() -> void
-	{
-		if (!Inverse) return;
 		Data = std::move(*Inverse);
 		Annotation = std::move(InverseAnnotation);
 		Oper = -Oper;
@@ -272,18 +272,15 @@ namespace Durin
 	}
 
 	auto FTransaction::FArrayData::BuildObjectEvents(const FTransactionContext& Context,
-		ETransactionObjectEventType Type, ETransactionOperation Operation) const
+		ETransactionObjectEventType Type) const
 		-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>
 	{
-		auto* Object = Target.Get();
-		if (!Object) return std::unexpected("Array event target is unavailable.");
-		const auto CurrentAnnotation = Type == ETransactionObjectEventType::UndoRedo ? CompletionAnnotation
-			: Annotation ? Annotation->CreateSnapshot(*Object) : Object->FindOrCreateTransactionAnnotation();
+		if (!ReplayChange) return std::unexpected("Array replay event identity is unavailable.");
+		const auto& CurrentAnnotation = CompletionAnnotation;
 		FTransactionObjectEvent Result{.TransactionId = Context.TransactionId, .OperationId = Context.OperationId,
-			.Type = Type, .Operation = Operation,
-			.Change = FTransactionObjectChange(CaptureTransactionObjectIdentity(*Object), Object->GetObjectFlags()),
+			.Type = Type,
+			.Change = *ReplayChange,
 			.Annotation = CurrentAnnotation};
-		if (Count) Result.Change.ChangedProperties.push_back(StructPath.empty() ? MemberName : StructPath.front()->NamePrivate);
 		std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>> Events;
 		Events.emplace_back(Target, std::move(Result));
 		if (CurrentAnnotation)
@@ -291,7 +288,7 @@ namespace Durin
 			{
 				if (!IsValid(AdditionalObject)) return std::unexpected("An array annotation reported an unavailable event target.");
 				if (Change.HasChanges()) Events.emplace_back(FPersistentObjectRef(AdditionalObject), FTransactionObjectEvent{
-					Context.TransactionId, Context.OperationId, Type, Operation, std::move(Change), {}, ETransactionObjectChangeCreatedBy::TransactionAnnotation});
+					Context.TransactionId, Context.OperationId, Type, std::move(Change), {}, ETransactionObjectChangeCreatedBy::TransactionAnnotation});
 			}
 		return Events;
 	}

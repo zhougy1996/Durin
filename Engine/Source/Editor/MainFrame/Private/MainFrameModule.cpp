@@ -1255,6 +1255,7 @@ namespace Durin
 		Context.Console = std::make_unique<FConsolePanel>(Editor);
 		Context.PythonScripts = std::make_unique<FPythonScriptPanel>(Editor);
 		Context.Activity = std::make_unique<FEditorNotificationOverlay>();
+		Context.Activity->Tick(Editor.GetNotificationManager(), *Editor.GetTransactor());
 
 		const FIntPoint WindowSize{
 			Context.MainFrameSettings->GetWindowWidth(),

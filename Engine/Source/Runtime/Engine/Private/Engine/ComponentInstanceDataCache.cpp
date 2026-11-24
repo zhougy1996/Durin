@@ -144,21 +144,21 @@ namespace Durin
 		}
 		return {};
 	}
-	auto FActorRootComponentReconstructionData::ApplyToActor(AActor& Actor, bool bRequireRoot) const -> FCommandChangeResult
+	auto FActorRootComponentReconstructionData::ApplyToActor(AActor& Actor, bool bRequireRoot) const -> std::expected<void, std::string>
 	{
-		if (auto Result = Validate(); !Result) return std::unexpected(FCommandChangeError{Result.error()});
-		if (SourceActor.Resolve() != &Actor) return std::unexpected(FCommandChangeError{"Root reconstruction owner mismatch."});
+		if (auto Result = Validate(); !Result) return Result;
+		if (SourceActor.Resolve() != &Actor) return std::unexpected("Root reconstruction owner mismatch.");
 		auto* SceneRoot = Cast<DSceneComponent>(Root.Resolve());
 		auto* Parent = Cast<DSceneComponent>(RootParent.Resolve());
 		if (bCachedGeneratedRoot && SceneRoot) Actor.SetRootComponent(SceneRoot);
 		if (!bRequireRoot && ((!Root.IsNull() && !SceneRoot) || Actor.GetRootComponent() != SceneRoot)) return {};
 		if ((!Root.IsNull() && !SceneRoot) || (SceneRoot && SceneRoot->GetOwner() != &Actor))
-			return std::unexpected(FCommandChangeError{"Actor transaction root identity is unavailable."});
+			return std::unexpected("Actor transaction root identity is unavailable.");
 		if (bCachedGeneratedRoot)
 		{
 			if (!SceneRoot || SceneRoot->GetOwner() != &Actor || (!RootParent.IsNull() && !Parent)
 				|| (Parent && (Parent == SceneRoot || Parent->IsAttachedTo(SceneRoot))))
-				return std::unexpected(FCommandChangeError{"Actor generated-root attachment snapshot cannot resolve safely."});
+				return std::unexpected("Actor generated-root attachment snapshot cannot resolve safely.");
 		}
 		for (const auto& Child : Attached)
 		{
@@ -166,27 +166,27 @@ namespace Durin
 			auto* ParentComponent = Cast<DSceneComponent>(Child.Parent.Resolve());
 			if (!Component || (!Child.Parent.IsNull() && !ParentComponent)
 				|| (ParentComponent && (ParentComponent == Component || ParentComponent->IsAttachedTo(Component))))
-				return std::unexpected(FCommandChangeError{"Actor attachment recovery participant cannot resolve safely."});
+				return std::unexpected("Actor attachment recovery participant cannot resolve safely.");
 		}
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FScopedPackageDirtySuppression SuppressDirty;
-		if (!Actor.SetRootComponent(SceneRoot)) return std::unexpected(FCommandChangeError{"Actor transaction root could not be reconciled.", true});
+		if (!Actor.SetRootComponent(SceneRoot)) return std::unexpected("Actor transaction root could not be reconciled.");
 		if (bCachedGeneratedRoot)
 		{
 			const bool AttachedRoot = SceneRoot->GetAttachParent() == Parent || (Parent ? SceneRoot->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative)
 				: SceneRoot->DetachFromComponent(EDetachmentTransformRule::KeepRelative));
-			if (!AttachedRoot) return std::unexpected(FCommandChangeError{"Actor generated-root attachment restore failed.", true});
+			if (!AttachedRoot) return std::unexpected("Actor generated-root attachment restore failed.");
 			SceneRoot->SetRelativeTransform(RootRelative);
 		}
 		for (const auto& Child : Attached)
 		{
 			auto* Component = Cast<DSceneComponent>(Child.Target.Resolve());
 			auto* ParentComponent = Cast<DSceneComponent>(Child.Parent.Resolve());
-			if (!Component) return std::unexpected(FCommandChangeError{"Actor attachment recovery target expired.", true});
+			if (!Component) return std::unexpected("Actor attachment recovery target expired.");
 			const bool Restored = Component->GetAttachParent() == ParentComponent || (ParentComponent
 				? Component->AttachToComponent(ParentComponent, EAttachmentTransformRule::KeepRelative)
 				: Component->DetachFromComponent(EDetachmentTransformRule::KeepRelative));
-			if (!Restored) return std::unexpected(FCommandChangeError{"Actor attachment recovery failed.", true});
+			if (!Restored) return std::unexpected("Actor attachment recovery failed.");
 			Component->SetRelativeTransform(Child.Relative);
 		}
 		return {};
@@ -244,19 +244,18 @@ namespace Durin
 	FActorComponentInstanceData::FActorComponentInstanceData(const DActorComponent& Component) : Source(&Component) {}
 	auto FActorComponentInstanceData::MatchesComponent(const DActorComponent& Component, const FActorGeneratedComponentKey* Key) const -> bool
 	{ return Source.MatchesComponent(Component, Key); }
-	auto FActorComponentInstanceData::ApplyToComponent(DActorComponent&, ECacheApplyPhase) const -> FCommandChangeResult { return {}; }
+	auto FActorComponentInstanceData::ApplyToComponent(DActorComponent&, ECacheApplyPhase) const -> void {}
 	auto FActorComponentInstanceData::AddReferencedObjects(FReferenceCollector& Collector) const -> void { Source.AddReferencedObjects(Collector); }
 	auto FActorComponentInstanceData::Serialize(FArchive& Archive) -> void { Source.Serialize(Archive); }
 
 	FSceneComponentInstanceData::FSceneComponentInstanceData(const DActorComponent& Component)
 		: FActorComponentInstanceData(Component), Relative(static_cast<const DSceneComponent&>(Component).GetRelativeTransform()) {}
-	auto FSceneComponentInstanceData::ApplyToComponent(DActorComponent& Component, ECacheApplyPhase Phase) const -> FCommandChangeResult
+	auto FSceneComponentInstanceData::ApplyToComponent(DActorComponent& Component, ECacheApplyPhase Phase) const -> void
 	{
-		if (Phase != ECacheApplyPhase::PostUserConstructionScript) return {};
+		if (Phase != ECacheApplyPhase::PostUserConstructionScript) return;
 		auto* Scene = Cast<DSceneComponent>(&Component);
-		if (!Scene) return std::unexpected(FCommandChangeError{"Scene instance data requires the same scene component class."});
+		if (!Scene) throw std::runtime_error("Scene instance data requires the same scene component class.");
 		if (!Scene->IsTransformModifiedByConstructionScript()) Scene->SetRelativeTransform(Relative);
-		return {};
 	}
 	auto FSceneComponentInstanceData::Serialize(FArchive& Archive) -> void
 	{ FActorComponentInstanceData::Serialize(Archive); SerializeTransform(Archive, Relative); }
@@ -304,25 +303,22 @@ namespace Durin
 		return {};
 	}
 
-	auto FComponentInstanceDataCache::ApplyToActor(AActor& Actor, ECacheApplyPhase Phase) const -> FCommandChangeResult
+	auto FComponentInstanceDataCache::ApplyToActor(AActor& Actor, ECacheApplyPhase Phase) const -> void
 	{
-		if (SourceActor.Resolve() != &Actor) return std::unexpected(FCommandChangeError{"Component instance cache owner mismatch."});
-		if (auto Result = Validate(); !Result) return std::unexpected(FCommandChangeError{Result.error()});
 		std::unordered_set<const FActorComponentInstanceData*> Applied;
 		for (const auto& Component : Actor.GetComponentsSnapshot())
 			if (Component && IsValid(Component.Get()))
 			{
 				FActorGeneratedComponentKey Key;
 				const auto* MatchKey = Actor.GetGeneratedComponentKey(Component.Get(), Key) ? &Key : nullptr;
-				if (auto Valid = ValidateComponent(*Component, MatchKey); !Valid) return std::unexpected(FCommandChangeError{Valid.error()});
+				if (auto Valid = ValidateComponent(*Component, MatchKey); !Valid) throw std::runtime_error(Valid.error());
 				for (const auto& Data : ComponentsInstanceData)
 					if (Data && !Applied.contains(Data.get()) && Data->MatchesComponent(*Component))
 					{
-						if (auto Result = Data->ApplyToComponent(*Component, Phase); !Result) return Result;
+						Data->ApplyToComponent(*Component, Phase);
 						Applied.insert(Data.get()); break;
 					}
 			}
-		return {};
 	}
 	auto FComponentInstanceDataCache::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
