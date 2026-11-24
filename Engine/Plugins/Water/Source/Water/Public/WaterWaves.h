@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Delegates/Delegate.h"
-#include "Engine/PrimaryDataAsset.h"
+#include "DObject/Object.h"
 #include "WaterSurfaceTypes.h"
 #include "WaterWaves.gen.h"
 
@@ -48,7 +48,7 @@ namespace Durin
 	};
 
 	DCLASS(DisplayName = "Water Waves")
-	class DWaterWaves final : public DPrimaryDataAsset
+	class DWaterWaves final : public DObject
 	{
 		GENERATED_BODY()
 	public:
