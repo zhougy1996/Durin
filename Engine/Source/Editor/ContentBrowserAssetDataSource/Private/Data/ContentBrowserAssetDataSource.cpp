@@ -33,6 +33,20 @@ namespace Durin
 		using ContentBrowser::AssetDataSource::Private::FContentBrowserNativeItem;
 		using FAssetActions = ContentBrowser::AssetDataSource::Private::FContentBrowserAssetActions;
 		using FFolderOperation = ContentStorage::FContentFolderOperation;
+		auto ResolveOpenTarget(const FSoftObjectPath& Path) -> std::optional<FAssetOpenTarget>
+		{
+			const auto Resolved = ResolveAssetObjectPathForOperation(Path);
+			if (Resolved && Resolved.FinalAssetData)
+				return FAssetOpenTarget{Resolved.FinalPath, Resolved.FinalAssetData->AssetClassName};
+
+			// An unsaved copy has live asset metadata before it has a package on disk.
+			if (Resolved.State == EAssetPathResolveState::NotFound && Path.IsTopLevelAsset())
+			{
+				const auto Live = FindAssetExact(Path.GetAssetPath(), EAssetQuerySource::InMemory);
+				if (Live && !Live->IsRedirector()) return FAssetOpenTarget{Path, Live->AssetClassName};
+			}
+			return {};
+		}
 		auto NativePolicy(const FContentBrowserOperationContext& Host) -> ContentStorage::FContentMutationPolicy
 		{ return {Host.CanMutateContent, Host.ReportDiagnostic, Host.NotifyContentMutation}; }
 		auto ResolveItemPath(FContentBrowserNativeItem& Item) -> void
@@ -297,15 +311,15 @@ namespace Durin
 		if (!P || !CanEditItem(Data)) return false;
 		FSoftObjectPath Path;
 		if (!FSoftObjectPath::TryCreate(P->Item.VirtualPath, Path)) return false;
-		const auto Resolved = ResolveAssetObjectPathForOperation(Path);
-		if (!Resolved || !Resolved.FinalAssetData) return false;
+		const auto OpenTarget = ResolveOpenTarget(Path);
+		if (!OpenTarget) return false;
 		auto* Editor = GetOwningEditor();
 		auto* Editors = Editor ? Editor->GetEditorSubsystem<DAssetEditorSubsystem>() : nullptr;
-		const auto* Definition = FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(Resolved.FinalAssetData->AssetClassName);
-		if (!Definition) return P->Host->OpenAsset(Resolved.FinalPath.ToString(), Resolved.FinalAssetData->AssetClassName);
+		const auto* Definition = FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(OpenTarget->AssetClassName);
+		if (!Definition) return P->Host->OpenAsset(OpenTarget->AssetPath.ToString(), OpenTarget->AssetClassName);
 		FStrongObjectPtr DefinitionLifetime(const_cast<DAssetDefinition*>(Definition));
 		FAssetActivateArgs Args{.AssetEditors = Editors,
-			.Assets = {{Resolved.FinalPath, Resolved.FinalAssetData->AssetClassName}}, .ActivationMethod = EAssetActivationMethod::Opened};
+			.Assets = {*OpenTarget}, .ActivationMethod = EAssetActivationMethod::Opened};
 		Args.Assets = Definition->PrepareToActivateAssets(Args);
 		if (Args.Assets.empty()) return true;
 		FAssetOpenArgs OpenArgs{.AssetEditors = Editors, .Assets = Args.Assets};

@@ -1170,6 +1170,25 @@ namespace
 		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/Target/MixedAsset", CopiedPath));
 		ASSERT_NE(FindResidentPackage(CopiedPath), nullptr);
 		EXPECT_TRUE(FindResidentPackage(CopiedPath)->IsDirty());
+		auto* CopiedObject = FindResidentPackage(CopiedPath)->FindTopLevelAsset(FName("MixedAsset"));
+		ASSERT_NE(CopiedObject, nullptr);
+		FContentBrowserItem CopyRow;
+		Data->EnumerateItemsAtPath(CopiedObject->GetObjectPath(), [&](FContentBrowserItem&& Item) {
+			CopyRow = std::move(Item);
+			return false;
+		});
+		ASSERT_NE(CopyRow.GetPrimaryInternalItem(), nullptr);
+		bool OpenedCopy = false;
+		FContentBrowserOperationContext Host;
+		Host.OpenAsset = [&](const std::string& ObjectPath, const std::string& ClassName) {
+			OpenedCopy = ObjectPath == CopiedObject->GetObjectPath() && ClassName == CopiedObject->GetClass()->GetQualifiedName().ToString();
+			return OpenedCopy;
+		};
+		FContentBrowserItem BoundCopy{.InternalItems = {Source->BindItemData(*CopyRow.GetPrimaryInternalItem(), Host)}};
+		EXPECT_TRUE(BoundCopy.Edit());
+		EXPECT_TRUE(OpenedCopy);
+		EXPECT_TRUE(FindResidentPackage(CopiedPath)->IsDirty());
+		EXPECT_FALSE(std::filesystem::exists(Root / "Target/MixedAsset.dasset"));
 		EXPECT_TRUE(Data->BulkDeleteItems(Batch));
 		EXPECT_FALSE(std::filesystem::exists(Root / "source.txt"));
 		EXPECT_FALSE(std::filesystem::exists(Root / "MixedAsset.dasset"));
