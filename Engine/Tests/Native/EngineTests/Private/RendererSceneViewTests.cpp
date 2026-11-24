@@ -1002,16 +1002,16 @@ namespace Durin
 			EXPECT_FLOAT_EQ(Uniform.DirectionalShadow.Cascades[Index].TexelBias.w, Bias.NormalWorld);
 			EXPECT_FLOAT_EQ(Baseline.Cascades[Index].Bias.NormalWorld, 0.0f);
 		}
-		const auto Disabled = CalculateDirectionalShadowBias({0.125, 0.125}, 1.0, {0.0f, 0.0f, 0.0f});
+		const auto Disabled = CalculateDirectionalShadowBias({0.125, 0.125}, {0.0f, 0.0f, 0.0f});
 		EXPECT_FLOAT_EQ(Disabled.RasterConstant, 0.0f);
 		EXPECT_FLOAT_EQ(Disabled.RasterSlope, 0.0f);
 		EXPECT_FLOAT_EQ(Disabled.ComparisonDepth, 0.0f);
-		const auto Bounded = CalculateDirectionalShadowBias({0.125, 0.125}, 1.0, {9.0f, -1.0f, 9.0f});
+		const auto Bounded = CalculateDirectionalShadowBias({0.125, 0.125}, {9.0f, -1.0f, 9.0f});
 		EXPECT_FLOAT_EQ(Bounded.RasterConstant, 5.0f);
 		EXPECT_FLOAT_EQ(Bounded.RasterSlope, 0.0f);
 		EXPECT_FLOAT_EQ(Bounded.NormalWorld, DirectionalShadowMaximumNormalOffset);
 		EXPECT_TRUE(Bounded.bTotalClamped);
-		const auto Fallback = CalculateDirectionalShadowBias({0.125, 0.125}, 1.0,
+		const auto Fallback = CalculateDirectionalShadowBias({0.125, 0.125},
 			{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
 				std::numeric_limits<float>::quiet_NaN()});
 		EXPECT_TRUE(Fallback.bUsedFallback);
@@ -1022,71 +1022,24 @@ namespace Durin
 	}
 
 	TEST(FRendererSceneViewTests,
-		DirectionalShadowBiasUsesBoundedTexelAndOrientationInputs)
+		DirectionalShadowRasterBiasUsesTexelSize)
 	{
-		const FDirectionalShadowBias Facing =
-			CalculateDirectionalShadowBias({0.125, 0.0625}, 1.0);
-		EXPECT_FLOAT_EQ(Facing.RasterConstant, 1.25f);
-		EXPECT_FLOAT_EQ(Facing.RasterSlope, 1.375f);
-		EXPECT_FLOAT_EQ(Facing.RasterClamp, 3.0f);
-		EXPECT_FLOAT_EQ(Facing.ReceiverWorld, 0.0f);
-		EXPECT_FLOAT_EQ(Facing.NormalWorld, 0.0f);
-		EXPECT_FALSE(Facing.bUsedFallback);
-		EXPECT_FALSE(Facing.bTotalClamped);
+		const auto Bias = CalculateDirectionalShadowBias({0.125, 0.0625});
+		EXPECT_FLOAT_EQ(Bias.RasterConstant, 1.25f);
+		EXPECT_FLOAT_EQ(Bias.RasterSlope, 1.375f);
+		EXPECT_FLOAT_EQ(Bias.RasterClamp, 3.0f);
 
-		const FDirectionalShadowBias Grazing =
-			CalculateDirectionalShadowBias({0.125, 0.0625}, 0.0);
-		EXPECT_FLOAT_EQ(Grazing.ReceiverWorld, 0.0f);
-		EXPECT_FLOAT_EQ(Grazing.NormalWorld, 0.0f);
-		EXPECT_FALSE(Grazing.bTotalClamped);
-		EXPECT_LE(Grazing.ReceiverWorld + Grazing.NormalWorld, 0.08f);
+		const auto Coarse = CalculateDirectionalShadowBias({0.25, 1.0});
+		EXPECT_FLOAT_EQ(Coarse.RasterConstant, 1.5f);
+		EXPECT_FLOAT_EQ(Coarse.RasterSlope, 2.0f);
+		EXPECT_FLOAT_EQ(Coarse.RasterClamp, 4.0f);
 
-		const FDirectionalShadowBias Maximum =
-			CalculateDirectionalShadowBias({0.25, 0.25}, 0.0);
-		EXPECT_FLOAT_EQ(Maximum.RasterConstant, 1.5f);
-		EXPECT_FLOAT_EQ(Maximum.RasterSlope, 1.5f);
-		EXPECT_FLOAT_EQ(Maximum.RasterClamp, 4.0f);
-		EXPECT_FLOAT_EQ(Maximum.ReceiverWorld, 0.0f);
-		EXPECT_FLOAT_EQ(Maximum.NormalWorld, 0.0f);
-		EXPECT_FALSE(Maximum.bTotalClamped);
-
-		const FDirectionalShadowBias Invalid = CalculateDirectionalShadowBias(
-			{std::numeric_limits<double>::quiet_NaN(), 0.125}, 1.0);
+		const auto Invalid = CalculateDirectionalShadowBias(
+			{std::numeric_limits<double>::quiet_NaN(), 0.125});
 		EXPECT_TRUE(Invalid.bUsedFallback);
-		EXPECT_FLOAT_EQ(Invalid.RasterConstant,
-			DirectionalShadowDepthBiasConstant);
+		EXPECT_FLOAT_EQ(Invalid.RasterConstant, DirectionalShadowDepthBiasConstant);
 		EXPECT_FLOAT_EQ(Invalid.RasterSlope, DirectionalShadowDepthBiasSlope);
 		EXPECT_FLOAT_EQ(Invalid.RasterClamp, DirectionalShadowDepthBiasClamp);
-		EXPECT_FLOAT_EQ(Invalid.ReceiverWorld, 0.0f);
-		EXPECT_FLOAT_EQ(Invalid.NormalWorld, 0.0f);
-
-		constexpr std::array<double, 4> TexelSizes{
-			0.03125, 0.0625, 0.125, 0.25};
-		constexpr std::array<double, 4> SurfaceLightCosines{
-			1.0, 0.5, 0.1, 0.0};
-		for (const double TexelSize : TexelSizes)
-			for (const double SurfaceLightCosine : SurfaceLightCosines)
-			{
-				const FDirectionalShadowBias Bias =
-					CalculateDirectionalShadowBias(
-						{TexelSize, TexelSize * 0.5}, SurfaceLightCosine);
-				EXPECT_FALSE(Bias.bUsedFallback);
-				EXPECT_GE(Bias.RasterConstant, 1.0f);
-				EXPECT_LE(Bias.RasterConstant, 1.5f);
-				EXPECT_GE(Bias.RasterSlope, 1.25f);
-				EXPECT_LE(Bias.RasterSlope, 2.0f);
-				EXPECT_GE(Bias.RasterClamp, 2.0f);
-				EXPECT_LE(Bias.RasterClamp, 4.0f);
-				EXPECT_GE(Bias.ReceiverWorld, 0.0f);
-				EXPECT_LE(Bias.ReceiverWorld,
-					DirectionalShadowMaximumReceiverWorldBias);
-				EXPECT_GE(Bias.NormalWorld, 0.0f);
-				EXPECT_LE(Bias.NormalWorld,
-					DirectionalShadowMaximumNormalOffset);
-				EXPECT_LE(Bias.ReceiverWorld + Bias.NormalWorld,
-					std::min(static_cast<float>(0.75 * TexelSize),
-						DirectionalShadowMaximumTotalWorldBias));
-			}
 	}
 
 	TEST(FRendererSceneViewTests,

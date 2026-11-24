@@ -37,13 +37,11 @@ namespace Durin
 
 	auto CalculateDirectionalShadowBias(
 		const FVector2& TexelWorldSize,
-		double SurfaceLightCosine,
 		const FDirectionalLightShadowBiasSettings& Settings) -> FDirectionalShadowBias
 	{
 		FDirectionalShadowBias Result;
 		const double Texel = std::max(TexelWorldSize.x, TexelWorldSize.y);
-		if (!std::isfinite(Texel) || Texel <= 0.0
-			|| !std::isfinite(SurfaceLightCosine))
+		if (!std::isfinite(Texel) || Texel <= 0.0)
 		{
 			Result.bUsedFallback = true;
 			return Result;
@@ -350,7 +348,7 @@ namespace Durin
 			Maximum.y = CenterY + HalfY;
 			Minimum.z -= DirectionalShadowCasterExtrusion;
 			Candidate.Bias = CalculateDirectionalShadowBias(
-				Candidate.TexelWorldSize, 1.0, BiasSettings);
+				Candidate.TexelWorldSize, BiasSettings);
 			// Caster extrusion expands the light depth span even in close-ups.
 			// The corner of the square PCF footprint is its furthest comparison.
 			const double FootprintDepth = Filter.FootprintRadiusTexels
