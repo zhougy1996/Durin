@@ -20,13 +20,13 @@ namespace Durin
 	class FShaderBuildModule final : public IShaderBuildModule
 	{
 	public:
-		auto ResetService(DerivedData::Private::FBuildBackendOptions Options) -> void
+		auto ResetService(DerivedData::Private::FBuildBackendOptions Options, ShaderBuildPrivate::EModuleCacheReset Modules) -> void
 		{
 			AdvanceShaderReloadGeneration();
 			if (Builder) Builder->Close();
 			if (BuildService) BuildService->Close();
 			Builder.reset();
-			BuildService->ResetCacheForTests(std::move(Options));
+			BuildService->ResetCacheForTests(std::move(Options), Modules);
 			Builder = std::make_unique<FShaderBuilder>(BuildService);
 		}
 		auto CompileMounted(std::string_view Path, const FShaderCompileOptions& CompileOptions,
@@ -128,9 +128,11 @@ namespace Durin
 	namespace ShaderBuildPrivate
 	{
 		auto ResetServiceForTests(DerivedData::Private::FBuildBackendOptions Options) -> void
+		{ ResetServiceForTests(std::move(Options), EModuleCacheReset::Clear); }
+		auto ResetServiceForTests(DerivedData::Private::FBuildBackendOptions Options, ShaderBuildPrivate::EModuleCacheReset Modules) -> void
 		{
 			require(ActiveModule);
-			ActiveModule->ResetService(std::move(Options));
+			ActiveModule->ResetService(std::move(Options), Modules);
 		}
 	}
 

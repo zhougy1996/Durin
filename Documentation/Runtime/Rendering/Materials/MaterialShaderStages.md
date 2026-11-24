@@ -1,9 +1,9 @@
 # Material Shader Stage Selection and Sharing
 
 Summary: Material geometry and Pass usages select an atomic required stage set whose compatible binaries share independently through ShaderBuild.
-Modules: Engine, RenderCore, Renderer
+Modules: Engine, RenderCore, Renderer, ShaderBuild
 
-Last reviewed: 2026-11-23
+Last reviewed: 2026-11-24
 
 ## Declared usages
 
@@ -140,7 +140,15 @@ slots, so arrival order cannot reorder the program. Failure stops new submission
 and drains accepted requests before assembly; the first failing canonical slot
 selects the Shader diagnostic. Cancellation also drains accepted requests.
 Inline callbacks update slots without recursively submitting more work.
-No new unbounded stage cache is introduced.
+On a generated material stage miss, ShaderBuild can supply serialized Slang
+imports to a fresh compiler session. Its process-local FIFO retains up to 128
+modules and 32 MiB of IR. Each stage compiles its own generated root and entry.
+Reuse requires the same compiler environment, target, ordered search roots,
+captured file paths and contents, and effective macros. Stage-specific parameter
+schema salts can share imported IR when the captured sources cannot reference
+those salts. The full macro set still participates in the stage key.
+A failed or diagnostic-bearing compile with cached imports retries against the
+original sealed sources.
 
 The finer granularity trades extra cold session submissions for reuse: a full
 cold editor material now has six independent ShaderBuild compilations, where

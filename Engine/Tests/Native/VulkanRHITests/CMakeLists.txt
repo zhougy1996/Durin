@@ -89,6 +89,7 @@ durin_add_native_test(VulkanRHIIntegrationTests
 		Private/VulkanSwapchainSelectionTests.cpp
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangSessionEnvironment.cpp
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
+		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangModuleCache.cpp
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
 
 	INCLUDE_DIRECTORIES
@@ -129,6 +130,7 @@ durin_add_native_test(VulkanCreationQualificationTests
 		Private/VulkanCreationQualificationTests.cpp
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangSessionEnvironment.cpp
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
+		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangModuleCache.cpp
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
 
 	INCLUDE_DIRECTORIES

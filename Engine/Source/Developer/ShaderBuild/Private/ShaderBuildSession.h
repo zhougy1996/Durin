@@ -10,6 +10,7 @@
 
 namespace Durin
 {
+	namespace ShaderBuildPrivate { enum class EModuleCacheReset; }
 	inline constexpr uint32 ShaderCompileBuildFunctionVersion = 5;
 	inline constexpr uint32 ShaderCompileConstantsSchemaVersion = 3;
 	inline constexpr uint32 ShaderCompileOutputSchemaVersion = 8;
@@ -55,7 +56,7 @@ namespace Durin
 			-> DerivedData::FBuildCompleteParams;
 		auto Submit(FShaderSessionRequest Request, DerivedData::IRequestOwner& Owner, DerivedData::FBuildCompletionCallback Completion, DerivedData::FBuildPolicy Policy = {}) -> void;
 		auto Close() -> void;
-		auto ResetCacheForTests(DerivedData::Private::FBuildBackendOptions Options) -> void;
+		auto ResetCacheForTests(DerivedData::Private::FBuildBackendOptions Options, ShaderBuildPrivate::EModuleCacheReset Modules) -> void;
 
 	private:
 		struct FState;

@@ -32,6 +32,7 @@ durin_add_native_test(RenderShaderContractTests
 	PRIVATE_SOURCES
 		${_durin_shader_build_private_dir}/SlangSessionEnvironment.cpp
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
+		${_durin_shader_build_private_dir}/SlangModuleCache.cpp
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
 	LIBRARIES Core RHI RenderCore Engine DerivedDataCache ShaderBuild Slang_Imported
@@ -54,6 +55,7 @@ durin_add_native_test(RenderShaderCacheTests
 	PRIVATE_SOURCES
 		${_durin_shader_build_private_dir}/SlangSessionEnvironment.cpp
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
+		${_durin_shader_build_private_dir}/SlangModuleCache.cpp
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
 		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
@@ -75,6 +77,7 @@ durin_add_native_test(RenderShaderBuilderTests
 	PRIVATE_SOURCES
 		${_durin_shader_build_private_dir}/SlangSessionEnvironment.cpp
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
+		${_durin_shader_build_private_dir}/SlangModuleCache.cpp
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
 		${_durin_shader_build_private_dir}/ShaderBuilder.cpp
@@ -100,6 +103,7 @@ durin_add_native_test(ShaderBuildQualificationTests
 	PRIVATE_SOURCES
 		${_durin_shader_build_private_dir}/SlangSessionEnvironment.cpp
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
+		${_durin_shader_build_private_dir}/SlangModuleCache.cpp
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
 		${_durin_shader_build_private_dir}/ShaderBuilder.cpp

@@ -2,6 +2,8 @@
 
 #include "CacheDispatchPrivate.h"
 #include "ShaderBuildSession.h"
+#include "SlangModuleCache.h"
+#include "ShaderBuildTestSupport.h"
 #include "Shader/ShaderCompiledOutput.h"
 #include "MetalLibraryBuild.h"
 #include "ShaderBuildVersion.h"
@@ -160,6 +162,7 @@ namespace Durin
 		struct FCompilerService
 		{
 			FSlangShaderCompiler Compiler;
+			std::unique_ptr<FSlangModuleCache> MaterialModules = std::make_unique<FSlangModuleCache>();
 			const std::string Environment = Compiler.GetEnvironmentIdentity();
 			const uint64 BuildVersion = ShaderBuildPrivate::BuildVersion(Environment);
 			std::function<void(std::string_view)> BeforeGeneratedCompile;
@@ -226,7 +229,8 @@ namespace Durin
 				if (Context.IsCanceled()) return;
 				const auto ProducerBegin = std::chrono::steady_clock::now();
 				auto Product = Options->Generated
-					? Service->Compiler.CompileSource(Options->Value.VirtualShaderPath.substr(1), Options->Value.VirtualShaderPath, Generated, Options->Value, Service->BeforeGeneratedCompile)
+					? Service->Compiler.CompileSource(Options->Value.VirtualShaderPath.substr(1), Options->Value.VirtualShaderPath, Generated, Options->Value, Service->BeforeGeneratedCompile,
+						Options->Value.VirtualShaderPath.starts_with("/Generated/MaterialStages/") ? Service->MaterialModules.get() : nullptr)
 					: Service->Compiler.Compile(Options->Value.VirtualShaderPath, Options->Value);
 				Service->ProducerMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
 					std::chrono::steady_clock::now() - ProducerBegin).count(), std::memory_order_relaxed);
@@ -383,10 +387,14 @@ namespace Durin
 		State->Open(std::move(Options));
 	}
 	FShaderBuildService::~FShaderBuildService() { Close(); }
-	auto FShaderBuildService::ResetCacheForTests(DerivedData::Private::FBuildBackendOptions Options) -> void
+	auto FShaderBuildService::ResetCacheForTests(DerivedData::Private::FBuildBackendOptions Options, ShaderBuildPrivate::EModuleCacheReset Modules) -> void
 	{
 		Close();
 		std::lock_guard Lock(State->Mutex);
+		if (Modules == ShaderBuildPrivate::EModuleCacheReset::Disable)
+			State->Compiler->MaterialModules.reset();
+		else if (Modules == ShaderBuildPrivate::EModuleCacheReset::Clear || !State->Compiler->MaterialModules)
+			State->Compiler->MaterialModules = std::make_unique<FSlangModuleCache>();
 		State->Open(std::move(Options));
 	}
 	auto FShaderBuildService::GetBuildVersion() const -> uint64 { return State->Compiler->BuildVersion; }

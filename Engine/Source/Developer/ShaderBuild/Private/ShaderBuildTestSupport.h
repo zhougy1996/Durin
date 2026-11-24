@@ -7,6 +7,8 @@
 
 namespace Durin::ShaderBuildPrivate
 {
+	enum class EModuleCacheReset { Clear, Preserve, Disable };
 	// Call only with no outstanding subscribers; drains before replacing the service.
 	SHADERBUILD_API auto ResetServiceForTests(DerivedData::Private::FBuildBackendOptions Options = {}) -> void;
+	SHADERBUILD_API auto ResetServiceForTests(DerivedData::Private::FBuildBackendOptions Options, EModuleCacheReset Modules) -> void;
 }

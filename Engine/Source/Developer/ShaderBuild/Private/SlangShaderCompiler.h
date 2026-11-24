@@ -8,6 +8,8 @@
 
 namespace Durin
 {
+	class FSlangModuleCache;
+
 	// Compiles registered shader sources to Vulkan-compatible binaries through Slang.
 	class FSlangShaderCompiler : public FShaderCompiler
 	{
@@ -19,7 +21,7 @@ namespace Durin
 		auto CompileSource(std::string_view ModuleName,
 			std::string_view SourcePathHint, std::string_view Source,
 			const FShaderCompileOptions& Options,
-			const std::function<void(std::string_view)>& OnSessionAcquired = {}) -> FShaderCompilerOutput;
+			const std::function<void(std::string_view)>& OnSessionAcquired = {}, FSlangModuleCache* ModuleCache = nullptr) -> FShaderCompilerOutput;
 		auto GetEnvironmentIdentity() const -> std::string;
 
 	private:

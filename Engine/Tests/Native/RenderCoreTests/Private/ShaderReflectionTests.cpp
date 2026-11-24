@@ -11,6 +11,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/ContentPathInspection.h"
 #include "SlangShaderCompiler.h"
+#include "SlangModuleCache.h"
 #include "SlangShaderDependencyResolver.h"
 
 #include <barrier>
@@ -20,6 +21,62 @@
 
 namespace Durin
 {
+	TEST(FSlangModuleCacheTests, ReuseTracksMacrosShadingModelAndTransitiveSources)
+	{
+		FSlangShaderCompiler Compiler;
+		FSlangModuleCache Cache;
+		FShaderCompileOptions Options;
+		Options.Target = VulkanShaderTarget;
+		Options.VirtualShaderPath = "/Generated/MaterialStages/Test";
+		Options.EntryPoints = {"Main"};
+		Options.Frequencies = {EShaderFrequency::Fragment};
+		Options.Macros = {{"VALUE_SCALE", "2"}, {"DURIN_MATERIAL_SHADING_MODEL", "0"}, {"DURIN_PARAMETER_SCHEMA", "1"}};
+		const std::string Root = "import Shared; [shader(\"fragment\")] float4 Main() : SV_Target { return Shade(); }";
+		std::map<std::string, FSharedByteBuffer> Files;
+		const auto SetFile = [&](std::string Name, std::string_view Text) {
+			Files[Name] = FSharedByteBuffer::Copy(std::as_bytes(std::span(Text)));
+			Options.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(Files, std::vector<std::string>{"/Lib"});
+		};
+		SetFile("/Lib/Shared.slang", "import Leaf; public float Shade() { return VALUE_SCALE * LeafValue() + DURIN_MATERIAL_SHADING_MODEL; }");
+		SetFile("/Lib/Leaf.slang", "#include \"Value.inl\"\npublic float LeafValue() { return LEAF_VALUE; }");
+		SetFile("/Lib/Value.inl", "#define LEAF_VALUE 3.0\n");
+		FXxHash128 Previous{};
+		const auto Verify = [&](bool ExpectedHit, bool ExpectedChange) {
+			const auto Key = FSlangModuleCache::MakeKey(Options, "/Generated/MaterialStages", Root);
+			ASSERT_TRUE(Key);
+			EXPECT_EQ(!Cache.Find(*Key).empty(), ExpectedHit);
+			const auto Reference = Compiler.CompileSource("Test", Options.VirtualShaderPath, Root, Options);
+			ASSERT_TRUE(Reference) << FormatShaderCompilerErrors(Reference.Errors);
+			const auto Actual = Compiler.CompileSource("Test", Options.VirtualShaderPath, Root, Options, {}, &Cache);
+			ASSERT_TRUE(Actual) << FormatShaderCompilerErrors(Actual.Errors);
+			ASSERT_EQ(Actual.CompiledShaders.size(), 1u);
+			const auto& Shader = Actual.CompiledShaders.front();
+			EXPECT_TRUE(std::ranges::equal(Shader.Code, Reference.CompiledShaders.front().Code));
+			EXPECT_EQ(Shader.CodeHash != Previous, ExpectedChange);
+			Previous = Shader.CodeHash;
+			EXPECT_EQ(Cache.Find(*Key).size(), 2u);
+		};
+		Verify(false, true);
+		Options.Macros[2].Value = "2"; // Unobserved schema salt changes the stage key only.
+		Verify(true, false);
+		Options.Macros[0].Value = "4";
+		Verify(false, true);
+		Options.Macros[1].Value = "2";
+		Verify(false, true);
+		SetFile("/Lib/Value.inl", "#define LEAF_VALUE 5.0\n");
+		Verify(false, true);
+		Verify(true, false);
+		SetFile("/Lib/Value.inl", "#define JOIN(a,b) a ## b\n#define LEAF_VALUE JOIN(DURIN_PARAMETER_,SCHEMA)\n");
+		Verify(false, true);
+		Options.Macros[2].Value = "7";
+		Verify(false, true);
+		Files.erase("/Lib/Value.inl");
+		Options.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(Files, std::vector<std::string>{"/Lib"});
+		const auto Missing = Compiler.CompileSource("Test", Options.VirtualShaderPath, Root, Options, {}, &Cache);
+		EXPECT_FALSE(Missing);
+		EXPECT_FALSE(Missing.Errors.empty());
+	}
+
 	namespace
 	{
 		// Scan shader declarations and C++ emitters together. Native MSL indices

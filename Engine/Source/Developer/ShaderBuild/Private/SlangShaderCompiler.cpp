@@ -4,6 +4,7 @@
 #include "RHIResources.h"
 #include "MetalShaderTranslator.h"
 #include "SlangSessionEnvironment.h"
+#include "SlangModuleCache.h"
 #include "ShaderFormat.h"
 
 namespace Durin
@@ -755,31 +756,39 @@ namespace Durin
 	FShaderCompilerOutput FSlangShaderCompiler::CompileSource(
 		std::string_view ModuleName, std::string_view SourcePathHint,
 		std::string_view Source, const FShaderCompileOptions& Options,
-		const std::function<void(std::string_view)>& OnSessionAcquired)
+		const std::function<void(std::string_view)>& OnSessionAcquired, FSlangModuleCache* ModuleCache)
 	{
 		auto GlobalSession = GlobalSessions.Acquire();
 		if (OnSessionAcquired) OnSessionAcquired(Options.VirtualShaderPath);
-		FShaderCompilerOutput Output;
-		Slang::ComPtr<slang::ISession> Session;
-		if (auto Result = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session, std::filesystem::path(SourcePathHint).parent_path().generic_string()); !Result)
-		{
-			Output.AddError(std::move(Result.error()));
+		const auto SearchPath = std::filesystem::path(SourcePathHint).parent_path().generic_string();
+		const std::string Name(ModuleName), Path(SourcePathHint), Text(Source);
+		const auto ModuleKey = ModuleCache ? FSlangModuleCache::MakeKey(Options, SearchPath, Source) : std::nullopt;
+		const auto Modules = ModuleKey ? ModuleCache->Find(*ModuleKey) : FSlangModuleCache::FModules{};
+		const auto CompileWith = [&](const FShaderCompileOptions& SessionOptions) {
+			Slang::ComPtr<slang::ISession> Session;
+			if (auto Result = FSlangSessionEnvironment::CreateSession(*GlobalSession, SessionOptions, Session, SearchPath); !Result)
+				return FShaderCompilerOutput::Failure(Result.error());
+			Slang::ComPtr<slang::IBlob> Diagnostics;
+			auto* Module = Session->loadModuleFromSourceString(Name.c_str(), Path.c_str(), Text.c_str(), Diagnostics.writeRef());
+			if (!Module)
+				return FShaderCompilerOutput::Failure(FormatSlangDiagnostic("Module", Diagnostics ? static_cast<const char*>(Diagnostics->getBufferPointer()) : ""));
+			auto Output = CompileModule(Module, Options);
+			if (Diagnostics) Output.AddDiagnostics(static_cast<const char*>(Diagnostics->getBufferPointer()));
+			if (ModuleKey && Output && Output.Errors.empty() && !Diagnostics)
+				ModuleCache->Store(*ModuleKey, *Session, *Module, *Options.SourceArtifacts, Modules);
 			return Output;
-		}
-		const std::string Name(ModuleName);
-		const std::string Path(SourcePathHint);
-		const std::string Text(Source);
-		Slang::ComPtr<slang::IBlob> Diagnostics;
-		slang::IModule* Module = Session->loadModuleFromSourceString(
-			Name.c_str(), Path.c_str(), Text.c_str(), Diagnostics.writeRef());
-		if (!Module)
+		};
+		if (!Modules.empty())
 		{
-			Output.AddError(FormatSlangDiagnostic("Module", Diagnostics ? static_cast<const char*>(Diagnostics->getBufferPointer()) : ""));
-			return Output;
+			auto Files = Options.SourceArtifacts->GetFiles();
+			Files.insert(Modules.begin(), Modules.end());
+			auto Cached = Options;
+			Cached.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), Options.SourceArtifacts->GetSearchRoots());
+			auto Output = CompileWith(Cached);
+			if (Output && Output.Errors.empty()) return Output;
+			// The sealed source capture is authoritative for diagnostics and recovery.
 		}
-		Output = CompileModule(Module, Options);
-		if (Diagnostics) Output.AddDiagnostics(static_cast<const char*>(Diagnostics->getBufferPointer()));
-		return Output;
+		return CompileWith(Options);
 	}
 
 	auto FSlangShaderCompiler::GetEnvironmentIdentity() const -> std::string

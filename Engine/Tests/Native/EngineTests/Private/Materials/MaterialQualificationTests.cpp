@@ -389,6 +389,69 @@ TEST_F(FMaterialQualificationTests, RequestToPublicationWorkloads)
 	std::cout << "[MaterialPublicationBaseline] csv=" << (Root / "publication.csv").generic_string() << '\n';
 }
 
+TEST_F(FMaterialQualificationTests, ColdStagePublicationWithSharedModuleIR)
+{
+	using namespace Durin;
+	using ShaderBuildPrivate::EModuleCacheReset;
+	InitializeDObjectSystem();
+	ASSERT_NE(IShaderBuildModule::Get(), nullptr);
+	const auto Previous = FPaths::DerivedDataCacheDir();
+	struct FRestore
+	{
+		std::string Previous;
+		~FRestore() { ShaderBuildPrivate::ResetServiceForTests(); FPaths::SetDerivedDataCacheDirForTests(Previous); }
+	} Restore{Previous};
+	const auto Root = Testing::GetTestWorkDirectory() / "MaterialModuleIR";
+	using FHashes = std::map<std::string, FXxHash128>;
+	for (uint32 Sample = 0; Sample < 6; ++Sample)
+	{
+		std::array<FHashes, 5> Products;
+		const auto Run = [&](uint32 Index, EModuleCacheReset Cache, EMaterialShadingModel Model)
+		{
+			FPaths::SetDerivedDataCacheDirForTests((Root / std::format("{}-{}", Sample, Index)).generic_string());
+			ShaderBuildPrivate::ResetServiceForTests({}, Cache);
+			FMaterialShaderMap::ClearCache();
+			MaterialBuildPrivate::ReleaseTranslationSession();
+			auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
+			Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+			auto Properties = Material->GetStaticProperties();
+			Properties.ShadingModel = Model;
+			ASSERT_TRUE(Material->SetStaticProperties(Properties));
+			ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Material));
+			const auto Before = GetShaderBuildStats();
+			const auto Begin = std::chrono::steady_clock::now();
+			ASSERT_TRUE(RequestMaterialRecompile(*Material));
+			FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+			const auto Elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count();
+			const auto After = GetShaderBuildStats();
+			ASSERT_EQ(After.Compilations - Before.Compilations, 6u);
+			ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+			const auto Program = Material->GetAcceptedCompiledProgram();
+			ASSERT_TRUE(Program);
+			for (const auto& Shader : Program->GetShaderMap().CompiledShaders)
+				Products[Index].emplace(Shader.SourceEntryPoint, Shader.CodeHash);
+			ASSERT_EQ(Products[Index].size(), 6u);
+			std::cout << "[MaterialModuleIR] sample=" << Sample << " case=" << Index
+				<< " publication_us=" << Elapsed << " shader_producer_us=" << After.ProducerMicroseconds - Before.ProducerMicroseconds << '\n';
+			MarkAsGarbage(Material);
+			CollectGarbage(EObjectFlags::Standalone);
+		};
+		const auto Reference = [&] {
+			Run(0, EModuleCacheReset::Disable, EMaterialShadingModel::DefaultLit);
+			Run(1, EModuleCacheReset::Disable, EMaterialShadingModel::ClearCoat);
+		};
+		if (Sample % 2 == 0) Reference();
+		Run(2, EModuleCacheReset::Clear, EMaterialShadingModel::DefaultLit);
+		Run(3, EModuleCacheReset::Preserve, EMaterialShadingModel::ClearCoat);
+		Run(4, EModuleCacheReset::Preserve, EMaterialShadingModel::DefaultLit);
+		if (Sample % 2 != 0) Reference();
+		EXPECT_EQ(Products[0], Products[2]);
+		EXPECT_EQ(Products[1], Products[3]);
+		EXPECT_EQ(Products[0], Products[4]);
+		EXPECT_NE(Products[0], Products[1]);
+	}
+}
+
 TEST_F(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
 {
 	using namespace Durin;
