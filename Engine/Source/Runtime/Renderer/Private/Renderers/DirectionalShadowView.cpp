@@ -274,7 +274,8 @@ namespace Durin
 			const double Depth = Maximum.z - Minimum.z;
 			FMatrix Result(0.0);
 			SetRow(Result, 0, {1.0 / HalfX, 0.0, 0.0, -CenterX / HalfX});
-			SetRow(Result, 1, {0.0, 1.0 / HalfY, 0.0, -CenterY / HalfY});
+			// As in the camera projection, light-view up maps to decreasing raster Y.
+			SetRow(Result, 1, {0.0, -1.0 / HalfY, 0.0, CenterY / HalfY});
 			SetRow(Result, 2, {0.0, 0.0, 1.0 / Depth, -Minimum.z / Depth});
 			SetRow(Result, 3, {0.0, 0.0, 0.0, 1.0});
 			return Result;

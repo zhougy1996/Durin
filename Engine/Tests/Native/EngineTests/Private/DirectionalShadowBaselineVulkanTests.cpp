@@ -184,6 +184,7 @@ namespace
 		double RotationYDegrees = 0.0;
 		double RotationZDegrees = 0.0;
 		bool bMasked = false;
+		bool bSingleSidedBox = false;
 	};
 
 	struct FFixture
@@ -436,7 +437,7 @@ namespace
 		return Data;
 	}
 
-	auto MakeMaterial(Durin::EMaterialBlendMode BlendMode, const Durin::FVector3& BaseColor, Durin::EMaterialShadingModel ShadingModel = Durin::EMaterialShadingModel::DefaultLit, const Durin::FVector3& Emissive = Durin::FVector3(0.0), float Opacity = 1.0f)
+	auto MakeMaterial(Durin::EMaterialBlendMode BlendMode, const Durin::FVector3& BaseColor, Durin::EMaterialShadingModel ShadingModel = Durin::EMaterialShadingModel::DefaultLit, const Durin::FVector3& Emissive = Durin::FVector3(0.0), float Opacity = 1.0f, bool bTwoSided = true)
 		-> Durin::FMaterialRenderProxyRef
 	{
 		static uint64 MaterialIndex = 0;
@@ -461,7 +462,7 @@ namespace
 		Overrides.bOverrideOpacityMaskThreshold = true;
 		Overrides.Values.BlendMode = BlendMode;
 		Overrides.Values.ShadingModel = ShadingModel;
-		Overrides.Values.bTwoSided = true;
+		Overrides.Values.bTwoSided = bTwoSided;
 		Overrides.Values.OpacityMaskThreshold = 0.4f;
 		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
 		// Recreate the old Unlit color explicitly; the new execution root is EmissiveColor.
@@ -758,15 +759,19 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	Durin::SetSceneRenderGraphCaptureSink(CaptureSceneRenderGraph);
 
 	auto Quad = MakeQuadRenderData();
+	auto Box = MakeBoxRenderData();
 	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			ASSERT_TRUE(Quad->InitResources(CommandList));
+			ASSERT_TRUE(Box->InitResources(CommandList));
 		}
 	);
 	Durin::FlushRenderingCommands();
 	auto Opaque = MakeMaterial(
 		Durin::EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72}
 	);
+	auto SingleSided = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72},
+		Durin::EMaterialShadingModel::DefaultLit, Durin::FVector3(0), 1.0f, false);
 	auto Masked = MakeMaterial(
 		Durin::EMaterialBlendMode::Masked, {0.72, 0.72, 0.72}
 	);
@@ -1024,6 +1029,17 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	WallFloor.Name += "_unshadowed";
 	WallFloor.bCastShadows = false;
 	Fixtures.push_back(WallFloor);
+	const size_t ClosedWallFoot = Fixtures.size();
+	// The first floor pixel is just beyond the box's shadow-side face.
+	// Only the light-facing face gives the receiver the full wall thickness.
+	auto ClosedWall = Fixtures[WallFoot];
+	ClosedWall.Name = "single_sided_closed_wall";
+	ClosedWall.Primitives[1] = {.Translation = {-0.0508, 0.0, 0.5},
+		.Scale = {0.05, 0.7, 0.2}, .bSingleSidedBox = true};
+	Fixtures.push_back(ClosedWall);
+	ClosedWall.Name += "_unshadowed";
+	ClosedWall.bCastShadows = false;
+	Fixtures.push_back(ClosedWall);
 	const size_t OffCameraStart = Fixtures.size();
 	for (auto Candidate : {Durin::EDirectionalShadowCandidate::SingleMap, Durin::EDirectionalShadowCandidate::ThreeCascades})
 	{
@@ -1050,7 +1066,11 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 		for (size_t Index = 0; Index < Fixture.Primitives.size(); ++Index)
 		{
 			const FPrimitivePlacement& Placement = Fixture.Primitives[Index];
-			Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(Index + 1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Placement.bMasked ? Masked : Opaque}), MakeTransform(Placement));
+			auto Material = Placement.bMasked ? Masked : Opaque;
+			if (Placement.bSingleSidedBox) Material = SingleSided;
+			Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(Index + 1),
+				std::make_unique<Durin::FStaticMeshSceneProxy>(Placement.bSingleSidedBox ? Box.get() : Quad.get(),
+					std::vector<Durin::FMaterialRenderProxyRef>{Material}), MakeTransform(Placement));
 		}
 		Durin::FDirectionalLightSceneData Directional;
 		Directional.Direction = Fixture.LightDirection;
@@ -1234,28 +1254,32 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	for (const size_t SlopedIndex : {size_t{1}, MediumParityStart + 1, HighParityStart + 1})
 		EXPECT_EQ(CountChangedPixels(Captures[SlopedIndex], Captures[SlopedReference], 2), 0u)
 			<< Fixtures[SlopedIndex].Name;
-	int MaxContactExcess = 0;
-	int MaxLitLoss = 0;
-	int MinShadowContrast = 255;
-	for (uint32 Y = CaptureHeight / 4; Y < 3 * CaptureHeight / 4; ++Y)
+	for (const size_t FixtureIndex : {WallFoot, ClosedWallFoot})
 	{
-		const uint32 FootX = CaptureWidth / 2;
-		const int Interior = LuminanceAt(Captures[WallFoot], FootX + 12, Y);
-		MinShadowContrast = std::min(MinShadowContrast,
-			LuminanceAt(Captures[WallFoot + 1], FootX + 12, Y) - Interior);
-		for (uint32 X = FootX; X < FootX + 4; ++X)
-			MaxContactExcess = std::max(MaxContactExcess,
-				LuminanceAt(Captures[WallFoot], X, Y) - Interior);
-		for (uint32 X = CaptureWidth / 4; X < FootX - 2; ++X)
-			MaxLitLoss = std::max(MaxLitLoss, LuminanceAt(Captures[WallFoot + 1], X, Y)
-				- LuminanceAt(Captures[WallFoot], X, Y));
+		SCOPED_TRACE(Fixtures[FixtureIndex].Name);
+		int MaxContactExcess = 0;
+		int MaxLitLoss = 0;
+		int MinShadowContrast = 255;
+		for (uint32 Y = CaptureHeight / 4; Y < 3 * CaptureHeight / 4; ++Y)
+		{
+			const uint32 FootX = CaptureWidth / 2;
+			const int Interior = LuminanceAt(Captures[FixtureIndex], FootX + 12, Y);
+			MinShadowContrast = std::min(MinShadowContrast,
+				LuminanceAt(Captures[FixtureIndex + 1], FootX + 12, Y) - Interior);
+			for (uint32 X = FootX; X < FootX + 4; ++X)
+				MaxContactExcess = std::max(MaxContactExcess,
+					LuminanceAt(Captures[FixtureIndex], X, Y) - Interior);
+			for (uint32 X = CaptureWidth / 4; X < FootX - 2; ++X)
+				MaxLitLoss = std::max(MaxLitLoss, LuminanceAt(Captures[FixtureIndex + 1], X, Y)
+					- LuminanceAt(Captures[FixtureIndex], X, Y));
+		}
+		EXPECT_GT(MinShadowContrast, 30) << "wall must cast a visible shadow";
+		EXPECT_LE(MaxContactExcess, 2) << "bright seam along the wall foot";
+		EXPECT_LE(MaxLitLoss, 2) << "self-shadowing on the exposed floor";
+		std::cout << "Wall-floor max seam excess=" << MaxContactExcess
+			<< ", max exposed-floor loss=" << MaxLitLoss
+			<< ", min shadow contrast=" << MinShadowContrast << '\n';
 	}
-	EXPECT_GT(MinShadowContrast, 30) << "wall must cast a visible shadow";
-	EXPECT_LE(MaxContactExcess, 2) << "bright seam along the wall foot";
-	EXPECT_LE(MaxLitLoss, 2) << "self-shadowing on the exposed floor";
-	std::cout << "Wall-floor max seam excess=" << MaxContactExcess
-		<< ", max exposed-floor loss=" << MaxLitLoss
-		<< ", min shadow contrast=" << MinShadowContrast << '\n';
 	for (size_t Index = OffCameraStart; Index < Fixtures.size(); Index += 2)
 		EXPECT_GT(CountChangedPixels(Captures[Index], Captures[Index + 1], 2), 0u) << Fixtures[Index].Name;
 	EXPECT_EQ(Captures[RecordingParityStart], Captures[RecordingParityStart + 1]);
@@ -1342,7 +1366,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	EXPECT_LT(MediumQ0Motion[1], CaptureWidth * CaptureHeight / 8u);
 	EXPECT_LT(MediumQ0Motion[2], CaptureWidth * CaptureHeight / 4u);
 	EXPECT_EQ(HighMotion[0], 32u);
-	EXPECT_EQ(HighMotion[1], 190u);
+	EXPECT_EQ(HighMotion[1], 191u);
 	EXPECT_LE(ShadowOnlyHighFrequencyFraction[1], ShadowOnlyHighFrequencyFraction[0] * 0.95);
 	EXPECT_LE(ShadowOnlyHighFrequencyFraction[2], ShadowOnlyHighFrequencyFraction[1] * 0.96);
 	const size_t LowTransitionWidth = MaximumTransitionWidth(Captures[23]);
@@ -1401,7 +1425,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	RendererLifecycle.Shutdown();
 	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
-		[&](Durin::FRHICommandListImmediate&) { Quad->ReleaseResources(); }
+		[&](Durin::FRHICommandListImmediate&) { Box->ReleaseResources(); Quad->ReleaseResources(); }
 	);
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
