@@ -32,6 +32,8 @@ namespace Durin::ContentBrowser::Private
 		bChanged |= ImGui::SliderFloat("Thumbnail size", &Next.IconSize, FPresentationSettings::MinimumIconSize, FPresentationSettings::MaximumIconSize, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
 		bChanged |= ImGui::Checkbox("Lock Ctrl + wheel resizing", &Next.bIconSizeLocked);
 		bChanged |= ImGui::Checkbox("Show hidden files and folders", &Next.bShowHiddenFiles);
+		ImGui::SeparatorText("Asset operations");
+		bChanged |= ImGui::Checkbox("Automatically save pasted assets", &Next.bSaveAssetsOnPaste);
 		if (bChanged) OutError = ApplyPreferences(Next) ? std::string{} : "Could not save Content Browser preferences.";
 	}
 

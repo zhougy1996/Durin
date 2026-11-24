@@ -53,6 +53,7 @@ namespace Durin::MaterialEditor
 		auto GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>> override;
 		auto CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant> override;
 		MATERIALEDITOR_API auto OnIsAssetDirty(const DObject& Object) const -> bool override;
+		auto OnRequestCloseAsset(DObject& Asset) -> EAssetEditorCloseResult override;
 		MATERIALEDITOR_API auto OnCanSaveActiveDocument() const -> bool override;
 		MATERIALEDITOR_API auto OnSaveActiveDocument() -> bool override;
 		MATERIALEDITOR_API auto OnCanUndo() const -> bool override;

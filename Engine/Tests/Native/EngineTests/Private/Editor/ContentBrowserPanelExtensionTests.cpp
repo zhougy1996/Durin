@@ -367,6 +367,8 @@ namespace Durin::ContentBrowser::Private
 		Next.IconSize = 120.0f;
 		Next.bIconSizeLocked = true;
 		Next.bShowHiddenFiles = true;
+		EXPECT_TRUE(Previous.bSaveAssetsOnPaste);
+		Next.bSaveAssetsOnPaste = false;
 		EXPECT_FALSE(FContentBrowserPanelTestAccess::ApplyPreferences(Panel, Next));
 		EXPECT_EQ(FContentBrowserPanelTestAccess::Preferences(Panel), Previous);
 		bAllowSave = true;
@@ -455,6 +457,24 @@ namespace Durin::ContentBrowser::Private
 		EXPECT_FALSE(std::filesystem::exists(Root / "Destination/notes_Copy.txt"));
 		ImGui::SetClipboardText("unrelated text");
 		EXPECT_FALSE(FContentBrowserPanelTestAccess::CanPaste(Target));
+
+		FPackagePath SourcePath;
+		ASSERT_TRUE(FPackagePath::TryCreate("/BrowserContentClipboard/Waves", SourcePath));
+		DMaterial* Asset = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Asset));
+		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+		ImGui::SetClipboardText(Asset->GetObjectPath().c_str());
+		FContentBrowserPanelTestAccess::Paste(Target, "/BrowserContentClipboard/Destination/");
+		EXPECT_TRUE(std::filesystem::exists(Root / "Destination/Waves.dasset"));
+
+		std::filesystem::create_directory(Root / "Unsaved");
+		FContentBrowserPanel ManualSave({.bSaveAssetsOnPaste = false}, {}, Host);
+		FContentBrowserPanelTestAccess::Paste(ManualSave, "/BrowserContentClipboard/Unsaved/");
+		FPackagePath CopyPath;
+		ASSERT_TRUE(FPackagePath::TryCreate("/BrowserContentClipboard/Unsaved/Waves", CopyPath));
+		ASSERT_NE(nullptr, FindResidentPackage(CopyPath));
+		EXPECT_TRUE(FindResidentPackage(CopyPath)->IsDirty());
+		EXPECT_FALSE(std::filesystem::exists(Root / "Unsaved/Waves.dasset"));
 	}
 
 	TEST_F(FContentBrowserPanelExtensionTests, TemporaryFolderCreatesOnlyAfterConfirmationAndCancelsWithoutWriting)

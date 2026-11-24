@@ -55,7 +55,7 @@ namespace Durin::ContentBrowser::Private
 		std::shared_ptr<const FDragSnapshot> DragSnapshot;
 		auto CanMutateContent() const -> bool;
 		auto CanDeleteSelection() const -> bool;
-		auto ResolveOperationItems(std::span<const FContentBrowserItem>) const -> std::vector<FContentBrowserItem>;
+		auto ResolveOperationItems(std::span<const FContentBrowserItem>, const FContentBrowserOperationContext&) const -> std::vector<FContentBrowserItem>;
 
 		auto MakeRequestHost(FContentBrowserHostContext Host) -> FContentBrowserHostContext;
 		auto GetDataSubsystem() const -> DContentBrowserDataSubsystem*;

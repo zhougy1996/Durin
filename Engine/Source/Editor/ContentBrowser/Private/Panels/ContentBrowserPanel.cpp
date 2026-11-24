@@ -2,6 +2,7 @@
 #include "ContentBrowserItemAttributeHelpers.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Misc/ContentFilesystem.h"
+#include "Misc/ContentChanges.h"
 
 #include "AssetRegistry/Catalog.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
@@ -50,7 +51,7 @@ namespace Durin::ContentBrowser::Private
 	{
 		return GetDataSubsystem() && bAllowAssetMutation && (!HostContext.CanMutateContent || HostContext.CanMutateContent());
 	}
-	auto FContentBrowserPanel::ResolveOperationItems(std::span<const FContentBrowserItem> Items) const -> std::vector<FContentBrowserItem>
+	auto FContentBrowserPanel::ResolveOperationItems(std::span<const FContentBrowserItem> Items, const FContentBrowserOperationContext& Context) const -> std::vector<FContentBrowserItem>
 	{
 		std::vector<FContentBrowserItem> Result;
 		for (const auto& Item : Items)
@@ -60,7 +61,7 @@ namespace Durin::ContentBrowser::Private
 			if (auto* Service = GetDataSubsystem()) Service->EnumerateItemsAtPath(Item.GetVirtualPath(), [&](FContentBrowserItem&& Candidate) {
 				if (Candidate.GetItemKey() != Item.GetItemKey()) return true;
 				Fresh = std::move(Candidate); return false;
-			}, HostContext);
+			}, Context);
 			if (Fresh.InternalItems.size() != Item.InternalItems.size()) return {};
 			for (const auto& Data : Item.InternalItems)
 				if (!Data.GetOwnerDataSource() || std::ranges::none_of(Fresh.InternalItems, [&](const auto& Current) {
@@ -109,7 +110,7 @@ namespace Durin::ContentBrowser::Private
 	auto FContentBrowserPanel::MoveItems(std::vector<FContentBrowserItem> Items, std::string Destination) -> bool
 	{
 		if (!CanMutateContent()) return false;
-		auto Current = ResolveOperationItems(Items);
+		auto Current = ResolveOperationItems(Items, HostContext);
 		auto* Data = GetDataSubsystem();
 		if (!Data || !CanMutateContent() || Current.size() != Items.size()) return false;
 		const auto Result = Data->BulkMoveItems(CollectItemData(Current), Destination);
@@ -178,8 +179,8 @@ namespace Durin::ContentBrowser::Private
 		}
 		SettingsPage = FEditorSettingsPageRegistration({
 			.Id = "editor.content-browser", .Label = "Content Browser",
-			.Keywords = "grid details view thumbnail icon size lock hidden files folders",
-			.Description = "Browser presentation preferences. Changes take effect immediately and stay in sync with the browser toolbar.",
+			.Keywords = "grid details view thumbnail icon size lock hidden files folders paste save assets",
+			.Description = "Configure the browser view and asset operations.",
 			.Draw = [this](std::string& Error) { DrawPreferences(Error); },
 			.Reset = [this] { return ResetPreferences(); },
 		});
@@ -494,27 +495,29 @@ namespace Durin::ContentBrowser::Private
 		FTopLevelAssetPath SourcePath;
 		const bool bContent = HasCopiedContent();
 		if (!bContent && !ReadAssetClipboard(SourcePath)) return;
-		const std::string_view Directory = DestinationDirectory.empty()
-			? std::string_view(Model.GetCurrentVirtualPath())
-			: DestinationDirectory;
-		FContentBrowserItem NewItem;
-		if (bContent)
+		const std::string Directory(DestinationDirectory.empty() ? Model.GetCurrentVirtualPath() : DestinationDirectory);
+		FContentBrowserOperationContext Context = HostContext;
+		auto AddedAssets = std::make_shared<std::set<std::string>>();
+		if (PresentationSettings.bSaveAssetsOnPaste)
+			Context.NotifyContentMutation = [AddedAssets](FContentChangeBatch Batch) {
+				for (const auto& Change : Batch.Changes)
+					if (Change.Kind == EContentChangeKind::Added && !Change.NewAssetPath.empty())
+						AddedAssets->insert(Change.NewAssetPath);
+			};
+		const auto Sources = bContent ? CopiedContent : std::vector{FindItemAtPath(SourcePath.ToString())};
+		const auto Current = ResolveOperationItems(Sources, Context);
+		auto* Data = GetDataSubsystem();
+		if (!Data || !CanMutateContent() || Current.size() != Sources.size()) return;
+		const bool Copied = Data->BulkCopyItems(CollectItemData(Current), Directory);
+		ApplyTransferResult(Copied, false);
+		for (const auto& Path : *AddedAssets)
 		{
-			auto Current = ResolveOperationItems(CopiedContent);
-			if (auto* Data = GetDataSubsystem(); Data && CanMutateContent() && Current.size() == CopiedContent.size())
-			{
-				const auto Result = Data->BulkCopyItems(CollectItemData(Current), Directory);
-				ApplyTransferResult(Result, false);
-				if (Result) NavigateToPhysical(Directory);
-			}
+			if (!CanMutateContent()) { SetError("Pasted assets could not be saved because editing was disabled."); break; }
+			const auto Item = FindItemAtPath(Path);
+			if (!Item.Save(EContentBrowserItemSaveFlags::SaveOnlyIfDirty | EContentBrowserItemSaveFlags::SaveOnlyIfLoaded))
+				SetError("Could not save pasted asset " + Path + ". See Console for details.");
 		}
-		else
-		{
-			const auto Source = FindItemAtPath(SourcePath.ToString());
-			if (auto* Data = GetDataSubsystem(); Data && CanMutateContent()) ApplyTransferResult(Data->BulkCopyItems(Source.GetInternalItems(), Directory), false);
-		}
-		if (NewItem.GetItemKey().IsValid()) SyncToItem(NewItem);
-
+		if (Copied && bContent) NavigateToPhysical(Directory);
 	}
 
 	auto FContentBrowserPanel::HasContentClipboard() const -> bool

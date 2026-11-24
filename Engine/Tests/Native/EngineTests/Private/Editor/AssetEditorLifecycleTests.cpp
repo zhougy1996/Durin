@@ -48,7 +48,12 @@ namespace Durin
 			FBaseAssetToolkit::OnClose();
 		}
 		auto OnRequestCloseAsset(DObject& Asset) -> EAssetEditorCloseResult override
-		{ return CloseRequest ? CloseRequest(Asset) : FBaseAssetToolkit::OnRequestCloseAsset(Asset); }
+		{
+			if (CloseRequest) return CloseRequest(Asset);
+			const auto Result = FBaseAssetToolkit::OnRequestCloseAsset(Asset);
+			return Result == EAssetEditorCloseResult::Closed && IsAssetDirty(Asset)
+				? EAssetEditorCloseResult::PendingConfirmation : Result;
+		}
 		auto OnIsAssetDirty(const DObject& Asset) const -> bool override
 		{ if (DirtyQuery) DirtyQuery(); return bDirty || DirtyAssets.contains(FObjectKey(&Asset)); }
 		auto OnSaveAsset(DObject& Asset) -> bool override
@@ -1179,9 +1184,21 @@ namespace
 		ASSERT_NE(nullptr, Edit);
 		EXPECT_NE(View, Edit);
 		EXPECT_TRUE(Edit->GetToolkit()->CanSaveActiveDocument());
+		Package->MarkDirty();
+		Package->MarkAsNewlyCreated();
+		EXPECT_EQ(EAssetEditorCloseResult::Closed, Edit->GetToolkit()->RequestCloseAsset(*Object));
+		EXPECT_FALSE(AssetEditorSubsystem->GetPendingClosePrompt());
+		EXPECT_TRUE(Package->IsNewlyCreated());
+		EXPECT_TRUE(Package->IsDirty());
+		ASSERT_TRUE(AssetEditorSubsystem->OpenAssets(Args));
+		Edit = Durin::Testing::FindReflectedEditor(AssetEditorSubsystem, Object, EAssetOpenMethod::Edit);
+		ASSERT_NE(nullptr, Edit);
 		EXPECT_TRUE(Edit->GetToolkit()->SaveActiveDocument());
 		EXPECT_FALSE(Package->IsDirty());
+		Package->MarkDirty();
 		EXPECT_TRUE(Edit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_FALSE(AssetEditorSubsystem->GetPendingClosePrompt());
 		EXPECT_TRUE(View->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
 		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
 	}

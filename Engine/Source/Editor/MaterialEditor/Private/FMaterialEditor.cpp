@@ -220,7 +220,7 @@ namespace Durin::MaterialEditor
 		auto* Source = Cast<DMaterial>(&Object);
 		if (!Session || !Source || Session->GetSourceMaterial() != Source) return false;
 		Session->CancelApply();
-		if (!Source->GetPackage()->IsDirty())
+		if (!Source->GetPackage()->IsDirty() || Source->GetPackage()->IsNewlyCreated())
 		{
 			if (!ResetEditingSession(*Source)) return false;
 			OnActivateAsset(*Source);
@@ -239,6 +239,15 @@ namespace Durin::MaterialEditor
 		}
 		else if (!ResetEditingSession(*Cast<DMaterial>(Source))) return;
 		OnActivateAsset(*Source);
+	}
+
+	auto FMaterialEditor::OnRequestCloseAsset(DObject& Asset) -> EAssetEditorCloseResult
+	{
+		const auto Result = FBaseAssetToolkit::OnRequestCloseAsset(Asset);
+		if (Result != EAssetEditorCloseResult::Closed || IsReadOnly()) return Result;
+		const bool HasDraft = Mode == EMaterialEditorMode::Function ? FunctionSession && FunctionSession->IsDirty()
+			: EditingSession && EditingSession->HasUnappliedChanges();
+		return HasDraft ? EAssetEditorCloseResult::PendingConfirmation : EAssetEditorCloseResult::Closed;
 	}
 
 	auto FMaterialEditor::OnIsAssetDirty(const DObject&) const -> bool

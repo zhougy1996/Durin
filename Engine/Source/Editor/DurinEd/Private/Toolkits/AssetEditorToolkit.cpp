@@ -227,10 +227,10 @@ namespace Durin
 		return Result;
 	}
 
-	auto FAssetEditorToolkit::OnRequestCloseAsset(DObject& Asset) -> EAssetEditorCloseResult
+	auto FAssetEditorToolkit::OnRequestCloseAsset(DObject&) -> EAssetEditorCloseResult
 	{
-		if (!RequestDeactivate()) return EAssetEditorCloseResult::Rejected;
-		return IsAssetDirty(Asset) ? EAssetEditorCloseResult::PendingConfirmation : EAssetEditorCloseResult::Closed;
+		// Package edits survive the tab. Editors with private working copies handle those separately.
+		return RequestDeactivate() ? EAssetEditorCloseResult::Closed : EAssetEditorCloseResult::Rejected;
 	}
 
 	auto FAssetEditorToolkit::TryCloseAsset(DObject& Asset) -> EAssetEditorCloseResult

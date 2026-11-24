@@ -34,6 +34,7 @@ namespace Durin::ContentBrowser
 				Node.GetView("ShowHiddenFiles").GetBool(false);
 			Settings.LastDirectory =
 				Node.GetView("LastDirectory").GetString();
+			Settings.bSaveAssetsOnPaste = Node.GetView("SaveAssetsOnPaste").GetBool(Settings.bSaveAssetsOnPaste);
 			return Settings;
 		}
 	}
@@ -49,6 +50,7 @@ namespace Durin::ContentBrowser
 		Root.SetChildValue("TreeWidth", static_cast<double>(Settings.TreeWidth));
 		Root.SetChildValue("ShowHiddenFiles", Settings.bShowHiddenFiles);
 		Root.SetChildValue("LastDirectory", Settings.LastDirectory);
+		Root.SetChildValue("SaveAssetsOnPaste", Settings.bSaveAssetsOnPaste);
 		return Document.SaveToFile(
 			FPaths::LaunchConfigsDir() + SettingsFileName);
 	}

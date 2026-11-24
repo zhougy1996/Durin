@@ -23,6 +23,7 @@ namespace Durin::ContentBrowser
 		float TreeWidth = DefaultTreeRatio;
 		bool bShowHiddenFiles = false;
 		std::string LastDirectory;
+		bool bSaveAssetsOnPaste = true;
 
 		auto operator==(const FPresentationSettings&) const -> bool = default;
 	};
