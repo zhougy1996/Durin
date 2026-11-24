@@ -13,7 +13,8 @@ Ordinary static meshes now share admitted batches between the receiver and its
 cascades. See [render-thread alignment Stage 2](UERenderThreadMechanismAlignment.md#stage-2-build-a-dependency-driven-preparation-pipeline)
 for the workload comparison. Stage 3 now projects unit-w orthographic bounds
 by center and half-extent, with the general path resolving ambiguous boundaries.
-Resource validation remains open.
+The [warm command-hit resource profile](#warm-command-hit-resource-profile)
+prioritizes binding assembly after the command and pass group both hit.
 
 Baseline measurement is complete at `6ccf6abdc`. Temporary instrumentation was
 removed, eight source files were restored with matching original hashes, and
@@ -655,7 +656,8 @@ though material currentness and projection are larger localized ranges. The
 first recommendation below balances measured cost with a small, auditable reuse
 boundary; a unified primitive snapshot has wider API and lifetime implications.
 
-Next implementation priorities:
+Implementation priorities from the post-hash revision (see the later
+[command-hit measurements](#warm-command-hit-resource-profile) for current resource costs):
 
 1. **Reuse material/pass resource-currentness work in the command-hit scan.**
    Start with a memo local to one `PrepareUniforms_RenderThread` invocation,
@@ -722,6 +724,54 @@ under the result-reuse policy. This follow-up adds only plan evidence/priorities
 it does not require repeating unrelated module tests or broad builds.
 Changed-document and all-plan validation pass. Stage 2 implementation tasks and
 formal quiet-lane performance acceptance remain open.
+
+## Warm command-hit resource profile
+
+Revision `554e0155a`, Win64 Release, GTX 1060 6 GB, 1920x1080 Vulkan.
+The high-overlap and five-box qualification fixtures used their existing 30
+warm-up and 120 measured frames. Each of the uninstrumented, coarse, fine,
+detailed and restored configurations ran three times. Times are medians of
+run medians for three cascades. The probes cover only directional-shadow CPU
+resource preparation. No measurement or scheduling assertion was added to the
+correctness suite.
+
+| Detailed probe, microseconds per frame | 128 overlapping casters | 5 boxes |
+| --- | ---: | ---: |
+| Geometry and section resources | 83.6 | 6.9 |
+| Uniform preparation including command selection | 181.2 | 16.3 |
+| Binding preparation including visible commands | 306.2 | 37.3 |
+| Within uniform preparation: command lookup and key construction | 56.4 | 2.3 |
+| Within uniform preparation: refresh cached material/pass resources | 0.8 | 0.4 |
+| Within binding preparation: cached processor and draw input setup | 31.6 | 1.6 |
+| Within binding preparation: build pass bindings on group misses | 35.9 | 21.7 |
+| Within binding preparation: append and retain visible cached commands | 71.2 | 5.1 |
+
+Every measured high-overlap frame had 384 command hits, 384 pass-group probes,
+three group builds, three cached material refreshes and zero fallback primitive
+uploads. Five boxes had ten hits, two builds, two refreshes and zero uploads.
+The current lookup validates the command key, pipeline and input binding.
+Cached material refresh runs on first group/pass use. The earlier profile
+measured a per-draw material-currentness check in a different command lookup
+implementation.
+
+The first candidate is to look up the existing pass binding group before
+constructing a full draw-build input or fetching its processor on a cached
+command hit. The group key needs the pass, shaders/layout and instance-ID
+buffer. A group hit still needs the current bias, instance offset, source
+index and retained command/info/pass owners. Group misses and uncached draws
+still need the complete input. Verify with opaque and masked casters, multiple
+materials and GPUScene buffers before judging a candidate from warm single-
+material fixtures. Appending visible records is a larger measured scope but
+includes required lifetime and per-view work.
+
+Uninstrumented resource preparation measured 0.4302 ms before and 0.4319 ms
+after probe removal with 128 casters, and 0.0525/0.0581 ms with five boxes.
+The detailed probe reported 0.5753/0.0616 ms for the two scenes.
+Coarse and detailed runs both rank binding preparation first. Nested timings
+include clock overhead and cannot be added to their parents or treated as
+recoverable time. Raw frame rows, uninstrumented summaries and the analysis
+script are in ignored `Build/ShadowResourceProfile-*` and
+`Build/ShadowResourceProbes/`. Both renderer sources were restored byte-for-byte.
 
 ## Implementation Stages
 
