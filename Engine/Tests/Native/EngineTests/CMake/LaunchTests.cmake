@@ -76,7 +76,44 @@ durin_add_native_test(LaunchProcessBoundaryTests
 	TARGET_LOCK_RATIONALE "Serializes child processes that share the configured launcher binary."
 )
 
+function(_durin_collect_launch_startup_dependencies out_var)
+	set(_dependencies DurinLauncher)
+	if(DURIN_WITH_EDITOR)
+		# Launch loads the asset producers, and DurinEd loads the editor shell.
+		list(APPEND _dependencies TextureCompressor MeshBuilder ShaderBuild MainFrame DurinMCP)
+	endif()
+	# The Sandbox fixture enables the Water plugin where it is available.
+	foreach(_plugin_target IN ITEMS Water WaterEditor)
+		if(TARGET "${_plugin_target}")
+			list(APPEND _dependencies "${_plugin_target}")
+		endif()
+	endforeach()
+
+	# The child runs from the launcher output directory. Build the providers
+	# there by following dynamic declarations throughout its linked modules.
+	set(_pending ${_dependencies})
+	set(_visited)
+	while(_pending)
+		list(POP_FRONT _pending _target)
+		durin_normalize_target_alias(_target "${_target}")
+		if(_target IN_LIST _visited)
+			continue()
+		endif()
+		list(APPEND _visited "${_target}")
+		durin_get_target_link_dependencies(_linked "${_target}")
+		list(APPEND _pending ${_linked})
+		get_target_property(_dynamic "${_target}" DURIN_DYNAMIC_DEPENDENCIES)
+		if(_dynamic)
+			list(APPEND _pending ${_dynamic})
+			list(APPEND _dependencies ${_dynamic})
+		endif()
+	endwhile()
+	list(REMOVE_DUPLICATES _dependencies)
+	set(${out_var} "${_dependencies}" PARENT_SCOPE)
+endfunction()
+
 if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
+	_durin_collect_launch_startup_dependencies(_launch_startup_dependencies)
 	durin_add_native_test(LaunchStartupCharacterizationTests
 		KIND characterization
 		DOMAINS launch
@@ -85,7 +122,7 @@ if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 		TIMEOUT 90
 		SERIAL
 		SOURCES Private/Launch/LaunchStartupCharacterizationTests.cpp
-		DEPENDENCIES DurinLauncher
+		DEPENDENCIES ${_launch_startup_dependencies} Sandbox
 		COMPILE_DEFINITIONS
 			DURIN_LAUNCH_EXECUTABLE="$<TARGET_FILE:DurinLauncher>"
 			DURIN_LAUNCH_TEST_PROJECT="${DURIN_WORKSPACE_DIR}/Sandbox/Sandbox.dproject"
