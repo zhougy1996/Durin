@@ -36,7 +36,7 @@ public float2 ClampWaterPixel(float2 pixel, float4 viewport)
 }
 
 public FWaterBackground SampleWaterBackground(
-    Texture2D<float4> sceneColor, Texture2D<float> sceneDepth, Texture2D<float> waterCoverage,
+    Texture2D<float4> sceneColor, Texture2D<float> sceneDepth,
     FWaterViewUniform view, float4 viewport, float2 samplePixel,
     float3 viewForward, float surfaceDepth, float slopeTolerance)
 {
@@ -55,7 +55,6 @@ public FWaterBackground SampleWaterBackground(
         float weight = bilinear.x * bilinear.y;
         if (weight <= 0.0) continue;
         int3 pixel = int3(corner + offset, 0);
-        if (waterCoverage.Load(pixel) < 0.5) continue;
         float deviceDepth = sceneDepth.Load(pixel);
         if (!isfinite(deviceDepth)) continue;
         bool clear = deviceDepth == view.DepthParameters.x;
