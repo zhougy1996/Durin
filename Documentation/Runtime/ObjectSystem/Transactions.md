@@ -17,10 +17,8 @@ The editor owns the active recorder and application history, as described in
 
 `Misc/Transaction.h` owns `FCommandChange`, its synchronous Apply/Revert result,
 `ETransactionOperation`, transaction context and operation identity allocation.
-A custom change can reject Undo or Redo in its read-only `ValidateReplay` hook.
-The buffer checks all selected commands before invoking replay callbacks. The
-first selected record can compare its source with the live model. Later records
-may depend on writes from their predecessors.
+A custom change implements HasExpired when its target or dependencies can
+become unavailable. Each replay evaluates the command's current eligibility.
 A custom change declares modified objects separately through
 `GetModifiedObjects()`. Its collector traversal describes retained dependencies;
 that traversal alone never means a dependency was edited. A command may declare
@@ -103,7 +101,10 @@ validation.
 Construction flags and physical destruction are irreversible. A whole-object record
 captures `bIsPendingKill`. When that bit changes during an edit, the transactor
 can resolve the retained generation during replay and apply `ClearGarbage()` or
-`MarkAsGarbage()` before loading fields. External deletions reject replay at admission.
+`MarkAsGarbage()` before loading fields. An unresolved whole-object target skips its snapshot for this replay.
+Loading a historical Name or Outer gives a live occupant a unique sibling name
+before restoring the recorded identity. Undoing a recorded deletion also frees
+the name before reviving and registering the retained object.
 Once liveness changes begin, a required load or application fault is terminal.
 The [serialization contract](Serialization.md) owns archive filtering and
 detached parent-baseline requirements.
@@ -179,16 +180,14 @@ commands; those owners must prepare their complete retained state together.
 and recorded weak slots. A weak-only stored dependency can therefore participate
 without becoming a collector-owned hard reference; byte-pattern scanning is not used.
 
-`ITransactionObjectAnnotation::CreateReplacement` prepares an independent
-immutable annotation. `PrepareTransactionAnnotationReplacement` reuses unaffected
-annotations, invokes the hook for mapped dependencies, rejects aliases or
-remaining old-generation edges, and validates the result. Unsupported annotation
-types fail explicitly. Core's `FCommandChange::CreateReplacement` supplies the
-same opt-in boundary for native command data without an editor dependency.
-Its default reports unsupported reinstancing. These copy hooks are native
-adaptations for Durin's checked publication protocol; they are not UE API claims.
-The editor owner decides coherent whole-entry retirement when a required hook is
-unsupported; unaffected command data can keep its original unique ownership.
+Transaction commands and annotations enumerate writable references through
+`AddReferencedObjects(FReferenceCollector&)`. During reinstancing the collector
+writes replacement objects into those slots. An exact persistent reference records
+the new object key; logical references retain their subobject resolution rules.
+Annotations with typed reconstruction data can specialize `FindAndReplaceInstances`
+to remap encoded identities that GC traversal cannot see. The editor checks for
+remaining old references and discards incompatible entries. Successful fixup
+preserves the command and annotation instances.
 
 Diffing requires the same exact target, class and compatible transfer schema. It
 reports actual changed reflected member names and compares the remaining native

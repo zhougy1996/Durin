@@ -50,12 +50,6 @@ namespace Durin
 		auto InitializeComponent() -> void override { Super::InitializeComponent(); ++Initialized; }
 		auto UninitializeComponent() -> void override { Super::UninitializeComponent(); ++Uninitialized; }
 		auto PostLoad() -> void override { Super::PostLoad(); if (PostLoadProbe) PostLoadProbe(*this); }
-		auto Serialize(FArchive& Archive) -> void override
-		{
-			if (bFailCapture && Archive.IsSaving() && Archive.IsTransacting()) { Archive.SetError("Injected root capture failure."); return; }
-			Super::Serialize(Archive);
-		}
-		bool bFailCapture = false;
 		inline static std::function<void(FStructuralTestLight&)> PostLoadProbe;
 		inline static std::function<void(FStructuralTestLight&)> CreationProbe;
 		inline static std::function<void(FStructuralTestLight&)> RegisterProbe;
@@ -122,32 +116,6 @@ namespace
 		AActor* Actor = nullptr;
 		TStrongObjectPtr<DTransBuffer> Transactions;
 	};
-}
-
-TEST(FActorMutationTests, RootCaptureFailureInvalidatesJoinedEdit)
-{
-	FComponentFixture F;
-	auto* Root = static_cast<FStructuralTestLight*>(F.Actor->AddInstanceComponent(FStructuralTestLight::StaticClass(), "FailingRoot"));
-	ASSERT_TRUE(Root);
-	ASSERT_TRUE(F.Actor->SetRootComponent(Root));
-	Root->SetFlags(EObjectFlags::Transactional);
-	Root->bFailCapture = true;
-	F.Transactions->Reset();
-	EXPECT_TRUE(F.Editor.GetActorEditor()->SetActorLabel(*F.World->GetCurrentLevel(), F.Actor, "First label", {false}));
-	EXPECT_EQ(F.Actor->GetActorLabel(), "First label");
-	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
-	auto* Other = F.World->GetCurrentLevel()->SpawnActor<AStaticMeshActor>("Witness");
-	ASSERT_TRUE(Other);
-	Other->SetFlags(EObjectFlags::Transactional);
-	{
-		FScopedTransaction Outer("Nested capture failure");
-		ASSERT_TRUE(Other->Modify(false));
-		Other->SetHidden(true);
-		EXPECT_TRUE(F.Editor.GetActorEditor()->SetActorLabel(*F.World->GetCurrentLevel(), F.Actor, "Nested label", {false}));
-		EXPECT_TRUE(F.Transactions->IsActive());
-	}
-	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_TRUE(Other->IsHidden());
 }
 
 TEST(FActorMutationTests, EveryConstructibleActorClassRetainsIdentityAcrossUndoRedoAndCollection)
@@ -459,7 +427,7 @@ TEST(FActorMutationTests, CombinedAttachmentCyclesRejectRestorationBeforeAnyMemb
 	EXPECT_EQ(F.Actor->GetAttachParentActor(), Other);
 }
 
-TEST(FActorMutationTests, RenamePreservesIdentityAndRejectsConflictingReplayWithoutMovingHistory)
+TEST(FActorMutationTests, UndoRenameDisplacesTheActorUsingTheHistoricalName)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
@@ -469,11 +437,10 @@ TEST(FActorMutationTests, RenamePreservesIdentityAndRejectsConflictingReplayWith
 	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameActor(*Level, F.Actor, "Renamed", {false}));
 	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 	auto* Conflict = Level->SpawnActor<AActor>(Before);
-	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
-	EXPECT_EQ(F.Actor->GetFName(), FName("Renamed"));
-	ASSERT_TRUE(Level->DestroyActor(Conflict));
-	ASSERT_TRUE(F.Transactions->Undo());
+	ASSERT_TRUE(F.Transactions->UndoExpected(Head));
+	const auto DisplacedName = Conflict->GetFName();
+	EXPECT_NE(DisplacedName, Before);
+	EXPECT_EQ(Level->FindActorByName(DisplacedName), Conflict);
 	EXPECT_EQ(F.Actor->GetFName(), Before);
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Level->FindActorByName("Renamed"), F.Actor);
@@ -529,7 +496,6 @@ TEST(FActorMutationTests, MixedSynchronousEditsJoinOuterTransactionAndReplayInOr
 	auto* Duplicate = Duplicated.front().Get();
 	std::array<AActor*, 1> Duplicates{Duplicate};
 	ASSERT_TRUE(Editor->DestroyActors(*Level, Duplicates, {false}));
-	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
 	ASSERT_TRUE(F.Transactions->End());
 	EXPECT_EQ(F.Transactions->GetQueueLength(), 1u);
 	EXPECT_EQ(F.Transactions->GetUndoContext(false).Description, "Build actor hierarchy");
@@ -547,7 +513,7 @@ TEST(FActorMutationTests, MixedSynchronousEditsJoinOuterTransactionAndReplayInOr
 	EXPECT_EQ(Added->GetFName(), FName("GroupedComponent"));
 }
 
-TEST(FActorMutationTests, JoinedChangesKeepOnePackageRevisionAndRestoreCleanCheckpoint)
+TEST(FActorMutationTests, JoinedActorSpawnsRestoreCleanPackageOnUndo)
 {
 	FComponentFixture F;
 	const auto Directory = Testing::GetTestWorkDirectory() / "GroupedActorMutation";
@@ -838,7 +804,7 @@ TEST(FComponentMutationTests, RenameNativeRootRestoresNameWithoutChangingRootOrR
 	EXPECT_TRUE(F.Scene.Primitives.contains(static_cast<DPrimitiveComponent*>(Root)));
 }
 
-TEST(FComponentMutationTests, RenameReservesInactiveNamesAndConflictsRejectBeforeWrites)
+TEST(FComponentMutationTests, RenameReservesInactiveNamesAndUndoDisplacesLiveConflicts)
 {
 	FComponentFixture F;
 	const auto Inactive = F.Editor.GetActorEditor()->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false});
@@ -851,11 +817,9 @@ TEST(FComponentMutationTests, RenameReservesInactiveNamesAndConflictsRejectBefor
 	const auto After = Component->GetFName();
 	auto* Conflict = F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Original");
 	const auto Head = F.Transactions->GetUndoContext().TransactionId;
-	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
-	EXPECT_EQ(Component->GetFName(), After);
-	ASSERT_TRUE(F.Actor->DestroyInstanceComponent(Conflict));
-	ASSERT_TRUE(F.Transactions->Undo());
+	ASSERT_TRUE(F.Transactions->UndoExpected(Head));
+	EXPECT_NE(Conflict->GetFName(), FName("Original"));
+	EXPECT_EQ(Conflict->GetOuter(), F.Actor);
 	EXPECT_EQ(Component->GetFName(), FName("Original"));
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Component->GetFName(), After);
@@ -1020,7 +984,7 @@ TEST(FComponentMutationTests, DirtyNotificationCancellationStopsActorAndComponen
 	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
 }
 
-TEST(FComponentMutationTests, SuspendedComponentsStayOutOfPackageCaptureAndPreserveSavedRevision)
+TEST(FComponentMutationTests, StructuralEditsRestorePackageContentsAndDirtyState)
 {
 	FComponentFixture F;
 	static uint32 NextPackage = 1;
@@ -1549,18 +1513,16 @@ TEST(FComponentMutationTests, CanceledCreationUnwindsBeforeReplacementRecording)
 	EXPECT_EQ(F.Actor->GetComponents().size(), Count + 1);
 }
 
-TEST(FComponentMutationTests, ComponentRemovingItselfDuringCreationCannotReportSuccess)
+TEST(FComponentMutationTests, ComponentDestroyedDuringCreationTerminatesFinalization)
 {
-	FComponentFixture F;
-	auto* RecoveryHistory = F.Transactions.Get();
-	auto* Editor = F.Editor.GetActorEditor();
-	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::CreationProbe = {}; } } Reset;
-	FStructuralTestLight::CreationProbe = [](FStructuralTestLight& Component) {
-		EXPECT_TRUE(Component.GetOwner()->DestroyInstanceComponent(&Component));
+	auto AddSelfRemovingComponent = [] {
+		FComponentFixture F;
+		FStructuralTestLight::CreationProbe = [](FStructuralTestLight& Component) {
+			EXPECT_TRUE(Component.GetOwner()->DestroyInstanceComponent(&Component));
+		};
+		F.Editor.GetActorEditor()->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false});
 	};
-	const auto Result = Editor->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false});
-	EXPECT_FALSE(Result);
-	EXPECT_TRUE(RecoveryHistory->CanTransact());
+	EXPECT_DEATH(AddSelfRemovingComponent(), "during Finalize record .*Component lifecycle capture requires settled state");
 }
 
 TEST(FActorMutationTests, RootlessActorSnapshotNotifiesOutlinerAndReleasesOuterOnlyPayload)

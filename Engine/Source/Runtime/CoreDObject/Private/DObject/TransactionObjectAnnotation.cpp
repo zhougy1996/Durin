@@ -6,10 +6,10 @@
 
 namespace Durin
 {
-	auto PrepareTransactionAnnotationReplacement(const std::shared_ptr<ITransactionObjectAnnotation>& Source,
-		const FObjectReplacementMap& Map) -> std::expected<std::shared_ptr<ITransactionObjectAnnotation>, std::string>
+	auto ReinstanceTransactionAnnotation(const std::shared_ptr<ITransactionObjectAnnotation>& Source,
+		const FObjectReplacementMap& Map) -> FTransactionCaptureResult
 	{
-		if (!Source) return Source;
+		if (!Source) return {};
 		class FCheck final : public FReferenceCollector
 		{
 		public:
@@ -19,15 +19,18 @@ namespace Durin
 			bool bMapped = false;
 		} Before(Map), After(Map);
 		Source->AddReferencedObjects(Before);
-		if (!Before.bMapped) return Source;
-		auto Result = Source->CreateReplacement(Map);
-		if (!Result) return Result;
-		if (!*Result || Result->get() == Source.get())
-			return std::unexpected("Annotation reinstancing must return an independent snapshot.");
-		(*Result)->AddReferencedObjects(After);
-		if (After.bMapped) return std::unexpected("Annotation reinstancing left old-generation dependencies.");
-		if (auto Valid = (*Result)->Validate(); !Valid) return std::unexpected(Valid.error());
-		return Result;
+		if (!Before.bMapped) return {};
+		if (auto Result = Source->FindAndReplaceInstances(Map); !Result) return Result;
+		Source->AddReferencedObjects(After);
+		if (After.bMapped) return std::unexpected("Annotation retained a replaced object.");
+		return Source->Validate();
+	}
+
+	auto ITransactionObjectAnnotation::FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
+	{
+		FReinstancingReferenceCollector Collector(Map);
+		AddReferencedObjects(Collector);
+		return {};
 	}
 
 	auto ITransactionObjectAnnotation::CreateSnapshot(const DObject& Object) const -> std::shared_ptr<ITransactionObjectAnnotation>

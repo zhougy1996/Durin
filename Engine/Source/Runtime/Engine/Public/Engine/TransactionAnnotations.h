@@ -46,12 +46,11 @@ namespace Durin
 		// Membership is settled by structural records before native completion.
 		auto Validate() const -> FTransactionCaptureResult override { return Data.ValidateReferences(); }
 		auto Restore() const -> FCommandChangeResult { return Data.Restore(); }
-		auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override { Data.AddReferencedObjects(Collector); }
+		auto AddReferencedObjects(FReferenceCollector& Collector) -> void override { Data.AddReferencedObjects(Collector); }
 		auto Serialize(FArchive& Archive) -> void override { Data.Serialize(Archive); }
 		auto GetAllocatedSize() const -> size_t override { return sizeof(*this); }
 		auto GetComponent() const -> DActorComponent* { return Data.GetComponent(); }
-		ENGINE_API auto CreateReplacement(const FObjectReplacementMap& Map) const
-			-> std::expected<std::shared_ptr<ITransactionObjectAnnotation>, std::string> override;
+		ENGINE_API auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult override;
 	private:
 		FComponentInstanceLifecycleState Data;
 	};
@@ -80,11 +79,10 @@ namespace Durin
 		ENGINE_API auto Restore(AActor& Actor, bool bApplyRootData = true) const -> FCommandChangeResult;
 		auto GetComponentInstanceDataCache() const -> const FComponentInstanceDataCache& { return Data.ComponentInstanceData; }
 		auto GetRootReconstructionData() const -> const FActorRootComponentReconstructionData& { return Data.RootData; }
-		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override;
+		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		ENGINE_API auto Serialize(FArchive& Archive) -> void override;
 		ENGINE_API auto GetAllocatedSize() const -> size_t override;
-		ENGINE_API auto CreateReplacement(const FObjectReplacementMap& Map) const
-			-> std::expected<std::shared_ptr<ITransactionObjectAnnotation>, std::string> override;
+		ENGINE_API auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult override;
 		ENGINE_API auto ComputeAdditionalObjectChanges(const ITransactionObjectAnnotation* Original) const
 			-> std::vector<std::pair<DObject*, FTransactionObjectChange>> override;
 	private:

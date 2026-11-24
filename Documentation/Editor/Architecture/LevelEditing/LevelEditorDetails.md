@@ -78,8 +78,8 @@ primitive; ordinary runtime destruction retains its terminal garbage semantics.
 
 Rename uses the shared whole-object record and metadata replay. Initial name
 allocation avoids all live siblings, including inactive components retained by
-history. Replay retains exact identity and rejects a destination-name
-collision before writing; it never substitutes another name during undo or redo.
+history. Replay restores the recorded component name and Outer. A live sibling occupying
+that name receives a unique name in the same Outer.
 Live native components, including the root, can be renamed; template objects
 cannot. Name changes preserve root/ownership roles and render registration.
 Ordinary historical fields may restore on a retained absent owner, without

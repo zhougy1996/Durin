@@ -105,20 +105,21 @@ namespace
 		~FReinstancedValueCommand() override { if (DestructionObserver) DestructionObserver(Target.Resolve()); }
 		FReinstancedValueCommand(DTransactionRecordParticipant* Object, int32 InBefore, int32 InAfter, bool InSupport = true)
 			: Target(Object), Before(InBefore), After(InAfter), bSupport(InSupport), Packages{Object->GetPackage()} {}
+		auto HasExpired(Durin::DObject* Owner) const noexcept -> bool override { return !Owner; }
 		auto Apply() -> Durin::FCommandChangeResult override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = After; return {}; }
 		auto Revert() -> Durin::FCommandChangeResult override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = Before; return {}; }
 		auto GetDescription() const -> std::string_view override { return "Reinstanced native value"; }
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { return {Target.Resolve()}; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
-		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) const -> void override { Target.AddReferencedObjects(Collector); }
-		auto GetAllocatedSize() const -> size_t override { return sizeof(*this); }
-		auto CreateReplacement(const Durin::FObjectReplacementMap& Map) const -> std::expected<std::unique_ptr<Durin::FCommandChange>, std::string> override
+		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{
-			if (!bSupport) return Durin::FCommandChange::CreateReplacement(Map);
-			auto Key = Map.RemapObjectKey(Target.GetKey());
-			if (!Key) return std::unexpected(Durin::ToString(Key.error()));
-			return std::make_unique<FReinstancedValueCommand>(static_cast<DTransactionRecordParticipant*>(Durin::ResolveObjectKey(*Key)), Before, After);
+			if (!bSupport) { std::as_const(Target).AddReferencedObjects(Collector); return; }
+			Target.AddReferencedObjects(Collector);
+			Durin::DObject* Package = Packages.front();
+			Collector.AddReferencedObject(Package);
+			Packages.front() = Durin::Cast<Durin::DPackage>(Package);
 		}
+		auto GetAllocatedSize() const -> size_t override { return sizeof(*this); }
 	private:
 		Durin::FPersistentObjectRef Target;
 		int32 Before, After;
@@ -203,7 +204,7 @@ TEST(FTransactionTemplateTests, OpaqueCustomParticipantsExpireBeforeRecreatedDef
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST_F(FTransactionReinstancingTests, DeletionRestoresTopLevelRegistrationAndRejectsNameConflicts)
+TEST_F(FTransactionReinstancingTests, UndoDeletionRestoresTopLevelRegistrationAndRenamesTheOccupant)
 {
 	using namespace Durin;
 	ASSERT_TRUE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
@@ -214,11 +215,11 @@ TEST_F(FTransactionReinstancingTests, DeletionRestoresTopLevelRegistrationAndRej
 	}
 	EXPECT_FALSE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
 	auto* Conflict = NewObject<DTransactionRecordParticipant>(Current, "Target", EObjectFlags::Public);
-	ASSERT_FALSE(Buffer->Undo());
-	EXPECT_TRUE(Old->IsGarbage());
-	EXPECT_TRUE(std::ranges::contains(Current->GetTopLevelAssets(), Conflict));
-	Conflict->MarkAsGarbage();
 	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_FALSE(Old->IsGarbage());
+	EXPECT_EQ(Old->GetFName(), FName("Target"));
+	EXPECT_NE(Conflict->GetFName(), Old->GetFName());
+	EXPECT_TRUE(std::ranges::contains(Current->GetTopLevelAssets(), Conflict));
 	EXPECT_TRUE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
 	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_FALSE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
@@ -315,29 +316,45 @@ TEST_F(FTransactionReinstancingTests, AbortingPreparedReplacementLeavesOriginalH
 	EXPECT_EQ(New->SerializationLoads, 0u);
 }
 
-TEST_F(FTransactionReinstancingTests, ChangedHistoryAfterPrepareRejectsPublication)
+TEST_F(FTransactionReinstancingTests, UndoAfterPreparationRemapsTheCurrentRedoEntry)
 {
+	Current->MarkDirty();
 	Record(12);
 	ASSERT_TRUE(Prepare());
+	Old->Value = 37;
 	ASSERT_TRUE(Buffer->Undo());
-	EXPECT_FALSE(Operation.TryCommit());
-	EXPECT_EQ(Durin::FindPackage(Current->GetPackagePath()), Current);
-	EXPECT_EQ(Buffer->GetRedoContext().PrimaryObject, Old);
+	bool ObservedReplacement = false;
+	const auto Handle = Durin::OnAssetPackagesChanged().AddLambda([&] {
+		if (Durin::FindPackage(Candidate->GetPackagePath()) == Candidate)
+		{
+			ObservedReplacement = true;
+			EXPECT_EQ(Buffer->GetRedoContext().PrimaryObject, New);
+		}
+	});
+	auto Published = Operation.TryCommit();
+	Durin::OnAssetPackagesChanged().Remove(Handle);
+	ASSERT_TRUE(Published) << Durin::ToString(Published.error());
+	EXPECT_TRUE(ObservedReplacement);
+	EXPECT_EQ(Buffer->GetRedoContext().PrimaryObject, New);
+	ASSERT_TRUE(Operation.Retire());
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(New->Value, 37);
 }
 
-TEST_F(FTransactionReinstancingTests, UnsupportedAnnotationRetiresWholeTransactionWithoutPartialRemap)
+TEST_F(FTransactionReinstancingTests, WritableAnnotationPreservesHistoryAcrossReinstancing)
 {
 	Old->bAnnotationEnabled = true; Old->AnnotationReference = Old;
 	Record(12);
 	ASSERT_TRUE(Prepare());
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Operation.TryCommit());
-	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-	EXPECT_FALSE(Buffer->CanUndo());
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Operation.Retire());
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(New->Value, 0);
 }
 
-TEST_F(FTransactionReinstancingTests, ActorAnnotationRebindsTypedSceneCacheWithoutChangingOriginalSnapshot)
+TEST_F(FTransactionReinstancingTests, ActorAnnotationRebindsTypedSceneCacheInPlace)
 {
 	using namespace Durin;
 	auto* BeforeActor = NewObject<DTransactionConstructionActor>(Current, "Actor");
@@ -350,11 +367,10 @@ TEST_F(FTransactionReinstancingTests, ActorAnnotationRebindsTypedSceneCacheWitho
 	std::shared_ptr<ITransactionObjectAnnotation> Source = std::make_shared<FActorTransactionAnnotation>(*BeforeActor);
 	FObjectReplacementMap Map;
 	ASSERT_TRUE(Map.Build(std::span(&Pair, 1)));
-	auto Replaced = PrepareTransactionAnnotationReplacement(Source, Map);
+	auto Replaced = ReinstanceTransactionAnnotation(Source, Map);
 	ASSERT_TRUE(Replaced) << Replaced.error();
-	EXPECT_NE(Replaced->get(), Source.get());
 	EXPECT_EQ(AfterRoot->GetRelativeLocation().x, 0.0);
-	const auto* Annotation = dynamic_cast<const FActorTransactionAnnotation*>(Replaced->get());
+	const auto* Annotation = dynamic_cast<const FActorTransactionAnnotation*>(Source.get());
 	ASSERT_NE(Annotation, nullptr);
 	ASSERT_TRUE(Annotation->GetComponentInstanceDataCache().ApplyToActor(*AfterActor, ECacheApplyPhase::PostUserConstructionScript));
 	EXPECT_EQ(AfterRoot->GetRelativeLocation().x, 17.0);
@@ -363,8 +379,6 @@ TEST_F(FTransactionReinstancingTests, ActorAnnotationRebindsTypedSceneCacheWitho
 	const auto Changes = CurrentAnnotation.ComputeAdditionalObjectChanges(Annotation);
 	ASSERT_EQ(Changes.size(), 1u); EXPECT_EQ(Changes[0].first, AfterRoot);
 	EXPECT_EQ(Changes[0].second.ChangedProperties, std::vector<FName>{"RelativeTransform"});
-	FActorTransactionAnnotation UnchangedOriginal(*BeforeActor);
-	EXPECT_TRUE(UnchangedOriginal.ComputeAdditionalObjectChanges(Source.get()).empty());
 	EXPECT_TRUE(Source->Validate());
 	EXPECT_FALSE(Annotation->Restore(*BeforeActor));
 }
@@ -383,27 +397,31 @@ TEST_F(FTransactionReinstancingTests, ComponentObservationsRebindAbsentGeneratio
 	AfterActor->GeneratedCount = 0; ASSERT_TRUE(AfterActor->RerunConstructionScripts());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	FObjectReplacementMap Map; auto Built = Map.Build(std::span(&Pair, 1)); ASSERT_TRUE(Built) << ToString(Built.error());
-	auto Replaced = PrepareTransactionAnnotationReplacement(Source, Map); ASSERT_TRUE(Replaced) << Replaced.error();
+	auto Replaced = ReinstanceTransactionAnnotation(Source, Map); ASSERT_TRUE(Replaced) << Replaced.error();
 	AfterActor->GeneratedCount = 2; ASSERT_TRUE(AfterActor->RerunConstructionScripts());
 	ASSERT_TRUE(Scene(AfterActor, 1)->AttachToComponent(Scene(AfterActor, 0), EAttachmentTransformRule::KeepRelative));
 	// Prepared packages suppress admission until publication; compare equivalent
 	// published component flags so this test isolates historical reference paths.
 	Scene(AfterActor, 0)->SetFlags(EObjectFlags::Transactional); Scene(AfterActor, 1)->SetFlags(EObjectFlags::Transactional);
 	FActorTransactionAnnotation CurrentAnnotation(*AfterActor);
-	EXPECT_TRUE(CurrentAnnotation.ComputeAdditionalObjectChanges(Replaced->get()).empty());
+	EXPECT_TRUE(CurrentAnnotation.ComputeAdditionalObjectChanges(Source.get()).empty());
 }
 
-TEST_F(FTransactionReinstancingTests, CustomCommandOptInRebindsFrozenParticipantsAndPackages)
+TEST_F(FTransactionReinstancingTests, WritableCommandKeepsItsInstanceAndRebindsParticipantsAndPackages)
 {
 	using namespace Durin;
 	ASSERT_EQ(Buffer->Begin("test", "Native command"), 0);
 	Old->Value = 12;
 	ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 12)));
 	ASSERT_EQ(Buffer->End(), 1);
+	int Destructions = 0;
+	FReinstancedValueCommand::DestructionObserver = [&](DObject*) { ++Destructions; };
+	struct FReset { ~FReset() { FReinstancedValueCommand::DestructionObserver = {}; } } Reset;
 	ASSERT_TRUE(Prepare());
 	ASSERT_TRUE(Operation.TryCommit());
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Operation.Retire());
+	EXPECT_EQ(Destructions, 0);
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(New->Value, 0);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(New->Value, 12);
 }
@@ -431,47 +449,28 @@ TEST_F(FTransactionReinstancingTests, UnsupportedCommandRetiresItsGenericPeerAsO
 	MarkObjectHierarchyAsGarbage(OtherPackage);
 }
 
-TEST_F(FTransactionReinstancingTests, CanceledRecordingAfterPreparationInvalidatesPreparedHistory)
+TEST_F(FTransactionReinstancingTests, PublicationPreservesCurrentBarrierAndCanceledRecording)
 {
-	using namespace Durin;
 	Record(12);
-	(void)Tests::CollectTransactionEvents(*Buffer);
 	ASSERT_TRUE(Prepare());
 	ASSERT_EQ(Buffer->Begin("test", "Temporary recording"), 0);
 	Buffer->Cancel();
-	(void)Tests::CollectTransactionEvents(*Buffer);
-	EXPECT_FALSE(Operation.TryCommit());
-	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Old);
-}
-
-TEST_F(FTransactionReinstancingTests, BarrierChangeAfterPreparationRejectsPublication)
-{
-	Record(12);
-	ASSERT_TRUE(Prepare());
 	Buffer->SetUndoBarrier();
-	EXPECT_FALSE(Operation.TryCommit());
+	ASSERT_TRUE(Operation.TryCommit());
 	EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 1u);
 	EXPECT_FALSE(Buffer->Undo());
-}
-
-TEST_F(FTransactionReinstancingTests, ResetOfEmptyHistoryInvalidatesPreparedPublication)
-{
-	Buffer->Reset();
-	ASSERT_TRUE(Prepare());
-	Buffer->Reset("Reset after preparation");
-	EXPECT_FALSE(Operation.TryCommit());
-	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-}
-
-TEST_F(FTransactionReinstancingTests, ReinstancingPreservesBarrierAtRetainedCursor)
-{
-	Record(12);
-	Buffer->SetUndoBarrier();
-	ASSERT_TRUE(Prepare()); ASSERT_TRUE(Operation.TryCommit());
-	EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 1u);
-	EXPECT_FALSE(Buffer->Undo());
-	Buffer->RemoveUndoBarrier(); ASSERT_TRUE(Buffer->Undo());
+	Buffer->RemoveUndoBarrier();
+	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(New->Value, 0);
+}
+
+TEST_F(FTransactionReinstancingTests, ResetAfterPreparationPublishesEmptyHistory)
+{
+	Record(12);
+	ASSERT_TRUE(Prepare());
+	Buffer->Reset();
+	ASSERT_TRUE(Operation.TryCommit());
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
 TEST_F(FTransactionReinstancingTests, ComponentAnnotationRebindsExactTargetWithoutLifecycleCallbacks)
@@ -483,12 +482,11 @@ TEST_F(FTransactionReinstancingTests, ComponentAnnotationRebindsExactTargetWitho
 	auto* AfterRoot = static_cast<DTransactionLifecycleScene*>(AfterActor->GetRootComponent());
 	std::shared_ptr<ITransactionObjectAnnotation> Source = std::make_shared<FComponentTransactionAnnotation>(*BeforeRoot);
 	FObjectReplacementMap Map; ASSERT_TRUE(Map.Build(std::span(&Pair, 1)));
-	auto Replaced = PrepareTransactionAnnotationReplacement(Source, Map);
+	auto Replaced = ReinstanceTransactionAnnotation(Source, Map);
 	ASSERT_TRUE(Replaced) << Replaced.error();
-	const auto* Annotation = dynamic_cast<const FComponentTransactionAnnotation*>(Replaced->get());
+	const auto* Annotation = dynamic_cast<const FComponentTransactionAnnotation*>(Source.get());
 	ASSERT_NE(Annotation, nullptr);
 	EXPECT_EQ(Annotation->GetComponent(), AfterRoot);
-	EXPECT_EQ(static_cast<const FComponentTransactionAnnotation*>(Source.get())->GetComponent(), BeforeRoot);
 	EXPECT_EQ(AfterRoot->Created, 0u); EXPECT_EQ(AfterRoot->Registered, 0u);
 }
 

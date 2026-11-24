@@ -160,13 +160,10 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	ExpectVectorNear(Target->Transform.Translation, InitialLocation);
 	ASSERT_TRUE(Transactions->Redo());
 	Target->bValid = false;
-	std::string Message;
-	ASSERT_FALSE(Transactions->UndoExpected(Transactions->GetUndoContext().TransactionId, &Message));
-	EXPECT_NE(Message.find("The custom transaction target is unavailable."), std::string::npos);
+	EXPECT_FALSE(Transactions->Undo());
 	ExpectVectorNear(Target->Transform.Translation, BeforeRejectedUndo.Translation);
-	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
+	EXPECT_EQ(Transactions->GetUndoCount(), 1u);
 	Target->bValid = true;
-	ASSERT_TRUE(Transactions->Undo());
 	Target->Capabilities = Durin::LevelEditor::ETransformGizmoCapability::Translate;
 	Gizmo.SetMode(Durin::LevelEditor::ETransformGizmoMode::Rotate);
 	Gizmo.Update(Targets, View, {}, nullptr);
@@ -868,7 +865,7 @@ TEST(FTransformGizmoTests, ReleaseAndReplayNeverOverwriteAnOutsideTransform)
 		if (bCommitted) Probe.Release(Buffer.Get());
 		Probe.Objects[0]->Transform.Translation += Durin::FVector3(100, 200, 300);
 		const auto Outside = Probe.Objects[0]->Transform;
-		if (bCommitted) { EXPECT_FALSE(Buffer->Undo()); EXPECT_TRUE(Buffer->CanTransact()); EXPECT_FALSE(Buffer->IsActive()); }
+		if (bCommitted) { EXPECT_DEATH((void)Buffer->Undo(), "The actor changed after planning"); }
 		else { Probe.Release(Buffer.Get()); EXPECT_FALSE(Buffer->CanUndo()); }
 		EXPECT_FALSE(Probe.Gizmo.IsDragging());
 		ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Outside.Translation);

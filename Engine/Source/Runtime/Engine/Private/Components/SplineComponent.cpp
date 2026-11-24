@@ -6,6 +6,7 @@
 #include "DObject/TransactionObjectAnnotation.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/ObjectGraphReplacement.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Math/Operations.h"
 #include "Misc/ITransaction.h"
@@ -24,11 +25,21 @@ namespace Durin
 
 			std::shared_ptr<ITransactionObjectAnnotation> ComponentState;
 
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			auto AddReferencedObjects(FReferenceCollector& Collector) -> void override
 			{
 				DObject* Object = Spline.Get();
 				Collector.AddReferencedObject(Object);
+				if (Object != Spline.Get()) Spline = TWeakObjectPtr<DSplineComponent>(Cast<DSplineComponent>(Object));
 				if (ComponentState) ComponentState->AddReferencedObjects(Collector);
+			}
+
+			auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult override
+			{
+				auto Key = Map.RemapObjectKey(FObjectKey(Spline.Get()));
+				if (!Key) return std::unexpected(ToString(Key.error()));
+				if (auto Result = ReinstanceTransactionAnnotation(ComponentState, Map); !Result) return Result;
+				Spline = TWeakObjectPtr<DSplineComponent>(Cast<DSplineComponent>(ResolveObjectKey(*Key)));
+				return {};
 			}
 
 			auto Serialize(FArchive& Archive) -> void override

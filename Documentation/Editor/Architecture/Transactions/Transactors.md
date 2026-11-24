@@ -118,7 +118,7 @@ The action is available only when its ID matches the checked context at the
 head. Invocation checks the ID again before advancing history.
 `CanUndo`/`CanRedo` can explain unavailability;
 Reset retains a caller-supplied reason. GetUndoContext/GetRedoContext return
-owned context values for the next replayable entry. GetUndoContext() is empty
+owned context values for the adjacent queue entry, including an expired entry. GetUndoContext() is empty
 when Undo is unavailable. GetUndoContext(false) returns the active queue tail while
 recording. GetRedoContext() is empty when Redo is unavailable. Workspace label
 adapters derive owned strings from these contexts, so labels survive history
@@ -127,11 +127,16 @@ replacement/reset. The transactor has no separate description-query interface.
 `FCommandChange::HasExpired(DObject*)` and captured object annotations can
 declare a record ineligible for replay. The buffer advances past wholly expired history
 entries without publishing Undo or Redo events and applies the next eligible
-entry within the undo barrier. Guarded replay checks the eligible entry's ID.
+entry within the undo barrier. Each candidate crosses the cursor before its
+expiry check. During Apply, GetUndoCount and GetUndoContext(false) see that
+position; checked contexts and nested replay are unavailable. Undo(false)
+drops the Redo suffix after each candidate, including each expired entry.
+Guarded replay refuses a mismatched or expired head. A read-only record refusal
+leaves the rejected candidate on its original side; already crossed expired
+entries stay consumed in that direction.
 The transaction selects the records once per replay. Object events use that
 selection and its completion annotations. The buffer consumes the transaction's
-package outcomes and event details after success. Skipped records retire in
-both directions. A package touched only by skipped records keeps its
+package outcomes and event details after success. Expiry is evaluated again for the next operation. A package touched only by skipped records keeps its
 dirty state. A package touched by both kinds is marked dirty.
 
 Undo and Redo treat command detail strings as optional presentation data. A
@@ -153,7 +158,7 @@ hides entries while the buffer publishes or retires them.
 Reset cancels the complete active recording and purges history, barriers, queued
 events and per-entry package records without reverting applied edits or clearing package
 dirty flags. It snapshots the reason before invoking record destructors and
-blocks reentrant recording, reset and inspection throughout cleanup. Even an empty reset invalidates prepared history publication.
+blocks reentrant recording, reset and inspection throughout cleanup.
 A reset requested during replay is refused.
 
 ### Undo Barriers And PIE References
@@ -166,7 +171,7 @@ same bound. Controls require Idle with no global recording, preventing replay
 callbacks from changing admission. Reset clears the stack. Prefix eviction,
 branch removal, package/module retirement and checked reinstancing remap every
 bound by the removed queue positions; a bound never points beyond retained data.
-Barrier and budget changes invalidate a prepared replacement operation.
+Reinstancing uses the current history and remaps the current barriers at publication.
 Barrier refusal has its own rejection reason, separate from an unexpected head
 ID. CanTransact, CanUndo and CanRedo all reject another buffer's live GUndo;
 unavailable history queries return a nonempty explanation.
@@ -262,10 +267,11 @@ domains retain their derived-state synchronization. See
 
 Undo and Redo return false on admission refusal or exhaustion of expired entries.
 Host, state, barrier, expected-head and read-only record validation refusals
-preserve history and package dirty flags. Custom commands can implement
-ValidateReplay to check requirements before any PreEditUndo callback. The first
-selected record can check its live source immediately. Later records may depend
-on the intermediate state produced by earlier records.
+leave the rejected entry and its package dirty flags intact. An unresolved whole-object snapshot is skipped for
+this operation. A transaction containing only that snapshot still advances
+the cursor and reports success. Array records require a valid owner and range.
+Custom changes decide expiry through HasExpired. A fully expired entry is
+crossed while searching for the next eligible transaction.
 
 Once execution begins, a required callback exception or a failed inverse,
 record application, completion, notification or publication is a programming or

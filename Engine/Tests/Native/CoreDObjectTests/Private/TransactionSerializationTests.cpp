@@ -20,7 +20,7 @@ namespace
 	{
 	public:
 		FStateTestAnnotation(int32 InValue, DObject* InHard, size_t InBytes) : Value(InValue), Hard(InHard), Bytes(InBytes) {}
-		auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override { Hard.AddReferencedObjects(Collector); }
+		auto AddReferencedObjects(FReferenceCollector& Collector) -> void override { Hard.AddReferencedObjects(Collector); }
 		auto Serialize(FArchive& Ar) -> void override { ++SerializeCalls; Ar << Value; }
 		auto GetAllocatedSize() const -> size_t override { return Bytes; }
 		int32 Value = 0;
@@ -189,7 +189,7 @@ TEST(FTransactionSerializationTests, RestoresExactNameOuterAndMutableFlagsWithou
 	EXPECT_TRUE(GarbageObject->IsGarbage());
 }
 
-TEST(FTransactionSerializationTests, NameConflictRejectsBeforeAnySerializedFieldMutation)
+TEST(FTransactionSerializationTests, NameConflictIsDisplacedOnlyWhenLoadingTheHistoricalIdentity)
 {
 	Testing::InitializeDObjectSystemForTests();
 	TStrongObjectPtr<DObject> Outer(NewObject<DObject>(nullptr, "StateCollisionOuter"));
@@ -197,8 +197,14 @@ TEST(FTransactionSerializationTests, NameConflictRejectsBeforeAnySerializedField
 	auto Before = CaptureSerializedObject(*Object); ASSERT_TRUE(Before);
 	Object->Rename("Moved"); Object->Count = 7;
 	TStrongObjectPtr<DObject> Impostor(NewObject<DObject>(Outer.Get(), "Reserved"));
-	EXPECT_FALSE(ValidateSerializedObject(*Object, *Before));
-	EXPECT_EQ(Object->Count, 7); EXPECT_EQ(Object->GetFName(), FName("Moved"));
+	TStrongObjectPtr<DObject> ExistingSuffix(NewObject<DObject>(Outer.Get(), "Reserved_1"));
+	ASSERT_TRUE(ValidateSerializedObject(*Object, *Before));
+	EXPECT_EQ(Impostor->GetFName(), FName("Reserved"));
+	ASSERT_TRUE(LoadSerializedObject(*Object, *Before));
+	EXPECT_EQ(Object->GetFName(), FName("Reserved"));
+	EXPECT_NE(Impostor->GetFName(), Object->GetFName());
+	EXPECT_NE(Impostor->GetFName(), ExistingSuffix->GetFName());
+	EXPECT_EQ(Impostor->GetOuter(), Outer.Get());
 }
 
 TEST(FTransactionSerializationTests, CollectorOwnedStateRetainsHardReferencesButNotWeakReferences)

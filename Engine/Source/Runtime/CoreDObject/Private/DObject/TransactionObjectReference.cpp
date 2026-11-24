@@ -97,12 +97,22 @@ namespace Durin
 	auto FPersistentObjectRef::CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FPersistentObjectRef, std::string>
 	{
 		if (IsNull()) return FPersistentObjectRef{};
-		auto Key = !Hierarchy.empty() && !Map.Find(ResolveObjectKey(Handle))
+		if (Hierarchy.empty())
+		{
+			if (!IsValid(ResolveObjectKey(Handle))) return std::unexpected("A required transaction reference expired.");
+			auto Result = *this;
+			FReinstancingReferenceCollector Collector(Map);
+			if (const auto* Entry = Map.Find(ResolveObjectKey(Handle)); Entry && !Entry->Replacement)
+				return std::unexpected("A required transaction reference was removed.");
+			Result.AddReferencedObjects(Collector);
+			return Result;
+		}
+		auto Key = !Map.Find(ResolveObjectKey(Handle))
 			? Map.RemapObjectKey(FObjectKey(Resolve())) : Map.RemapObjectKey(Handle);
 		if (!Key) return std::unexpected(ToString(Key.error()));
 		if (IsObjectKeyNull(*Key)) return std::unexpected("A required transaction reference was removed.");
 		auto* Object = ResolveObjectKey(*Key);
-		if (Hierarchy.empty()) return FromKey(*Key);
+
 		FPersistentObjectRef Result(Object);
 		if (Result.Hierarchy.size() != Hierarchy.size()) return std::unexpected("Transaction subobject hierarchy changed.");
 		for (size_t Index = 0; Index < Hierarchy.size(); ++Index)
@@ -122,6 +132,20 @@ namespace Durin
 		return !IsNull() && Resolve() == nullptr;
 	}
 
+	auto FPersistentObjectRef::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		auto Visit = [&](FObjectKey& Key) {
+			DObject* Original = IsGarbageCollecting() ? GDObjectArray.Resolve(Key) : ResolveObjectKey(Key);
+			if (!Original) return;
+			DObject* Object = Original;
+			Collector.AddReferencedObject(Object);
+			if (Object != Original) Key = FObjectKey(Object);
+		};
+		const bool bExact = Handle == Root;
+		Visit(Root);
+		if (bExact) Handle = Root;
+		else Visit(Handle);
+	}
 	auto FPersistentObjectRef::AddReferencedObjects(
 		FReferenceCollector& Collector) const -> void
 	{
@@ -144,6 +168,10 @@ namespace Durin
 		References.push_back(Reference);
 	}
 
+	auto FTransactionObjectReferenceSet::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		for (auto& Reference : References) Reference.AddReferencedObjects(Collector);
+	}
 	auto FTransactionObjectReferenceSet::AddReferencedObjects(
 		FReferenceCollector& Collector) const -> void
 	{

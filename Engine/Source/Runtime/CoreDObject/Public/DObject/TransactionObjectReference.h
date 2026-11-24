@@ -33,6 +33,7 @@ namespace Durin
 		// Native history can access an exact pending-kill participant of the active operation.
 		COREDOBJECT_API auto Get() const -> DObject*;
 		COREDOBJECT_API auto IsStale() const -> bool;
+		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 
 		friend auto operator==(const FPersistentObjectRef& A, const FPersistentObjectRef& B) -> bool
@@ -63,6 +64,7 @@ namespace Durin
 			return References;
 		}
 		COREDOBJECT_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
+		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 
 	private:

@@ -7,7 +7,7 @@ namespace Durin
 	class DObject;
 	class DPackage;
 	class FReferenceCollector;
-	class FObjectReplacementMap;
+
 	using FTransactionId = uint64;
 	// Identifies initial execution or one direction of historical replay.
 	enum class ETransactionOperation : uint8 { Execute, Undo, Redo };
@@ -39,8 +39,6 @@ namespace Durin
 		virtual ~FCommandChange() = default;
 		virtual auto Apply() -> FCommandChangeResult = 0;
 		virtual auto Revert() -> FCommandChangeResult = 0;
-		// Read-only admission. Later records may depend on changes made by earlier records.
-		virtual auto ValidateReplay(ETransactionOperation, bool /*bFirstRecord*/) const -> FTransactionCaptureResult { return {}; }
 		// The history supplies the primary object when the change has one.
 		virtual auto HasExpired(DObject*) const noexcept -> bool { return false; }
 		virtual auto GetDescription() const -> std::string_view = 0;
@@ -49,14 +47,9 @@ namespace Durin
 		virtual auto GetModifiedObjects() const -> std::vector<DObject*> = 0;
 		virtual auto GetDetails(ETransactionOperation) const -> std::string { return {}; }
 		virtual auto GetAffectedPackages() const -> std::span<DPackage* const> { return {}; }
-		virtual auto AddReferencedObjects(FReferenceCollector&) const -> void {}
+		virtual auto AddReferencedObjects(FReferenceCollector&) -> void {}
 		virtual auto GetAllocatedSize() const -> size_t { return 0; }
 		virtual auto GetOwningModule() const -> std::string_view { return {}; }
-		// Opt in by returning independent immutable data with every participant
-		// rebound. Unsupported commands cause coherent whole-entry retirement.
-		virtual auto CreateReplacement(const FObjectReplacementMap&) const
-			-> std::expected<std::unique_ptr<FCommandChange>, std::string>
-		{ return std::unexpected("This command does not support object reinstancing."); }
 	};
 
 	// Identifies the undo buffer whose records are being applied on this thread.
@@ -72,6 +65,7 @@ namespace Durin
 	private:
 		friend class FTransaction;
 		friend class FPersistentObjectRef;
+		friend class DObject;
 		FScopedTransactionHistoryReplay(uint64 HistoryId, std::span<DObject* const> PendingKill);
 		static auto IncludesPendingKill(const DObject* Object) -> bool;
 		std::span<DObject* const> PreviousPendingKill;

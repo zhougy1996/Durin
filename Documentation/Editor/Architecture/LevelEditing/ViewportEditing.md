@@ -284,7 +284,7 @@ crossed an Actor boundary stay detached in world space. Attachments within a cop
 Actor retain their component identities. The batch uses one Undo entry.
 Rename retains identity and exact before/after names; initial name
 allocation includes inactive history-owned siblings. No-op renames create no entry.
-Replay restores camera selection from the Level snapshot and validates reserved names and the proposed attachment graph before writing. Conflicts preserve history for a repaired retry.
+Replay restores camera selection from the Level snapshot and restores the historical object name, assigning a unique name to a live occupant when needed. Attachment replay validates the destination graph before writing.
 Play transitions and read-only commands are rejected. Prepared objects from
 rejected initial commands retire without reserving names for later edits.
 

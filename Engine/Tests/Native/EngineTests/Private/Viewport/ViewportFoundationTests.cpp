@@ -546,7 +546,7 @@ TEST(FEditorTransactionManagerTests, UsesStableIdsAndRejectsStaleUndoRequests)
 	EXPECT_EQ(Events[3].Details, "Counter changed forward");
 }
 
-TEST(FEditorTransactionManagerTests, UndoAndRedoSkipExpiredEntriesAndUseTheLiveHead)
+TEST(FEditorTransactionManagerTests, UndoAndRedoSkipExpiredEntriesAfterInspectingThePhysicalHead)
 {
 	using namespace Durin;
 	int Value = 0;
@@ -565,22 +565,60 @@ TEST(FEditorTransactionManagerTests, UndoAndRedoSkipExpiredEntriesAndUseTheLiveH
 	Expired = true;
 
 	ASSERT_TRUE(Manager->Undo());
-	EXPECT_FALSE(Manager->CanUndo());
-	EXPECT_EQ(Manager->GetUndoContext().TransactionId, 0u);
+	EXPECT_TRUE(Manager->CanUndo());
+	EXPECT_EQ(Manager->GetUndoContext().TransactionId, Middle);
+	EXPECT_FALSE(Manager->UndoExpected(First));
 	Manager->RemoveUndoBarrier();
-	EXPECT_EQ(Manager->GetUndoContext().TransactionId, First);
 	EXPECT_FALSE(Manager->UndoExpected(Middle));
 	ASSERT_TRUE(Manager->Undo());
 	EXPECT_EQ(Value, 10);
 
-	// A skipped record remains inert even if its predicate later changes.
+	// The command owns expiry and may become available in the opposite direction.
 	Expired = false;
-	ASSERT_TRUE(Manager->Redo());
-	EXPECT_EQ(Manager->GetRedoContext().TransactionId, Last);
-	ASSERT_TRUE(Manager->Redo());
-	EXPECT_EQ(Value, 12);
+	ASSERT_TRUE(Manager->RedoExpected(First));
+	EXPECT_EQ(Manager->GetRedoContext().TransactionId, Middle);
+	ASSERT_TRUE(Manager->RedoExpected(Middle));
+	ASSERT_TRUE(Manager->RedoExpected(Last));
+	EXPECT_EQ(Value, 22);
 	const auto Events = Tests::CollectTransactionEvents(*Manager);
-	EXPECT_TRUE(std::ranges::none_of(Events, [Middle](const auto& Event) { return Event.Id == Middle; }));
+	EXPECT_EQ(std::ranges::count_if(Events, [Middle](const auto& Event) { return Event.Id == Middle; }), 1);
+}
+
+TEST(FEditorTransactionManagerTests, EachExpiredCandidateSeesItsOwnCursorPosition)
+{
+	using namespace Durin;
+	Tests::FTestTransactorOwner Manager;
+	std::vector<size_t> Counts;
+	class FExpiredChange final : public FActorCommandChange
+	{
+	public:
+		FExpiredChange(DTransactor& InBuffer, std::vector<size_t>& InCounts) : Buffer(InBuffer), Counts(InCounts) {}
+		auto GetDescription() const -> std::string_view override { return "Expired"; }
+		auto GetModifiedObjects() const -> std::vector<DObject*> override { return {}; }
+		auto Replay(ETransactionOperation) -> FActorChangeResult override { return {}; }
+		auto HasExpired(DObject*) const noexcept -> bool override
+		{
+			Counts.push_back(Buffer.GetUndoCount());
+			return true;
+		}
+	private:
+		DTransactor& Buffer;
+		std::vector<size_t>& Counts;
+	};
+	Counts.reserve(8);
+	for (int Index = 0; Index < 2; ++Index)
+		ASSERT_TRUE(Tests::RecordTestEdit(*Manager, std::make_unique<FExpiredChange>(*Manager, Counts)));
+	Counts.clear();
+	EXPECT_TRUE(Manager->CanUndo());
+	EXPECT_FALSE(Manager->Undo());
+	EXPECT_EQ(Counts, (std::vector<size_t>{1, 2}));
+	Counts.clear();
+	EXPECT_FALSE(Manager->Redo());
+	EXPECT_EQ(Counts, (std::vector<size_t>{1, 0}));
+	Counts.clear();
+	EXPECT_FALSE(Manager->Undo(false));
+	EXPECT_EQ(Counts, (std::vector<size_t>{1, 1}));
+	EXPECT_EQ(Manager->GetQueueLength(), 0u);
 }
 
 TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresDirtyFlagsForFullyReplayedPackages)

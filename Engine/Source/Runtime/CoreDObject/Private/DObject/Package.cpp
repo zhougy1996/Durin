@@ -152,7 +152,6 @@ namespace Durin
 		if (Previous) Previous->bGraphPrivate = true;
 		bGraphPrivate = false;
 		bPrepared = false;
-		Private::NotifyAssetPackageChanged();
 	}
 
 	auto DPackage::InitializeCppPackage(FName ModuleName) -> void

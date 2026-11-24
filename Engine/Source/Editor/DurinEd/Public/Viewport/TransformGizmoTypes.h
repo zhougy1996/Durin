@@ -50,7 +50,7 @@ namespace Durin::LevelEditor
 		virtual auto GetPackage() const -> DPackage* { return nullptr; }
 		virtual auto GetLabel() const -> std::string = 0;
 		virtual auto GetCapabilities() const -> ETransformGizmoCapability { return ETransformGizmoCapability::All; }
-		virtual auto AddReferencedObjects(FReferenceCollector& Collector) const -> void
+		virtual auto AddReferencedObjects(FReferenceCollector& Collector) -> void
 		{
 			(void)Collector;
 		}

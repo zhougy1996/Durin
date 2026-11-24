@@ -77,26 +77,22 @@ namespace Durin
 		return {};
 	}
 
-	auto FComponentTransactionAnnotation::CreateReplacement(const FObjectReplacementMap& Map) const
-		-> std::expected<std::shared_ptr<ITransactionObjectAnnotation>, std::string>
+	auto FComponentTransactionAnnotation::FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
 	{
-		auto Result = std::make_shared<FComponentTransactionAnnotation>(*this);
-		if (auto Valid = Result->Data.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
-		return Result;
+		return Data.FindAndReplaceInstances(Map);
 	}
 
-	auto FActorTransactionAnnotation::CreateReplacement(const FObjectReplacementMap& Map) const
-		-> std::expected<std::shared_ptr<ITransactionObjectAnnotation>, std::string>
+	auto FActorTransactionAnnotation::FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
 	{
-		auto Result = std::make_shared<FActorTransactionAnnotation>(*this);
-		auto Key = Map.RemapObjectKey(Result->Data.Target.GetKey());
+		FActorTransactionAnnotation Rebound(*this);
+		auto Key = Map.RemapObjectKey(Rebound.Data.Target.GetKey());
 		if (!Key) return std::unexpected(ToString(Key.error()));
-		Result->Data.Target = FPersistentObjectRef::FromKey(*Key);
-		if (auto Valid = Result->Data.ComponentInstanceData.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
-		if (auto Valid = Result->Data.RootData.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
-		for (auto& State : Result->Data.ComponentLifecycle)
+		Rebound.Data.Target = FPersistentObjectRef::FromKey(*Key);
+		if (auto Valid = Rebound.Data.ComponentInstanceData.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
+		if (auto Valid = Rebound.Data.RootData.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
+		for (auto& State : Rebound.Data.ComponentLifecycle)
 			if (auto Valid = State.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
-		for (auto& Info : Result->DiffableComponentInfos)
+		for (auto& Info : Rebound.DiffableComponentInfos)
 		{
 			if (auto Valid = Info.ComponentSourceInfo.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
 			// Observation paths have no replay target, including when a generated
@@ -115,8 +111,10 @@ namespace Durin
 				return ReplaceObservationPath(Path, Map);
 			});
 		}
-		if (auto Valid = Result->Validate(); !Valid) return std::unexpected(Valid.error());
-		return Result;
+		if (auto Valid = Rebound.Validate(); !Valid) return Valid;
+		Data = std::move(Rebound.Data);
+		DiffableComponentInfos = std::move(Rebound.DiffableComponentInfos);
+		return {};
 	}
 
 	namespace
@@ -242,7 +240,7 @@ namespace Durin
 		for (const auto& State : Data.ComponentLifecycle) if (auto Result = State.Restore(); !Result) return Result;
 		return {};
 	}
-	auto FActorTransactionAnnotation::AddReferencedObjects(FReferenceCollector& Collector) const -> void
+	auto FActorTransactionAnnotation::AddReferencedObjects(FReferenceCollector& Collector) -> void
 	{
 		Data.Target.AddReferencedObjects(Collector);
 		Data.ComponentInstanceData.AddReferencedObjects(Collector);

@@ -21,7 +21,7 @@ run on the game thread under CoreDObject's synchronous collection contract.
 ## Custom Replay Results
 
 Undo calls Revert and Redo calls Apply on already-recorded commands.
-ValidateReplay can refuse an operation before writes begin. During execution
+Each command decides whether it can still participate through HasExpired. During execution
 the buffer reports a command error or exception as a terminal fault. A domain
 error's recovery flag does not change the buffer's behavior.
 See [replay outcomes](Transactors.md#replay-outcomes).
@@ -237,33 +237,27 @@ records and their supplemental state. Durin prepares detached replacements throu
 `FObjectReplacementMap` and its existing publication protocol; collector traversal
 is observational. It does not install a transaction-private object map.
 
-Object records prepare their target, serialized states, shared observations,
-annotations and any snapshot/completion state together. Relevance includes stored
-weak slots in serialized payloads, independently of collector lifetime edges.
-Native commands whose dependencies change opt in through `CreateReplacement`;
-unaffected records move with their original ownership at commit and need no copy
-hook. The editor validates frozen modified participants, affected packages and
-the complete retained reference graph. Unsupported required replacement or
-incompatible state retires its whole transaction, including otherwise compatible
-peer records. Its cross-package peers keep their applied content and are marked dirty.
+Whole-object records rebind their target, before/after and flip snapshots in place.
+Immutable serialized payloads use copy-on-write when embedded object keys change.
+Weak slots are remapped without adding GC ownership. Commands and ordinary
+annotations expose writable references through `AddReferencedObjects`; the
+buffer retains their instances. Actor/component annotations additionally remap
+typed reconstruction data, including historical paths of absent generated objects.
+If a record retains a replaced participant or cannot rebind required state, its
+whole transaction is discarded. Cross-package peers keep their edits and are
+marked dirty.
 
-Preparation retains the source history and its position. Final validation checks
-history revision, record snapshots, exact collector edges, package tracking,
-events, budget and replacement compatibility. Even a recording that is canceled
-before publication invalidates the prepared history. Native data is not loaded
-into live targets and construction/lifecycle callbacks do not run during this work.
+Package reload admits only an idle buffer and makes eligible candidate objects
+transactional. After graph publication, the participant receives the replacement
+map synchronously while old objects remain pinned. It remaps the history present
+at that point, including its Redo branch and barriers. The package registry
+change notification follows fixup of the published batch. The explicit
+`DTransBuffer::OnObjectsReinstanced` entry point uses the same fixup for callers
+that coordinate publication themselves.
 
-Commit only moves prepared entries into reserved storage and swaps history,
-package tracking and queued events. IDs and Undo/Redo position survive for retained
-entries. Old command/annotation destruction occurs during retirement while old
-objects remain pinned, outside the non-failing publication. Retained transaction package records rebind to the replacement packages.
-Candidate objects acquire editor transactional admission during preparation.
-
-`DTransBuffer::OnObjectsReinstanced` accepts an explicit checked map and reuses
-this same participant for synchronous native history replacement. The caller
-coordinates actual graph publication and all external owners. Busy/stale
-preparation publishes nothing; incompatible records retire their complete entry
-under the same package dirty-state rules. CDO/default-subobject transactions use
+The cursor and barriers account for discarded entries. Their native commands are
+destroyed during retirement while the old objects are pinned.
+CDO/default-subobject transactions use
 the native admission and logical reference categories above; arbitrary archetypes
 and script template mutation remain unsupported.
 

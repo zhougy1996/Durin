@@ -3724,7 +3724,7 @@ TEST(FMaterialGraphOperationsTests, StructuralReplayRejectsDifferentMemberWithTh
 	}
 }
 
-TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHistory)
+TEST(FMaterialGraphOperationsTests, ReplaySkipsExpressionRemovedOutsideHistory)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3735,15 +3735,13 @@ TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHist
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	ASSERT_TRUE(AuthoringGraph->FindNode(Created.value())->SetConstantValue(FMaterialParameterValue::MakeScalar(.5f)));
 	std::vector<DMaterialExpression*> Nodes;
-	// Remove the recorded child entirely so no same-name collision can mask a stale owner.
 	for (auto& E : Material->GetExpressionCollection().Expressions)
 		if (E->Id != Created.value()) Nodes.push_back(E.Get());
 	ASSERT_TRUE(Material->SetMaterialExpressions(Nodes));
 	const auto Before = CaptureExpressions(*Material);
 	const auto Revision = Material->GetMaterialProgramRevision();
-	std::string ReplayError;
-	ASSERT_FALSE(Transactions->UndoExpected(Transactions->GetUndoContext().TransactionId, &ReplayError));
-	EXPECT_FALSE(ReplayError.empty());
+	ASSERT_TRUE(Transactions->UndoExpected(Transactions->GetUndoContext().TransactionId));
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
 	EXPECT_TRUE(Transactions->CanUndo());

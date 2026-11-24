@@ -234,10 +234,25 @@ namespace Durin
 		return true;
 	}
 
+	auto DObject::DisplaceTransactionNameCollision(FName Name, DObject* Outer) -> void
+	{
+		if (Name.IsNone()) return;
+		for (auto* Sibling : GDObjectArray.GetObjectsWithOuter(Outer, EObjectQueryScope::LiveOnly))
+		{
+			if (Sibling == this || Sibling->GetFName() != Name) continue;
+			size_t Suffix = 1;
+			FName Unique;
+			do { Unique = FName(std::format("{}_{}", Name.ToString(), Suffix++)); }
+			while (!IsSiblingNameAvailable(*Sibling, Outer, Unique));
+			Sibling->RestoreTransactionMetadata(Unique, Outer, Sibling->GetObjectFlags());
+		}
+	}
+
 	auto DObject::RestoreTransactionMetadata(FName Name, DObject* Outer, EObjectFlags Flags) -> void
 	{
 		CheckGameThread();
 		if (NamePrivate == Name && OuterPrivate == Outer && ObjectFlags == Flags) return;
+		if (NamePrivate != Name || OuterPrivate != Outer) DisplaceTransactionNameCollision(Name, Outer);
 		if (auto* OldPackage = Cast<DPackage>(OuterPrivate); OldPackage && OldPackage->IsAssetPackage())
 			OldPackage->UnregisterTopLevelAsset(this);
 		NamePrivate = Name;

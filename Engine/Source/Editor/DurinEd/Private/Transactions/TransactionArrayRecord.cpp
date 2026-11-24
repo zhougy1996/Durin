@@ -31,14 +31,13 @@ namespace Durin
 		return false;
 	}
 
-	auto FTransaction::FArrayData::CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FTransaction::FArrayData, std::string>
+	auto FTransaction::FArrayData::Reinstance(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
 	{
 		if (Map.Find(Class.Resolve())) return std::unexpected("Array history cannot migrate reflected class descriptors.");
-		auto Result = *this;
 		auto Rebound = Target.CreateReplacement(Map);
 		if (!Rebound) return std::unexpected(Rebound.error());
-		Result.Target = std::move(*Rebound);
-		for (auto* Range : {&Result.Data, Result.Inverse ? &*Result.Inverse : nullptr})
+		Target = std::move(*Rebound);
+		for (auto* Range : {&Data, Inverse ? &*Inverse : nullptr})
 			if (Range) for (auto& Value : *Range)
 			{
 				auto Resolved = Value.Payload.WithResolvedReferences(Value.HardReferences);
@@ -53,14 +52,13 @@ namespace Durin
 					Reference = std::move(*ReboundReference);
 				}
 			}
-		for (auto* Value : {&Result.Annotation, &Result.InverseAnnotation, &Result.CompletionAnnotation})
+		for (auto* Value : {&Annotation, &InverseAnnotation, &CompletionAnnotation})
 		{
-			auto Replaced = PrepareTransactionAnnotationReplacement(*Value, Map);
+			auto Replaced = ReinstanceTransactionAnnotation(*Value, Map);
 			if (!Replaced) return std::unexpected(Replaced.error());
-			*Value = std::move(*Replaced);
 		}
-		if (auto Valid = Result.Validate(); !Valid) return std::unexpected(Valid.error());
-		return Result;
+		if (auto Valid = Validate(); !Valid) return std::unexpected(Valid.error());
+		return {};
 	}
 
 	auto FTransaction::FArrayData::Capture(const FTransactionArrayCapture& Request)

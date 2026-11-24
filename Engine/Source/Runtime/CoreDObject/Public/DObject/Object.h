@@ -274,6 +274,7 @@ namespace Durin
 	private:
 		std::unordered_map<const ITargetPlatform*, std::shared_ptr<ICookedPlatformData>> CookedPlatformDataCache;
 		friend class FSerializedObjectDataReader;
+		auto DisplaceTransactionNameCollision(FName Name, DObject* Outer) -> void;
 		// Called only after transaction metadata/reference preflight; preserves package indexes.
 		COREDOBJECT_API auto RestoreTransactionMetadata(FName Name, DObject* Outer, EObjectFlags Flags) -> void;
 		friend COREDOBJECT_API auto DObjectForceRegistration(DObject* Object) -> void;

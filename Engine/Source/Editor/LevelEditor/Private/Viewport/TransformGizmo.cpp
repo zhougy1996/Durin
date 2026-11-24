@@ -158,18 +158,18 @@ namespace Durin::LevelEditor
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != ETransactionOperation::Undo); }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto ValidateReplay(ETransactionOperation Operation, bool bFirstRecord) const -> FTransactionCaptureResult override
-			{
-				if (auto Valid = CheckTargets(Operation != ETransactionOperation::Undo, bFirstRecord); !Valid)
-					return std::unexpected(FormatActorChangeError(Valid.Error));
-				return {};
-			}
 			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
 			{ return Apply(Operation != ETransactionOperation::Undo); }
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			auto AddReferencedObjects(FReferenceCollector& Collector) -> void override
 			{
 				for (const FEntry& Entry : Entries)
 					if (Entry.Target) Entry.Target->AddReferencedObjects(Collector);
+				for (auto& Package : AffectedPackages)
+				{
+					DObject* Object = Package;
+					Collector.AddReferencedObject(Object);
+					if (Package != Object) Package = Cast<DPackage>(Object);
+				}
 			}
 
 		private:
@@ -224,18 +224,18 @@ namespace Durin::LevelEditor
 			auto HasExpired(DObject*) const noexcept -> bool override
 			{
 				return std::ranges::any_of(Entries, [](const auto& Entry) {
-					return Entry.Target && Entry.Target->IsHistoryInvalidated();
+					return !Entry.Target || Entry.Target->IsHistoryInvalidated() || !Entry.Target->IsValid();
 				});
 			}
 
-			auto CheckTargets(bool bAfter, bool bCheckSource) const -> FActorChangeResult
+			auto CheckTargets(bool bAfter) const -> FActorChangeResult
 			{
 				for (size_t Index = 0; Index < Entries.size(); ++Index)
 				{
 					const auto& Entry = Entries[Index];
 					if (!Entry.Target || !Entry.Target->IsValid())
 						return {{.Code = EActorChangeError::TargetUnavailable, .MemberIndex = Index}};
-					if (bCheckSource && !SameTransform(Entry.Target->GetTransform(), bAfter ? Entry.Before : Entry.After))
+					if (!SameTransform(Entry.Target->GetTransform(), bAfter ? Entry.Before : Entry.After))
 						return {{.Code = EActorChangeError::ActorChanged, .TargetLabel = Entry.Target->GetLabel(), .MemberIndex = Index}};
 				}
 				return {};
@@ -243,7 +243,7 @@ namespace Durin::LevelEditor
 
 			auto Apply(bool bAfter) -> FActorChangeResult
 			{
-				if (auto Valid = CheckTargets(bAfter, true); !Valid) return Valid;
+				if (auto Valid = CheckTargets(bAfter); !Valid) return Valid;
 				size_t FailedIndex = Entries.size();
 				for (size_t Index = 0; Index < Entries.size(); ++Index)
 					if (!Entries[Index].Target->SetTransform(bAfter ? Entries[Index].After : Entries[Index].Before))
@@ -281,10 +281,11 @@ namespace Durin::LevelEditor
 			}
 			auto GetPackage() const -> DPackage* override { return Actor ? Actor->GetPackage() : nullptr; }
 			auto GetLabel() const -> std::string override { return Actor ? Actor->GetActorLabel() : "Missing Actor"; }
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			auto AddReferencedObjects(FReferenceCollector& Collector) -> void override
 			{
 				DObject* Object = Actor.Get();
 				if (Object) Collector.AddReferencedObject(Object);
+				if (Object != Actor.Get()) Actor = Cast<AActor>(Object);
 			}
 
 		private:

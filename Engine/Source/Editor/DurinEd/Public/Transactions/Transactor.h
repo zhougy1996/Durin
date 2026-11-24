@@ -100,9 +100,7 @@ namespace Durin
 			DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
 			DURINED_API auto GetAffectedPackages() const -> std::vector<DPackage*>;
 			auto GetTarget() const -> const FPersistentObjectRef& { return Target; }
-			DURINED_API auto CreateReplacement(const FObjectReplacementMap& Map) const
-				-> std::expected<FWholeObjectData, std::string>;
-			DURINED_API auto HasSameState(const FWholeObjectData& Other) const -> bool;
+			DURINED_API auto Reinstance(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
 			DURINED_API auto HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool;
 
 		private:
@@ -159,17 +157,10 @@ namespace Durin
 			DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
 			DURINED_API auto GetAffectedPackages() const -> std::vector<DPackage*>;
 			DURINED_API auto HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool;
-			DURINED_API auto CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FArrayData, std::string>;
+			DURINED_API auto Reinstance(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
 			DURINED_API auto BuildObjectEvents(const FTransactionContext& Context,
 				ETransactionObjectEventType Type, ETransactionOperation Operation) const
 				-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>;
-			auto HasSameState(const FArrayData& Other) const -> bool
-			{
-				return Target == Other.Target && Class == Other.Class && Member == Other.Member && MemberName == Other.MemberName
-					&& MemberIndex == Other.MemberIndex && Index == Other.Index && Count == Other.Count && Oper == Other.Oper
-					&& StructPath == Other.StructPath && Data == Other.Data && Inverse == Other.Inverse && Annotation == Other.Annotation
-					&& InverseAnnotation == Other.InverseAnnotation && CompletionAnnotation == Other.CompletionAnnotation && bHasCompletion == Other.bHasCompletion;
-			}
 
 		private:
 			struct FElement
@@ -219,7 +210,7 @@ namespace Durin
 			DURINED_API auto PrepareReplay() -> FTransactionCaptureResult;
 			DURINED_API auto CommitReplay(bool bBefore) -> void;
 			DURINED_API auto ClearPreparedReplay() -> void;
-			DURINED_API auto CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FObjectRecord, std::string>;
+			DURINED_API auto Reinstance(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
 			DURINED_API auto HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool;
 
 		private:
@@ -232,7 +223,6 @@ namespace Durin
 			FPersistentObjectRef CustomObject;
 			FTransactionObjectReferenceSet ModifiedObjects;
 			FTransactionObjectReferenceSet DeclaredPackages;
-			bool bReplayExpired = false;
 		};
 	public:
 		DURINED_API FTransaction(FTransactionId Id, FTransactionContext Context, DTransBuffer* RecordingOwner = nullptr);
@@ -283,7 +273,6 @@ namespace Durin
 		};
 		auto Apply(bool bUndo, EPropertyChangeOrigin Origin, FReplayResult& Replay) -> FTransactionApplyResult;
 		auto ValidateReplayRecords(std::span<const size_t> Indices) const -> FTransactionApplyResult;
-		auto RetireExpiredRecords() -> void;
 		auto DispatchObjectEvents(ETransactionObjectEventType Type, ETransactionOperation Operation,
 			FWholeObjectData* SnapshotRecord = nullptr, std::span<const FProperty* const> Selected = {},
 			const FReplayResult* Replay = nullptr) -> FTransactionCaptureResult;
@@ -461,7 +450,6 @@ namespace Durin
 		auto QueueEvent(ETransactionEventType Type,
 			const FTransaction& Transaction,
 			std::optional<std::string> Details = std::nullopt, ETransactionOperation Operation = ETransactionOperation::Execute) -> void;
-		auto FindReplayIndex(bool bUndo, bool bRespectUndoBarrier = true) const -> std::optional<size_t>;
 		auto CanReplayInHost(std::string* Reason) const -> bool;
 		auto Replay(bool bUndo, std::optional<FTransactionId> ExpectedId = std::nullopt,
 			bool bCanRedo = true, std::string* OutError = nullptr) -> bool;
@@ -478,7 +466,6 @@ namespace Durin
 		size_t Cursor = 0;
 		std::vector<size_t> UndoBarriers;
 		std::vector<FTransactionEvent> Events;
-		uint64 HistoryRevision = 0;
 
 		friend struct FTransBufferTestAccess;
 	};

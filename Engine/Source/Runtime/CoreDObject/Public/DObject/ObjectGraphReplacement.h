@@ -5,6 +5,7 @@
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectHandle.h"
 #include "DObject/ObjectKey.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/PropertyDiagnostic.h"
 #include "DObject/ContainerOps.h"
 
@@ -160,6 +161,18 @@ namespace Durin
 		std::vector<DObject*> PreparedObjects;
 	};
 
+	class FReinstancingReferenceCollector final : public FReferenceCollector
+	{
+	public:
+		explicit FReinstancingReferenceCollector(const FObjectReplacementMap& InMap) : Map(InMap) {}
+		auto AddReferencedObject(DObject*& Object) -> void override
+		{
+			if (const auto* Entry = Map.Find(Object); Entry && Entry->Replacement) Object = Entry->Replacement;
+		}
+	private:
+		const FObjectReplacementMap& Map;
+	};
+
 	// Native owners must retain their storage/module for the operation's lifetime.
 	// Prepare may fail. Validate is observational. Commit/Abort cannot allocate,
 	// broadcast, reenter replacement/GC, throw, or invoke fallible resource work.
@@ -173,6 +186,8 @@ namespace Durin
 		// Counts exact old-generation FStrongObjectPtr owners rebound by this participant.
 		virtual auto GetStrongReferenceCount(const DObject& Object) const -> uint32 = 0;
 		virtual auto Commit() noexcept -> void = 0;
+		// Synchronous fixup after every participant has published, while old objects are pinned.
+		virtual auto OnObjectsReinstanced(const FObjectReplacementMap&) noexcept -> void {}
 		virtual auto Abort() noexcept -> void = 0;
 		virtual auto CanRetire() const -> bool = 0;
 	};

@@ -28,47 +28,27 @@ namespace Durin
 		return false;
 	}
 
-	auto FTransaction::FWholeObjectData::HasSameState(const FTransaction::FWholeObjectData& Other) const -> bool
+	auto FTransaction::FWholeObjectData::Reinstance(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
 	{
-		auto SameInfo = [](const FSerializedObjectInfo& A, const FSerializedObjectInfo& B) {
-			return A == B && A.Identity == B.Identity;
-		};
-		auto SameObservation = [&](const FDiffableObject& A, const FDiffableObject& B) {
-			return SameInfo(A.ObjectInfo, B.ObjectInfo) && A.SerializedObject == B.SerializedObject
-				&& A.SerializationContext == B.SerializationContext && A.SerializedTaggedData == B.SerializedTaggedData;
-		};
-		auto SameState = [&](const auto& A, const auto& B) {
-			if (A.has_value() != B.has_value()) return false;
-			return !A || (SameObservation(A->Observation, B->Observation) && A->Annotation == B->Annotation);
-		};
-		return Target == Other.Target && SameState(BeforeState, Other.BeforeState) && SameState(AfterState, Other.AfterState)
-			&& SameState(ReplayState, Other.ReplayState) && CompletionAnnotation == Other.CompletionAnnotation
-			&& SameState(SnapshotState, Other.SnapshotState)
-			&& SelectedSnapshotProperties == Other.SelectedSnapshotProperties;
-	}
-
-	auto FTransaction::FWholeObjectData::CreateReplacement(const FObjectReplacementMap& Map) const
-		-> std::expected<FTransaction::FWholeObjectData, std::string>
-	{
-		auto Result = *this;
 		auto Reference = Target.CreateReplacement(Map);
 		if (!Reference) return std::unexpected(Reference.error());
-		Result.Target = std::move(*Reference);
-		for (auto* State : {&Result.BeforeState, &Result.AfterState, &Result.ReplayState, &Result.SnapshotState})
+		if (auto* Object = Target.Get(); Object && Reference->Get() == Object)
+			for (auto* Outer = Object->GetOuter(); Outer; Outer = Outer->GetOuter())
+				if (Map.Find(Outer)) return std::unexpected("The snapshot target has no replacement under its reinstanced owner.");
+		Target = std::move(*Reference);
+		for (auto* State : {&BeforeState, &AfterState, &ReplayState, &SnapshotState})
 			if (*State)
 			{
 				auto Observation = DiffUtil::PrepareObjectReplacement((*State)->Observation, Map);
 				if (!Observation) return std::unexpected(Observation.error());
 				(*State)->Observation = std::move(*Observation);
-				auto Annotation = PrepareTransactionAnnotationReplacement((*State)->Annotation, Map);
+				auto Annotation = ReinstanceTransactionAnnotation((*State)->Annotation, Map);
 				if (!Annotation) return std::unexpected(Annotation.error());
-				(*State)->Annotation = std::move(*Annotation);
 			}
-		auto Completion = PrepareTransactionAnnotationReplacement(Result.CompletionAnnotation, Map);
+		auto Completion = ReinstanceTransactionAnnotation(CompletionAnnotation, Map);
 		if (!Completion) return std::unexpected(Completion.error());
-		Result.CompletionAnnotation = std::move(*Completion);
-		if (auto Valid = Result.Validate(); !Valid) return std::unexpected(FormatTransactionObjectRecordError(Valid.error()));
-		return Result;
+		if (auto Valid = Validate(); !Valid) return std::unexpected(FormatTransactionObjectRecordError(Valid.error()));
+		return {};
 	}
 
 	auto FTransaction::FWholeObjectData::Capture(DObject& Object, const FSerializedObject* CapturePolicy,

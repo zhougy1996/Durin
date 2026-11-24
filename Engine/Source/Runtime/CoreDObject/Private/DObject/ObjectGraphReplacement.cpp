@@ -826,6 +826,8 @@ namespace Durin
 		for (const auto& P : Impl->Participants) P->Commit();
 		Durin::Private::InvalidateSoftObjectCaches();
 		Impl->State = FImpl::EState::Committed;
+		for (const auto& Participant : Impl->Participants) Participant->OnObjectsReinstanced(Impl->Map);
+		if (!Impl->Packages.empty()) Private::NotifyAssetPackageChanged();
 	}
 
 	auto FObjectGraphReplacement::Abort() noexcept -> void

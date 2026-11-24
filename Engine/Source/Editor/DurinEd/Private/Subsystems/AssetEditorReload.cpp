@@ -45,6 +45,8 @@ namespace Durin
 			auto GetStrongReferenceCount(const DObject& Object) const -> uint32 override
 			{ return Participant->GetStrongReferenceCount(Object); }
 			auto Commit() noexcept -> void override { Participant->Commit(); }
+			auto OnObjectsReinstanced(const FObjectReplacementMap& Map) noexcept -> void override
+			{ Participant->OnObjectsReinstanced(Map); }
 			auto Abort() noexcept -> void override { if (Participant) Participant->Abort(); }
 			auto CanRetire() const -> bool override { return Participant->CanRetire(); }
 

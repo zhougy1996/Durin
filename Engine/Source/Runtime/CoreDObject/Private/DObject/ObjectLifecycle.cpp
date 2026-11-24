@@ -10,6 +10,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "CoreGlobals.h"
 #include "Misc/Time.h"
+#include "Misc/Transaction.h"
 #include "Threading/RunnableThread.h"
 #include "GCReferenceSchema.h"
 
@@ -226,6 +227,8 @@ namespace Durin
 		CheckObjectThread();
 		if (!IsGarbage() || IsGarbageCollecting() || IsTemplateObject()
 			|| HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed | EObjectInternalFlags::FinishDestroyed)) return;
+		if (FScopedTransactionHistoryReplay::IncludesPendingKill(this))
+			DisplaceTransactionNameCollision(GetFName(), GetOuter());
 		if (HasAnyInternalFlags(EObjectInternalFlags::WasRegisteredTopLevelAsset))
 		{
 			auto* Package = Cast<DPackage>(GetOuter());

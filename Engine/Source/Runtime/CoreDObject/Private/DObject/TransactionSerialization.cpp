@@ -333,16 +333,6 @@ namespace Durin
 			return std::unexpected("Transaction replay cannot restore object construction flags.");
 		for (auto* Parent = Capture.Info.Outer.Get(); Parent; Parent = Parent->GetOuter())
 			if (Parent == &Object) return std::unexpected("Transaction object Outer would create a cycle.");
-		if (Capture.Info.Identity.OriginalName != Object.GetFName() || Capture.Info.Outer.Get() != Object.GetOuter())
-			for (auto* Sibling : GDObjectArray.GetObjectsWithOuter(Capture.Info.Outer.Get(), EObjectQueryScope::LiveOnly))
-				if (Sibling != &Object && Sibling->GetFName() == Capture.Info.Identity.OriginalName)
-					return std::unexpected("Transaction object Name is reserved by another live object.");
-		if (auto* ParentPackage = Cast<DPackage>(Capture.Info.Outer.Get()); ParentPackage && ParentPackage->IsAssetPackage()
-			&& !EnumHasAnyFlags(Capture.Info.Flags, EObjectFlags::Transient)
-			&& std::ranges::any_of(ParentPackage->GetTopLevelAssets(), [&](const DObject* Asset) {
-				return Asset != &Object && !Asset->IsGarbage() && Asset->GetFName() == Capture.Info.Identity.OriginalName;
-			}))
-			return std::unexpected("Transaction object metadata conflicts with a top-level asset name.");
 		for (const auto& Reference : Capture.Data->HardReferences)
 			if (!Reference.IsNull() && !Reference.Get()) return std::unexpected("A transaction object hard reference expired.");
 		return {};

@@ -68,7 +68,7 @@ namespace Durin::Tests::ObjectState
 	public:
 		FRecordTestAnnotation(int32 InValue, Durin::DObject* InReference, size_t InBytes = sizeof(FRecordTestAnnotation))
 			: Value(InValue), Reference(InReference), Bytes(InBytes) {}
-		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) const -> void override { Reference.AddReferencedObjects(Collector); }
+		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override { Reference.AddReferencedObjects(Collector); }
 		auto Serialize(Durin::FArchive& Archive) -> void override { Archive << Value; }
 		auto GetAllocatedSize() const -> size_t override { return Bytes; }
 		auto ComputeAdditionalObjectChanges(const Durin::ITransactionObjectAnnotation* Original) const
@@ -473,10 +473,11 @@ namespace Durin::Tests::ObjectState
 				return {};
 			}
 		}
-		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) const -> void override
+		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{
 			Durin::DObject* Object = Reference.Get();
 			if (Object) Collector.AddReferencedObject(Object);
+			if (Object != Reference.Get()) Reference = Object;
 		}
 		auto GetAllocatedSize() const -> size_t override
 		{
@@ -506,6 +507,7 @@ namespace Durin::Tests::ObjectState
 		FDeclaredParticipantChange(DTransactionRecordParticipant* InFirst,
 			DTransactionRecordParticipant* InSecond, Durin::DObject* InDependency)
 			: First(InFirst), Second(InSecond), Dependency(InDependency) {}
+		auto HasExpired(Durin::DObject*) const noexcept -> bool override { return !Durin::IsValid(First) || !Durin::IsValid(Second); }
 		auto GetDescription() const -> std::string_view override { return "Declared composite participants"; }
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
 		{ return {First, Second, First, nullptr}; }
@@ -513,7 +515,7 @@ namespace Durin::Tests::ObjectState
 		{ First->Value += 3; Second->Value += 5; return {}; }
 		auto Revert() -> Durin::FCommandChangeResult override
 		{ First->Value -= 3; Second->Value -= 5; return {}; }
-		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) const -> void override
+		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{ Dependency.AddReferencedObjects(Collector); }
 	private:
 		DTransactionRecordParticipant* First;
@@ -547,7 +549,7 @@ namespace Durin::Tests::ObjectState
 				return {};
 			}
 		}
-		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) const -> void override
+		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{
 			for (Durin::DObject* Object : {static_cast<Durin::DObject*>(Owner), Child, HistoryOuter})
 				Collector.AddReferencedObject(Object);
