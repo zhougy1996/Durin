@@ -8,12 +8,53 @@ Completed:
 
 ## Current Status
 
-Implementation has not started. Durin draws both visible sky sources through the
-same [SkyBox shader](../../Engine/Shaders/Slang/SkyBox.slang). The procedural
-radiance evaluator also feeds the separate Sky Light capture path. The material
-system already supports Surface Unlit, HDR emissive output and directional
-TextureCube sampling. The open design decision is how the material draw will
-preserve the existing background depth, projection and composition behavior.
+Stage 0 selected a fullscreen material draw in the existing scene-color passes.
+The legacy renderer is still active. The inward-facing Unlit sphere prototype
+produces the expected HDR emissive color from inside the sphere, but requires a
+mesh proxy, finite geometry and ordinary mesh depth. The background draw will
+take its sky role from the selected provider, reconstruct each view's direction
+using the double-precision camera-relative inverse transform and keep the
+existing far-depth convention (0 reversed, 1 forward). Keep the hybrid bootstrap
+depth-equal test with depth writes off, the forward background order, and the
+current position upstream of water and cloud composition. Each submitted view,
+including previews and auxiliary views, supplies its own projection and override.
+
+**Consumer inventory.** LevelEditor placement creates or transactionally
+replaces a visible SkyBox and rejects ambiguous placement. The scene accepts
+one cubemap proxy. A hidden actor publishes none. View preparation first
+resolves an explicit cube override, returning `RequiredEnvironmentUnavailable`
+for a missing or non-cube target. Otherwise the highest-priority eligible
+procedural provider wins, with ascending persistent ID and selection key
+breaking ties. The scene cubemap comes last and uses the renderer's default cube
+while its texture is unavailable. An empty scene preserves the view clear color.
+TextureEditor passes a retained TextureCube snapshot through thumbnail draw and
+capture. The studio preview's Specified Cube Sky Light is independent. Captured
+Sky reads the selected analytic proxy and Specified Cube uses the light's own
+texture. Existing Cook inputs are the reflected level/component references and
+texture platform data. Sandbox and RoadWeaver have no direct source-level
+consumers of the four inventoried types.
+
+**Reference evidence.** At runtime revision `512b31950` the expanded
+`SkyBoxVulkanIntegrationTests` passed twice on Win64 Debug DurinEditor,
+GTX 1060 6 GB, Vulkan 1.4.312, in the user-confirmed quiet window.
+Set `DURIN_TEST_KEEP_WORK=1` to retain the test's `SkyParity` directory.
+The two runs produced 20 byte-identical image buffers each, including six HDR
+faces with tint (0.5, 0.25, 1) and intensity 2, both projection forms,
+billion-unit translation, transparent clear, view override, procedural horizon,
+sun and positive-Z capture. Compare the 17×17 sRGB face centers within 12 byte
+values per channel and procedural horizon/sun within 4. Transparent pixels
+and the override comparison require exact agreement. The HDR capture uses
+the existing half-float radiance, irradiance and mip assertions.
+`WaterVolumeMatchesThreeLinearHDRBedProbes` passed and retained refraction
+on/off buffers at 320×240 and 640×480 under `Build/SingleLayerWater/Stage3`.
+
+Raw samples and images from both sky runs are under
+`Build/UESkyRenderingAlignment/512b31950/{29984,16512}/SkyParity`.
+At 17×17, four warm-up pairs and 32 alternating measured pairs gave incremental
+cube draw median/p95 values of 6.016/6.848 and 6.400/6.944 microseconds.
+Two warm-up captures and 16 measured updates per run gave median/p95 values of
+0.705/1.261 and 0.709/2.175 milliseconds. Use the same fixture size and paired
+subtraction for comparisons. These figures characterize this GPU and workload.
 
 ## Goal
 
@@ -33,17 +74,17 @@ LUTs, aerial perspective and UE-style general scene capture are outside this pla
 
 ### Stage 0: Record existing behavior and choose sky draw routing
 
-- [ ] Inventory the Engine, Sandbox and RoadWeaver consumers of `DSkyBoxComponent`,
+- [x] Inventory the Engine, Sandbox and RoadWeaver consumers of `DSkyBoxComponent`,
   `DProceduralSkyComponent`, `FSkyBoxRenderer` and `FViewEnvironmentOverride`.
   Include level placement, editor previews, TextureCube thumbnails, Cook and
   Sky Light capture. Record source priority and missing-resource behavior for
   views with multiple sky providers and an explicit environment override.
-- [ ] Record reference captures for all six cube faces, HDR intensity and tint,
+- [x] Record reference captures for all six cube faces, HDR intensity and tint,
   procedural horizon and sun direction, no sky, view override, water refraction
   and Sky Light capture. Include camera rotation, large translation, perspective
   and orthographic views, and transparent offscreen output. Record an incremental
   GPU cost baseline for the existing draw and capture paths.
-- [ ] Prototype an inward-facing sky mesh with existing Unlit material features.
+- [x] Prototype an inward-facing sky mesh with existing Unlit material features.
   Decide between a mesh with sky-specific depth and view state and a background
   draw that evaluates a material over a fullscreen primitive. Use one explicit
   sky role in the scene. Start with role assignment on the sky provider and

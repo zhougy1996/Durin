@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "NativeTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "RenderResource.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -17,10 +18,12 @@
 #include "SkyBoxTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Load.h"
+#include "Asset/Load.h"
 #include "Client/SceneViewport.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneViewState.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
@@ -122,7 +125,7 @@ namespace
 	}
 } // namespace
 
-static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer);
+static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer, const std::filesystem::path& CaptureDirectory);
 
 TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax)
 {
@@ -213,6 +216,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		{.FaceDimension = 64}, SourceData, ProjectionError)) << ProjectionError;
 	std::array<std::array<uint8, 4>, Durin::TextureCubeFaceCount> SourceColors;
 	std::array<std::array<uint8, 4>, Durin::TextureCubeFaceCount> HdrSourceColors;
+	const Durin::FVector3f HdrTint{0.5f, 0.25f, 1.0f};
+	constexpr float HdrIntensity = 2.0f;
+	const auto CaptureDirectory = Durin::Testing::CreateTestFixtureDirectory("SkyParity");
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 	{
 		SourceColors[FaceIndex] = GetSourceColor(
@@ -222,7 +228,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		std::memcpy(Linear.data(), HdrPlatformData->Faces[FaceIndex].Mips[0].Pixels.data()
 			+ (32 * 64 + 32) * 16, 16);
 		const auto Mapped = Durin::DisplayMapping::MapSceneLinearToDisplayLinear(
-			{Linear[0], Linear[1], Linear[2]}, 0.0f);
+			Durin::FVector3f(Linear[0], Linear[1], Linear[2]) * HdrTint * HdrIntensity, 0.0f);
 		for (uint32 Channel = 0; Channel < 3; ++Channel)
 		{
 			const float Value = Mapped[Channel];
@@ -241,7 +247,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FMaterialStaticProperties OcclusionProperties;
 	OcclusionProperties.bTwoSided = true;
 	ASSERT_TRUE(OcclusionMaterial->SetStaticProperties(OcclusionProperties));
-	OcclusionMaterial->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), {1.0, 0.0, 0.0});
+	ASSERT_TRUE(OcclusionMaterial->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), {1.0, 0.0, 0.0}));
 	Durin::DObject* OcclusionMaterialCompilationObject = OcclusionMaterial;
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
 		std::span<Durin::DObject* const>(&OcclusionMaterialCompilationObject, 1));
@@ -334,6 +340,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		std::array<Durin::FByteBuffer, 2> LongitudeSeam;
 		std::array<Durin::FByteBuffer, 2> FaceBoundary;
 		Durin::FByteBuffer Translated;
+		Durin::FByteBuffer Perspective;
+		Durin::FByteBuffer MeshPrototype;
+		Durin::FByteBuffer Transparent;
 		Durin::FByteBuffer StatefulNoConsumer;
 		Durin::FByteBuffer StaleStateNoConsumer;
 		Durin::FByteBuffer StatefulLitNoConsumer;
@@ -509,7 +518,11 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		if (!Render(MakePrincipalAxisView({-1.0, -EdgeOffset, 0.0}, {}, 17, 17), Result->LongitudeSeam[1])) return;
 		if (!Render(MakePrincipalAxisView({1.0, 1.0 - EdgeOffset, 0.0}, {}, 17, 17), Result->FaceBoundary[0])) return;
 		if (!Render(MakePrincipalAxisView({1.0 - EdgeOffset, 1.0, 0.0}, {}, 17, 17), Result->FaceBoundary[1])) return;
-		if (!Render(MakePrincipalAxisView(Directions[0], {19.0, -7.0, 4.0}, 17, 17), Result->Translated)) return;
+		if (!Render(MakePrincipalAxisView(Directions[0], {1.e9 + 19.0, -1.e9 - 7.0, 4.0}, 17, 17), Result->Translated)) return;
+		auto Perspective = MakePrincipalAxisView(Directions[0], {}, 17, 17);
+		Perspective.ViewProjectionMatrix = glm::perspectiveLH_ZO(glm::half_pi<double>(), 1.0, 0.1, 1000.0)
+			* Perspective.ViewProjectionMatrix;
+		if (!Render(Perspective, Result->Perspective)) return;
 
 		Durin::FSkyBoxSceneData RotatedSky;
 		RotatedSky.TextureReference = CubeReference;
@@ -519,6 +532,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->ComponentRotated)) return;
 
 		RotatedSky.TextureReference = HdrCubeReference;
+		RotatedSky.Tint = HdrTint;
+		RotatedSky.Intensity = HdrIntensity;
 		RotatedSky.Rotation = glm::identity<Durin::FQuat>();
 		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
 		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
@@ -547,7 +562,46 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		}
 
 		RotatedSky.TextureReference = CubeReference;
+		RotatedSky.Tint = Durin::FVector3f(1.0f);
+		RotatedSky.Intensity = 1.0f;
 		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
+		auto EmptyView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
+		EmptyView.ClearColor = Durin::FVector4f(0.0f);
+		if (!Render(EmptyView, Result->Transparent)) return;
+		if (Durin::Testing::IsTestWorkDirectoryKept() && Durin::ShouldSampleRHIGPUTiming())
+		{
+			using namespace Durin;
+			// Time the same forward base pass with and without its per-view background.
+			// The synchronous pixel readback occurs after the timed interval.
+			static FGPUTimingQueryRHIRef Query;
+			SetSceneColorTimingQuerySink(+[](const FGPUTimingQueryRHIRef& Value) { Query = Value; });
+			std::string Samples = "round,empty_ns,cube_ns\n";
+			for (int Round = -4; Round < 32; ++Round)
+			{
+				std::array<uint64, 2> Durations{};
+				for (int Index = 0; Index < 2; ++Index)
+				{
+					const int WithSky = (Index + (Round & 1)) % 2;
+					FByteBuffer Pixels;
+					if (!RenderWithOptions(EmptyView, Pixels, WithSky ? OverrideOptions : FSceneViewRenderOptions{})) break;
+					EnqueueRenderCommand("ReadSkyBaselineTiming", [&](FRHICommandListImmediate&) {
+						if (Query)
+						{
+							const auto Timing = GDynamicRHI->RHIGetGPUTimingResult(Query);
+							EXPECT_EQ(Timing.State, ERHIGPUTimingResultState::Ready);
+							Durations[WithSky] = Timing.DurationNanoseconds;
+						}
+						else ADD_FAILURE() << "Missing base pass timestamp";
+						Query = {};
+					});
+					FlushRenderingCommands();
+				}
+				if (!Result->bSucceeded) break;
+				if (Round >= 0) Samples += std::format("{},{},{}\n", Round, Durations[0], Durations[1]);
+			}
+			SetSceneColorTimingQuerySink(nullptr);
+			EXPECT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Samples)), CaptureDirectory / "draw.csv"));
+		}
 		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
 		Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
 		LetterboxView.AspectRatioConstraint = 0.5f;
@@ -571,6 +625,41 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		Durin::FSceneViewRenderOptions HybridSkyOptions;
 		const bool bRenderedHybridSky = RenderWithOptions(HybridSkyView, Result->HybridLitSky, HybridSkyOptions, Durin::ERenderMode::Lit, true);
 		if (!bRenderedHybridSky) return;
+		// Exercise an ordinary opaque Unlit dome as a separate geometry submission.
+		// Its interior is visible, but the surface participates in mesh visibility
+		// and writes finite depth even when all that is wanted is a background.
+		auto PrototypeDome = [&]() {
+			using namespace Durin;
+			FSoftObjectPath Path;
+			ASSERT_TRUE(FSoftObjectPath::TryCreate("/Engine/Models/Sphere.Sphere", Path));
+			auto* Sphere = LoadObject<DStaticMesh>(Path);
+			ASSERT_NE(Sphere, nullptr);
+			FAssetCompilingManager::Get().FinishCompilationForObject(*Sphere);
+			auto* Material = NewObject<DMaterial>(nullptr, "SkyDomePrototype");
+			FMaterialRootInputs Outputs;
+			Outputs.Get(EMaterialProperty::MP_EmissiveColor).SetConstant({0.f, 4.f, 0.f});
+			ASSERT_TRUE(Material->SetMaterialExpressions({}, Outputs));
+			ASSERT_TRUE(Material->SetStaticProperties({.ShadingModel = EMaterialShadingModel::Unlit, .bTwoSided = true}));
+			FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+			ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+			auto* Dome = NewObject<DStaticMeshComponent>(nullptr, "SkyDomeInterior");
+			Dome->SetStaticMesh(Sphere);
+			Dome->SetMaterial(Material);
+			auto Proxy = Dome->CreateSceneProxy();
+			ASSERT_TRUE(Proxy);
+			const FPrimitiveComponentId Id(2);
+			FSceneInterfaceTestAccess::AddPrimitiveProxy(Scene, Id, std::move(Proxy), glm::scale(FMatrix(1), FVector3(-4)));
+			const bool Drawn = Render(Perspective, Result->MeshPrototype);
+			FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Id);
+			FlushRenderingCommands();
+			Sphere->ReleaseResources();
+			ASSERT_TRUE(Drawn);
+			EXPECT_TRUE(FFileHelper::SaveArrayToFile(Result->MeshPrototype, CaptureDirectory / "mesh-interior.rgba8"));
+			const auto Center = (8 * 17 + 8) * 4;
+			EXPECT_GT(int(Result->MeshPrototype[Center + 1]), 200);
+			EXPECT_LT(int(Result->MeshPrototype[Center]), 8);
+		};
+		PrototypeDome();
 		Durin::FMatrix OccluderTransform = glm::translate(
 			Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5)
 		);
@@ -618,6 +707,10 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		{
 			SCOPED_TRACE(std::format("principal face {}", FaceIndex));
+			EXPECT_TRUE(Durin::FFileHelper::SaveArrayToFile(Result->PrincipalAxes[FaceIndex],
+				CaptureDirectory / std::format("cube-{}.rgba8", FaceIndex)));
+			EXPECT_TRUE(Durin::FFileHelper::SaveArrayToFile(Result->HdrPrincipalAxes[FaceIndex],
+				CaptureDirectory / std::format("hdr-tinted-{}.rgba8", FaceIndex)));
 			ExpectRgbNear(
 				Result->PrincipalAxes[FaceIndex],
 				17,
@@ -638,15 +731,23 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		ExpectRgbMatch(Result->LongitudeSeam[0], Result->LongitudeSeam[1], 17, 8, 8, 12);
 		ExpectRgbMatch(Result->FaceBoundary[0], Result->FaceBoundary[1], 17, 8, 8, 16);
 		ExpectRgbMatch(Result->Translated, Result->PrincipalAxes[0], 17, 8, 8);
+		ExpectRgbMatch(Result->Perspective, Result->PrincipalAxes[0], 17, 8, 8);
+		EXPECT_EQ(Result->Transparent, Durin::FByteBuffer(17 * 17 * 4));
+		EXPECT_TRUE(Durin::FFileHelper::SaveArrayToFile(Result->Transparent, CaptureDirectory / "empty.rgba8"));
+		EXPECT_TRUE(Durin::FFileHelper::SaveArrayToFile(Result->ExplicitOverride, CaptureDirectory / "override.rgba8"));
+		EXPECT_TRUE(Durin::FFileHelper::SaveArrayToFile(Result->Translated, CaptureDirectory / "translated.rgba8"));
+		EXPECT_TRUE(Durin::FFileHelper::SaveArrayToFile(Result->Perspective, CaptureDirectory / "perspective.rgba8"));
 		EXPECT_EQ(FindClosestCenterRgb(Result->ComponentRotated, Result->PrincipalAxes, 17), 3u);
 		ExpectRgbNear(Result->Letterboxed, 17, 1, 8, {0, 0, 0, 255}, 2);
 		EXPECT_EQ(FindClosestCenterRgb(Result->Letterboxed, Result->PrincipalAxes, 17), 0u);
 		ExpectRgbNear(Result->Occluded, 17, 8, 8, MapSrgbReferenceThroughDisplay({255, 0, 0, 255}), 8);
 	}
 
-	ValidateDynamicSkyLighting(Renderer);
 	Durin::FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
 	Durin::FlushRenderingCommands();
+	Durin::MarkAsGarbage(OcclusionComponent);
+	Durin::MarkAsGarbage(OcclusionMesh);
+	Durin::MarkAsGarbage(OcclusionMaterial);
 	SkyBox.TextureReference = nullptr;
 	Durin::FPackagePath CubePath;
 	if (Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaLdr", CubePath))
@@ -672,9 +773,6 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	{
 		ADD_FAILURE() << "Failed to create the Vulkan HDR cube cleanup path.";
 	}
-	Durin::MarkAsGarbage(OcclusionComponent);
-	Durin::MarkAsGarbage(OcclusionMesh);
-	Durin::MarkAsGarbage(OcclusionMaterial);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	struct FRetireSkyBoxValidationResource
 	{
@@ -687,6 +785,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		) {}
 	);
 	Durin::FlushRenderingCommands();
+	ValidateDynamicSkyLighting(Renderer, CaptureDirectory);
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
@@ -695,7 +794,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::ShutdownAssetCompilingManager();
 }
 
-static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
+static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer, const std::filesystem::path& CaptureDirectory)
 {
     using namespace Durin;
     struct FRestoreSampling
@@ -777,7 +876,28 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         for(int i=0;i<100 && Revision==FirstRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
         EXPECT_GT(Revision,FirstRevision);
         EXPECT_GE(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
+        std::cout << "Measured sky capture update: " << Light->GetUpdateStatus()->UpdateMilliseconds.load() << " ms\n";
+        if (Testing::IsTestWorkDirectoryKept())
+        {
+            std::string Samples = "round,capture_ms\n";
+            for (int Round = -2; Round < 16; ++Round)
+            {
+                const auto PreviousRequest = PublishedRequest;
+                Light->Recapture();
+                for (int Poll = 0; Poll < 100 && PreviousRequest == PublishedRequest; ++Poll)
+                {
+                    Pump(false);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+                EXPECT_GT(PublishedRequest, PreviousRequest);
+                const double Milliseconds = Light->GetUpdateStatus()->UpdateMilliseconds.load();
+                EXPECT_GE(Milliseconds, 0.0);
+                if (Round >= 0) Samples += std::format("{},{}\n", Round, Milliseconds);
+            }
+            EXPECT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Samples)), CaptureDirectory / "capture.csv"));
+        }
         Pump(true);
+        EXPECT_TRUE(FFileHelper::SaveArrayToFile(After, CaptureDirectory / "capture-positive-z.rgba16f"));
         EXPECT_NE(Before,After);
         Sky->SetExposure(0);
         Sky->SetRadianceColors({0,0,0},{0,0,0},{0,0,0},{16,8,4});
@@ -822,12 +942,26 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
                     FByteBuffer Pixels;
                     if (!GDynamicRHI->RHIReadTexture2D(Cmd,VisibleColor,0,0,Pixels))
                     { ADD_FAILURE() << "Failed to read the prepared dynamic sky view."; return; }
+                    EXPECT_TRUE(FFileHelper::SaveArrayToFile(Pixels, CaptureDirectory / "procedural-sun.rgba8"));
                     const auto Mapped=DisplayMapping::MapSceneLinearToDisplayLinear({16,8,4},0);
                     std::array<uint8,4> Expected{0,0,0,255};
                     for(uint32 C=0;C<3;++C) Expected[C]=uint8(std::lround((1.055f*std::pow(Mapped[C],1.f/2.4f)-0.055f)*255));
                     ExpectRgbNear(Pixels,17,8,8,Expected,4);
                 });
             EXPECT_EQ(Outcome,ERenderViewResult::Success);
+            Sky->SetRadianceColors({0,0,0},{0.5f,1.f,2.f},{0,0,0},{16,8,4});
+            const auto Horizon = RenderPreparedSkyView(Renderer, Scene, MakePrincipalAxisView({1,0,0},{},17,17),
+                VisibleColor, {}, nullptr, [&](FRHICommandListImmediate& Cmd) {
+                    FByteBuffer Pixels;
+                    ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd, VisibleColor, 0, 0, Pixels));
+                    EXPECT_TRUE(FFileHelper::SaveArrayToFile(Pixels, CaptureDirectory / "procedural-horizon.rgba8"));
+                    const auto Mapped = DisplayMapping::MapSceneLinearToDisplayLinear({0.5f,1.f,2.f},0);
+                    std::array<uint8,4> Expected{0,0,0,255};
+                    for (uint32 C=0; C<3; ++C)
+                        Expected[C]=uint8(std::lround((1.055f*std::pow(Mapped[C],1.f/2.4f)-0.055f)*255));
+                    ExpectRgbNear(Pixels,17,8,8,Expected,4);
+                });
+            EXPECT_EQ(Horizon, ERenderViewResult::Success);
         }
         EnqueueRenderCommand("ReleaseVisibleSkyTarget", [&](FRHICommandListImmediate&) { VisibleColor={}; });
         FlushRenderingCommands();
@@ -906,11 +1040,6 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         EXPECT_GT(Revision,StableRevision);
         EXPECT_LT(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
         Pump(false);
-        EnqueueRenderCommand("ReportSkyTiming",[&](FRHICommandListImmediate&) {
-            const auto Selected=Scene.GetSkyLight_RenderThread();
-            std::cout << "Dynamic sky GPU update: " << Selected->UpdateStatus->UpdateMilliseconds.load() << " ms\n";
-        });
-        FlushRenderingCommands();
         // Invalidate while the scene is inactive: old ownership must disappear
         // without waiting for another world tick or view submission.
         EXPECT_TRUE(Renderer.RequestResourceInvalidation(ERendererResourceInvalidationCause::Device).bSuccess);
