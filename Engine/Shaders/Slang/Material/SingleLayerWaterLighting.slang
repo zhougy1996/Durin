@@ -110,18 +110,113 @@ public float3 WaterIncidentDirection(FWaterViewUniform view, float3 viewPosition
     return dot(view.Projection[3].xyz, view.Projection[3].xyz) > 1.0e-12 ? normalize(viewPosition) : forward;
 }
 
-public float2 WaterDistortionPixels(FWaterViewUniform view, float2 viewSize, float3 viewNormal,
-    float3 forward, float strength, float separationCm, float depthBiasCm, bool open)
+// Rotate the incident ray by the angular change between refraction at the
+// mesh normal and at the shading normal. This preserves Pixel Normal Offset's
+// flat-normal identity while using Snell refraction for the wave perturbation.
+public float3 WaterPixelNormalRay(float3 incident, float3 reference, float3 transmitted)
 {
-    // Projection rows give screen right and down in Durin view space.
-    float3 right = view.Projection[0].xyz - forward * dot(view.Projection[0].xyz, forward);
-    float3 down = view.Projection[1].xyz - forward * dot(view.Projection[1].xyz, forward);
-    float2 screenNormal = float2(dot(viewNormal, normalize(right)), dot(viewNormal, normalize(down)));
-    float range = clamp(abs(depthBiasCm) * 0.5, 1.0, 50.0);
-    float fade = open ? 1.0 : saturate(separationCm / range - depthBiasCm) * saturate(separationCm / 30.0);
-    // UE's mono FOV/aspect correction leaves the unscaled view width on both axes.
-    // Durin renders the scene snapshot at the active viewport's native resolution.
-    return screenNormal * viewSize * (viewSize.x * length(right) * (strength - 1.0) * 0.00023 * 4.0 * fade);
+    float3 axis = cross(reference, transmitted);
+    return normalize(incident + cross(axis, incident)
+        + cross(axis, cross(axis, incident)) / max(1.0 + dot(reference, transmitted), 1.0e-6));
+}
+
+float WaterDepthSlope(float before, float center, float after)
+{
+    float a = center - before, b = after - center;
+    return a * b > 0.0 ? sign(a) * min(abs(a), abs(b)) : 0.0;
+}
+
+float3 WaterHitRadiance(Texture2D<float4> color, Texture2D<float> depth,
+    Texture2D<float> coverage, float clearDepth, float2 pixel, int2 cell, int2 lo, int2 hi,
+    float center, float2 gradient)
+{
+    // Filter color on the hit surface. Interpolating across a
+    // depth edge would reintroduce a stripe from the other face.
+    float2 texel = pixel - 0.5;
+    int2 corner = int2(floor(texel));
+    float2 fraction = frac(texel);
+    float sum = 0.0;
+    float3 radiance = 0.0;
+    [unroll]
+    for (uint tap = 0; tap < 4; ++tap)
+    {
+        int2 shift = int2(tap & 1u, tap >> 1u);
+        int2 pos = clamp(corner + shift, lo, hi);
+        float sampleZ = depth.Load(int3(pos, 0));
+        float expected = center + dot(gradient, float2(pos - cell));
+        if (sampleZ == clearDepth || coverage.Load(int3(pos, 0)) < 0.5
+            || abs(sampleZ - expected) > max(2.0e-7, dot(abs(gradient), float2(0.5)))) continue;
+        float2 weights = lerp(1.0 - fraction, fraction, float2(shift));
+        float weight = weights.x * weights.y;
+        radiance += color.Load(int3(pos, 0)).rgb * weight;
+        sum += weight;
+    }
+    return sum > 0.0 ? radiance / sum : color.Load(int3(cell, 0)).rgb;
+}
+
+// A projected ray is linear in pixel XY and device Z with parameter
+// q = distance / clipW(distance). Test only the interval inside each texel:
+// stepping behind a nearer silhouette is not an intersection with its face.
+public bool TraceWaterReceiver(Texture2D<float4> color, Texture2D<float> depth,
+    Texture2D<float> coverage, FWaterViewUniform view, float4 viewport, float2 pixel,
+    float3 origin, float3 direction, float3 forward, out FWaterBackground hit, out float distance,
+    out float2 hitPixel)
+{
+    hit = (FWaterBackground)0;
+    distance = 0.0;
+    hitPixel = pixel;
+    float4 point = float4(origin, 1.0);
+    float clipW = dot(view.Projection[3], point);
+    if (clipW <= 0.0) return false;
+    float dw = dot(view.Projection[3].xyz, direction);
+    float z = dot(view.Projection[2], point) / clipW;
+    float dz = dot(view.Projection[2].xyz, direction) - z * dw;
+    float2 xy = float2(dot(view.Projection[0].xyz, direction), dot(view.Projection[1].xyz, direction));
+    float2 velocity = (xy - WaterNdc(pixel, viewport) * dw) * viewport.zw * 0.5;
+    float end = dw > 0.0 ? 1.0 / dw : 1.0e20;
+    if (dz != 0.0) end = min(end, ((dz > 0.0 ? 1.0 : 0.0) - z) / dz);
+    int2 cell = int2(floor(pixel)), step = int2(sign(velocity));
+    int2 lo = int2(viewport.xy), hi = lo + int2(viewport.zw) - 1;
+    float2 stride = 1.0 / max(abs(velocity), 1.0e-20);
+    float2 next = abs(float2(cell) + float2(step.x > 0, step.y > 0) - pixel) * stride;
+    float enter = 0.0;
+    [loop]
+    for (uint visit = 0; visit < 192 && enter < end; ++visit)
+    {
+        if (any(cell < lo) || any(cell > hi)) break;
+        float leave = min(end, min(next.x, next.y));
+        float center = depth.Load(int3(cell, 0));
+        if (center != view.DepthParameters.x && coverage.Load(int3(cell, 0)) >= 0.5)
+        {
+            float2 gradient = float2(
+                WaterDepthSlope(depth.Load(int3(max(cell - int2(1, 0), lo), 0)), center,
+                    depth.Load(int3(min(cell + int2(1, 0), hi), 0))),
+                WaterDepthSlope(depth.Load(int3(max(cell - int2(0, 1), lo), 0)), center,
+                    depth.Load(int3(min(cell + int2(0, 1), hi), 0))));
+            float denominator = dz - dot(gradient, velocity);
+            float receiverZ = center + dot(gradient, pixel - (float2(cell) + 0.5));
+            if (denominator != 0.0)
+            {
+                float q = (receiverZ - z) / denominator;
+                if (q >= enter && q <= leave && 1.0 - q * dw > 0.0)
+                {
+                    distance = q * clipW / (1.0 - q * dw);
+                    hitPixel = pixel + velocity * q;
+                    hit.depth = dot(origin + distance * direction, forward);
+                    hit.valid = true;
+                    hit.radiance = WaterHitRadiance(color, depth, coverage, view.DepthParameters.x,
+                        hitPixel, cell, lo, hi, center, gradient);
+                    return true;
+                }
+            }
+        }
+        bool advanceX = next.x <= next.y;
+        bool advanceY = next.y <= next.x;
+        if (advanceX) { cell.x += step.x; next.x += stride.x; }
+        if (advanceY) { cell.y += step.y; next.y += stride.y; }
+        enter = leave;
+    }
+    return false;
 }
 
 public float WaterSchlickPhase(float g, float rayLightCosine)

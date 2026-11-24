@@ -619,6 +619,20 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 			EXPECT_NEAR(ReadChannel(HDR, X, Y, Channel), Expected[Channel], std::max(.002f, std::abs(Expected[Channel]) * .01f))
 				<< "pixel " << X << ", " << Y << ", channel " << Channel;
 	};
+	// Independent camera-space construction: intersect the Snell ray with a
+	// horizontal bed, then project that point into the 320 x 240 reference view.
+	const double Focal = 160.0 * std::sqrt(3.0);
+	const double Ior = (1.0 + std::sqrt(.02)) / (1.0 - std::sqrt(.02));
+	const auto Incident = [&](int X, int Y) {
+		return glm::normalize(FVector3((X + .5 - 160.) / Focal, (Y + .5 - 120.) / Focal, 1.));
+	};
+	const auto BedOffset = [&](int X, int Y, double Depth, FVector3 Normal) {
+		const FVector3 EyeRay = Incident(X, Y);
+		const FVector3 InWater = glm::refract(EyeRay, Normal, 1.0 / Ior);
+		return Focal * Depth / (3.0 + Depth) * FVector2(
+			InWater.x / InWater.z - EyeRay.x / EyeRay.z, InWater.y / InWater.z - EyeRay.y / EyeRay.z);
+	};
+	const FVector3 Facing(0, 0, -1), TiltX(.5, 0, -std::sqrt(.75)), TiltY(0, -.5, -std::sqrt(.75));
 	std::string Measurements = "depth_convention,x,y,expected,red,green,blue,view_transmission,bed_transmission\n";
 	for (auto Depth : {ESceneDepthConvention::ForwardZ, ESceneDepthConvention::ReversedZ})
 	{
@@ -635,9 +649,11 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 		for (const auto& [Y, DepthCm] : std::array{std::pair{195u, 25.0f}, std::pair{120u, 100.0f}, std::pair{45u, 200.0f}})
 		{
 			const float Transmission = std::exp(-.01f * DepthCm);
-			const float Expected = Transmission * Transmission;
+			const auto Ray = glm::refract(Incident(160, Y), Facing, 1.0 / Ior);
+			const float RayTransmission = std::exp(-.01 * DepthCm / Ray.z);
+			const float Expected = RayTransmission * Transmission;
 			CheckColor(HDR, 160, Y, FVector3f(Expected));
-			CheckColor(ViewTransmission, 160, Y, FVector3f(Transmission));
+			CheckColor(ViewTransmission, 160, Y, FVector3f(RayTransmission));
 			CheckColor(BedTransmission, 160, Y, FVector3f(Transmission));
 			Measurements += std::format("{},160,{},{},{},{},{},{},{}\n", Name, Y, Expected,
 				ReadChannel(HDR, 160, Y, 0), ReadChannel(HDR, 160, Y, 1), ReadChannel(HDR, 160, Y, 2),
@@ -659,7 +675,8 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	PublishWater();
 	CaptureHDR(HDR);
 	ASSERT_FALSE(HasFailure());
-	CheckColor(HDR, 160, 195, {std::exp(-.5f), std::exp(-.25f), 1.0f});
+	const float SlantCm = 25.0 / Incident(160, 195).z;
+	CheckColor(HDR, 160, 195, {std::exp(-.01f * (SlantCm + 25.f)), std::exp(-.005f * (SlantCm + 25.f)), 1.0f});
 	CheckColor(HDR, 160, 5, {0.0f, 0.0f, .6f});
 	Input.IR.GetAttribute(P::MP_Opacity).Literal = {1.0f};
 	PublishWater();
@@ -690,11 +707,9 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
 	ASSERT_FALSE(HasFailure());
 	const float Offset = ReadChannel(Refraction, 160, 120, 0);
-	// At native 320x240, FromF0 gives IOR 1.329431. For a half-strength
-	// right-facing normal the UE mono distortion is 26.877 pixels.
-	EXPECT_NEAR(Offset, 26.8772f, .05f);
-	EXPECT_NEAR(ReadChannel(Refraction, 160, 195, 0), Offset * 25.0f / 30.0f, .1f);
-	EXPECT_NEAR(ReadChannel(Refraction, 315, 120, 0), 3.95f, .05f);
+	EXPECT_NEAR(Offset, BedOffset(160, 120, 1., TiltX).x, .03);
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 195, 0), BedOffset(160, 195, .25, TiltX).x, .03);
+	EXPECT_NEAR(ReadChannel(Refraction, 315, 120, 0), BedOffset(315, 120, 1., TiltX).x, .03);
 	// The same deep bed extends beyond this water strip. Depth alone accepts it
 	// on both sides, but a lookup outside the visible water must fall back.
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(713));
@@ -702,15 +717,15 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	Add(713, 0.0, 0.0, 6.0, .4, Water);
 	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
 	ASSERT_FALSE(HasFailure());
-	EXPECT_NEAR(ReadChannel(Refraction, 147, 120, 0), Offset, .05f);
-	EXPECT_FLOAT_EQ(ReadChannel(Refraction, 160, 120, 0), 0.0f);
+	EXPECT_FLOAT_EQ(ReadChannel(Refraction, 147, 120, 0), 0.0f);
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 0), Offset, .03f);
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(713));
 	Add(713, 0.0, 0.0, 6.0, 6.0, Water);
 	Add(714, 0.0, -.1, 1.0, 1.0, Water);
 	Input.IR.GetAttribute(P::MP_Normal).Literal = {.5f, 0, .8660254f};
 	PublishWater();
 	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
-	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 1), -26.8772f * 240.f / 320.f, .05f);
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 1), BedOffset(160, 120, 1., TiltY).y, .05f);
 	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, .5f, .8660254f};
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefraction;
 	Input.IR.GetAttribute(P::MP_Refraction).Literal = {1.0f};
@@ -724,9 +739,11 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	PublishWater();
 	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
 	ASSERT_FALSE(HasFailure());
-	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 0), -Offset, .05f);
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 0), Offset, .05f);
 
 	// Aim an oblique camera at the same point on the flat bed.
+	// Cover the full refracted footprint as well as the original ray.
+	Add(722, 0.0, -0.95, 6.0, 6.0, Bed);
 	const FSceneView TopDownView = View;
 	View.ViewLocation = {-1.8, 0, 2.4};
 	View.ViewMatrix[0][0] = .6;
@@ -746,6 +763,7 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	ASSERT_FALSE(HasFailure());
 	EXPECT_GT(std::abs(ReadChannel(Refraction, 160, 120, 1)), 1.f);
 	View = TopDownView;
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(722));
 	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, .5f, .8660254f};
 
 	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
@@ -769,17 +787,29 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	EXPECT_FLOAT_EQ(ReadChannel(Refraction, 160, 120, 0), 0.0f);
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(716));
 
-	// The right-hand tap sees a green 25 cm bed; the left sees the white 1 m bed.
-	// The same bilinear weights must select both radiance and optical thickness.
-	const double PixelAtBed = 2.0 * 3.25 / (320.0 * std::sqrt(3.0));
-	Add(717, 0.0, -.25, .16, .9 * PixelAtBed, Foreground, 27.5 * PixelAtBed);
+	// A 25 cm face covers the pixel reached at 1 m. It does not intersect
+	// the ray at 25 cm, and the bed behind it is hidden in the depth snapshot.
+	const double NearPixel = 2.0 * 3.25 / (320.0 * std::sqrt(3.0));
+	Add(717, 0.0, -.25, .16, 6.0 * NearPixel, Foreground, Offset * NearPixel);
 	CaptureHDR(HDR);
-	constexpr float GreenWeight = 26.8772f - 26.0f;
-	CheckColor(HDR, 160, 120, {1.0f - GreenWeight, 1.0f, 1.0f - GreenWeight});
+	CheckColor(HDR, 160, 120, FVector3f(1.0f));
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	EXPECT_FLOAT_EQ(ReadChannel(Refraction, 160, 120, 0), 0.0f);
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(717));
+
+	// Put that same face at the actual near intersection instead. Both its
+	// green radiance and its shorter optical path must win over the deeper bed.
+	const float NearOffset = BedOffset(160, 120, .25, TiltX).x;
+	Add(717, 0.0, -.25, .16, 3.0 * NearPixel, Foreground, NearOffset * NearPixel);
+	CaptureHDR(HDR);
+	CheckColor(HDR, 160, 120, {0, 1, 0});
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 0), NearOffset, .03f);
 	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {.01f, .01f, .01f};
 	PublishWater();
 	CaptureHDR(HDR, EWaterVolumeReadback::ViewTransmission);
-	CheckColor(HDR, 160, 120, FVector3f(std::exp(-.01f * (100.0f - 75.0f * GreenWeight))));
+	const auto Ray = glm::refract(Incident(160, 120), TiltX, 1.0 / Ior);
+	EXPECT_NEAR(ReadChannel(HDR, 160, 120, 0), std::exp(-.25 / Ray.z), .001);
 	Input.IR.GetCustomOutput(SingleLayerWater::Absorption).Literal = {};
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(717));
 
@@ -812,7 +842,7 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 			ASSERT_GT(Count, 0u);
 			StripeCenter[Enabled] /= float(Count);
 		}
-		EXPECT_NEAR((StripeCenter[0] - StripeCenter[1]) / float(Scale * Scale), Offset, 1.0f);
+		EXPECT_NEAR((StripeCenter[0] - StripeCenter[1]) / float(Scale), Offset, 1.0f);
 	}
 	View.ViewportWidth = 320;
 	View.ViewportHeight = 240;
