@@ -302,7 +302,8 @@ namespace Durin::MonaImGui::PropertyEdit
 	auto ShowLabelTooltip(FLabelTooltip LabelTooltip, bool bReadOnly) -> void
 	{
 		if (!LabelTooltip.Builder && (!LabelTooltip.Text || LabelTooltip.Text[0] == '\0') && !bReadOnly) return;
-		if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) return;
+		if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay
+			| ImGuiHoveredFlags_AllowWhenDisabled)) return;
 		const std::string Generated = LabelTooltip.Builder ? LabelTooltip.Builder(LabelTooltip.Context) : std::string{};
 		const char* Text = LabelTooltip.Builder ? Generated.c_str() : LabelTooltip.Text;
 		ImGui::BeginTooltip();
@@ -328,7 +329,7 @@ namespace Durin::MonaImGui::PropertyEdit
 		}
 
 		auto EditTransformRow = [&](const char* RowLabel, FVector3& Value, double Speed) -> bool {
-			BeginRow(RowLabel, bReadOnly, GetCompactTreeNodeToLabelSpacing(), "Type: Vector3");
+			BeginRow(RowLabel, bReadOnly, GetCompactTreeNodeToLabelSpacing());
 			const bool bChanged = EditVectorValue(RowLabel, Value, Speed, OutState);
 			EndRow(bReadOnly);
 			return bChanged;

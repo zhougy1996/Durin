@@ -269,8 +269,7 @@ namespace Durin
 					const FCategory* Category = CurrentCategory;
 					bGroupOpen = MonaImGui::PropertyEdit::BeginGroup(CurrentCategory->Name.c_str(), Category->Label.c_str(),
 						Category->bInitiallyCollapsed ? ImGuiTreeNodeFlags_None : ImGuiTreeNodeFlags_DefaultOpen);
-					if (!Category->Tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-						ImGui::SetTooltip("%s", Category->Tooltip.c_str());
+					MonaImGui::PropertyEdit::ShowLabelTooltip(Category->Tooltip.c_str());
 				}
 			}
 			++Result.VisibleRowCount;
@@ -293,12 +292,11 @@ namespace Durin
 				const auto Label = Function.GetDisplayName() + "###FunctionAction";
 				if (ImGui::Button(Label.c_str())) Result.FunctionRequest = Request;
 				ImGui::EndDisabled();
-				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-				{
-					const auto Text = Error == EEditorFunctionError::None
-						? std::string_view(Function.GetToolTip()) : DescribeEditorFunctionError(Error);
-					if (!Text.empty()) ImGui::SetTooltip("%.*s", static_cast<int>(Text.size()), Text.data());
-				}
+				const auto Text = Error == EEditorFunctionError::None
+					? std::string_view(Function.GetToolTip()) : DescribeEditorFunctionError(Error);
+				if (!Text.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal
+					| ImGuiHoveredFlags_NoSharedDelay | ImGuiHoveredFlags_AllowWhenDisabled))
+					ImGui::SetTooltip("%.*s", static_cast<int>(Text.size()), Text.data());
 				ImGui::PopID();
 			}
 			else

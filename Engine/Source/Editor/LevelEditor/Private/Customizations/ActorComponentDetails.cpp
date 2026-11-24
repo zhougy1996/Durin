@@ -52,16 +52,13 @@ namespace Durin::LevelEditor
 				const std::string Source = std::format("{} {}", Component->GetName(), Component->GetClass()->GetQualifiedName());
 				auto& Mesh = Builder.EditCategory("StaticMesh", "Static Mesh");
 				Mesh.SetSortOrder(-90);
-				Mesh.SetTooltip(Source);
 				Mesh.AddProperty(Component, Component->GetClass()->FindPropertyByName("StaticMesh"), 0, {}, Source);
 				AddStaticMeshMaterialSlotDetails(Builder, Component, "StaticMesh");
 				auto& Rendering = Builder.EditCategory("Rendering");
 				Rendering.SetSortOrder(-80);
-				Rendering.SetTooltip(Source);
 				Rendering.AddProperty(Component, Component->GetClass()->FindPropertyByName("bVisible"), 0, {}, Source);
 				auto& Collision = Builder.EditCategory("Collision");
 				Collision.SetSortOrder(-70);
-				Collision.SetTooltip(Source);
 				Collision.AddProperty(Component, Component->GetClass()->FindPropertyByName("BodyInstance"), 0, {}, Source);
 			}
 		};
@@ -110,7 +107,6 @@ namespace Durin::LevelEditor
 		{
 			auto& TransformCategory = Builder.EditCategory("Transform");
 			TransformCategory.SetSortOrder(-100);
-			TransformCategory.SetTooltip(std::format("{} {}", Root->GetName(), Root->GetClass()->GetQualifiedName()));
 			TransformCategory.AddProperty(Root, Root->GetClass()->FindPropertyByName("RelativeTransform"),
 				0, {.Label = "Transform", .bShowTransformHeader = false}, "Location Rotation Scale");
 		}
@@ -144,7 +140,7 @@ namespace Durin::LevelEditor
 			if (Component == Root) ComponentBuilder->HideProperty(Component->GetClass()->FindPropertyByName("RelativeTransform"));
 			ComponentBuilder->AddDefaultProperties(Component, false);
 			if (ComponentBuilder->GetVisibleRowCount() == 0) continue;
-			Builder.AddCustomRow(SearchText, [ComponentBuilder, Component, Label, TypeName, bShowComponentGroup, bSearching = !SearchText.empty()](
+			Builder.AddCustomRow(SearchText, [ComponentBuilder, Component, Label, bShowComponentGroup, bSearching = !SearchText.empty()](
 				FPropertyView& View, const FPropertyViewContext& ViewContext) {
 				ImGui::PushID(Component);
 				if (!bShowComponentGroup)
@@ -155,7 +151,6 @@ namespace Durin::LevelEditor
 				}
 				if (bSearching) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 				const bool bOpen = MonaImGui::PropertyEdit::BeginGroup("##ComponentProperties", Label.c_str());
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", TypeName.c_str());
 				bool bChanged = false;
 				if (bOpen)
 				{

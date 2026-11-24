@@ -139,7 +139,7 @@ Authoring syntax, applicability, and runtime metadata ownership are defined by
 
 The generic property view reads `FProperty::GetTypedMetadata()` for first-party
 presentation. `DisplayName` replaces the humanized field label, `ToolTip` is
-shown together with the reflected type, and `Category` groups visible fields
+shown after hovering over its label, and `Category` groups visible fields
 with a stable category-first ordering. Numeric rows use `Step` as drag speed,
 `Precision` as their decimal format, `UIMin`/`UIMax` as presentation bounds,
 and render the selected unit beside the value. Fixed-array elements retain

@@ -66,10 +66,6 @@ namespace Durin::LevelEditor
 				ImGui::SameLine();
 				ImGui::TextDisabled("(%s)", TypeName.c_str());
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
-			{
-				ImGui::SetTooltip("Full Type Name: %s", Object->GetClass()->GetQualifiedName().ToString().c_str());
-			}
 		}
 	} // namespace
 
@@ -175,12 +171,9 @@ namespace Durin::LevelEditor
 			WorkspaceSettings.SetDetailsPaneRatio(ComponentPaneRatio);
 			WorkspaceSettings.SetDetailsPaneAutoSized(false);
 		}
-		if (ImGui::IsItemHovered())
-		{
-			ImGui::SetTooltip("Drag to resize. Double-click to fit components.");
-			if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-				WorkspaceSettings.SetDetailsPaneAutoSized(true);
-		}
+		if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+			WorkspaceSettings.SetDetailsPaneAutoSized(true);
+		MonaImGui::PropertyEdit::ShowLabelTooltip("Drag to resize. Double-click to fit components.");
 
 		if (ImGui::BeginChild("DetailsProperties", ImVec2(0.0f, 0.0f),
 			ImGuiChildFlags_AlwaysUseWindowPadding,
