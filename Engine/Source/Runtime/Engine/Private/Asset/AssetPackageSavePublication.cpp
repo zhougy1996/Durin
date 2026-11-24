@@ -115,12 +115,11 @@ namespace Durin::AssetPrivate
 	{
 		DPackage* Package = Prepared.Package.Get();
 		const auto& Path = Prepared.Header.PackagePath;
-		const uint64 Revision = Prepared.Revision;
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return {.Error = Guard.error()};
 		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
 			return WriteFailure(AssetWriteErrors::ReadOnlyMode, "Cooked packages cannot be saved.");
 		if (auto Admission = ValidatePackageSaveAdmission(Path); !Admission) return FAssetWriteResult{Admission.error()};
-		if (Package->GetEditRevision() != Revision || Package->GetPackagePathIdentity() != Path)
+		if (Package->GetPackagePathIdentity() != Path)
 			return WriteFailure(AssetWriteErrors::StaleData, "Package changed during save preparation.");
 		if (Context.Fault)
 			for (auto Phase : {Testing::EPackageSaveFaultPoint::CreateDirectories, Testing::EPackageSaveFaultPoint::PublishCompanion,
@@ -138,6 +137,8 @@ namespace Durin::AssetPrivate
 			return RollbackAssetWrite(Write, FAssetWriteResult{.Error = ToError(*InspectionError)});
 		if (!Stamp.Exists)
 			return RollbackAssetWrite(Write, FAssetWriteResult{.Error = UnifiedError::FError{AssetWriteErrors::StaleData, "Committed package disappeared."}});
+		Package->ClearDirty();
+		OnPackageSaved().Broadcast(*Package);
 		const bool Inject = Context.Fault && Context.Fault(Testing::EPackageSaveFaultPoint::PublishRegistry, Context.PackageIndex);
 		FAssetWriteResult RegistryResult;
 		if (Inject) RegistryResult.Error.emplace(AssetWriteErrors::StaleData, "Injected Registry publication failure.");
@@ -148,7 +149,6 @@ namespace Durin::AssetPrivate
 			Package->RecordDiskExports(Prepared.DiskExports, Prepared.MainDigest);
 			Package->MarkAsPublished();
 		}
-		if (Package->GetEditRevision() == Revision) Package->ClearDirty();
 		auto Finalized = ToAssetWriteResult(Write.Finalize());
 		if (!RegistryResult)
 		{

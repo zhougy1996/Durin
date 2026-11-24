@@ -1,3 +1,4 @@
+#include "NativePackageNotificationTestSupport.h"
 #include "HAL/PlatformFile.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "Misc/UnifiedError.h"
@@ -4205,7 +4206,7 @@ TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesFo
 	std::array<FPackageGraphSource, 2> Sources;
 	std::array<DPackageAssetForTest*, 2> Live{};
 	std::array<TWeakObjectPtr<DPackage>, 2> Targets;
-	std::array<uint64, 2> Revisions{};
+	std::array<bool, 2> DirtyFlags{};
 	FPackagePath DependencyPath, BulkPath, OtherPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrepareOwnedDependency", DependencyPath));
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrepareOwnedBulk", BulkPath));
@@ -4224,7 +4225,7 @@ TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesFo
 	Other->Value = 701;
 	Other->GetPackage()->MarkDirty();
 	Other->SetFlags(Durin::EObjectFlags::Standalone);
-	const auto OtherRevision = Other->GetPackage()->GetEditRevision();
+	const bool bOtherWasDirty = Other->GetPackage()->IsDirty();
 	for (size_t Index = 0; Index < Sources.size(); ++Index)
 	{
 		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/PrepareOwnedRoot{}", Index), Sources[Index].PackagePath));
@@ -4244,7 +4245,7 @@ TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesFo
 		Live[Index]->Value = 91;
 		Live[Index]->GetPackage()->MarkDirty();
 	Live[Index]->SetFlags(Durin::EObjectFlags::Standalone);
-		Revisions[Index] = Live[Index]->GetPackage()->GetEditRevision();
+		DirtyFlags[Index] = Live[Index]->GetPackage()->IsDirty();
 	}
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(DependencyPath));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(BulkPath));
@@ -4305,13 +4306,13 @@ TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesFo
 	EXPECT_EQ(FindResidentPackage(OtherPath), Other->GetPackage());
 	EXPECT_EQ(Other->Value, 701);
 	EXPECT_TRUE(Other->GetPackage()->IsDirty());
-	EXPECT_EQ(Other->GetPackage()->GetEditRevision(), OtherRevision);
+	EXPECT_EQ(Other->GetPackage()->IsDirty(), bOtherWasDirty);
 	for (size_t Index = 0; Index < Sources.size(); ++Index)
 	{
 		EXPECT_EQ(FindResidentPackage(Sources[Index].PackagePath), Targets[Index].Get());
 		EXPECT_EQ(Live[Index]->Value, 91);
 		EXPECT_TRUE(Live[Index]->GetPackage()->IsDirty());
-		EXPECT_EQ(Live[Index]->GetPackage()->GetEditRevision(), Revisions[Index]);
+		EXPECT_EQ(Live[Index]->GetPackage()->IsDirty(), DirtyFlags[Index]);
 		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
 		ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Sources[Index].PackagePath));
 	}
@@ -5042,7 +5043,7 @@ TEST(FPackageAssetTests, PreparedGraphsRestoreSavedBatchCyclesAndContainersWitho
 	InitializeAssetTests();
 	std::array<FPackageGraphSource, 2> Sources;
 	std::array<DPackageAssetForTest*, 2> Live{};
-	std::array<uint64, 2> Revisions{};
+	std::array<bool, 2> DirtyFlags{};
 	for (size_t Index = 0; Index < Sources.size(); ++Index)
 	{
 		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/PreparedCycle{}", Index), Sources[Index].PackagePath));
@@ -5071,7 +5072,7 @@ TEST(FPackageAssetTests, PreparedGraphsRestoreSavedBatchCyclesAndContainersWitho
 		Live[Index]->Scores = {77};
 		Live[Index]->NamedScores = {{"edited", 88}};
 		Live[Index]->GetPackage()->MarkDirty();
-		Revisions[Index] = Live[Index]->GetPackage()->GetEditRevision();
+		DirtyFlags[Index] = Live[Index]->GetPackage()->IsDirty();
 	}
 	const auto PostLoads = GPackageAssetPostLoadCount;
 	const auto LiveCount = GDObjectArray.GetAll(EObjectQueryScope::LiveOnly).size();
@@ -5108,7 +5109,7 @@ TEST(FPackageAssetTests, PreparedGraphsRestoreSavedBatchCyclesAndContainersWitho
 		EXPECT_EQ(FindPackage(Sources[Index].PackagePath.GetView()), Live[Index]->GetPackage());
 		EXPECT_EQ(Live[Index]->Value, 99);
 		EXPECT_TRUE(Live[Index]->GetPackage()->IsDirty());
-		EXPECT_EQ(Live[Index]->GetPackage()->GetEditRevision(), Revisions[Index]);
+		EXPECT_EQ(Live[Index]->GetPackage()->IsDirty(), DirtyFlags[Index]);
 	}
 	EXPECT_EQ(Prepared[0]->ExternalReference.Get(), Prepared[1]);
 	EXPECT_EQ(Prepared[1]->ExternalReference.Get(), Prepared[0]->DefaultChild.Get());
@@ -5163,7 +5164,7 @@ TEST(FPackageAssetTests, PreparedSavedGraphsTransferToReplacementAndSurviveOwner
 	Observer->ExternalReference = Live[0];
 	ASSERT_TRUE(SavePackage(Observer->GetPackage()));
 	TStrongObjectPtr<DPackageAssetForTest> ObserverOwner(Observer);
-	const auto ObserverRevision = Observer->GetPackage()->GetEditRevision();
+	const bool bObserverWasDirty = Observer->GetPackage()->IsDirty();
 	FPackageGraphPrepareOptions Options;
 	Options.AdmittedClasses = {DPackageAssetForTest::StaticClass(), DObject::StaticClass()};
 	std::vector<FPreparedPackageGraph> Graphs;
@@ -5194,7 +5195,7 @@ TEST(FPackageAssetTests, PreparedSavedGraphsTransferToReplacementAndSurviveOwner
 	}
 	EXPECT_EQ(Observer->ExternalReference.Get(), Restored[0]);
 	EXPECT_FALSE(Observer->GetPackage()->IsDirty());
-	EXPECT_EQ(Observer->GetPackage()->GetEditRevision(), ObserverRevision);
+	EXPECT_EQ(Observer->GetPackage()->IsDirty(), bObserverWasDirty);
 	EXPECT_EQ(Restored[0]->ExternalReference.Get(), Restored[1]);
 	EXPECT_EQ(Restored[1]->ExternalReference.Get(), Restored[0]->DefaultChild.Get());
 	Observer->ExternalReference = nullptr;
@@ -5381,7 +5382,7 @@ TEST(FPackageAssetTests, PreparedGraphsReuseResidentDependencyAndRejectImplicitL
 	Dependency->Value = 98;
 	Dependency->GetPackage()->MarkDirty();
 	TStrongObjectPtr<DPackageAssetForTest> LiveOwner(Live);
-	const auto Revision = Dependency->GetPackage()->GetEditRevision();
+	const bool bWasDirty = Dependency->GetPackage()->IsDirty();
 	FPackageGraphPrepareOptions Options;
 	Options.AdmittedClasses = {DPackageAssetForTest::StaticClass(), DObject::StaticClass()};
 	std::vector<FPreparedPackageGraph> Graphs;
@@ -5390,7 +5391,7 @@ TEST(FPackageAssetTests, PreparedGraphsReuseResidentDependencyAndRejectImplicitL
 	ASSERT_NE(Prepared, nullptr);
 	EXPECT_EQ(Prepared->ExternalReference.Get(), Dependency->DefaultChild.Get());
 	EXPECT_EQ(Dependency->Value, 98);
-	EXPECT_EQ(Dependency->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_EQ(Dependency->GetPackage()->IsDirty(), bWasDirty);
 	Graphs.clear();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Live->ExternalReference = nullptr;
@@ -5477,7 +5478,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	ASSERT_TRUE(SavePackage(Live->GetPackage()));
 	Live->GetPackage()->MarkDirty();
 	Live->SetFlags(Durin::EObjectFlags::Standalone);
-	const auto Revision = Live->GetPackage()->GetEditRevision();
+	const bool bWasDirty = Live->GetPackage()->IsDirty();
 	DPackage* Private = NewObject<DPackage>(nullptr, FName(Path.GetPackageName()));
 	ASSERT_TRUE(Private->InitializePreparedAssetPackage(Path));
 	auto* Candidate = NewObject<DPackageAssetForTest>(Private, Live->GetFName());
@@ -5532,7 +5533,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	EXPECT_EQ(FindPackage(Path.GetView()), Live->GetPackage());
 	EXPECT_EQ(Live->Value, 73);
 	EXPECT_TRUE(Live->GetPackage()->IsDirty());
-	EXPECT_EQ(Live->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_EQ(Live->GetPackage()->IsDirty(), bWasDirty);
 	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size(), Count);
 	EXPECT_TRUE(Candidate->GetPackage()->IsGraphPrivate());
 	MarkObjectHierarchyAsGarbage(Private);
@@ -6245,7 +6246,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkRe
 	ASSERT_TRUE(Live->Payload.UpdatePayload(Edited));
 	Live->GetPackage()->MarkDirty();
 	Live->SetFlags(Durin::EObjectFlags::Standalone);
-	const auto Revision = Live->GetPackage()->GetEditRevision();
+	const bool bWasDirty = Live->GetPackage()->IsDirty();
 	auto BulkFile = File;
 	BulkFile.replace_extension(".dbulk");
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Edited, BulkFile));
@@ -6257,7 +6258,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkRe
 	EXPECT_FALSE(LiveResource->IsRetired());
 	EXPECT_EQ(FindPackage(Path.GetView()), Live->GetPackage());
 	EXPECT_TRUE(Live->GetPackage()->IsDirty());
-	EXPECT_EQ(Live->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_EQ(Live->GetPackage()->IsDirty(), bWasDirty);
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Saved, BulkFile));
 	MarkObjectHierarchyAsGarbage(Private);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -6280,7 +6281,7 @@ TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackag
 	const FByteBuffer Edited(Saved.size(), std::byte{0x73});
 	ASSERT_TRUE(Asset->Payload.UpdatePayload(Edited));
 	Live->MarkDirty();
-	const auto Revision = Live->GetEditRevision();
+	const bool bWasDirty = Live->IsDirty();
 	const auto ResourceBefore = GetPackageResourceManager().FindPackage(Path.ToString());
 	const auto ObjectCount = GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size();
 	const auto File = Testing::GetTestWorkDirectory() / "Assets" / "PreparedClosure.dasset";
@@ -6293,7 +6294,7 @@ TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackag
 	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size(), ObjectCount);
 	EXPECT_EQ(GetPackageResourceManager().FindPackage(Path.ToString()), ResourceBefore);
 	EXPECT_TRUE(Live->IsDirty());
-	EXPECT_EQ(Live->GetEditRevision(), Revision);
+	EXPECT_EQ(Live->IsDirty(), bWasDirty);
 	EXPECT_TRUE(std::ranges::equal(Asset->Payload.GetPayload().Wait().value(), Edited));
 	ASSERT_NE(Prepared.GetBulkResource(), nullptr);
 	const auto Captured = Prepared.GetBulkResource()->ReadRange(0, Saved.size());
@@ -6316,7 +6317,7 @@ TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackag
 	EXPECT_TRUE(InvalidMain.error().Message.contains(File.generic_string()));
 	EXPECT_EQ(Prepared.GetBulkResource(), OriginalResource);
 	EXPECT_EQ(FindPackage(Path.GetView()), Live);
-	EXPECT_EQ(Live->GetEditRevision(), Revision);
+	EXPECT_EQ(Live->IsDirty(), bWasDirty);
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Prepared.GetMainBytes(), File));
 	Live->ClearDirty(); // End the deliberately dirty fixture before removal admission.
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
@@ -6693,11 +6694,13 @@ TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 		std::byte{0x51});
 	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 	Durin::DPackage* Packages[] = {Asset->GetPackage()};
+	Durin::Testing::FScopedPackageNotificationCount Saved(Durin::OnPackageSaved(), Asset->GetPackage());
 	const Durin::FAssetWriteResult Result = ([&] { Durin::Testing::FScopedPackageSaveFault Fault([](Durin::Testing::EPackageSaveFaultPoint Phase, size_t) {
 				return Phase == Durin::Testing::EPackageSaveFaultPoint::PublishRegistry;
 			}); return Durin::SavePackages(
 		Packages, {}); }()).Result;
 	EXPECT_TRUE(Result.Error && Result.Error->Is(Durin::AssetWriteErrors::StaleData));
+	EXPECT_EQ(Saved.Count, 1);
 	EXPECT_EQ(Result.Effect,
 		Durin::EAssetWriteEffect::ContentCommittedProjectionPending);
 	const std::filesystem::path Root =
@@ -11064,28 +11067,23 @@ TEST(FPackageAssetTests, RejectsSavingCppPackages)
 	}
 }
 
-TEST(FPackageAssetTests, PackageEditRevisionAdvancesForRepeatedDirtyEdits)
+TEST(FPackageAssetTests, OnlyPersistentSaveBroadcastsPackageSaved)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath Path;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/EditRevision", Path));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SaveFence", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Asset));
-	Durin::DPackage* Package = Asset->GetPackage();
-	ASSERT_NE(Package, nullptr);
-
-	const uint64 CreatedRevision = Package->GetEditRevision();
+	auto* Package = Asset->GetPackage();
+	Durin::Testing::FScopedPackageNotificationCount Saved(Durin::OnPackageSaved(), Package);
+	Package->MarkDirty();
 	Package->ClearDirty();
-	EXPECT_EQ(Package->GetEditRevision(), CreatedRevision);
-
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_EQ(Saved.Count, 0);
 	Package->MarkDirty();
-	const uint64 FirstEditRevision = Package->GetEditRevision();
-	EXPECT_GT(FirstEditRevision, CreatedRevision);
-	EXPECT_TRUE(Package->IsDirty());
-
-	Package->MarkDirty();
-	EXPECT_GT(Package->GetEditRevision(), FirstEditRevision);
-	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(Durin::SavePackage(Package));
+	EXPECT_EQ(Saved.Count, 1);
+	EXPECT_FALSE(Package->IsDirty());
 }
 
 TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLaterFailure)
@@ -11423,6 +11421,7 @@ TEST(FPackageAssetTests, PackageRemovalRejectsNativeAndUnsavedLiveReferencesBefo
 	ASSERT_TRUE(SavePackage(Second->GetPackage()));
 	const std::array Packages{*FindPackageExact(FirstPath), *FindPackageExact(SecondPath)};
 	const uint64 Revision = GetAssetCatalogRevision();
+	Durin::Testing::FScopedPackageNotificationCount Deleted(OnPackageDeleted(), First->GetPackage());
 	TStrongObjectPtr<DObject> NativeOwner(Second);
 	{
 		const auto Failure = ReleasePackagesForRemoval(Packages, Revision);
@@ -11441,7 +11440,9 @@ TEST(FPackageAssetTests, PackageRemovalRejectsNativeAndUnsavedLiveReferencesBefo
 	EXPECT_FALSE(First->IsGarbage());
 	EXPECT_TRUE(std::filesystem::exists(Packages.front().PhysicalPath));
 	// Both graphs can still be deleted together; their internal edge is allowed.
+	EXPECT_EQ(Deleted.Count, 0);
 	ASSERT_TRUE(ReleasePackagesForRemoval(Packages, Revision));
+	EXPECT_EQ(Deleted.Count, 1);
 	EXPECT_EQ(FindResidentPackage(FirstPath), nullptr);
 	EXPECT_EQ(FindResidentPackage(SecondPath), nullptr);
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(FirstPath));

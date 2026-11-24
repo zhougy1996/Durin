@@ -212,7 +212,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverridesVersion"), nullptr);
 
 	FPropertyTransactionHarness Transactions;
-	Transactions->EstablishSavedState(*Component->GetPackage());
+	Component->GetPackage()->ClearDirty();
 	Durin::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);

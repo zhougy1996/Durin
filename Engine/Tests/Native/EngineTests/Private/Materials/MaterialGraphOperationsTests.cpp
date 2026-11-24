@@ -3621,7 +3621,9 @@ TEST(FMaterialGraphOperationsTests, GraphChangesJoinAnOuterRecording)
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
 	EXPECT_GT(Material->GetMaterialProgramRevision(), Revision);
 	EXPECT_EQ(Notifications, 1u);
-	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
+	ASSERT_EQ(Transactions->GetQueueLength(), 1u);
+	EXPECT_EQ(Transactions->GetTransaction(0), GUndo);
+	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_EQ(Transactions->End(), 1);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
@@ -3691,7 +3693,6 @@ TEST(FMaterialGraphOperationsTests, MissingAllocationRejectsTheWholeGraphReplay)
 	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const auto Result = History.Apply(true, EPropertyChangeOrigin::Undo);
 	ASSERT_FALSE(Result);
-	EXPECT_EQ(Result.error().Status, ETransactionApplyFailure::ValidationFailed);
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 }
@@ -4349,7 +4350,7 @@ TEST(FMaterialGraphOperationsTests, GraphSessionRetainsHistoryFailureAcrossRollb
 	const auto Before = CaptureExpressions(*Material.Get());
 	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
 	const auto Rejected = AuthoringGraph->FindNode(NodeId)->SetConstantValue(FMaterialParameterValue::MakeScalar(.75f));
 	ASSERT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
@@ -4358,7 +4359,7 @@ TEST(FMaterialGraphOperationsTests, GraphSessionRetainsHistoryFailureAcrossRollb
 	EXPECT_EQ(CaptureExpressions(*Material.Get()), Before);
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_FALSE(Transactions->CanUndo());
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	ASSERT_TRUE(AuthoringGraph->FindNode(NodeId)->SetConstantValue(FMaterialParameterValue::MakeScalar(.75f)));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material.Get()), Before);
@@ -4480,10 +4481,9 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	auto Preview = Parameters.Find(ParameterId);
 	ASSERT_TRUE(Preview);
 	PropertyEditor::FPropertyEdit Edit;
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
 	ASSERT_TRUE(Edit.SetValue(.75f));
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
 	std::string Error;
 	const auto Failed = Edit.Commit(&Error);
 	ASSERT_FALSE(Failed);
@@ -4492,15 +4492,14 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	EXPECT_TRUE(Edit.IsActive());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Recording);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	ASSERT_TRUE(Edit.Cancel());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
 	ASSERT_TRUE(Edit.SetValue(.5f));
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
 	EXPECT_FALSE(Edit.Commit());
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Recording);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	ASSERT_TRUE(Edit.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
@@ -4525,13 +4524,13 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
 	ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{NodeId}, Transactions.Get()));
 	ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{NodeId, 777, 222}}));
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
 	const auto MoveFailure = Move.Commit();
 	ASSERT_FALSE(MoveFailure);
 	EXPECT_NE(MoveFailure.error().find("The editor transactor is busy."), std::string::npos);
 	EXPECT_TRUE(Move.IsActive());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	ASSERT_TRUE(Move.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
@@ -4559,12 +4558,12 @@ TEST(FMaterialGraphOperationsTests, PreviewWriteRejectsBusyHistoryAndKeepsPublis
 	auto Preview = Parameters.Find(ParameterId);
 	ASSERT_TRUE(Preview);
 	PropertyEditor::FReflectedPropertyHandle Handle(Preview->GetEditTarget());
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
 	ASSERT_EQ(Handle.SetValue(.75f), PropertyEditor::FPropertyAccess::Fail);
 	EXPECT_FALSE(Handle.GetLastError().empty());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	ASSERT_EQ(Handle.SetValue(.75f), PropertyEditor::FPropertyAccess::Success);
 
 	ASSERT_TRUE(Transactions->Undo());

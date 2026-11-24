@@ -101,14 +101,12 @@ namespace
             const auto Created = Runtime.CreateSession(Tools->GetService(), EToolSource::External, {}, {.EditPolicy = Policy});
             ASSERT_TRUE(Created); Session = *Created;
             ScenePackage->ClearDirty();
-            Host->GetTransactor()->EstablishSavedState(*ScenePackage);
         }
         auto PrepareActorScene(EPythonEditPolicy Policy = EPythonEditPolicy::NonDocumentReadWrite) -> void
         {
             PrepareScene(Policy);
             ASSERT_NE(EditLevel->SpawnActor<ACameraActor>("Seed"), nullptr);
             ScenePackage->ClearDirty();
-            Host->GetTransactor()->EstablishSavedState(*ScenePackage);
         }
         auto ActorPass(std::string Source) -> void
         { Pass("actors = durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)\nlevel = actors.GetEditorLevel()\n" + Source); }

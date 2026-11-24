@@ -80,7 +80,7 @@ namespace Durin
 		DFUNCTION(ScriptCallable, ScriptName = "DetachActors")
 		DURINED_API auto ScriptDetachActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors, EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
 		// Failed creation returns null, failed duplication an empty array, and other failures false.
-		// Attachment and detachment report whether any root changed. Other successful no-ops return true. Detailed recovery state belongs to the transactor.
+		// Attachment and detachment report whether any root changed. Other successful no-ops return true. The transactor reports history failures.
 		DURINED_API auto SpawnActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
 			const FActorEditContext& Context, std::function<void(AActor&)> Configure = {},
 			ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested, const std::string& Label = "", std::string* OutError = nullptr) -> AActor*;

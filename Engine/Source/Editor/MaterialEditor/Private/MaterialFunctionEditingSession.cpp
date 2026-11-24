@@ -14,10 +14,16 @@
 namespace Durin::MaterialEditor
 {
 
+	static auto HaveSameExpressions(const DMaterialFunction& Left, const DMaterialFunction& Right) -> bool
+	{
+		return std::ranges::equal(Left.GetExpressionCollection().Expressions, Right.GetExpressionCollection().Expressions,
+			[](const auto& A, const auto& B) { return A && B && HaveSameMaterialExpressionFields(*A, *B); });
+	}
+
 	auto FMaterialFunctionEditingSession::RefreshSourceRevision() -> void
 	{
-		if (const auto* Original = Source.Get(); Original && Original->GetPackage())
-			SourceRevision = {Original->GetFunctionRevision(), Original->GetPackage()->GetEditRevision()};
+		if (auto* Original = Source.Get(); Original && Original->GetPackage())
+			SourceRevision = {Original->GetFunctionRevision(), Original->GetGraphChanges().GetEditRevision()};
 	}
 
 	auto FMaterialFunctionEditingSession::Initialize(DMaterialFunction& Original,
@@ -42,12 +48,16 @@ namespace Durin::MaterialEditor
 		Working->SetFlags(EObjectFlags::Transient | EObjectFlags::Transactional);
 		Graph = DMaterialGraph::Create(*Working);
 		WorkingPackage->ClearDirty();
-		if (Transactor.IsValid()) Transactor.Get()->EstablishSavedState(*WorkingPackage);
+
 		return true;
 	}
 
 	auto FMaterialFunctionEditingSession::IsDirty() const -> bool
-	{ return WorkingPackage && WorkingPackage->IsDirty(); }
+	{
+		return WorkingPackage && (WorkingPackage->IsDirty()
+			|| (Source && Working && SourceRevision == std::pair{Source->GetFunctionRevision(), Source->GetGraphChanges().GetEditRevision()}
+				&& (Source->GetFunctionPresentation() != Working->GetFunctionPresentation() || !HaveSameExpressions(*Source, *Working))));
+	}
 
 	auto FMaterialFunctionEditingSession::Publish(std::string& Error, bool bForce) -> bool
 	{
@@ -56,7 +66,7 @@ namespace Durin::MaterialEditor
 		const TStrongObjectPtr<DMaterialFunction> Original(Source.Get());
 		if (!Original || !Original->GetPackage() || !Working)
 		{ Error = "The source function is no longer available."; return false; }
-		if (SourceRevision != std::pair{Original->GetFunctionRevision(), Original->GetPackage()->GetEditRevision()})
+		if (SourceRevision != std::pair{Original->GetFunctionRevision(), Original->GetGraphChanges().GetEditRevision()})
 		{ Error = "The source function changed outside this document. Discard or reopen before applying."; return false; }
 		std::vector<DMaterialFunctionInterface*> Roots;
 		for (const auto& Dependency : Working->GetFunctionDependencies()) Roots.push_back(Dependency.Get());
@@ -68,21 +78,17 @@ namespace Durin::MaterialEditor
 		const auto Presentation = Working->GetFunctionPresentation();
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Working->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
-		const auto WorkingRevision = WorkingPackage->GetEditRevision();
+		const auto WorkingRevision = Working->GetGraphChanges().GetEditRevision();
 		struct FPublishScope { bool& Flag; explicit FPublishScope(bool& Value) : Flag(Value) { Flag = true; } ~FPublishScope() { Flag = false; } } Scope(bPublishing);
-		const bool bLayoutOnly = std::ranges::equal(Expressions, Original->GetExpressionCollection().Expressions,
-			[](DMaterialExpression* Draft, const auto& Current) {
-				return Draft && Current && HaveSameMaterialExpressionFields(*Draft, *Current);
-			});
+		const bool bLayoutOnly = HaveSameExpressions(*Original, *Working);
 		if (bLayoutOnly) (void)Original->SetFunctionPresentation(Presentation);
 		else if (!Original->SetFunctionExpressions(Expressions))
 		{ Error = "The function changes could not be applied to the source."; return false; }
-		if (Transactor.IsValid()) Transactor.Get()->InvalidateSavedState(*Original->GetPackage());
+		Original->MarkPackageDirty();
 		// Notification listeners may edit the draft; those newer edits remain unpublished.
-		if (WorkingPackage->GetEditRevision() == WorkingRevision)
+		if (Working->GetGraphChanges().GetEditRevision() == WorkingRevision)
 		{
 			WorkingPackage->ClearDirty();
-			if (Transactor.IsValid()) Transactor.Get()->MarkSaved(*WorkingPackage);
 		}
 		RefreshSourceRevision();
 		return true;

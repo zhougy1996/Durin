@@ -219,8 +219,7 @@ keeps its read-only preview. MainFrame renders the subsystem's oldest pending
 close request and submits Save, Discard, or Cancel to the subsystem.
 
 The Level Toolkit uses its own dock space and reads the current level from the
-editor world. `FLevelDocumentController` handles level transitions, transaction
-checkpoints, and viewport state. Closing the Level Editor window preserves the
+editor world. `FLevelDocumentController` handles level transitions and viewport state. Closing the Level Editor window preserves the
 current world; Close Level runs the map-close workflow.
 
 Interactive level activation selects the first level and resolves its identity.
@@ -260,7 +259,7 @@ save.
 Save Level As writes a copy to a new package and activates the saved level in
 the editor world after the write succeeds. The Level controller captures the
 outgoing viewport state and restores the incoming level's state. It updates
-the transaction checkpoint and asset association on the map notification.
+the asset association on the map notification.
 
 Close Level runs the unsaved-level workflow and detaches the map through the
 editor engine. Cancellation preserves the current level and window. Closing

@@ -10,7 +10,6 @@ namespace Durin
 	struct FThumbnailDrawContext::FImpl
 	{
 		TWeakObjectPtr<DObject> Object;
-		uint64 Revision = 0;
 		FThumbnailPreviewScene* Scene = nullptr;
 		std::optional<FThumbnailPreviewView> View;
 		std::optional<FViewEnvironmentOverride> Environment;
@@ -20,7 +19,6 @@ namespace Durin
 	FThumbnailDrawContext::FThumbnailDrawContext(DObject* Object) : Impl(std::make_unique<FImpl>())
 	{
 		Impl->Object = Object;
-		if (Object && Object->GetPackage()) Impl->Revision = Object->GetPackage()->GetEditRevision();
 	}
 	FThumbnailDrawContext::~FThumbnailDrawContext()
 	{
@@ -46,8 +44,6 @@ namespace Durin
 		const auto* Object = Impl->Object.Get();
 		if (Status != EState::Ready || !Object)
 			return std::unexpected("The thumbnail draw is not ready.");
-		if (Object->GetPackage() && Object->GetPackage()->GetEditRevision() != Impl->Revision)
-			return std::unexpected("The asset changed while its thumbnail was being generated.");
 		if (Impl->Validator && !Impl->Validator())
 			return std::unexpected("The thumbnail resources changed while rendering.");
 		return {};

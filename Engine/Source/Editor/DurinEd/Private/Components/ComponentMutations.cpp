@@ -158,7 +158,7 @@ namespace Durin
 			FScopedTransaction Recording("ComponentRename", "Rename component", Component);
 			if (!Recording.IsOutstanding()) return false;
 			Component->SetFlags(EObjectFlags::Transactional);
-			if (!Component->Modify(false) || !Transactions->IsActive()) return false;
+			if (!Component->Modify() || !Transactions->IsActive()) return false;
 			Component->Rename(Name);
 			return true;
 
@@ -183,7 +183,7 @@ namespace Durin
 			FScopedTransaction Scope("ComponentAttachment", "Reparent component", Component);
 			if (!Scope.IsOutstanding()) return false;
 			Component->SetFlags(EObjectFlags::Transactional);
-			if (!Component->Modify(false) || !Transactions->IsActive()) return false;
+			if (!Component->Modify() || !Transactions->IsActive()) return false;
 			return Parent ? Component->AttachToComponent(Parent, EAttachmentTransformRule::KeepWorld)
 				: Component->DetachFromComponent(EDetachmentTransformRule::KeepWorld);
 

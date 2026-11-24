@@ -148,7 +148,7 @@ TEST(FTransactionObjectRecordTests, UndoDeletionRestoresLivenessAndReferencesAcr
 	EXPECT_EQ(GDObjectArray.Resolve(Key), nullptr);
 }
 
-TEST(FTransactionObjectRecordTests, FailedDeleteUndoReturnsToGarbageAndCanRetry)
+TEST(FTransactionObjectRecordTests, FailedDeleteUndoTerminatesExecution)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -161,9 +161,5 @@ TEST(FTransactionObjectRecordTests, FailedDeleteUndoReturnsToGarbageAndCanRetry)
 	}
 	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
 	Child->bFailLoadOnce = true;
-	EXPECT_FALSE(Buffer->Undo());
-	EXPECT_TRUE(Child->IsGarbage());
-	EXPECT_TRUE(Buffer->CanUndo());
-	ASSERT_TRUE(Buffer->Undo());
-	EXPECT_TRUE(IsValid(Child));
+	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }

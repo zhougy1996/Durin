@@ -284,7 +284,7 @@ namespace Durin
 			FScopedTransaction Recording("ActorLabel", "Set actor label", Actor);
 			if (!Recording.IsOutstanding()) return false;
 			Actor->SetFlags(EObjectFlags::Transactional);
-			if (!Actor->Modify(false) || !Transactions->IsActive())
+			if (!Actor->Modify() || !Transactions->IsActive())
 			{
 				if (bOwnsRecording) Recording.Cancel();
 				return false;
@@ -308,7 +308,7 @@ namespace Durin
 			FScopedTransaction Recording("ActorRename", "Rename actor", Actor);
 			if (!Recording.IsOutstanding()) return false;
 			Actor->SetFlags(EObjectFlags::Transactional);
-			if (!Actor->Modify(false) || !Transactions->IsActive())
+			if (!Actor->Modify() || !Transactions->IsActive())
 			{
 				if (bOwnsRecording) Recording.Cancel();
 				return false;

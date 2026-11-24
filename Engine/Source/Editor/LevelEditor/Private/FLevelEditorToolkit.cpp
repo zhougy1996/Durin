@@ -20,7 +20,6 @@
 #include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
 #include "Documents/LevelDocumentController.h"
-#include "Documents/LevelDocumentRevisionState.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Workspace/LevelEditorPresentationPolicy.h"

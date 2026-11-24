@@ -212,7 +212,7 @@ implementation. Explicit Levels and participants replace UI selection as inputs.
 Queries return typed detached snapshots in Level order. Creation returns Actor or
 None, duplication returns an Actor list, and other edits return bool. Rejected
 domain edits use None/empty/false; successful no-ops return true without adding
-history. Transaction recovery diagnostics stay native, and binding/type/lifetime
+history. Transaction failure diagnostics stay native, and binding/type/lifetime
 errors continue to raise exceptions.
 The full API and admission rules belong to
 [editor subsystems](../Framework/EditorSubsystems.md#script-actor-adapter).
@@ -357,7 +357,7 @@ jobs; queued jobs have no interpreter references and can cancel immediately.
 Running/suspended jobs stop normal resumes and signal owned native work, then
 close generators/finally and release still-valid scopes on GameThread before terminal
 publication. Python scope exit returns None and preserves any exception from the
-`with` body. The transaction buffer reports history publication failures. Job
+`with` body. A native transaction finalization fault terminates the host, including during Python scope exit. Job
 cleanup reports generator and Python reference cleanup failures. Job-owned cyclic references are collected
 under this cleanup context, so finalizers cannot submit new editor work. Cancellation and explicit transaction Cancel
 remain different: neither promises rollback of applied edits.

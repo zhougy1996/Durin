@@ -30,9 +30,14 @@ namespace Durin
 
 	class DPackage;
 	COREDOBJECT_API auto GetLiveAssetPackages() -> std::vector<DPackage*>;
+	// Broadcast on the game thread after a persistent save clears the live package dirty flag.
+	COREDOBJECT_API auto OnPackageSaved() -> TMulticastDelegate<void(DPackage&)>&;
 	// Invalidates owner-thread asset metadata queries after package changes.
 	COREDOBJECT_API auto OnAssetPackagesChanged() -> TMulticastDelegate<void()>&;
-	namespace Private { COREDOBJECT_API auto NotifyAssetPackageChanged() -> void; }
+	namespace Private
+	{
+		COREDOBJECT_API auto NotifyAssetPackageChanged() -> void;
+	}
 
 	// Indexes every direct asset export or a module's reflected metadata under one registered path.
 	DCLASS(NoClassDefaultObject)
@@ -62,7 +67,6 @@ namespace Durin
 		auto MarkPartiallyLoaded() -> void { bFullyLoaded = false; }
 		auto IsDirty() const -> bool { return bDirty; }
 		auto IsCanonicalResaveRecommended() const -> bool { return bCanonicalResaveRecommended; }
-		auto GetEditRevision() const -> uint64 { return EditRevision; }
 		auto GetPackageFlags() const -> EPackageFlags { return PackageFlags; }
 		auto IsAssetPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Asset); }
 		auto IsCppPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Cpp); }
@@ -130,10 +134,6 @@ namespace Durin
 		// Maintenance state is deliberately independent from authored Dirty state.
 		DPROPERTY(Transient)
 		bool bCanonicalResaveRecommended = false;
-
-		// Monotonic process-local token for optimistic editor plans. Unlike dirty
-		// state, repeated edits remain distinguishable before the next save.
-		uint64 EditRevision = 1;
 
 		COREDOBJECT_API auto RegisterTopLevelAsset(DObject* Asset) -> bool;
 

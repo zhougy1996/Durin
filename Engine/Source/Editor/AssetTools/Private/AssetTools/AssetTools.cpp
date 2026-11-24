@@ -285,7 +285,7 @@ namespace Durin
 				if (!Existing || Existing->GetClass() != Class) return Reject(Warn, "Replacement requires an existing asset of the same class.");
 			}
 			FStrongObjectPtr PreviousOwner(Current);
-			const uint64 PreviousRevision = Current ? Current->GetEditRevision() : 0;
+			const bool bWasDirty = Current && Current->IsDirty();
 			struct FImportConfiguration
 			{
 				std::function<void()> Restore;
@@ -320,7 +320,7 @@ namespace Durin
 			if (!Asset || Asset->GetClass() != Class || Asset->GetOuter() != Package || Asset->GetFName() != Name
 				|| Package->FindTopLevelAsset(Name) != Asset)
 			{ Abandon(); return Reject(Warn, "The factory did not produce the requested registered asset."); }
-			if (FindPackage(Path.GetPackagePath().GetView()) != Current || (Current && Current->GetEditRevision() != PreviousRevision))
+			if (FindPackage(Path.GetPackagePath().GetView()) != Current || (Current && Current->IsDirty() != bWasDirty))
 			{ Abandon(); return Reject(Warn, "The destination changed while the factory was executing."); }
 			if (!Overwrite)
 			{

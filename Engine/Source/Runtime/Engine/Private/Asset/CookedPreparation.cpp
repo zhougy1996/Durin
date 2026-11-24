@@ -38,7 +38,6 @@ namespace Durin::AssetPrivate
 #endif
 		if (!Package || !Platform || Options.TargetProfile != ECookTargetProfile::Game)
 			return Result = {EObjectCookError::InvalidInput, "Cook preparation requires a package and a known Game target."};
-		Revision = Package->GetEditRevision();
 		std::vector<DObject*> Pending(Package->GetTopLevelAssets().begin(), Package->GetTopLevelAssets().end());
 		for (size_t Index = 0; Index < Pending.size(); ++Index) {
 			if (Pending.size() > 65536) return Result = {EObjectCookError::Limit, "Cook object limit exceeded."};
@@ -49,7 +48,7 @@ namespace Durin::AssetPrivate
 			Pending.insert(Pending.end(), Children.begin(), Children.end());
 			if (auto* Existing = FCookedPlatformData::Get(*Object, Platform)) {
 				if (Existing->bInUse) return Result = {EObjectCookError::Preparation, "Cook platform data is already in use."};
-				if (!Existing->Result || Existing->PackageRevision != Revision
+				if (!Existing->Result || Existing->Package != Package->GetPackagePath()
 					|| Existing->Options.MaterialConfigurations != Options.MaterialConfigurations
 					|| (Existing->ValidatePreparedInputs && !Existing->ValidatePreparedInputs())) Object->ClearCachedCookedPlatformData(Platform);
 			}
@@ -110,7 +109,7 @@ namespace Durin::AssetPrivate
 	}
 	auto FPackageCookPreparation::Validate(DPackage* InPackage) const -> FObjectCookResult
 	{
-		if (!InPackage || InPackage->GetEditRevision() != Revision)
+		if (!InPackage || InPackage != Package)
 			return {EObjectCookError::InvalidInput, "Cook inputs changed during preparation or save."};
 		for (const auto& Operation : Operations)
 			if (Operation->ValidatePreparedInputs && !Operation->ValidatePreparedInputs())
@@ -277,7 +276,7 @@ namespace Durin
 	{
 		if (!Target) return;
 		if (auto* Existing = Get(Object, Target)) {
-			if (Existing->bInUse || (Existing->PackageRevision == (Object.GetPackage() ? Object.GetPackage()->GetEditRevision() : 0)
+			if (Existing->bInUse || ((Object.GetPackage() ? Existing->Package == Object.GetPackage()->GetPackagePath() : Existing->Package.empty())
 				&& (!Existing->ValidatePreparedInputs || Existing->ValidatePreparedInputs()))) return;
 			Object.ClearCachedCookedPlatformData(Target);
 		}
@@ -288,7 +287,7 @@ namespace Durin
 		Options.TargetProfile = ECookTargetProfile::Game;
 		auto Data = std::make_shared<FCookedPlatformData>(Options);
 		Data->Object = &Object;
-		if (Object.GetPackage()) { Data->Package = Object.GetPackage()->GetPackagePath(); Data->PackageRevision = Object.GetPackage()->GetEditRevision(); }
+		if (Object.GetPackage()) Data->Package = Object.GetPackage()->GetPackagePath();
 		Data->StartWork = std::move(Start);
 		Object.SetCookedPlatformData(Target, std::move(Data));
 	}
@@ -299,7 +298,7 @@ namespace Durin
 		if (!Platform) return nullptr;
 		auto* Data = Get(Object, ResolveTargetPlatform(*Platform));
 		if (!Data || !Data->bReady || !Data->Result || Target.Profile != "Game"
-			|| !Object.GetPackage() || Object.GetPackage()->GetEditRevision() != Data->PackageRevision
+			|| !Object.GetPackage() || Object.GetPackage()->GetPackagePath() != Data->Package
 			|| (Data->ValidatePreparedInputs && !Data->ValidatePreparedInputs())) return nullptr;
 		return Data;
 #else

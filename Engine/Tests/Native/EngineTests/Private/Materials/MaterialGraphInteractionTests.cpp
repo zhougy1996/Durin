@@ -101,7 +101,8 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 		Drag();
 		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Original);
 		EXPECT_FALSE(Package->IsDirty());
-		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 0u);
+		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 1u);
+		EXPECT_FALSE(Transactions->CanUndo());
 		Frame({Start.x + 60, Start.y}, false);
 		const auto Preview = Material->FindParameterDefinition(Definition.Id)->Value;
 		EXPECT_NE(Preview, Original);
@@ -1744,7 +1745,8 @@ TEST(FMaterialGraphInteractionTests, ConstantInputCommitsWhenFocusLeavesAndCance
 	};
 	TypeValue("7");
 	EXPECT_EQ(GetValue(), FVector3(7, Original.y, Original.z));
-	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
+	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
+	EXPECT_FALSE(Transactions->CanUndo());
 	Frame(true);
 	EXPECT_EQ(GetValue(), FVector3(7, Original.y, Original.z));
 	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
@@ -2435,11 +2437,11 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 
 	// A group drag is one undo step, and Escape discards the entire draft.
 	Frame(Header, true); Frame({Header.x + 40, Header.y + 20}, true);
-	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::ETransactorState::Undoing);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
 	Frame({Header.x + 40, Header.y + 20}, false);
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_EQ(DocumentCommandGraph->FindNode(Source->Id)->GetView().Presentation.X, 0);
-	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::ETransactorState::Idle);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	Frame(Header, false);
 	EXPECT_EQ(FindViewNode(Testing::CaptureGraphView(*DocumentCommandGraph), Source->Id)->Presentation.X, 40);
 	EXPECT_EQ(FindViewNode(Testing::CaptureGraphView(*DocumentCommandGraph), Consumer->Id)->Presentation.X, 390);

@@ -646,7 +646,6 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoRecreateSegmentsWithS
 
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Level->GetPackage()->ClearDirty();
-	Transactions->EstablishSavedState(*Level->GetPackage());
 	Durin::FPropertyView View;
 	std::string Error;
 	const Durin::FPropertyViewContext Context{
@@ -665,7 +664,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoRecreateSegmentsWithS
 	EXPECT_EQ(std::ranges::find(Segments, StableFirst), Segments.end());
 	ASSERT_TRUE(View.FinishActiveEdit(&Context, true));
 	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {100.0, 0.0, 0.0});
-	EXPECT_TRUE(Level->GetPackage()->IsDirty());
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 
 	ASSERT_TRUE(SubmitPosition({130.0, 30.0, 0.0}, true));
 	ASSERT_TRUE(View.FinishActiveEdit(&Context, false));

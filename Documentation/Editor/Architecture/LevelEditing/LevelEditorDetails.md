@@ -50,7 +50,7 @@ restored before its owner changes.
 
 The component tree routes component addition, deletion, duplication, renaming,
 and reparenting through the host's `DEditorActorSubsystem` and application transactor.
-Each operation joins one application scope, with package revision tracking and
+Each operation joins one application scope, with package dirty-state tracking and
 preflight rejection before writes. Generated components, read-only targets,
 and actors participating in play are rejected. Deletion and duplication require
 instance membership; duplication also rejects the root component.
@@ -67,7 +67,7 @@ an absent component be collected normally.
 The owner and component are captured before the membership write. The new
 component already has the Instance creation method when captured. GC follows the recorded references. Outer-only children may expire. If a callback removes the component or retires its owner, the
 subsystem reports that publication failed. Replay suppresses incidental package dirty marks
-so rejected operations do not advance package revisions.
+so rejected operations preserve the original dirty bit.
 
 Duplication uses the ordinary object-graph duplication pipeline, including owned
 subobject remapping and `PostLoad` derived-state rebuilding. Copied fields and

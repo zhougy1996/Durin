@@ -23,7 +23,7 @@ TEST(FSkyBoxEditorWorkflowTests, TextureAssignmentComposesWithOtherComponentFiel
 	TStrongObjectPtr<DTextureCube> Before(NewObject<DTextureCube>(nullptr, "SkyBefore")), After(NewObject<DTextureCube>(nullptr, "SkyAfter"));
 	auto* Actor = Level->SpawnActor<ASkyBoxActor>("Sky"); ASSERT_NE(Actor, nullptr);
 	auto* Component = Actor->GetSkyBoxComponent(); Component->SetTextureCube(Before.Get());
-	FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Redoing);
+	FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
 	auto Blocked = Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(), *Level, After.Get(), "Sky", {false});
 	ASSERT_FALSE(Blocked);
 	EXPECT_EQ(Blocked.error(), "Editor history is unavailable for recording.");
@@ -32,7 +32,7 @@ TEST(FSkyBoxEditorWorkflowTests, TextureAssignmentComposesWithOtherComponentFiel
 	EXPECT_EQ(Same.error(), Blocked.error());
 	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
 	EXPECT_EQ(Component->GetTextureCube(), Before.Get());
-	FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
+	FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	{
 		Durin::FScopedTransaction Scope("test", "Texture and intensity", nullptr);
 		ASSERT_TRUE(Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(), *Level, After.Get(), "Sky", {false}));
@@ -143,7 +143,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	Durin::Tests::FActorEditorFixture Editor;
 	ASSERT_TRUE(Editor.GetWorld()->SetCurrentLevel(Level));
 	auto* Transactions = Editor.GetTransactions();
-	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::ETransactorState::Undoing);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
 
 	const auto Blocked = Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(),
 		*Level, CubeResult.Asset, "Sky", {false});
@@ -151,7 +151,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	EXPECT_EQ(Blocked.error(), "Editor history is unavailable for recording.");
 	const auto RejectionMessage = Blocked.error();
 	EXPECT_EQ(Level->FindActorByName("Sky"), nullptr);
-	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::ETransactorState::Idle);
+	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 
 	const auto Placement =
 		Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(),

@@ -136,9 +136,9 @@ TEST(FTransBufferTests, AnnotationReferencesSurviveCallbackCollectionAndReleaseW
 	Buffer->Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 }
 
-TEST(FTransBufferTests, CompensatedLoadCompletesWithPreOperationAnnotation)
+TEST(FTransBufferTests, AnnotatedLoadFaultTerminatesUndo)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "CompensatedAnnotation"));
 	Target->bAnnotationEnabled = true; Target->SupplementalValue = 1;
@@ -147,16 +147,12 @@ TEST(FTransBufferTests, CompensatedLoadCompletesWithPreOperationAnnotation)
 		Target->Value = 7; Target->SupplementalValue = 2;
 	}
 	Target->bFailLoadOnce = true;
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Target->SupplementalValue, 2); EXPECT_EQ(Target->Value, 7);
-	EXPECT_EQ(Target->AnnotationCompletions, 1); EXPECT_EQ(Buffer->GetUndoCount(), 0u); EXPECT_TRUE(Buffer->CanUndo());
-	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->SupplementalValue, 1); EXPECT_EQ(Target->Value, 0);
-	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->SupplementalValue, 2); EXPECT_EQ(Target->Value, 7);
-	EXPECT_EQ(Target->AnnotationCompletions, 3); EXPECT_EQ(Target->UndoBegins, 3); EXPECT_EQ(Target->UndoCompletions, 3);
+	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }
 
-TEST(FTransBufferTests, LaterRecordFailurePreservesOriginalAnnotationForRetry)
+TEST(FTransBufferTests, LaterRecordFaultTerminatesAnnotatedUndo)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotatedAtomicRetry"));
 	Target->bAnnotationEnabled = true;
@@ -168,11 +164,7 @@ TEST(FTransBufferTests, LaterRecordFailurePreservesOriginalAnnotationForRetry)
 		ASSERT_TRUE(Target->Modify()); Target->Value = 7; Target->SupplementalValue = 3;
 	}
 	Target->SupplementalValue = 11; Fault->bFailUndo = true;
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Target->Value, 7); EXPECT_EQ(Target->SupplementalValue, 11);
-	EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::Idle); EXPECT_EQ(Buffer->GetUndoCount(), 0u);
-	Fault->bFailUndo = false;
-	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->SupplementalValue, 0);
-	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 7); EXPECT_EQ(Target->SupplementalValue, 11);
+	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }
 
 TEST(FTransBufferTests, WholeAnnotationKeepsFirstStateThroughRepeatedCapture)
@@ -333,23 +325,16 @@ TEST(FEngineTransactionAnnotationTests, SwitchingGeneratedAndAuthoredRootsPreser
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Actor->GetRootComponent(), NativeRoot);
 }
 
-TEST(FEngineTransactionAnnotationTests, FailedReconstructionCleansNewOutputAndRequiresRecovery)
+TEST(FEngineTransactionAnnotationTests, ReconstructionFaultIsTerminal)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("FailedReconstructionActor"); ASSERT_NE(Actor, nullptr);
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Reconstruction failure"}); ASSERT_TRUE(Actor->Modify());
 		Actor->GeneratedCount = 2; ASSERT_TRUE(Actor->RerunConstructionScripts());
-	}
-	const auto Before = Actor->GetComponentsSnapshot(); Actor->bFailConstruction = true;
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired); EXPECT_EQ(Buffer->GetUndoCount(), 0u);
-	EXPECT_TRUE(std::ranges::none_of(Actor->GetComponents(), [](const auto& Component) { return Component->GetCreationMethod() == EComponentCreationMethod::Generated; }));
-	for (const auto& Component : Before)
-		if (Component->GetCreationMethod() == EComponentCreationMethod::Generated) EXPECT_TRUE(Component->IsPendingKill());
-	Actor->bFailConstruction = false;
-	ASSERT_TRUE(Actor->RerunConstructionScripts()); // Failure must release the native construction guard.
-	EXPECT_EQ(Actor->GetComponents().size(), 2u);
+	} Actor->bFailConstruction = true;
+	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }
 
 TEST(FEngineTransactionAnnotationTests, ExpiredAnnotationParticipantRejectsBeforeSerializedMutation)
@@ -367,21 +352,20 @@ TEST(FEngineTransactionAnnotationTests, ExpiredAnnotationParticipantRejectsBefor
 	}
 	MarkAsGarbage(Other->GetRootComponent());
 	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Actor->GeneratedCount, 0); EXPECT_EQ(Buffer->GetUndoCount(), 0u);
-	EXPECT_NE(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired);
+	EXPECT_TRUE(Buffer->CanTransact());
+	EXPECT_FALSE(Buffer->IsActive());
 }
 
-TEST(FEngineTransactionAnnotationTests, RetirementInsideRegistrationCallbackRequiresRecoveryWithoutReinitializingGarbage)
+TEST(FEngineTransactionAnnotationTests, UnexpectedRetirementDuringRegistrationTerminatesUndo)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("CallbackRetirementActor"); ASSERT_NE(Actor, nullptr);
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Retiring callback"}); ASSERT_TRUE(Actor->Modify()); Root->UnregisterComponent();
-	}
-	const auto Initializations = Root->Initialized; Root->bDestroyOnRegister = true;
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired);
-	EXPECT_TRUE(Root->IsGarbage()); EXPECT_EQ(Root->Initialized, Initializations); EXPECT_EQ(Buffer->GetUndoCount(), 0u);
+	} Root->bDestroyOnRegister = true;
+	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }
 
 TEST(FEngineTransactionAnnotationTests, GeneratedSceneOverridesReplayWithoutAnAuthoredPropertyRecord)
@@ -431,9 +415,9 @@ TEST(FEngineTransactionAnnotationTests, EmptyActorAnnotationIsOmittedAndDefaultT
 	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_FALSE(Actor->GetPrimaryActorTick().IsTickFunctionRegistered());
 }
 
-TEST(FEngineTransactionAnnotationTests, InnerRegistrationFailureRequiresRecoveryAndReleasesActorSuspension)
+TEST(FEngineTransactionAnnotationTests, InnerRegistrationFaultTerminatesUndo)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("InnerCallbackFailure");
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
@@ -442,10 +426,7 @@ TEST(FEngineTransactionAnnotationTests, InnerRegistrationFailureRequiresRecovery
 		Root->UnregisterComponent();
 	}
 	Root->bThrowOnRegister = true;
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired);
-	Root->bThrowOnRegister = false;
-	const auto Before = Actor->ConstructionCalls;
-	ASSERT_TRUE(Actor->RerunConstructionScripts()); EXPECT_EQ(Actor->ConstructionCalls, Before + 1);
+	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }
 
 TEST(FEngineTransactionAnnotationTests, AttachmentReverseLinksAreSettledBeforeHistoricalRegistrationCallback)

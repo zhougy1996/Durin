@@ -1,3 +1,4 @@
+#include "NativePackageNotificationTestSupport.h"
 #include "DObject/Package.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
@@ -400,17 +401,22 @@ TEST_F(FPackagePersistenceTests, ExternalBulkRoundTripsAndObsoleteCompanionIsRem
 	ASSERT_TRUE(Package->Save(Options));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Package.dbulk"));
 }
-TEST_F(FPackagePersistenceTests, StaleEditsAndCancellationRejectButDroppedHandlesComplete)
+TEST_F(FPackagePersistenceTests, AsyncSavePublishesCapturedBytesAndCancellationPreservesDirtyState)
 {
+	Testing::FScopedPackageNotificationCount Saved(OnPackageSaved(), Package);
+	Asset->Value = 33;
 	auto Operation = FSavePackageContext{Options}.SaveAsync(Package);
 	ASSERT_TRUE(Operation.IsValid());
+	Asset->Value = 55;
 	Package->MarkDirty();
-	{
-		const auto Failure = FinishSave(Operation);
-		EXPECT_TRUE(Failure.Error && Failure.Error->Is(PackageSaveErrors::StaleData));
-	}
-	EXPECT_TRUE(Package->IsDirty());
-	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
+	ASSERT_TRUE(FinishSave(Operation));
+	ASSERT_FALSE(Package->IsDirty());
+	EXPECT_EQ(Saved.Count, 1);
+	auto Linker = Read();
+	ASSERT_FALSE(Linker.Exports.empty());
+	EXPECT_TRUE(std::ranges::any_of(Linker.Exports.front().Properties, [](const auto& Tag) { return Tag.Value.Signed == 33; }));
+	EXPECT_EQ(Asset->Value, 55);
+	Package->MarkDirty();
 	Options.IsCancellationRequested = [this] { return Cancellation.IsCanceled(); };
 	Operation = FSavePackageContext{Options}.SaveAsync(Package);
 	ASSERT_TRUE(Operation.IsValid());
@@ -421,6 +427,8 @@ TEST_F(FPackagePersistenceTests, StaleEditsAndCancellationRejectButDroppedHandle
 		const auto Failure = Operation.GetResult();
 		EXPECT_TRUE(Failure.Error && Failure.Error->Is(PackageSaveErrors::Cancelled));
 	}
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_EQ(Saved.Count, 1);
 	// A new request gets a new token; cancellation cannot be reset or copied.
 	Tasks::FCancellationToken RetryCancellation;
 	Options.IsCancellationRequested = [&RetryCancellation] { return RetryCancellation.IsCanceled(); };
@@ -429,6 +437,7 @@ TEST_F(FPackagePersistenceTests, StaleEditsAndCancellationRejectButDroppedHandle
 	Operation = {};
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_EQ(Saved.Count, 2);
 	EXPECT_TRUE(std::filesystem::exists(Options.Destination));
 }
 TEST_F(FPackagePersistenceTests, CompetingWriterAndStagedRollbackPreservePreviousContent)
@@ -441,7 +450,7 @@ TEST_F(FPackagePersistenceTests, CompetingWriterAndStagedRollbackPreservePreviou
 	ASSERT_TRUE(Package->Save(Options));
 	{
 		const auto Failure = FinishSave(Older);
-		EXPECT_TRUE(Failure.Error && Failure.Error->Is(PackageSaveErrors::StaleData));
+		EXPECT_TRUE(Failure.Error && Failure.Error->Is(PackageWriteErrors::StaleData));
 	}
 	Asset->Value = 55; Package->MarkDirty();
 	auto Staged = FPackageSaveOperation::Begin(Package, Options, &Admission, false);
@@ -675,9 +684,11 @@ TEST_F(FPackagePersistenceTests, FailedRollbackRetainsBackupAndReportsRecoveryRe
 }
 TEST_F(FPackagePersistenceTests, FilteredSnapshotsPreserveAuthoredDirtyState)
 {
+	Testing::FScopedPackageNotificationCount Saved(OnPackageSaved(), Package);
 	Options.Capture.PropertyFilter = [](const DObject*, const FProperty*) { return true; };
 	ASSERT_TRUE(Package->Save(Options));
 	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_EQ(Saved.Count, 0);
 }
 TEST_F(FPackagePersistenceTests, ShutdownDuringResolverIsAnAdmissionFailure)
 {

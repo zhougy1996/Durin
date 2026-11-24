@@ -120,7 +120,7 @@ namespace Durin
 				return Reject("Rename requires writable mounted source and destination packages.");
 			auto* SourcePackage = Object ? Object->GetPackage() : nullptr;
 			if (SourcePackage && (Object->IsTemplateObject() || Object->HasAnyObjectFlags(EObjectFlags::Transient) || SourcePackage->IsGraphPrivate() || SourcePackage->IsPlayInEditor() || !SourcePackage->IsFullyLoaded() || IsPackageLoading(OldPackagePath))) return Reject("Rename requires a published fully loaded source.");
-			const auto SourceRevision = SourcePackage ? SourcePackage->GetEditRevision() : 0;
+			const bool bWasDirty = SourcePackage && SourcePackage->IsDirty();
 			std::optional<FXxHash128> SourceFingerprint;
 			if (!Data.bOnlyFixSoftReferences && SourcePackage && !SourcePackage->IsNewlyCreated())
 			{
@@ -160,7 +160,7 @@ namespace Durin
 			if (!Stores) return Reject(Stores.error().ToString());
 			const bool ExternalStore = std::ranges::any_of((*Stores)->Stores, [&](const auto& Store) { return std::ranges::any_of(Store.Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath == OldPackagePath; }); });
 			Item.bCreateRedirector = !CaseOnly && SourcePackage && (!SourcePackage->IsNewlyCreated() || !References.FindReferencers(OldPackagePath).empty() || !Soft.empty() || ExternalStore);
-			if (SourcePackage && (Object->GetPackage() != SourcePackage || SourcePackage->GetEditRevision() != SourceRevision)) return Reject("The source changed while rename was preparing.");
+			if (SourcePackage && (Object->GetPackage() != SourcePackage || SourcePackage->IsDirty() != bWasDirty)) return Reject("The source changed while rename was preparing.");
 			for (const auto& Rewrite : Soft)
 				if (Rewrite.Value->ToSoftObjectPath() != Rewrite.Before) return Reject("A soft reference changed while rename was preparing.");
 			if (!Data.bOnlyFixSoftReferences)

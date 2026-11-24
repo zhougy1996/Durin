@@ -15,6 +15,12 @@
 
 namespace Durin
 {
+	auto OnPackageDeleted() -> TMulticastDelegate<void(DPackage&)>&
+	{
+		static TMulticastDelegate<void(DPackage&)> Event;
+		return Event;
+	}
+
 	class FStrongObjectPtr;
 	namespace
 	{
@@ -114,6 +120,7 @@ namespace Durin
 		if (!References) return References;
 		for (DPackage* Package : Packages)
 		{
+			OnPackageDeleted().Broadcast(*Package);
 			MarkObjectHierarchyAsGarbage(Package);
 			Package->RetireGarbageRegistration();
 		}

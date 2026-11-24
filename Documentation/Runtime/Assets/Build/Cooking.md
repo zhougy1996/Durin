@@ -233,7 +233,7 @@ once-per-class cache from reusing declarations chosen for the first package.
 
 Asset Begin creates its own queued target entry, independently of package capture.
 Repeated Begin reuses an entry while its inputs remain current. Reuse and capture
-check family input guards as well as package revision; texture source/settings
+check family input guards and package identity; texture source/settings
 invalidation advances a private authored-build revision even without package edits.
 First polling admits queued work before snapshot capture; the package scheduler configures the
 request before that first poll. `FPackageCookPreparation::Poll` returns Success,
@@ -295,7 +295,7 @@ Cross-package overlap and simultaneous targets on one object are unsupported.
 for authored and cooked saves. The persistent graph remains frozen: no new/deleted
 exports, reparenting or generated packages. Hooks may adjust supported transient
 save state but cannot rewrite authored state, accepted live programs or captured
-build inputs. Package edit revision and Mesh source/metadata/render and Material
+build inputs. Mesh source/metadata/render and Material
 parent/function revisions are checked before product consumption and after capture.
 These guards supplement graph equality; direct untracked native writes remain
 unsupported. Heavy construction/DDC work stays outside serialization and PreSave.

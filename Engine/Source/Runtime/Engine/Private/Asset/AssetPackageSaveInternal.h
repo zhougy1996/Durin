@@ -16,7 +16,7 @@ namespace Durin::AssetPrivate
 		size_t PackageIndex = 0;
 	};
 
-	// One owner for the package pin, captured revision/header and physical writer.
+	// One owner for the package pin, captured header and physical writer.
 	// Encoded bytes transfer directly to the writer during preparation; only the
 	// immutable header remains for publication. Destroy on GameThread.
 	struct FPreparedPackageSave
@@ -25,7 +25,6 @@ namespace Durin::AssetPrivate
 		std::vector<FStrongObjectPtr> Exports;
 		std::vector<FObjectKey> DiskExports;
 		FXxHash128 MainDigest{};
-		uint64 Revision = 0;
 		uint64 DetachedBytes = 0;
 		FAssetPackageHeader Header;
 		std::filesystem::path Destination;

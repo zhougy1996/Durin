@@ -152,7 +152,6 @@ namespace Durin
 			if (!FFilePublicationStamp::Inspect(Prepared.Destination, MainStamp, &InspectionError)
 				|| !FFilePublicationStamp::Inspect(Companion, BulkStamp, &InspectionError))
 				return std::unexpected(ToError(*InspectionError));
-			Prepared.Revision = Package->GetEditRevision();
 			AssetPrivate::FAssetPackageEncodedClosure Closure;
 			FAssetPackageSerializationOptions Serialization; Serialization.Mode = Mode;
 			if (auto Result = AssetPrivate::EncodeAssetPackageClosure(Package, Closure, {.Serialization = Serialization, .OutExports = &Prepared.DiskExports}); !Result)
@@ -164,7 +163,7 @@ namespace Durin
 				.PackagePath = Path, .PhysicalPackageBytes = Closure.PackageBytes.size()};
 			if (auto Result = AssetPrivate::FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion)
 				->ReadHeader(Context, Prepared.Header); !Result) return Result;
-			if (Package->GetEditRevision() != Prepared.Revision || Package->GetPackagePathIdentity() != Prepared.Header.PackagePath
+			if (Package->GetPackagePathIdentity() != Prepared.Header.PackagePath
 				|| GetPhysicalPath(Prepared.Header.PackagePath) != Prepared.Destination.generic_string())
 				return Error(AssetLoadErrors::StaleData, "Package or destination changed during capture.");
 			Prepared.MainDigest = FXxHash128::HashBuffer(Closure.PackageBytes);
@@ -263,7 +262,6 @@ namespace Durin
 		const bool ParticipantsChanged = SaveParticipantsChanged(Data.Participants, Data.Prepared.Header.PackagePath);
 		if (FindResidentPackage(Data.Prepared.Header.PackagePath) != Data.Prepared.Package.Get()
 			|| Data.Prepared.Package->GetPackagePath() != Data.Prepared.Header.PackagePath.GetView()
-			|| Data.Prepared.Package->GetEditRevision() != Data.Prepared.Revision
 			|| ParticipantsChanged
 			|| GetPhysicalPath(Data.Prepared.Header.PackagePath) != Data.Prepared.Destination.generic_string())
 			return *(Data.CachedResult = WriteFailure(AssetWriteErrors::StaleData,

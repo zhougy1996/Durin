@@ -169,7 +169,7 @@ transient package under the source mount. The transient material is not a
 top-level asset export. That package supplies isolated transaction revisions;
 the source asset supplies the Toolkit's resource identity. Undo/Redo edits the
 working copy, including after Apply, and does not implicitly republish to the
-source. Successful Apply advances the working package's native saved revision
+source. Successful Apply clears the working package dirty bit
 and leaves the source dirty until Save. A draft edited during Apply remains
 dirty. Closing or resetting the working copy forgets its transaction records
 and cancels its compile jobs before retirement.
@@ -178,18 +178,17 @@ Each `FMaterialFunctionEditingSession` owns a transient duplicate of the source
 function and its working package, canvas, and derived preview. The session
 also retains the source while it is open. Graph,
 port and layout edits affect only the draft; ordinary source-package saves and
-dependent materials cannot observe them. Working-package transaction checkpoints
-are the sole draft dirty authority. Source-package disk dirtiness does not set
+dependent materials cannot observe them. The editor also compares the draft to the applied source when Undo restores a clean working package. Source-package disk dirtiness does not set
 the function Toolkit's unapplied marker or require a second close confirmation.
 The derived preview uses a separate transient package so preview compilation and
 presentation mutations cannot dirty the editable draft.
 
-Function Apply checks a source function/package revision token for external
+Function Apply checks source function and graph revisions for external
 conflicts, validates the prospective dependency closure (including recursion
 through the original source identity), then publishes expressions and presentation
 through the existing mutation APIs. It preserves source identity, notifies
-dependents and leaves the source package dirty without writing disk. Apply marks
-the working checkpoint only if notification callbacks did not edit the draft
+dependents and leaves the source package dirty without writing disk. Apply clears
+the working package dirty bit only if notification callbacks did not edit the draft
 again. Save applies first and then persists the source. Function Apply is
 synchronous; shader compilation stays on the derived transient preview material
 and consuming materials. Compiler worker snapshots remain independent of this

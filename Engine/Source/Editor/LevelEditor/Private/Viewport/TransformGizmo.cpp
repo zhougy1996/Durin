@@ -158,6 +158,12 @@ namespace Durin::LevelEditor
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != ETransactionOperation::Undo); }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
+			auto ValidateReplay(ETransactionOperation Operation, bool bFirstRecord) const -> FTransactionCaptureResult override
+			{
+				if (auto Valid = CheckTargets(Operation != ETransactionOperation::Undo, bFirstRecord); !Valid)
+					return std::unexpected(FormatActorChangeError(Valid.Error));
+				return {};
+			}
 			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
 			{ return Apply(Operation != ETransactionOperation::Undo); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
@@ -222,42 +228,33 @@ namespace Durin::LevelEditor
 				});
 			}
 
-			auto Apply(bool bAfter) -> FActorChangeResult
+			auto CheckTargets(bool bAfter, bool bCheckSource) const -> FActorChangeResult
 			{
-					std::vector<FTransform> Previous;
 				for (size_t Index = 0; Index < Entries.size(); ++Index)
 				{
 					const auto& Entry = Entries[Index];
 					if (!Entry.Target || !Entry.Target->IsValid())
 						return {{.Code = EActorChangeError::TargetUnavailable, .MemberIndex = Index}};
-					Previous.push_back(Entry.Target->GetTransform());
-					if (!SameTransform(Previous.back(), bAfter ? Entry.Before : Entry.After))
+					if (bCheckSource && !SameTransform(Entry.Target->GetTransform(), bAfter ? Entry.Before : Entry.After))
 						return {{.Code = EActorChangeError::ActorChanged, .TargetLabel = Entry.Target->GetLabel(), .MemberIndex = Index}};
 				}
+				return {};
+			}
+
+			auto Apply(bool bAfter) -> FActorChangeResult
+			{
+				if (auto Valid = CheckTargets(bAfter, true); !Valid) return Valid;
 				size_t FailedIndex = Entries.size();
 				for (size_t Index = 0; Index < Entries.size(); ++Index)
-					if (!TrySetTransform(*Entries[Index].Target, bAfter ? Entries[Index].After : Entries[Index].Before))
+					if (!Entries[Index].Target->SetTransform(bAfter ? Entries[Index].After : Entries[Index].Before))
 					{ FailedIndex = Index; break; }
 				if (FailedIndex == Entries.size())
 					for (size_t Index = 0; Index < Entries.size(); ++Index)
 						if (!Entries[Index].Target->IsValid() || !SameTransform(Entries[Index].Target->GetTransform(), bAfter ? Entries[Index].After : Entries[Index].Before))
 						{ FailedIndex = Index; break; }
 				if (FailedIndex != Entries.size())
-				{
-					FActorChangeResult Result{{.Code = EActorChangeError::TransformWrite,
+					return {{.Code = EActorChangeError::TransformWrite,
 						.TargetLabel = Entries[FailedIndex].Target->GetLabel(), .NodeCount = Entries.size(), .MemberIndex = FailedIndex}};
-					// A false/throwing setter may already have changed its own target.
-					for (size_t Restore = Entries.size(); Restore-- > 0;)
-						if (!Entries[Restore].Target->IsValid() || !TrySetTransform(*Entries[Restore].Target, Previous[Restore]))
-							Result.Error.CleanupCause = std::make_shared<FActorChangeError>(FActorChangeError{
-								.Code = EActorChangeError::RollbackIncomplete, .TargetLabel = Entries[Restore].Target->GetLabel(),
-								.MemberIndex = Restore, .CleanupCause = Result.Error.CleanupCause});
-					for (size_t Restore = 0; Restore < Entries.size(); ++Restore)
-						if (!Entries[Restore].Target->IsValid() || !SameTransform(Entries[Restore].Target->GetTransform(), Previous[Restore]))
-							Result.Error.CleanupCause = std::make_shared<FActorChangeError>(FActorChangeError{
-								.Code = EActorChangeError::RollbackIncomplete, .MemberIndex = Restore, .CleanupCause = Result.Error.CleanupCause});
-					return Result;
-				}
 				return {};
 			}
 
@@ -433,7 +430,7 @@ namespace Durin::LevelEditor
 		ActiveHandle = HitTest(View, Input.MousePosition);
 		if (ActiveHandle == ETransformGizmoHandle::None) return false;
 		Snapshots.clear();
-		PackageDirtySnapshots.clear();
+		DragPackages.clear();
 		DragCollectionLabel = Targets.CollectionLabel;
 		for (const std::shared_ptr<ITransformGizmoTarget>& Target : Targets.Targets)
 		{
@@ -441,8 +438,8 @@ namespace Durin::LevelEditor
 			{
 				const auto Initial = Target->GetTransform();
 				Snapshots.push_back({Target, Target->GetIdentity(), Initial, Initial, Target->GetPackage()});
-				if (DPackage* Package = Target->GetPackage(); Package && std::ranges::none_of(PackageDirtySnapshots, [Package](const FPackageDirtySnapshot& Entry) { return Entry.Package.Get() == Package; }))
-					PackageDirtySnapshots.push_back({Package, Package->IsDirty(), Package->GetEditRevision()});
+				if (DPackage* Package = Target->GetPackage(); Package && !std::ranges::contains(DragPackages, Package, &TObjectPtr<DPackage>::Get))
+					DragPackages.emplace_back(Package);
 			}
 		}
 		if (Snapshots.empty())
@@ -611,14 +608,14 @@ namespace Durin::LevelEditor
 
 	auto FTransformGizmo::MarkPackagesDirty() -> void
 	{
-		for (const auto& Snapshot : PackageDirtySnapshots)
-			if (Snapshot.Package) Snapshot.Package->MarkDirty();
+		for (const auto& Package : DragPackages)
+			if (Package) Package->MarkDirty();
 	}
 
 	auto FTransformGizmo::ClearDrag() -> void
 	{
 		Snapshots.clear();
-		PackageDirtySnapshots.clear();
+		DragPackages.clear();
 		ActiveHandle = ETransformGizmoHandle::None;
 		bRestorePending = false;
 	}
@@ -638,14 +635,6 @@ namespace Durin::LevelEditor
 		return bRestored;
 	}
 
-	auto FTransformGizmo::RestoreInitialDirtyState() -> void
-	{
-		for (const FPackageDirtySnapshot& Snapshot : PackageDirtySnapshots)
-		{
-			if (Snapshot.Package && !Snapshot.bWasDirty
-				&& Snapshot.Package->GetEditRevision() == Snapshot.EditRevision) Snapshot.Package->ClearDirty();
-		}
-	}
 
 	auto FTransformGizmo::FinishDrag(DTransactor* Transactions) -> bool
 	{
@@ -685,7 +674,6 @@ namespace Durin::LevelEditor
 			bRestorePending = true;
 			if (GUndo) return false;
 			if (!RestoreSnapshots()) { MarkPackagesDirty(); return false; }
-			RestoreInitialDirtyState();
 		}
 		ClearDrag();
 		return true;

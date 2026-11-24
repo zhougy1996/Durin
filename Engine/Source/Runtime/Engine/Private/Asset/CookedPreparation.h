@@ -26,7 +26,6 @@ namespace Durin::AssetPrivate
 		FCookPackagePreparationOptions Options;
 		FAssetPackageSerializationOptions Serialization;
 		FCookPackagePreparationReport* Report = nullptr;
-		uint64 Revision = 0;
 		std::vector<DObject*> Objects;
 		std::vector<std::shared_ptr<FCookedPlatformData>> Operations;
 		FArchiveTarget Target;

@@ -142,7 +142,8 @@ namespace
 			Old = NewObject<DTransactionRecordParticipant>(Current, "Target", EObjectFlags::Public);
 			New = NewObject<DTransactionRecordParticipant>(Candidate, "Target", EObjectFlags::Public);
 			Buffer = TStrongObjectPtr<DTransBuffer>(NewObject<DTransBuffer>(nullptr, "ReinstancingHistory"));
-			Buffer->EstablishSavedState(*Current);
+			Current->SetFlags(EObjectFlags::Transactional);
+			Current->ClearDirty();
 			Pair = {Current, Candidate};
 		}
 		auto TearDown() -> void override
@@ -237,7 +238,6 @@ TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackag
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Id);
 	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, New);
-	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Current).has_value());
 	ASSERT_TRUE(Operation.Retire());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
@@ -245,7 +245,6 @@ TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackag
 	EXPECT_TRUE(Candidate->IsDirty());
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(New->Value, 77);
 	EXPECT_FALSE(Candidate->IsDirty());
-	EXPECT_TRUE(Buffer->GetPackageRevisionState(*Candidate)->HasSavedCheckpoint());
 }
 
 TEST_F(FTransactionReinstancingTests, ExplicitReinstancingHookUsesTheSharedCheckedHistoryPublication)
@@ -415,7 +414,7 @@ TEST_F(FTransactionReinstancingTests, UnsupportedCommandRetiresItsGenericPeerAsO
 	FPackagePath OtherPath; ASSERT_TRUE(FPackagePath::TryCreate("/TransactionReinstance/Other", OtherPath));
 	auto* OtherPackage = CreatePackage(OtherPath);
 	TStrongObjectPtr<DTransactionRecordParticipant> Peer(NewObject<DTransactionRecordParticipant>(OtherPackage, "UnmappedCommandPeer"));
-	Buffer->EstablishSavedState(*OtherPackage);
+	OtherPackage->ClearDirty();
 	ASSERT_EQ(Buffer->Begin("test", "Mixed native command"), 0);
 	ASSERT_TRUE(Peer->Modify()); Peer->Value = 9;
 	Old->Value = 12;
@@ -426,8 +425,7 @@ TEST_F(FTransactionReinstancingTests, UnsupportedCommandRetiresItsGenericPeerAsO
 	ASSERT_TRUE(Operation.TryCommit());
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	EXPECT_EQ(Peer->Value, 9);
-	const auto State = Buffer->GetPackageRevisionState(*OtherPackage);
-	ASSERT_TRUE(State); EXPECT_FALSE(State->HasSavedCheckpoint());
+
 	EXPECT_TRUE(OtherPackage->IsDirty());
 	ASSERT_TRUE(Operation.Retire());
 	MarkObjectHierarchyAsGarbage(OtherPackage);

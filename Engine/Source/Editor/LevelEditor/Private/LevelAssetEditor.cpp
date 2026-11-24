@@ -52,10 +52,6 @@ namespace Durin
 			FFeedbackContext::Get().Error("Finish the current edit or transaction recovery before opening a level.");
 			return {};
 		}
-		FScopedPackageSaveObserver Saved([Transactions](const FPackagePath& Path) {
-			if (auto* Package = FindResidentPackage(Path); Package && Transactions && Transactions->GetPackageRevisionState(*Package))
-				Transactions->MarkSaved(*Package);
-		});
 		if (!FEditorFileUtils::SaveDirtyPackages(true, true, true))
 		{
 			Targets.clear();

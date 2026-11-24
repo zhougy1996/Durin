@@ -666,7 +666,7 @@ namespace Durin
 		std::vector<std::shared_ptr<IObjectReplacementParticipant>> Participants;
 		std::vector<FStrongObjectPtr> Pins;
 		std::vector<std::pair<FObjectKey, std::string>> Identities;
-		std::vector<uint64> PackageRevisions;
+		std::vector<bool> PackageDirtyFlags;
 		uint64 ArrayRevision = 0;
 
 		auto CheckStrongOwners(E Code, R Reason) const -> std::expected<void, FObjectReplacementError>
@@ -738,8 +738,8 @@ namespace Durin
 			}
 			for (const auto& Pair : Packages)
 			{
-				Impl->PackageRevisions.push_back(Pair.Current ? Pair.Current->GetEditRevision() : 0);
-				Impl->PackageRevisions.push_back(Pair.Prepared->GetEditRevision());
+				Impl->PackageDirtyFlags.push_back(Pair.Current && Pair.Current->IsDirty());
+				Impl->PackageDirtyFlags.push_back(Pair.Prepared->IsDirty());
 			}
 			for (const auto& P : Impl->Participants)
 			{
@@ -785,8 +785,8 @@ namespace Durin
 				const auto& Pair = Impl->Packages[I];
 				if (FindPackage(Pair.Prepared->GetPackagePath()) != Pair.Current
 					|| !Pair.Prepared->IsPreparedAssetPackage()
-					|| (Pair.Current && Pair.Current->GetEditRevision() != Impl->PackageRevisions[I * 2])
-					|| Pair.Prepared->GetEditRevision() != Impl->PackageRevisions[I * 2 + 1])
+					|| (Pair.Current && Pair.Current->IsDirty() != Impl->PackageDirtyFlags[I * 2])
+					|| Pair.Prepared->IsDirty() != Impl->PackageDirtyFlags[I * 2 + 1])
 					return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::PackageChanged, .ObjectPath = Pair.Prepared->GetPackagePath()});
 			}
 			for (size_t I = 0; I < Impl->Participants.size(); ++I)

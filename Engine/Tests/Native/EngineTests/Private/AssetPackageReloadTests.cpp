@@ -660,13 +660,14 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	const std::array SavedSRGB{Textures[0]->IsSRGB(), Textures[1]->IsSRGB()};
 	auto* Transactions = NewObject<DTransBuffer>(nullptr, "ReloadHistory");
 	TStrongObjectPtr<DTransBuffer> TransactionRoot(Transactions);
-	Transactions->EstablishSavedState(*Textures[0]->GetPackage());
-	Transactions->EstablishSavedState(*Textures[1]->GetPackage());
+	Textures[0]->GetPackage()->ClearDirty();
+	Textures[1]->GetPackage()->ClearDirty();
 	{
 		Tests::FBufferRecording Scope(Transactions, {"test", "Cross-package edit"});
 		for (DTexture2D* Texture : Textures)
 		{
-			(void)Texture->Modify();
+			Texture->SetFlags(EObjectFlags::Transactional);
+			ASSERT_TRUE(Texture->Modify());
 			Texture->SetBuildSettings(Texture->GetUsage(), !Texture->IsSRGB(),
 				Texture->GetMaxResolution(), Texture->GetCompressionQuality(),
 				Texture->GetAlphaMipMode(), Texture->GetAlphaCoverageThreshold());
@@ -696,12 +697,12 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
 	auto Reloaded = LoadObject<DTexture2D>(Testing::MakePackageLeafAssetObjectPathForTests(Paths[0]), nullptr, &ReloadedError);
 	ASSERT_TRUE(Reloaded); Textures[0] = Reloaded;
-	const auto ReloadedState = Transactions->GetPackageRevisionState(*Textures[0]->GetPackage());
-	ASSERT_TRUE(ReloadedState); EXPECT_TRUE(ReloadedState->HasSavedCheckpoint());
+
+
 	EXPECT_FALSE(Textures[0]->GetPackage()->IsDirty());
-	const auto OtherState = Transactions->GetPackageRevisionState(*Textures[1]->GetPackage());
-	ASSERT_TRUE(OtherState.has_value());
-	EXPECT_TRUE(OtherState->HasSavedCheckpoint());
+
+
+
 	EXPECT_TRUE(Textures[1]->GetPackage()->IsDirty());
 
 	ASSERT_TRUE(Transactions->Undo());
@@ -990,7 +991,7 @@ TEST_F(FAssetPackageReloadTests, EditorDiscardPreservesReinstancedHistoryAndTran
 	std::string Error;
 	ASSERT_TRUE(SetSource(*Texture, std::byte{31}, Error));
 	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
-	EditorOwner->EstablishSavedState(*Texture->GetPackage());
+	Texture->SetFlags(EObjectFlags::Transactional);
 	const auto SavedSRGB = Texture->IsSRGB();
 	{
 		Durin::FScopedTransaction Scope("test", "Discarded texture settings", Texture);

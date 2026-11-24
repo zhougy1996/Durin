@@ -247,13 +247,11 @@ its current editor Level, stopped PIE/World play and an idle or
 recording host transactor. Synchronous Actor and Component changes join the
 innermost recording scope and commit with the outer transaction, retaining its
 description; with no outer scope they submit an independent history entry.
-Executing, Undoing, Redoing, pending asynchronous operations, RecoveryRequired
-and Destroying still reject admission. Detached, foreign, template or unsupported
+History replay, finalization, cleanup, and destruction block reentrant editing. Detached, foreign, template or unsupported
 participants fail before preparation. Creation returns the Actor/Component pointer
 or null; Actor duplication returns the new Actors in input order or an empty
 array. Other edits return bool, with attachment and detachment reporting whether any root changed. Other successful no-ops return true. Public
-operations carry no error strings, status enum or history result. Detailed
-execution/recovery state stays in DTransactor.
+operations carry no error strings, status enum or history result. The transactor reports history failures.
 Same-name rename, same-label assignment and same-parent reparent produce no history entry. Empty or
 duplicate batch participants are rejected; valid batches submit once.
 

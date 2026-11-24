@@ -83,13 +83,6 @@ namespace Durin::LevelEditor
 			bool bOwnsPreview = true;
 		};
 
-		// Restores each affected package's pre-drag dirty state when cancelled.
-		struct FPackageDirtySnapshot
-		{
-			TObjectPtr<DPackage> Package;
-			bool bWasDirty = false;
-			uint64 EditRevision = 0;
-		};
 		auto RebuildState(const FTransformGizmoTargetSet& Targets, const FSceneView& View) -> bool;
 		auto HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle;
 		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
@@ -100,7 +93,6 @@ namespace Durin::LevelEditor
 		auto CapturePreviewValues() -> bool;
 		auto MarkPackagesDirty() -> void;
 		auto ClearDrag() -> void;
-		auto RestoreInitialDirtyState() -> void;
 		auto ApplyTranslation(const FVector3& Delta) -> bool;
 		auto ApplyRotation(double Radians) -> bool;
 		auto ApplyScale(const FVector3& Factors) -> bool;
@@ -116,7 +108,7 @@ namespace Durin::LevelEditor
 		FQuat DisplayBasis{1.0, 0.0, 0.0, 0.0};
 		float WorldScale = 1.0f;
 		std::vector<FTargetSnapshot> Snapshots;
-		std::vector<FPackageDirtySnapshot> PackageDirtySnapshots;
+		std::vector<TObjectPtr<DPackage>> DragPackages;
 		std::string DragCollectionLabel = "Targets";
 		ETransformGizmoCapability ActiveCapabilities = ETransformGizmoCapability::None;
 		FVector3 DragAxis{0.0};

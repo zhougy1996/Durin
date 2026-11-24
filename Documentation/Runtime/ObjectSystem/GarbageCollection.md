@@ -60,7 +60,7 @@ reservation. Abort releases it. The nonthrowing commit publishes new and replace
 packages together. Graph application has no persistence callback; higher-level
 owners request ordinary saving after the live graph is applied.
 
-`TryCommit` rechecks identities, package edit revisions, object membership,
+`TryCommit` rechecks identities, package dirty flags, object membership,
 reference slots, container contents, and native participants before consuming
 the plan in the same call. Its internal nonthrowing commit switches existing
 package registry entries, writes references, swaps detached containers, and

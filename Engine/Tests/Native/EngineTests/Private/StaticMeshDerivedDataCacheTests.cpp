@@ -2170,10 +2170,10 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	const auto Warm = InspectCompilationOperation(*Fixture.Mesh);
 	EXPECT_TRUE(CacheLog.empty());
 	EXPECT_TRUE(Warm.Error.empty());
-	const auto Revision = Fixture.Mesh->GetPackage()->GetEditRevision();
+	const bool bWasDirty = Fixture.Mesh->GetPackage()->IsDirty();
 	for (uint32 Index = 0; Index < 10; ++Index)
 		EXPECT_EQ(Warm.RequestId, InspectCompilationOperation(*Fixture.Mesh).RequestId);
-	EXPECT_EQ(Revision, Fixture.Mesh->GetPackage()->GetEditRevision());
+	EXPECT_EQ(bWasDirty, Fixture.Mesh->GetPackage()->IsDirty());
 	EXPECT_FALSE(Fixture.Mesh->GetSource().IsGeometryResident());
 	EXPECT_FALSE(Fixture.Mesh->IsCompiling());
 	const auto CacheFile = Fixture.Root / "BlockedManagerCache";

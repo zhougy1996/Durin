@@ -76,7 +76,7 @@ namespace Durin::MaterialEditor
 				if (!FunctionReplacement)
 					return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::UnmappedReference});
 				FunctionSession = Function;
-				WorkingRevision = Function->WorkingPackage->GetEditRevision();
+				WorkingRevision = Function->Working->GetGraphChanges().GetEditRevision();
 			}
 			if (Material)
 			{
@@ -84,7 +84,7 @@ namespace Durin::MaterialEditor
 				Replacement = Cast<DMaterial>(Entry->Replacement);
 				if (!Replacement) return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::UnmappedReference});
 				MaterialSession = Material;
-				WorkingRevision = Material->WorkingPackage->GetEditRevision();
+				WorkingRevision = Material->Working->GetGraphChanges().GetEditRevision();
 				ReplacementRevision = Replacement->GetGraphChanges().GetEditRevision();
 			}
 			return {};
@@ -95,11 +95,11 @@ namespace Durin::MaterialEditor
 				&& (!FunctionSession || (Owner->FunctionSession == FunctionSession
 					&& FObjectKey(FunctionSession->GetSource()) == Previous
 					&& !FunctionSession->bPublishing && !FunctionSession->IsDirty()
-					&& FunctionSession->WorkingPackage->GetEditRevision() == WorkingRevision))
+					&& FunctionSession->Working->GetGraphChanges().GetEditRevision() == WorkingRevision))
 				&& (!MaterialSession || (Owner->EditingSession == MaterialSession
 					&& FObjectKey(MaterialSession->GetSourceMaterial()) == Previous
 					&& !MaterialSession->bPublishing
-					&& MaterialSession->WorkingPackage->GetEditRevision() == WorkingRevision
+					&& MaterialSession->Working->GetGraphChanges().GetEditRevision() == WorkingRevision
 					&& Replacement->GetGraphChanges().GetEditRevision() == ReplacementRevision));
 		}
 		auto CoversNativeReferences(const DObject&) const -> bool override { return false; }

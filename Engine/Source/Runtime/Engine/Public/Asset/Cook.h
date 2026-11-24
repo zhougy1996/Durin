@@ -644,7 +644,6 @@ namespace Durin
 		std::function<bool(uint64)> TryReserveWorkingSet;
 		ENGINE_API auto ReserveWorkingSet(uint64 Bytes) -> bool;
 		uint64 WorkingSetBytes = 0;
-		uint64 PackageRevision = 0;
 		bool bInUse = false;
 		std::function<void()> CancelWork;
 		std::function<bool()> PollWork;

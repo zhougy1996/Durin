@@ -12,8 +12,6 @@ namespace Durin
 
 namespace Durin
 {
-	using FRevisionId = uint64;
-
 	// Identifies the history transition reported by a transaction event.
 	enum class ETransactionEventType : uint8
 	{
@@ -34,14 +32,5 @@ namespace Durin
 		std::string Description;
 		std::string Details;
 		auto operator==(const FTransactionEvent&) const -> bool = default;
-	};
-
-
-	// Describes one package's editor-session revision state.
-	struct FPackageRevisionState
-	{
-		FRevisionId CurrentRevision = 0;
-		FRevisionId SavedRevision = 0;
-		auto HasSavedCheckpoint() const -> bool { return SavedRevision != 0; }
 	};
 }

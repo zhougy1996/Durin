@@ -18,7 +18,7 @@ still use their own setters; `DObject` does not own editor history.
 | Widgets, shared layouts, custom controls, and host view lifetime | [Property Details views](PropertyDetailsViews.md) |
 | Actor/Component targets and aggregation | [Level Editor Details](../LevelEditing/LevelEditorDetails.md) |
 | Payload encoding, exact object identity, and record retention | [Transaction records](../Transactions/TransactionRecords.md) |
-| Scoped recording, Undo/Redo ordering, package revisions, and dirty checkpoints | [Transactors](../Transactions/Transactors.md) |
+| Scoped recording, Undo/Redo ordering, and package dirty state | [Transactors](../Transactions/Transactors.md) |
 | Property kinds, metadata, and value operations | [Property reflection](../../../Runtime/ObjectSystem/PropertyReflection.md) |
 
 `FPropertyView` and its frame-settled controls use the same `FPropertyEdit`
@@ -47,9 +47,8 @@ After transaction validation and before any Undo/Redo record is applied, the
 transactor calls `DObject::PreEditUndo()` once per distinct property-record target.
 Its default implementation is a no-op. After all records have been applied, it
 calls `DObject::PostEditUndo()` once on each of those targets. On replay failure,
-the post callback runs after compensation against the final recovered state,
-including targets prepared before replay but not reached; validation failures
-before replay emit neither callback. Custom
+started targets receive completion against the state reached at failure, including
+targets whose records were not reached. Admission refusals emit neither callback. Custom
 changes continue to own their domain synchronization. The default implementation
 calls `PostEditChange()`, producing a full-object property notification with no
 member or leaf. Per-property replay notifications retain their Undo/Redo origin
@@ -307,15 +306,15 @@ NonTransactional property metadata continues to exclude that property from
 history, including when ordinary recorded admission is selected. Local preview
 snapshots, validation and cancellation restoration remain available without history.
 
-The session opens one scope and calls `Modify(false)` before the first write.
+The session opens one scope and calls `Modify(false)` before the first write,
+preserving the package's initial dirty state during capture.
 Recorded sessions enroll ordinary targets with the Transactional object flag.
 Template targets follow runtime eligibility. The first whole-object baseline
 includes edits made by change reactions. Repeated Modify calls reuse it.
 Commit ends the scope after the Committed notification and records the applied
 value. An unchanged nested commit ends its action without canceling an enclosing
 recording. Cancellation discards the shared native recording; preview restoration
-remains the edit session's separate responsibility. No-op/canceled Modify can
-leave a dirty package without a history entry.
+remains the edit session's separate responsibility.
 
 `FTransaction::FObjectRecord` reconstructs the target from its exact object identity,
 whole-object serialized payloads and annotations. Undo/Redo check structural/type/identity validity and restore historical
@@ -323,17 +322,16 @@ payloads directly, bypassing new-edit proposal validators and normalization.
 New edits continue to use detached validation; replay emits the normal
 property notifications followed by balanced object completion hooks. Record identity and payload
 rules belong to [Transaction records](../Transactions/TransactionRecords.md);
-ordering, rollback, and recovery belong to [Transactors](../Transactions/Transactors.md#structural-history-and-barriers).
+ordering and history failure handling belong to [Transactors](../Transactions/Transactors.md#structural-history-and-barriers).
 
 Editor object creation supplies `EObjectFlags::Transactional` for automatic
 whole-object capture. A snapshot member marked
 `EPropertyFlags::NonTransactional` disables session history rather than selecting
 a different history backend. Object eligibility and property exclusion are distinct.
 
-Dirty-state and save-checkpoint behavior belongs to
-[Package revisions](../Transactions/Transactors.md#package-revisions).
-Persistent changes outside history must invalidate the checkpoint and mark the
-package dirty. Reflected property edits do not request asset-registry scans.
+The package dirty-state contract is defined in
+[Package dirty state](../Transactions/Transactors.md#package-dirty-state).
+Persistent changes outside history mark the package dirty. Reflected property edits do not request asset-registry scans.
 
 ## Container Edits
 

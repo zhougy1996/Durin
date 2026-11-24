@@ -1085,7 +1085,7 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationRejectsInputsChangedWhil
 	EXPECT_FALSE(Material->GetCookedProgramData().HasData());
 }
 
-TEST_F(FCookFunctionalTests, PreSaveStillRejectsGraphGrowthAndInputMutation)
+TEST_F(FCookFunctionalTests, PreSaveAllowsDirtyMarksAndRejectsGraphGrowth)
 {
 	const auto Fixture = Testing::CreateTestFixtureDirectory("CookPreSaveFreeze");
 	Testing::FScopedMountRegistryFixture Mounts;
@@ -1094,7 +1094,7 @@ TEST_F(FCookFunctionalTests, PreSaveStillRejectsGraphGrowthAndInputMutation)
 	auto* Package = CreatePackage(Path); auto* Root = NewObject<DCookReferenceFixture>(Package, "Root");
 	DCookReferenceFixture::SaveHook = [&](FObjectPreSaveContext&) { Package->MarkDirty(); };
 	FCookContext Cook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	EXPECT_FALSE(Cook.AddPackage(Path.ToString(), Package)); EXPECT_TRUE(Cook.GetSavePlans().empty());
+	EXPECT_TRUE(Cook.AddPackage(Path.ToString(), Package)); EXPECT_FALSE(Cook.GetSavePlans().empty());
 	DCookReferenceFixture::SaveHook = [&](FObjectPreSaveContext&) { NewObject<DObject>(Root, "Unexpected"); };
 	FCookContext SecondCook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	EXPECT_FALSE(SecondCook.AddPackage(Path.ToString(), Package)); EXPECT_TRUE(SecondCook.GetSavePlans().empty());
@@ -1222,13 +1222,13 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/Material", Path));
 	auto* Material = NewObject<DMaterial>(CreatePackage(Path), "Material");
 	const auto Accepted = Material->GetAcceptedCompiledProgram();
-	const auto Revision = Material->GetPackage()->GetEditRevision();
+	const bool bWasDirty = Material->GetPackage()->IsDirty();
 	const std::array Configurations{FMaterialCookConfiguration{EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
 	Durin::FBulkData CookedData;
 	auto Prepared = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, CookedData);
 	ASSERT_TRUE(Prepared) << Prepared.Diagnostic;
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
-	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_EQ(Material->GetPackage()->IsDirty(), bWasDirty);
 	const auto BeforeSerialization = GetShaderBuildStats().Compilations;
 	FByteBuffer UnpreparedBytes;
 	FCanonicalMemoryWriter UnpreparedWriter(UnpreparedBytes, EArchivePurpose::CookedPayload,
@@ -1921,7 +1921,7 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	Material = Cast<DMaterial>(Loaded->FindTopLevelAsset("ResaveMaterial"));
 	ASSERT_NE(Material, nullptr);
 	const auto Before = GetShaderBuildStats().Compilations;
-	const auto Revision = Material->GetPackage()->GetEditRevision();
+	const bool bWasDirty = Material->GetPackage()->IsDirty();
 	Durin::FBulkData CookedData;
 	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::Win64, {}, CookedData));
 	const std::array Invalid{High, High};
@@ -1946,7 +1946,7 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	ASSERT_TRUE(OriginalRead);
 	EXPECT_TRUE(std::ranges::equal(SameRead->GetBytes(), OriginalRead->GetBytes()));
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Before);
-	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_EQ(Material->GetPackage()->IsDirty(), bWasDirty);
 }
 
 TEST_F(FCookFunctionalTests, RetainsPreparationCauseAndClearsItForNextRun)

@@ -526,7 +526,7 @@ namespace Durin
 			GUndo->SaveObject(this);
 			bRecorded = true;
 		}
-		if (bRecorded || bAlwaysMarkDirty) MarkPackageDirty();
+		if (bAlwaysMarkDirty) MarkPackageDirty();
 		return bRecorded;
 	}
 

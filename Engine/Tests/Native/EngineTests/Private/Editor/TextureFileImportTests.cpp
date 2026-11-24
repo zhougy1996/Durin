@@ -1,3 +1,4 @@
+#include "NativePackageNotificationTestSupport.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -413,21 +414,21 @@ TEST_F(FTextureImportQueueTests, CompetingAsyncSavesOwnSeparateTemporaryFiles)
 		EXPECT_TRUE(Entry.path().extension() == ".dasset" || Entry.path().extension() == ".dbulk");
 }
 
-TEST_F(FTextureImportQueueTests, AsyncSaveRejectsNewEditsAndRetriesCurrentVersion)
+TEST_F(FTextureImportQueueTests, AsyncSavePublishesCapturedContentAfterPackageIsDirtiedAgain)
 {
-	auto* Texture = MakeSaveTexture(); ASSERT_NE(Texture, nullptr);
-	auto Save = SavePackageAsync((Texture->GetPackage()));
+	auto* Texture = MakeSaveTexture();
+	ASSERT_NE(Texture, nullptr);
+	auto* Package = Texture->GetPackage();
+	Package->MarkDirty();
+	Testing::FScopedPackageNotificationCount Saved(OnPackageSaved(), Package);
+	auto Save = SavePackageAsync(Package);
 	ASSERT_TRUE(Save.IsValid());
 	ASSERT_TRUE(WaitForSave(Save));
-	Texture->GetPackage()->MarkDirty();
-	EXPECT_FALSE(FinishSave(Save));
-	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
-	EXPECT_FALSE(std::filesystem::exists(Root / "Content/save.dasset"));
-	Save = {};
-	Save = SavePackageAsync((Texture->GetPackage()));
-	ASSERT_TRUE(Save.IsValid()); ASSERT_TRUE(WaitForSave(Save));
-	EXPECT_TRUE(FinishSave(Save));
-	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
+	Package->MarkDirty();
+	ASSERT_TRUE(FinishSave(Save));
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_EQ(Saved.Count, 1);
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/save.dasset"));
 }
 
 TEST_F(FTextureImportQueueTests, AsyncSaveRejectsCompetingSaveAndChangedStaging)

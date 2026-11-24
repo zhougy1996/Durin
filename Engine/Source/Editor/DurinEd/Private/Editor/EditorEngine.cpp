@@ -1062,7 +1062,7 @@ namespace Durin
 			if (!IsUnderSelectedActor(PlayObject)) continue;
 			if (const auto CopyResult = CopyEditableObjectProperties(PlayObject, EditorObject, PlayToEditorObjects); !CopyResult)
 			{
-				if (DPackage* Package = EditorLevel->GetPackage()) Trans->InvalidateSavedState(*Package);
+				if (DPackage* Package = EditorLevel->GetPackage()) Package->MarkDirty();
 				if (OutError) *OutError = ToString(CopyResult.error());
 				return false;
 			}
@@ -1076,7 +1076,7 @@ namespace Durin
 			}
 		}
 		if (DPackage* Package = EditorLevel->GetPackage())
-			Trans->InvalidateSavedState(*Package);
+			Package->MarkDirty();
 		if (OutAppliedActorCount) *OutAppliedActorCount = static_cast<uint32>(SelectedRoots.size());
 		return true;
 	}

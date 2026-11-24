@@ -487,8 +487,10 @@ and writer preparation. Synchronous, protected task, and batch saves use the
 same per-package commit path. Batches stop at the first failure and never roll
 back earlier successful packages. Saving validates the complete new
 v11 closure, publishes owned payloads before the main image that binds them,
-verifies the stable closure, publishes a revisioned Registry delta, then clears
-Dirty/NewlyCreated for the saved revision. Failure before authored commit
+verifies the stable closure, clears Dirty, broadcasts the saved package, and publishes
+a revisioned Registry delta. An async save publishes its captured bytes even if
+the package was edited again before completion. Edits made by saved-event
+listeners after dirty clearing remain dirty. Failure before authored commit
 restores the prior closure and leaves the package retryably Dirty. Registry
 failure after authored commit keeps valid bytes, fences the affected path, and
 returns `ContentCommittedProjectionPending` for reconciliation.
@@ -497,8 +499,8 @@ The private implementation separates stage inputs and failure ownership:
 
 | Boundary | Input and owned state | Failure responsibility |
 | --- | --- | --- |
-| `AssetPackageOperations.cpp` | Capture and scheduling; `FPreparedPackageSave` owns the package pin, edit revision, canonical header, destination and writer. The header is the sole captured package identity; encoded buffers transfer to the writer before preparation returns. | Reject stale async participants; stop batches without undoing completed members. Workers stage only the writer; the operation is released on GameThread. |
-| `AssetPackageSavePublication.cpp` | The staged preparation, publication options and expected Registry revision. | The transaction entrypoint revalidates live-state admission. The physical writer owns file recovery; Engine selects rollback or projection fencing, acknowledges the captured edit revision, and finalizes the writer. |
+| `AssetPackageOperations.cpp` | Capture and scheduling; `FPreparedPackageSave` owns the package pin, canonical header, destination and writer. The header is the sole captured package identity; encoded buffers transfer to the writer before preparation returns. | Reject stale async participants; stop batches without undoing completed members. Workers stage only the writer; the operation is released on GameThread. |
+| `AssetPackageSavePublication.cpp` | The staged preparation, publication options and expected Registry revision. | The transaction entrypoint revalidates live-state admission. The physical writer owns file recovery; Engine selects rollback or projection fencing, clears the dirty bit and broadcasts the saved package after physical commit, and finalizes the writer. |
 | `AssetPackageInspection.cpp` | Immutable package/bulk bytes and mounted identity; inspection outputs. | Inspection remains construct-free and publishes no state. Explicit typed reads delegate value restoration to the load Archive. |
 | `AssetPackageLoadArchive.cpp` | Borrowed linker property tags, structured values and load bindings; separate byte-tool reads. | Own Archive traversal and consumption checks; typed byte-tool restoration may resolve external object references. Graph construction and rollback belong to the caller. |
 | `AssetPackageCook.cpp` | Source/output identities and immutable closures; relocated buffers and reference mappings. | Return canonical output or an encoding/read failure; no file publication. |

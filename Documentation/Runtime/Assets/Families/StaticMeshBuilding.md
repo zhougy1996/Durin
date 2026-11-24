@@ -145,7 +145,7 @@ rolls back accepted source, slots, provenance or render data and never changes a
 successful render completion into a failure. Cook independently builds detached
 render and required collision projections before package Archive capture; missing
 required collision fails Cook. Invocation-scoped products are qualified by object
-handle, package revision and target. SerializeCooked consumes prepared bulk only,
+handle, package identity and target. SerializeCooked consumes prepared bulk only,
 and existing direct Engine package-save APIs install preparation automatically.
 Cook render and collision preparation query and persist shared DDC results, so a
 later Cook can reuse construction even when its package output must be regenerated.

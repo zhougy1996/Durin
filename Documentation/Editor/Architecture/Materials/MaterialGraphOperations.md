@@ -60,7 +60,7 @@ directly. Root
 input edits record the material before changing its fields. A published root-input
 change rebuilds the root pins and their links. A root-position change updates
 presentation only. Working-copy Apply compares root bindings by upstream
-expression identity and includes the root coordinates in its save checkpoint.
+expression identity and checks root coordinates for layout changes.
 
 `DMaterial::Domain` selects Surface or PostProcess output definitions. The read-only
 `GetExpressionInputDescription` returns the stored connection, numeric input
@@ -514,7 +514,7 @@ Root defaults use the node's `PinDefaultValueChanged`; resetting a root input us
 
 The drawing cache applies canvas visibility filters and carries detached interaction
 drafts. Position-only updates preserve its pin storage. Compiler generations, package
-save checkpoints, and optimistic editing-session revisions have separate lifetimes.
+save counts, and optimistic editing-session revisions have separate lifetimes.
 
 ## Compact input and texture authoring
 
@@ -614,8 +614,7 @@ still captures the affected objects. Standalone commands can run without an
 editor. Both paths validate the proposed edit before publication.
 Read-only inspection, copying and layout calculation need no transaction service.
 Move gestures retain their original service and use a private position submission
-path; their Commit never redirects to a replacement editor. Working-copy checkpoint
-ownership and explicit low-level gesture bindings are separate from command modes.
+path; their Commit never redirects to a replacement editor. Working-copy dirty state and explicit low-level gesture bindings are separate from command modes.
 
 Same-class constant edits, ordinary pin defaults and constant toggles, swizzle masks, function port rename/reorder, and ordinary single or bulk link edits record the authored expressions
 with `DObject::Modify(false)` in one `FScopedTransaction`. Link and numeric

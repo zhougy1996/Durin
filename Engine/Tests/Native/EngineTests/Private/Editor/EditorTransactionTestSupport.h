@@ -2,8 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "EditorEngineTestSupport.h"
+#include "NativeTestSupport.h"
 
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Transactions/Transactor.h"
 
@@ -15,7 +17,7 @@ namespace Durin
 		{ Transaction.AddRecord(std::move(Change)); }
 
 		static auto AddPackageTransition(FTransaction& Transaction, DPackage& Package) -> void
-		{ Transaction.PackageTransitions.push_back({.Package = FPersistentObjectRef(&Package)}); }
+		{ Transaction.PackageRecords.push_back({FPersistentObjectRef(&Package), Package.IsDirty(), 0}); }
 
 		static auto CaptureIndex(const FTransaction& Transaction) { return Transaction.CaptureIndex.get(); }
 
@@ -26,19 +28,26 @@ namespace Durin
 		}
 		static auto InstallHistory(DTransBuffer& Buffer, FTransaction Transaction) -> void
 		{
-			Buffer.History.push_back(std::move(Transaction));
+			Buffer.History.push_back(std::make_unique<FTransaction>(std::move(Transaction)));
 			Buffer.Cursor = 1;
 		}
-		static auto GetState(const DTransBuffer& Buffer) -> ETransactorState { return Buffer.State; }
-		static auto SetState(DTransBuffer& Buffer, ETransactorState State) -> void
+		static auto SetHistoryBusy(DTransBuffer& Buffer, bool bBusy) -> void
 		{
-			Buffer.State = State;
+			Buffer.Guard = bBusy ? DTransBuffer::EHistoryGuard::Mutating : DTransBuffer::EHistoryGuard::None;
 		}
 	};
 }
 
 namespace Durin::Tests
 {
+	inline auto SaveTransactionTestPackage(DPackage& Package) -> testing::AssertionResult
+	{
+		const auto Directory = Testing::CreateTestWorkSubdirectory("TransactionSaves");
+		const auto Result = Package.Save({.Destination = Directory / "Package.dasset", .Mode = EPackageSaveMode::Complete});
+		if (!Result) return testing::AssertionFailure() << Result.Error->ToString();
+		return testing::AssertionSuccess();
+	}
+
 	// Pair raw Begin/End in low-level tests that deliberately run without an editor.
 	class FBufferRecording
 	{

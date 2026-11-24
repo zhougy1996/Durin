@@ -138,6 +138,16 @@ namespace Durin
 		return ResolveTransactionArray({.Object = Object, .Member = Member, .MemberIndex = MemberIndex, .StructPath = StructPath});
 	}
 
+	auto FTransaction::FArrayData::ValidateSourceRange() const -> FTransactionCaptureResult
+	{
+		const auto* Container = ResolveContainer();
+		if (!Container) return std::unexpected("Array replay container is unavailable.");
+		const auto Size = Member->GetOps().Num(Container);
+		if (Index > Size || (Oper != -1 && Count > Size - Index))
+			return std::unexpected("Array replay range is out of bounds.");
+		return {};
+	}
+
 	auto FTransaction::FArrayData::CaptureRange(size_t Num) const -> std::expected<FRange, std::string>
 	{
 		const auto& Ops = Member->GetOps();
@@ -167,33 +177,27 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTransaction::FArrayData::Apply(bool bCompensate, EPropertyChangeOrigin Origin, bool* OutRecoveryRequired) -> FTransactionCaptureResult
+	auto FTransaction::FArrayData::Apply(EPropertyChangeOrigin Origin) -> FTransactionCaptureResult
 	{
 		if (auto Valid = Validate(); !Valid) return Valid;
-		const int8 Direction = bCompensate ? -Oper : Oper;
-		const auto* Payload = bCompensate ? (Inverse ? &*Inverse : nullptr) : &Data;
-		if (!Payload) return std::unexpected("Array compensation has no prepared inverse.");
 		const auto& Ops = Member->GetOps();
-		const size_t RemoveCount = Direction == -1 ? 0 : Count;
-		if (!bCompensate)
-		{
-			// Capture at this ordered step, after preceding array operations have
-			// restored their indices. Saving every range from the final array is invalid.
-			auto Captured = CaptureRange(RemoveCount);
-			if (!Captured) return std::unexpected(Captured.error());
-			Inverse = std::move(*Captured);
-			InverseAnnotation = Annotation ? Annotation->CreateSnapshot(*Target.Get()) : Target.Get()->FindOrCreateTransactionAnnotation();
-		}
+		const size_t RemoveCount = Oper == -1 ? 0 : Count;
+		// Capture at this ordered step, after preceding array operations have
+		// restored their indices. Saving every range from the final array is invalid.
+		auto Captured = CaptureRange(RemoveCount);
+		if (!Captured) return std::unexpected(Captured.error());
+		Inverse = std::move(*Captured);
+		InverseAnnotation = Annotation ? Annotation->CreateSnapshot(*Target.Get()) : Target.Get()->FindOrCreateTransactionAnnotation();
 		FDetachedContainerStorage Detached;
 		if (Detached.Create(Ops) != EContainerOpResult::Success) return std::unexpected("Array replay range allocation failed.");
-		if (Ops.Resize(Detached.Get(), Payload->size()) != EContainerOpResult::Success)
+		if (Ops.Resize(Detached.Get(), Data.size()) != EContainerOpResult::Success)
 			return std::unexpected("Array replay range construction failed.");
-		for (size_t Offset = 0; Offset < Payload->size(); ++Offset)
+		for (size_t Offset = 0; Offset < Data.size(); ++Offset)
 		{
 			void* Element = nullptr;
 			if (Ops.GetMutableAt(Detached.Get(), Offset, &Element) != EContainerOpResult::Success)
 				return std::unexpected("Array replay element lookup failed.");
-			if (Direction == 0)
+			if (Oper == 0)
 			{
 				const void* Current = nullptr;
 				if (Ops.GetConstAt(ResolveContainer(), Index + Offset, &Current) != EContainerOpResult::Success)
@@ -201,25 +205,23 @@ namespace Durin
 				if (auto Copied = Member->GetInner()->CopyAssignValue(Element, Current); !Copied)
 					return std::unexpected(ToString(Copied.error()));
 			}
-			const auto& Stored = (*Payload)[Offset];
+			const auto& Stored = Data[Offset];
 			auto Resolved = Stored.Payload.WithResolvedReferences(Stored.HardReferences);
 			if (!Resolved) return std::unexpected(Resolved.error());
-			if (auto Restored = RestorePropertyValuePayload(Member->GetInner(), Element, 0, *Resolved, Direction == 0); !Restored)
+			if (auto Restored = RestorePropertyValuePayload(Member->GetInner(), Element, 0, *Resolved, Oper == 0); !Restored)
 				return std::unexpected(ToString(Restored.error()));
 		}
 		if (Ops.Splice(ResolveContainer(), Index, RemoveCount, Detached.Get()) != EContainerOpResult::Success)
 			return std::unexpected("Array replay splice rejected the range.");
-		CompletionAnnotation = bCompensate ? InverseAnnotation : Annotation;
+		CompletionAnnotation = Annotation;
 		bHasCompletion = true;
-		if (OutRecoveryRequired) *OutRecoveryRequired = true;
 		auto* Object = Target.Get();
 		const FProperty* Root = StructPath.empty() ? Member : StructPath.front();
 		const FPropertyPathSegment Path{Root};
 		Object->PostEditChangeProperty({.MemberProperty = Root, .LeafProperty = Root, .Path = {&Path, 1},
-			.Phase = EPropertyChangePhase::Committed, .Kind = Direction == 0 ? EPropertyChangeKind::ValueSet
-				: Direction == 1 ? EPropertyChangeKind::ArrayRemove : EPropertyChangeKind::ArrayAdd, .Origin = Origin});
+			.Phase = EPropertyChangePhase::Committed, .Kind = Oper == 0 ? EPropertyChangeKind::ValueSet
+				: Oper == 1 ? EPropertyChangeKind::ArrayRemove : EPropertyChangeKind::ArrayAdd, .Origin = Origin});
 		Object->MarkPackageDirty();
-		if (OutRecoveryRequired) *OutRecoveryRequired = false;
 		return {};
 	}
 

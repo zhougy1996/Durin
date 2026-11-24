@@ -510,7 +510,7 @@ auto FSceneImportState::ResolveOutputs(FAssetImportResult& Result,
 		{
 			auto* Material = Descriptor->PreservedMaterial.Get();
 			Summary.Disposition = EImportOutputDisposition::Preserve;
-			Descriptor->PreviousRevision = Material->GetPackage()->GetEditRevision();
+			Descriptor->PreviousRevision = Material->GetMaterialContentRevision();
 			continue;
 		}
 		if (FindPackageExact(Summary.AssetPath) || FindResidentPackage(Summary.AssetPath))
@@ -759,7 +759,7 @@ auto FSceneImportState::Run() -> FSceneRoutine
 			if (Output.Descriptor->bExistingMaterialMapping)
 			{
 				auto* Mapped = Output.Descriptor->PreservedMaterial.Get();
-				if (!Mapped || Mapped->GetPackage()->GetEditRevision() != Output.Descriptor->PreviousRevision)
+				if (!Mapped || Mapped->GetMaterialContentRevision() != Output.Descriptor->PreviousRevision)
 					co_return AddError(Result, EImportDiagnosticCategory::Collision, "asset-mapping", "Mapped material changed after preflight.", Output.Descriptor->StableIdentity);
 				continue;
 			}

@@ -130,10 +130,10 @@ namespace Durin
 		OutBytes = Total; return true;
 	}
 
-	auto FTransaction::FWholeObjectData::Reject(std::string Message, bool bRecovery) const
+	auto FTransaction::FWholeObjectData::Reject(std::string Message) const
 		-> std::unexpected<FTransactionObjectRecordError>
 	{
-		return std::unexpected(FTransactionObjectRecordError{.Owner = Target.GetKey(), .SerializationCause = std::move(Message), .bRecoveryRequired = bRecovery});
+		return std::unexpected(FTransactionObjectRecordError{.Owner = Target.GetKey(), .SerializationCause = std::move(Message)});
 	}
 
 	auto FormatTransactionObjectRecordError(const FTransactionObjectRecordError& Error) -> std::string
@@ -226,7 +226,7 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransaction::FWholeObjectData::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bUseHistoricalState)
+	auto FTransaction::FWholeObjectData::Apply(bool bBefore, EPropertyChangeOrigin Origin)
 		-> std::expected<void, FTransactionObjectRecordError>
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -234,24 +234,15 @@ namespace Durin
 		if (!Object) return Reject("Transaction restore target is unavailable.");
 		if (!ReplayState)
 			if (auto Captured = PrepareReplay(); !Captured) return Captured;
-		auto& Desired = bUseHistoricalState ? (bBefore ? BeforeState : AfterState) : ReplayState;
+		auto& Desired = bBefore ? BeforeState : AfterState;
 		if (!Desired) return Reject("Transaction restore state is unavailable.");
 		CompletionAnnotation = Desired->GetAnnotation();
 		if (auto Validated = Desired->Validate(*Object); !Validated) return Reject(Validated.error());
 		if (auto Restored = LoadSerializedObject(*Object, Desired->GetSerializedCapture()); !Restored)
-		{
-			CompletionAnnotation = ReplayState->GetAnnotation();
-			auto Error = std::move(Restored.error());
-			if (auto Compensated = LoadSerializedObject(*Object, ReplayState->GetSerializedCapture()); !Compensated)
-			{
-				Error.bRecoveryRequired = true;
-				Error.Message += std::format(" Object compensation failed: {}", Compensated.error().Message);
-			}
-			return Reject(std::move(Error.Message), Error.bRecoveryRequired);
-		}
+			return Reject(std::move(Restored.error().Message));
 		// Per-member notifications use the same actual-field diff as object events.
 		auto Changes = DiffUtil::GenerateObjectDiff(ReplayState->Observation, Desired->Observation);
-		if (!Changes) return Reject(Changes.error(), true);
+		if (!Changes) return Reject(Changes.error());
 		for (const auto Name : Changes->ChangedProperties)
 			if (auto* Member = Object->GetClass()->FindPropertyByName(Name))
 			{

@@ -38,7 +38,7 @@ namespace
 			ASSERT_TRUE(FPackagePath::TryCreate("/RoadEditor/" + PackageName, Path));
 			Package->InitializeAssetPackage(Path);
 			PackageRoot = TStrongObjectPtr<DObject>(Package);
-			Asset = NewObject<DRoadNet>(Package, "Network");
+			Asset = NewObject<DRoadNet>(Package, "Network", EObjectFlags::Transactional);
 			Draft = NewObject<DRoadNet>(Asset, "Draft");
 			Editor = NewObject<DEditorEngine>(nullptr, "RoadEditor");
 			ASSERT_TRUE(Editor->ActivateEditor());
@@ -69,7 +69,7 @@ namespace
 			Actor->SetPreviewMesh(DStaticMesh::CreateDebugTriangle(Package));
 			Actor->SetRoadNet(Asset);
 			ASSERT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
-			Transactor->EstablishSavedState(*Package);
+			Package->ClearDirty();
 		}
 
 		auto TearDown() -> void override
@@ -172,8 +172,7 @@ namespace
 		ASSERT_EQ(Actor->GetAlignments().size(), 2u);
 		ASSERT_TRUE(Session.Cancel());
 		ExpectPreview(Original);
-		// Native Modify marks dirty even when preview restoration or rejection leaves no history.
-		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_FALSE(Package->IsDirty());
 		EXPECT_EQ(Transactor->GetQueueLength(), 0u);
 	}
 
@@ -188,8 +187,7 @@ namespace
 		EXPECT_TRUE(Session.Commit());
 		ExpectPreview(Original);
 		EXPECT_EQ(Actor->GetAlignments().front(), Before);
-		// Native Modify marks dirty even when preview restoration or rejection leaves no history.
-		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_FALSE(Package->IsDirty());
 		EXPECT_EQ(Transactor->GetQueueLength(), 0u);
 	}
 

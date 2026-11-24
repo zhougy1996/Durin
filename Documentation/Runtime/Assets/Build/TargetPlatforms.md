@@ -71,10 +71,10 @@ the generic coordinator does not compose builder versions.
 Engine's package capture prepares target-specific texture payloads, material programs
 and StaticMesh render/collision payloads before generic Archive discovery/emission.
 Assets own their target-keyed pending state and detached BulkData, guarded by
-package revision and family input stamps. Nested captures of disjoint assets are
+package identity and family input stamps. Nested captures of disjoint assets are
 independent; concurrent capture of the same asset/target is rejected. Preparation observes cancellation,
 limits traversal to 65536 objects and retained prepared payloads to 1 GiB, and
-rejects package revision changes or newly introduced unprepared objects. Preparation
+rejects package identity changes or newly introduced unprepared objects. Preparation
 and capture share transient-subtree, explicit omission and object eligibility
 policy. Policy-stripped hard references become null; packages without runtime
 exports are omitted normally. Class schemas and CookState v4 projections bind

@@ -237,6 +237,8 @@ TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTrans
 TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRevision)
 {
 	Durin::DPackage* Package = MakeReflectedRevisionTestPackage();
+	Durin::Testing::FScopedMountRegistryFixture MountFixture;
+	Durin::Testing::RegisterMountPointForTests("/ReflectedRevisionTests/", Durin::Testing::GetTestWorkDirectory().generic_string());
 	auto* Object = Durin::NewObject<DReflectedTransactionTestObject>(Package, "PropertyEditTarget");
 	auto* Property = DReflectedTransactionTestObject::FindProperty("Value");
 	Object->Value = 7;
@@ -247,7 +249,7 @@ TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRev
 	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Object, 0, Proposed));
 	Object->Value = 7;
 	FTestTransactorOwner Transactions;
-	Transactions.Get()->EstablishSavedState(*Package);
+	Package->ClearDirty();
 
 	Durin::PropertyEditor::FPropertyEdit Session;
 	ASSERT_TRUE(Session.Begin(Target, "Edit Saved Value", *Transactions.Get()));
@@ -260,7 +262,7 @@ TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRev
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object->Value, 19);
 	EXPECT_TRUE(Package->IsDirty());
-	Transactions.Get()->MarkSaved(*Package);
+	ASSERT_TRUE(Durin::Tests::SaveTransactionTestPackage(*Package));
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_TRUE(Package->IsDirty());
@@ -285,12 +287,10 @@ TEST(FReflectedPropertyEditSessionTests, RecordedEditEnrollsOrdinaryTargetAndRes
 		Package->ClearDirty();
 		if (bInitiallyDirty) Package->MarkDirty();
 		FTestTransactorOwner Transactions;
-		ASSERT_FALSE(Transactions.Get()->GetPackageRevisionState(*Package).has_value());
-
 		Durin::PropertyEditor::FPropertyEdit Session;
 		ASSERT_TRUE(Session.Begin(Durin::FPropertyEditTarget::ForMember(Object, Property),
 			"Edit Focused Value", *Transactions.Get()));
-		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_EQ(Package->IsDirty(), bInitiallyDirty);
 		EXPECT_TRUE(Object->HasAnyObjectFlags(Durin::EObjectFlags::Transactional));
 		ASSERT_TRUE(Session.Apply(Proposed));
 		ASSERT_TRUE(Session.Commit());

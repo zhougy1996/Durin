@@ -109,9 +109,9 @@ namespace Durin
 		std::vector<DObject*> Roots;
 		std::vector<const FStrongObjectPtr*> Owners;
 		FAssetDeletionOperation WholePackages;
-		struct FPartial { FWeakObjectPtr Package; std::vector<FWeakObjectPtr> Objects; uint64 EditRevision; bool bDirty; std::vector<std::filesystem::path> Files; };
+		struct FPartial { FWeakObjectPtr Package; std::vector<FWeakObjectPtr> Objects; bool bDirty; std::vector<std::filesystem::path> Files; };
 		std::vector<FPartial> Partial;
-		struct FShape { FWeakObjectPtr Package; uint64 Revision; std::vector<DObject*> Exports; };
+		struct FShape { FWeakObjectPtr Package; bool bWasDirty; std::vector<DObject*> Exports; };
 		std::vector<FShape> Shapes;
 		std::unordered_map<std::string, FXxHash128> Bytes;
 		FAssetReferenceStoreCapture Stores;
@@ -184,7 +184,7 @@ namespace Durin
 			{
 				auto* Package = Object ? Object->GetPackage() : nullptr;
 				if (!Package || std::ranges::any_of(S.Shapes, [Package](const auto& Shape) { return Shape.Package.Get() == Package; })) continue;
-				S.Shapes.push_back({FWeakObjectPtr(Package), Package->GetEditRevision(), {Package->GetTopLevelAssets().begin(), Package->GetTopLevelAssets().end()}});
+				S.Shapes.push_back({FWeakObjectPtr(Package), Package->IsDirty(), {Package->GetTopLevelAssets().begin(), Package->GetTopLevelAssets().end()}});
 			}
 			S.RegistryRevision = GetAssetCatalogRevision();
 			S.bAllowed = !S.Pending.empty() && bool(CheckAssetPackageMutationAllowed()) && bool(CaptureAssetReferenceStores(S.Stores));
@@ -229,7 +229,7 @@ namespace Durin
 				if (Entry && Selected.size() == Package->GetTopLevelAssets().size()) Request.AssetPaths.push_back(Entry->PackagePath);
 				else
 				{
-					FImpl::FPartial Partial{FWeakObjectPtr(Package), {}, Package->GetEditRevision(), Package->IsDirty()};
+					FImpl::FPartial Partial{FWeakObjectPtr(Package), {}, Package->IsDirty()};
 					for (auto* Object : Selected) Partial.Objects.emplace_back(Object);
 					S.Partial.push_back(std::move(Partial));
 					if (Entry)
@@ -278,7 +278,7 @@ namespace Durin
 		for (const auto& Shape : S.Shapes)
 		{
 			auto* Package = Cast<DPackage>(Shape.Package.Get());
-			if (!Package || Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || IsPackageLoading(Package->GetPackagePathIdentity()) || Package->GetEditRevision() != Shape.Revision
+			if (!Package || Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || IsPackageLoading(Package->GetPackagePathIdentity()) || Package->IsDirty() != Shape.bWasDirty
 				|| !std::ranges::equal(Package->GetTopLevelAssets(), Shape.Exports)) return false;
 		}
 		FAssetReferenceStoreCapture Stores;
@@ -296,7 +296,7 @@ namespace Durin
 		for (const auto& Shape : S.Shapes)
 		{
 			auto* Package = Cast<DPackage>(Shape.Package.Get());
-			if (!Package || Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || IsPackageLoading(Package->GetPackagePathIdentity()) || Package->GetEditRevision() != Shape.Revision
+			if (!Package || Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || IsPackageLoading(Package->GetPackagePathIdentity()) || Package->IsDirty() != Shape.bWasDirty
 				|| !std::ranges::equal(Shape.Exports, Package->GetTopLevelAssets())) return false;
 		}
 		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
@@ -344,7 +344,7 @@ namespace Durin
 			for (const auto& Pending : S.Pending) if (auto* Object = Pending->GetObject()) S.Roots.push_back(Object);
 			for (const auto& Object : Partial.Objects) Safe &= Object.IsValid();
 			Safe &= !Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet)
-				&& Package->GetEditRevision() == Partial.EditRevision && !IsPackageLoading(Package->GetPackagePathIdentity());
+				&& Package->IsDirty() == Partial.bDirty && !IsPackageLoading(Package->GetPackagePathIdentity());
 			for (const auto& Shape : S.Shapes)
 				if (Shape.Package.Get() == Package) Safe &= std::ranges::equal(Shape.Exports, Package->GetTopLevelAssets());
 			for (const auto& Pending : S.Pending)

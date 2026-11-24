@@ -21,9 +21,9 @@ TEST(FTransactionObjectEventTests, MixedDomainCommandCapturesItsOwnerBeforeBindi
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 9); EXPECT_EQ(DomainValue, 1);
 }
 
-TEST(FTransactionObjectEventTests, FailedReplayDoesNotPublishAnExternalReferenceIntoHistory)
+TEST(FTransactionObjectEventTests, ExternalReferenceReplayFaultIsTerminal)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "RetryHistory"));
 	int DomainValue = 1;
@@ -37,21 +37,8 @@ TEST(FTransactionObjectEventTests, FailedReplayDoesNotPublishAnExternalReference
 	EXPECT_EQ(Buffer->End(), 1);
 	auto* External = NewObject<DTransactionRecordParticipant>(nullptr, "ExternalReference");
 	Target->Hard = External;
-	EXPECT_FALSE(Buffer->Undo());
-	EXPECT_EQ(Target->Value, 9);
-	EXPECT_EQ(Target->Hard.Get(), External);
-	EXPECT_TRUE(Buffer->CanUndo());
-	Target->Hard = nullptr;
-	MarkObjectHierarchyAsGarbage(External);
-	CollectGarbage(Durin::EObjectFlags::Standalone);
-	Control->bFailUndo = false;
-	ASSERT_TRUE(Buffer->Undo());
-	EXPECT_EQ(Target->Value, 0);
-	EXPECT_EQ(DomainValue, 0);
-	ASSERT_TRUE(Buffer->Redo());
-	EXPECT_EQ(Target->Value, 9);
-	EXPECT_EQ(Target->Hard.Get(), nullptr);
-	EXPECT_EQ(DomainValue, 1);
+	const FObjectKey ExternalKey(External);
+	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }
 
 TEST(FTransactionObjectEventTests, ChangedTransactionRetainsAnUnchangedObjectBaseline)
@@ -96,7 +83,7 @@ TEST(FTransactionObjectEventTests, RepeatedSnapshotsRetainOneEntryAndReleaseObse
 		size_t CurrentBytes = 0; ASSERT_TRUE(Transaction->TryGetOwnedSize(CurrentBytes));
 		if (Index == 1) PeakBytes = CurrentBytes;
 		else EXPECT_EQ(CurrentBytes, PeakBytes);
-		EXPECT_EQ(Transaction->GetRecordCount(), 1u); EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+		EXPECT_EQ(Transaction->GetRecordCount(), 1u); EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 		EXPECT_EQ(Target->SerializationSaves, Saves + 1 + Index);
 	}
 	EXPECT_EQ(Buffer->End(), 1);
@@ -137,7 +124,7 @@ TEST(FTransactionObjectEventTests, SynchronousEventsKeepContextAndRejectRecordin
 			const auto Saves = Target->SerializationSaves; (void)Target->Modify(); EXPECT_EQ(Target->SerializationSaves, Saves);
 			EXPECT_FALSE(Recording->EndOperation()); EXPECT_FALSE(Recording->Finalize());
 			EXPECT_FALSE(Recording->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 0, 99)));
-			EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+			EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 		}
 	};
 	ASSERT_EQ(Buffer->Begin("test", "Events"), 0); Recording = GUndo;
@@ -171,40 +158,39 @@ TEST(FTransactionObjectEventTests, CancelNoOpAndCustomOnlyDoNotInventObjectEvent
 	ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Events, 0u); EXPECT_EQ(Target->UndoCompletions, 2);
 }
 
-TEST(FTransactionObjectEventTests, CompensatedFailureEmitsNoSuccessfulReplayEvent)
+TEST(FTransactionObjectEventTests, LoadFaultTerminatesUndo)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "CompensatedObjectEvents"));
 	uint32 Events = 0; Target->TransactionObserver = [&](const auto&) { ++Events; };
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Failure"}); ASSERT_TRUE(Target->Modify()); Target->Value = 4; }
 	ASSERT_EQ(Events, 1u); Target->bFailLoadOnce = true;
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Events, 1u); EXPECT_EQ(Target->Value, 4); EXPECT_TRUE(Buffer->CanUndo());
-	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Events, 2u);
+	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }
 
-TEST(FTransactionObjectEventTests, ObserverExceptionRetainsRecordingAndRequiresRecovery)
+TEST(FTransactionObjectEventTests, FinalizedObserverFaultIsTerminal)
 {
-	using namespace Durin; using namespace Durin;
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
-	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ThrowingFinalizedEvent"));
-	Target->TransactionObserver = [](const auto&) { throw std::runtime_error("Injected object event failure."); };
-	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Observer failure"}); ASSERT_TRUE(Target->Modify()); Target->Value = 4; }
-	EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired);
-	EXPECT_FALSE(Buffer->CanTransact()); EXPECT_EQ(Buffer->GetQueueLength(), 0u); EXPECT_EQ(GUndo, nullptr); EXPECT_EQ(Target->Value, 4);
-	TWeakObjectPtr<DTransactionRecordParticipant> Retained(Target.Get()); Target.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(Retained.IsValid());
+	auto Run = [&] {
+		using namespace Durin;
+		InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
+		TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ThrowingFinalizedEvent"));
+		Target->TransactionObserver = [](const auto&) { throw std::runtime_error("Injected object event failure."); };
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Observer failure"});
+		ASSERT_TRUE(Target->Modify());
+		Target->Value = 4;
+	};
+	EXPECT_DEATH(Run(), "Injected object event failure");
 }
 
-TEST(FTransactionObjectEventTests, ReplayObserverExceptionKeepsCursorAndCompletedNativeState)
+TEST(FTransactionObjectEventTests, ReplayObserverFaultIsTerminal)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ThrowingReplayEvent"));
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Replay observer"}); ASSERT_TRUE(Target->Modify()); Target->Value = 4; }
-	const auto Id = Buffer->GetUndoContext().TransactionId;
 	Target->TransactionObserver = [](const auto&) { throw std::runtime_error("Injected replay object event failure."); };
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired);
-	EXPECT_EQ(Buffer->GetUndoContext(false).TransactionId, Id); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->UndoCompletions, 1);
+	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }
 
 TEST(FTransactionObjectEventTests, SnapshotsAccumulateSelectionWithoutReplacingUndoBaseline)
@@ -232,7 +218,7 @@ TEST(FTransactionObjectEventTests, SnapshotsAccumulateSelectionWithoutReplacingU
 	Target->Numbers = {1}; ASSERT_TRUE(GUndo->SnapshotObject(Target.Get())); ASSERT_EQ(Events.size(), 3u);
 	Target->Numbers = {2}; ASSERT_TRUE(GUndo->SnapshotObject(Target.Get(), Value)); ASSERT_EQ(Events.size(), 4u);
 	EXPECT_EQ(Events.back().Change.ChangedProperties, std::vector<FName>{"Numbers"});
-	EXPECT_EQ(Buffer->GetQueueLength(), 0u); EXPECT_EQ(GUndo->GetContext().OperationId, Operation);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(GUndo->GetContext().OperationId, Operation);
 	Target->TransactionObserver = [&](const auto& Event) { Events.push_back(Event); };
 	EXPECT_EQ(Buffer->End(), 1); ASSERT_EQ(Events.size(), 5u); EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::Finalized);
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 1u);
@@ -259,16 +245,21 @@ TEST(FTransactionObjectEventTests, WholeObjectSnapshotsObserveNativeDataAndKeepO
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 4); EXPECT_EQ(Target->NativeValue, 9);
 }
 
-TEST(FTransactionObjectEventTests, SnapshotObserverFailureClosesRecordingAndRetainsRecoveryGraph)
+TEST(FTransactionObjectEventTests, SnapshotObserverFaultIsTerminal)
 {
-	using namespace Durin; using namespace Durin;
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
-	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ThrowingSnapshotEvent"));
-	ASSERT_EQ(Buffer->Begin("test", "Snapshot failure"), 0); ASSERT_TRUE(Target->Modify()); Target->Value = 1;
-	Target->TransactionObserver = [](const auto&) { throw std::runtime_error("Injected snapshot observer failure."); };
-	EXPECT_FALSE(GUndo->SnapshotObject(Target.Get())); EXPECT_EQ(GUndo, nullptr);
-	EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired); EXPECT_FALSE(Buffer->IsActive());
-	TWeakObjectPtr<DTransactionRecordParticipant> Retained(Target.Get()); Target.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(Retained.IsValid());
+	auto Run = [&] {
+		using namespace Durin;
+		InitializeDObjectSystem();
+		Tests::FTestEditorTransactorOwner Buffer;
+		TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ThrowingSnapshotEvent"));
+		std::optional<FScopedTransaction> OldScope;
+		OldScope.emplace("Snapshot failure");
+		ASSERT_TRUE(Target->Modify());
+		Target->Value = 1;
+		Target->TransactionObserver = [](const auto&) { throw std::runtime_error("Injected snapshot observer failure."); };
+		GUndo->SnapshotObject(Target.Get());
+	};
+	EXPECT_DEATH(Run(), "Injected snapshot observer failure");
 }
 
 TEST(FTransactionObjectEventTests, MultipleTargetsCompleteBeforeRecordAndAnnotationEvents)

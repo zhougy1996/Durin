@@ -483,11 +483,11 @@ TEST(FActorMutationTests, RejectionIsAtomicAndHistoryDiscardCollectsInactiveActo
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
-	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Undoing);
+	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions.Get(), true);
 	const auto Count = Level->GetActors().size();
 	EXPECT_FALSE(F.Editor.GetActorEditor()->SpawnActor(*Level, AStaticMeshActor::StaticClass(), "Blocked", FTransform{}, {false}));
 	EXPECT_EQ(Level->GetActors().size(), Count);
-	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Idle);
+	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions.Get(), false);
 	std::array<AActor*, 2> Invalid{F.Actor, F.Actor};
 	EXPECT_FALSE(F.Editor.GetActorEditor()->DestroyActors(*Level, Invalid, {false}));
 	EXPECT_TRUE(F.Editor.GetActorEditor()->DuplicateActors(*Level, Invalid, {false}).empty());
@@ -577,25 +577,20 @@ TEST(FActorMutationTests, JoinedChangesKeepOnePackageRevisionAndRestoreCleanChec
 	EXPECT_EQ(Level->GetActors().size(), 2u);
 }
 
-TEST(FActorMutationTests, TransitionStatesRejectAllActorEditingBeforePreparation)
+TEST(FActorMutationTests, BusyHistoryRejectsActorEditingBeforePreparation)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
 	auto* Editor = F.Editor.GetActorEditor();
 	const auto Count = Level->GetActors().size();
-	for (auto State : {ETransactorState::Undoing,
-		ETransactorState::Redoing, ETransactorState::RecoveryRequired, ETransactorState::Destroying})
-	{
-		FTransBufferTestAccess::SetState(*F.Transactions.Get(), State);
-		bool bConfigured = false;
-		const auto Result = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Rejected", {},
-			{false}, [&](AActor&) { bConfigured = true; });
-		EXPECT_FALSE(Result);
-		EXPECT_FALSE(Result);
-		EXPECT_FALSE(bConfigured);
-		EXPECT_EQ(Level->GetActors().size(), Count);
-	}
-	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Idle);
+	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions, true);
+	bool bConfigured = false;
+	const auto Result = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Rejected", {},
+		{false}, [&](AActor&) { bConfigured = true; });
+	EXPECT_FALSE(Result);
+	EXPECT_FALSE(bConfigured);
+	EXPECT_EQ(Level->GetActors().size(), Count);
+	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions.Get(), false);
 }
 
 TEST(FComponentMutationTests, AdditionUndoRedoBalancesLifecycleAndSceneMembership)
@@ -761,10 +756,10 @@ TEST(FComponentMutationTests, RejectionDoesNotPublishAndDiscardedInactiveCompone
 {
 	FComponentFixture F;
 	const auto Count = F.Actor->GetComponents().size();
-	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Undoing);
+	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions.Get(), true);
 	ASSERT_FALSE(F.Editor.GetActorEditor()->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false}));
 	EXPECT_EQ(F.Actor->GetComponents().size(), Count);
-	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Idle);
+	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions.Get(), false);
 	ASSERT_FALSE(F.Editor.GetActorEditor()->DeleteComponent(*F.Actor, F.Actor->GetRootComponent(), {false}));
 	ASSERT_FALSE(F.Editor.GetActorEditor()->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {true}));
 	const auto Added = F.Editor.GetActorEditor()->AddComponent(*F.Actor, DStaticMeshComponent::StaticClass(), nullptr, {false});
@@ -1045,7 +1040,6 @@ TEST(FComponentMutationTests, SuspendedComponentsStayOutOfPackageCaptureAndPrese
 	ASSERT_TRUE(F.World->SetCurrentLevel(Level));
 	auto* Owner = Level->SpawnActor<AActor>("Owner");
 	Package->ClearDirty();
-	F.Transactions->EstablishSavedState(*Package);
 	ObjectPackage::FLinkerTables Baseline, Active, Absent;
 	ASSERT_TRUE(CapturePackageLinker(Package, EDefaultDeltaMode::NoDelta, {}, Baseline));
 	const auto Added = F.Editor.GetActorEditor()->AddComponent(*Owner, DSceneComponent::StaticClass(), nullptr, {false});
@@ -1068,7 +1062,6 @@ TEST(FComponentMutationTests, SuspendedComponentsStayOutOfPackageCaptureAndPrese
 	auto* Parent = static_cast<DSceneComponent*>(Owner->AddInstanceComponent(DSceneComponent::StaticClass(), "Parent"));
 	auto* Child = static_cast<DSceneComponent*>(Owner->AddInstanceComponent(DSceneComponent::StaticClass(), "Child"));
 	Package->ClearDirty();
-	F.Transactions->EstablishSavedState(*Package);
 	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*Owner, Child, "Renamed", {false}));
 	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*Owner, Child, Parent, {false}));
 	ASSERT_TRUE(F.Transactions->Undo());
@@ -1082,7 +1075,6 @@ TEST(FComponentMutationTests, SuspendedComponentsStayOutOfPackageCaptureAndPrese
 	EXPECT_EQ(Child->GetFName(), FName("Renamed"));
 	auto* Actor = Level->SpawnActor<AStaticMeshActor>("ActorHistory");
 	Package->ClearDirty();
-	F.Transactions->EstablishSavedState(*Package);
 	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*Owner, Child, "SecondName", {false}));
 	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameActor(*Level, Actor, "RenamedActor", {false}));
 	AActor* Target = Actor;
@@ -1120,9 +1112,9 @@ TEST(FActorMutationTests, PreparationRejectsRecursionAndCleansThrowingAndRejecte
 	std::string Reason;
 	const auto Rejected = Editor->SpawnActor(*Level, AActor::StaticClass(), "Unpublished", {}, {false}, [&](AActor& Actor) {
 		Prepared = &Actor;
-		FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Undoing);
+		FTransBufferTestAccess::SetHistoryBusy(*F.Transactions.Get(), true);
 	}, ESpawnActorNameMode::Requested, {}, &Reason);
-	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Idle);
+	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions.Get(), false);
 	EXPECT_FALSE(Rejected);
 	EXPECT_EQ(Reason, "Editor history is unavailable for recording.");
 	EXPECT_FALSE(IsValid(Prepared));
@@ -1334,16 +1326,16 @@ TEST(FActorMutationTests, ChildFirstDuplicationResolvesPublishedParentAfterRegis
 	}
 }
 
-TEST(FActorMutationTests, UnavailableServiceAndRecoveringHistoryRejectBeforePreparation)
+TEST(FActorMutationTests, UnavailableServiceAndBusyHistoryRejectBeforePreparation)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
 	TStrongObjectPtr<DEditorActorSubsystem> Unavailable(NewObject<DEditorActorSubsystem>(nullptr, "UninitializedActorService"));
 	EXPECT_FALSE(Unavailable->SpawnActor(*Level, AActor::StaticClass(), "Unavailable", {}, {false}));
-	FTransBufferTestAccess::SetState(*F.Transactions, ETransactorState::RecoveryRequired);
+	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions, true);
 	auto* Editor = F.Editor.GetActorEditor();
-	EXPECT_FALSE(Editor->SpawnActor(*Level, AActor::StaticClass(), "RecoveryBlocked", {}, {false}));
-	EXPECT_EQ(Level->FindActorByName("RecoveryBlocked"), nullptr);
+	EXPECT_FALSE(Editor->SpawnActor(*Level, AActor::StaticClass(), "FinalizationBlocked", {}, {false}));
+	EXPECT_EQ(Level->FindActorByName("FinalizationBlocked"), nullptr);
 }
 
 TEST(FActorMutationTests, OrdinaryRenameSurvivesDurinEdCustomCommandRetirement)

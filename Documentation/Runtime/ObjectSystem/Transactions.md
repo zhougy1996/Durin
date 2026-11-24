@@ -17,6 +17,10 @@ The editor owns the active recorder and application history, as described in
 
 `Misc/Transaction.h` owns `FCommandChange`, its synchronous Apply/Revert result,
 `ETransactionOperation`, transaction context and operation identity allocation.
+A custom change can reject Undo or Redo in its read-only `ValidateReplay` hook.
+The buffer checks all selected commands before invoking replay callbacks. The
+first selected record can compare its source with the live model. Later records
+may depend on writes from their predecessors.
 A custom change declares modified objects separately through
 `GetModifiedObjects()`. Its collector traversal describes retained dependencies;
 that traversal alone never means a dependency was edited. A command may declare
@@ -89,9 +93,9 @@ rejects changes to identity or flags. Actor/component template completion does
 not capture instance lifecycle annotations or activate runtime registration.
 
 `ValidateSerializedObject` checks identity, field schema and native field versions
-without loading historical fields. `LoadSerializedObject` is a transfer operation:
-its caller must preflight first and own failure compensation. An error can follow
-partial native writes; a thrown native serializer explicitly requires recovery.
+without loading historical fields. Callers preflight before using
+`LoadSerializedObject` to transfer the data. Its errors can follow partial
+native writes. During editor transaction replay a load fault is terminal.
 An anonymous object can replay against its exact recorded generation while its
 name remains empty and its Outer matches. Transferring an anonymous identity
 to a different Outer or replacing a named identity with an anonymous one fails

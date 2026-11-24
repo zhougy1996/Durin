@@ -50,7 +50,7 @@ scope already closed still requires cancellation before another action.
 Target and host transactor are strongly retained during synchronous execution.
 Requests do not retain objects across frames. There is no fallback to another
 editor's history. `CanTransact()` admits Idle and ordinary Recording through the abstract service.
-Nested actions join that recording; replay, recovery, and destruction remain unavailable.
+Nested actions join that recording; actions are unavailable during replay, finalization and destruction.
 
 ## Transactions And Author Obligations
 
@@ -69,7 +69,7 @@ detached pre-write validation. Adapted methods should not duplicate this termina
 notification. Undo/Redo restore before/after values through ordinary property
 notifications; they never run the method again. Derived state must reconstruct
 through edit and replay hooks. Unchanged state creates no history entry, but Modify still marks the package
-dirty. Successful recording uses existing package revisions/checkpoints.
+dirty. Successful recording uses the captured package dirty bit and save count.
 
 Capture follows virtual Modify; Actor includes its native root component. It
 does not traverse arbitrary participants. Methods must not edit other uncaptured

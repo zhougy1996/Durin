@@ -7,7 +7,6 @@
 #include "Application/GenericApplication.h"
 #include "ApplicationCoreGlobals.h"
 #include "Application/MonaEventHandler.h"
-#include "Documents/LevelDocumentRevisionState.h"
 #include "Asset/Load.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
@@ -584,14 +583,14 @@ TEST(FEditorTransactionManagerTests, UndoAndRedoSkipExpiredEntriesAndUseTheLiveH
 	EXPECT_TRUE(std::ranges::none_of(Events, [Middle](const auto& Event) { return Event.Id == Middle; }));
 }
 
-TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresCheckpointsForFullyReplayedPackages)
+TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresDirtyFlagsForFullyReplayedPackages)
 {
 	using namespace Durin;
 	auto* LivePackage = MakeRevisionTestPackage("Live");
 	auto* ExpiredPackage = MakeRevisionTestPackage("Expired");
 	auto* SharedPackage = MakeRevisionTestPackage("Shared");
 	Tests::FTestTransactorOwner Manager;
-	for (auto* Package : {LivePackage, ExpiredPackage, SharedPackage}) Manager->EstablishSavedState(*Package);
+	for (auto* Package : {LivePackage, ExpiredPackage, SharedPackage}) Package->ClearDirty();
 	int Value = 0;
 	bool Expired = false;
 	{
@@ -601,29 +600,20 @@ TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresCheckpointsForFullyR
 		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
 			Value, std::initializer_list{ExpiredPackage, SharedPackage}, 10, nullptr, &Expired)));
 	}
-	const auto ExpiredBefore = Manager->GetPackageRevisionState(*ExpiredPackage);
-	ASSERT_TRUE(ExpiredBefore);
-	auto ExpectExpiredPackageUnchanged = [&] {
-		const auto State = Manager->GetPackageRevisionState(*ExpiredPackage);
-		ASSERT_TRUE(State);
-		EXPECT_EQ(State->CurrentRevision, ExpiredBefore->CurrentRevision);
-		EXPECT_EQ(State->SavedRevision, ExpiredBefore->SavedRevision);
-		EXPECT_EQ(State->HasSavedCheckpoint(), ExpiredBefore->HasSavedCheckpoint());
-		EXPECT_TRUE(ExpiredPackage->IsDirty());
-	};
+	const bool bExpiredWasDirty = ExpiredPackage->IsDirty();
 	Expired = true;
 	ASSERT_TRUE(Manager->Undo());
 	EXPECT_EQ(Value, 10);
 	EXPECT_FALSE(LivePackage->IsDirty());
 	EXPECT_TRUE(SharedPackage->IsDirty());
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*SharedPackage)->HasSavedCheckpoint());
-	ExpectExpiredPackageUnchanged();
+	EXPECT_EQ(ExpiredPackage->IsDirty(), bExpiredWasDirty);
 	ASSERT_TRUE(Manager->Redo());
 	EXPECT_EQ(Value, 11);
-	ExpectExpiredPackageUnchanged();
+	EXPECT_TRUE(SharedPackage->IsDirty());
+	EXPECT_EQ(ExpiredPackage->IsDirty(), bExpiredWasDirty);
 }
 
-TEST(FEditorTransactionManagerTests, MixedExpiryCompensatesAFailedReplayAndCanRetry)
+TEST(FEditorTransactionManagerTests, MixedExpiryFaultReportsOrderedRecord)
 {
 	using namespace Durin;
 	auto* LivePackage = MakeRevisionTestPackage("RetryLive");
@@ -634,7 +624,7 @@ TEST(FEditorTransactionManagerTests, MixedExpiryCompensatesAFailedReplayAndCanRe
 	FTransactionControl Control;
 	Tests::FTestTransactorOwner Manager;
 	const std::array Packages{LivePackage, ExpiredPackage, SharedPackage};
-	for (auto* Package : Packages) Manager->EstablishSavedState(*Package);
+	for (auto* Package : Packages) Package->ClearDirty();
 	{
 		Tests::FBufferRecording Scope(Manager.Get(), {.Description = "Mixed replay with failure"});
 		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
@@ -643,55 +633,18 @@ TEST(FEditorTransactionManagerTests, MixedExpiryCompensatesAFailedReplayAndCanRe
 			Value, std::initializer_list{ExpiredPackage, SharedPackage}, 10, nullptr, &Expired)));
 		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FCountingTransaction>(Value, 100)));
 	}
-	std::array<FPackageRevisionState, Packages.size()> Before;
 	for (size_t Index = 0; Index < Packages.size(); ++Index)
 	{
-		const auto State = Manager->GetPackageRevisionState(*Packages[Index]);
-		ASSERT_TRUE(State);
-		Before[Index] = *State;
 		ASSERT_TRUE(Packages[Index]->IsDirty());
 	}
 	const auto Id = Manager->GetUndoContext().TransactionId;
 	(void)Tests::CollectTransactionEvents(*Manager);
 	Expired = true;
 	Control.bFailUndo = true;
-	std::string ReplayError;
-	const bool Failed = Manager->UndoExpected(Manager->GetUndoContext().TransactionId, &ReplayError);
-	EXPECT_EQ(Failed, false);
-	ASSERT_FALSE(ReplayError.empty());
-	EXPECT_EQ(Value, 111);
-	EXPECT_EQ(Manager->GetUndoContext().TransactionId, Id);
-	EXPECT_FALSE(Manager->CanRedo());
-	for (size_t Index = 0; Index < Packages.size(); ++Index)
-	{
-		const auto State = Manager->GetPackageRevisionState(*Packages[Index]);
-		ASSERT_TRUE(State);
-		EXPECT_EQ(State->CurrentRevision, Before[Index].CurrentRevision);
-		EXPECT_EQ(State->SavedRevision, Before[Index].SavedRevision);
-		EXPECT_EQ(State->HasSavedCheckpoint(), Before[Index].HasSavedCheckpoint());
-		EXPECT_TRUE(Packages[Index]->IsDirty());
-	}
-	const auto FailureEvents = Tests::CollectTransactionEvents(*Manager);
-	ASSERT_EQ(FailureEvents.size(), 1u);
-	EXPECT_EQ(FailureEvents[0].Type, ETransactionEventType::Failed);
-
-	Control.bFailUndo = false;
-	ASSERT_TRUE(Manager->Undo());
-	EXPECT_EQ(Value, 10);
-	EXPECT_FALSE(LivePackage->IsDirty());
-	EXPECT_TRUE(ExpiredPackage->IsDirty());
-	EXPECT_TRUE(SharedPackage->IsDirty());
-	ASSERT_TRUE(Manager->GetPackageRevisionState(*SharedPackage));
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*SharedPackage)->HasSavedCheckpoint());
-	const auto UndoEvents = Tests::CollectTransactionEvents(*Manager);
-	ASSERT_EQ(UndoEvents.size(), 1u);
-	EXPECT_EQ(UndoEvents[0].Type, ETransactionEventType::Undone);
-	EXPECT_EQ(UndoEvents[0].Details, "Counter changed backward");
-	ASSERT_TRUE(Manager->Redo());
-	EXPECT_EQ(Value, 111);
+	EXPECT_DEATH((void)Manager->UndoExpected(Id), "during Undo record 0");
 }
 
-TEST(FEditorTransactionManagerTests, KeepsTransactionsOnTheirOriginalStackWhenApplyFails)
+TEST(FEditorTransactionManagerTests, TerminalReplayDiagnosticIdentifiesUndoAndRedo)
 {
 	int Value = 0;
 	FTransactionControl Control;
@@ -701,22 +654,11 @@ TEST(FEditorTransactionManagerTests, KeepsTransactionsOnTheirOriginalStackWhenAp
 	Durin::Tests::CollectTransactionEvents(*Manager);
 
 	Control.bFailUndo = true;
-	EXPECT_FALSE(Manager->Undo());
-	EXPECT_EQ(Value, 1);
-	EXPECT_TRUE(Manager->GetUndoContext().TransactionId == Id);
-	ASSERT_EQ(Durin::Tests::CollectTransactionEvents(*Manager).back().Type, Durin::ETransactionEventType::Failed);
-
+	EXPECT_DEATH((void)Manager->Undo(), "Transaction 1 during Undo record 0");
 	Control.bFailUndo = false;
 	ASSERT_TRUE(Manager->Undo());
-	EXPECT_EQ(Value, 0);
-	EXPECT_TRUE(Manager->GetRedoContext().TransactionId == Id);
-	Durin::Tests::CollectTransactionEvents(*Manager);
-
 	Control.bFailRedo = true;
-	EXPECT_FALSE(Manager->Redo());
-	EXPECT_EQ(Value, 0);
-	EXPECT_TRUE(Manager->GetRedoContext().TransactionId == Id);
-	ASSERT_EQ(Durin::Tests::CollectTransactionEvents(*Manager).back().Type, Durin::ETransactionEventType::Failed);
+	EXPECT_DEATH((void)Manager->Redo(), "Transaction 1 during Redo record 0");
 }
 
 TEST(FEditorTransactionManagerTests, ClearsRedoBranchAndPendingEventsOnNewCommitAndClear)
@@ -738,32 +680,26 @@ TEST(FEditorTransactionManagerTests, ClearsRedoBranchAndPendingEventsOnNewCommit
 	EXPECT_FALSE(Manager->CanUndo());
 }
 
-TEST(FEditorTransactionManagerTests, TracksSavedCheckpointAcrossCommitUndoRedoAndMiddleSave)
+TEST(FEditorTransactionManagerTests, FlipsPackageDirtyStateAcrossCommitUndoRedoAndSave)
 {
 	Durin::DPackage* Package = MakeRevisionTestPackage();
+	Durin::Testing::FScopedMountRegistryFixture MountFixture;
+	Durin::Testing::RegisterMountPointForTests("/EditorRevisionTests/", Durin::Testing::GetTestWorkDirectory().generic_string());
+	Durin::NewObject<Durin::DObject>(Package, "SavedAsset");
 	int Value = 0;
 	Durin::Tests::FTestTransactorOwner Manager;
-	Manager->EstablishSavedState(*Package);
-	const Durin::FPackageRevisionState Initial = *Manager->GetPackageRevisionState(*Package);
-	EXPECT_TRUE(Initial.HasSavedCheckpoint());
-	EXPECT_EQ(Initial.CurrentRevision, Initial.SavedRevision);
+	Package->ClearDirty();
 	EXPECT_FALSE(Package->IsDirty());
 
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Package})));
-	const Durin::FPackageRevisionState Edited = *Manager->GetPackageRevisionState(*Package);
-	EXPECT_NE(Edited.CurrentRevision, Edited.SavedRevision);
 	EXPECT_TRUE(Package->IsDirty());
 
 	ASSERT_TRUE(Manager->Undo());
-	EXPECT_EQ(Manager->GetPackageRevisionState(*Package)->CurrentRevision, Initial.SavedRevision);
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Manager->Redo());
-	EXPECT_EQ(Manager->GetPackageRevisionState(*Package)->CurrentRevision, Edited.CurrentRevision);
 	EXPECT_TRUE(Package->IsDirty());
 
-	Manager->MarkSaved(*Package);
-	const Durin::FPackageRevisionState MiddleSave = *Manager->GetPackageRevisionState(*Package);
-	EXPECT_EQ(MiddleSave.CurrentRevision, MiddleSave.SavedRevision);
+	ASSERT_TRUE(Durin::Tests::SaveTransactionTestPackage(*Package));
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Manager->Undo());
 	EXPECT_TRUE(Package->IsDirty());
@@ -771,61 +707,53 @@ TEST(FEditorTransactionManagerTests, TracksSavedCheckpointAcrossCommitUndoRedoAn
 	EXPECT_FALSE(Package->IsDirty());
 }
 
-TEST(FEditorTransactionManagerTests, AllocatesFreshRevisionWhenReplacingSavedRedoBranch)
+TEST(FEditorTransactionManagerTests, NewEditsReplaceTheSavedRedoBranch)
 {
 	Durin::DPackage* Package = MakeRevisionTestPackage();
+	Durin::Testing::FScopedMountRegistryFixture MountFixture;
+	Durin::Testing::RegisterMountPointForTests("/EditorRevisionTests/", Durin::Testing::GetTestWorkDirectory().generic_string());
+	Durin::NewObject<Durin::DObject>(Package, "SavedAsset");
 	int Value = 0;
 	Durin::Tests::FTestTransactorOwner Manager;
-	Manager->EstablishSavedState(*Package);
+	Package->ClearDirty();
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Package})));
-	Manager->MarkSaved(*Package);
-	const Durin::FRevisionId DiscardedSavedRevision = Manager->GetPackageRevisionState(*Package)->SavedRevision;
+	ASSERT_TRUE(Durin::Tests::SaveTransactionTestPackage(*Package));
 	ASSERT_TRUE(Manager->Undo());
 
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Package}, 2)));
-	const Durin::FPackageRevisionState Branched = *Manager->GetPackageRevisionState(*Package);
-	EXPECT_NE(Branched.CurrentRevision, DiscardedSavedRevision);
-	EXPECT_EQ(Branched.SavedRevision, DiscardedSavedRevision);
-	EXPECT_TRUE(Branched.HasSavedCheckpoint());
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(Manager->CanRedo());
 }
 
-TEST(FEditorTransactionManagerTests, AppliesMultiPackageTransitionsAndPreservesStateOnFailure)
+TEST(FEditorTransactionManagerTests, RedoFaultReportsTheCommandBeforePackageNotification)
 {
-	Durin::DPackage* First = MakeRevisionTestPackage("First");
-	Durin::DPackage* Second = MakeRevisionTestPackage("Second");
-	int Value = 0;
-	FTransactionControl Control;
-	Durin::Tests::FTestTransactorOwner Manager;
-	Manager->EstablishSavedState(*First);
-	Manager->EstablishSavedState(*Second);
-	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
-		Value, std::initializer_list{First, Second, First}, 1, &Control
-	)));
-	EXPECT_TRUE(First->IsDirty());
-	EXPECT_TRUE(Second->IsDirty());
-	const Durin::FPackageRevisionState FirstEdited = *Manager->GetPackageRevisionState(*First);
-	const Durin::FPackageRevisionState SecondEdited = *Manager->GetPackageRevisionState(*Second);
+	auto Run = [&] {
+		Durin::DPackage* First = MakeRevisionTestPackage("First");
+		Durin::DPackage* Second = MakeRevisionTestPackage("Second");
+		int Value = 0;
+		FTransactionControl Control;
+		Durin::Tests::FTestTransactorOwner Manager;
+		First->ClearDirty();
+		Second->ClearDirty();
+		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
+			Value, std::initializer_list{First, Second, First}, 1, &Control
+		)));
+		EXPECT_TRUE(First->IsDirty());
+		EXPECT_TRUE(Second->IsDirty());
 
-	Control.bFailUndo = true;
-	EXPECT_FALSE(Manager->Undo());
-	EXPECT_EQ(Manager->GetPackageRevisionState(*First)->CurrentRevision, FirstEdited.CurrentRevision);
-	EXPECT_EQ(Manager->GetPackageRevisionState(*Second)->CurrentRevision, SecondEdited.CurrentRevision);
-	EXPECT_TRUE(First->IsDirty());
-	EXPECT_TRUE(Second->IsDirty());
-
-	Control.bFailUndo = false;
-	ASSERT_TRUE(Manager->Undo());
-	EXPECT_FALSE(First->IsDirty());
-	EXPECT_FALSE(Second->IsDirty());
-	Control.bFailRedo = true;
-	EXPECT_FALSE(Manager->Redo());
-	EXPECT_FALSE(First->IsDirty());
-	EXPECT_FALSE(Second->IsDirty());
+		ASSERT_TRUE(Manager->Undo());
+		EXPECT_FALSE(First->IsDirty());
+		EXPECT_FALSE(Second->IsDirty());
+		Control.bFailRedo = true;
+		const auto Listener = Durin::OnAssetPackagesChanged().AddLambda([] {
+			throw std::runtime_error("Injected dirty notification failure.");
+		});
+		Manager->Redo();
+	};
+	EXPECT_DEATH(Run(), "during Redo record 0");
 }
 
-TEST(FEditorTransactionManagerTests, FailedExecuteDoesNotCreateRevisionState)
+TEST(FEditorTransactionManagerTests, FailedExecutePreservesCleanPackage)
 {
 	Durin::DPackage* Package = MakeRevisionTestPackage();
 	int Value = 0;
@@ -836,64 +764,48 @@ TEST(FEditorTransactionManagerTests, FailedExecuteDoesNotCreateRevisionState)
 		Value, std::initializer_list{Package}, 1, &Control
 	)));
 	EXPECT_EQ(Value, 0);
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*Package).has_value());
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_FALSE(Manager->CanUndo());
 	EXPECT_FALSE(Manager->CanRedo());
 }
 
-TEST(FEditorTransactionManagerTests, InvalidCheckpointStaysDirtyUntilResave)
+TEST(FEditorTransactionManagerTests, InitiallyDirtyPackageStaysDirtyOnUndo)
 {
 	Durin::DPackage* Package = MakeRevisionTestPackage();
 	int Value = 0;
 	Durin::Tests::FTestTransactorOwner Manager;
-	Manager->EstablishSavedState(*Package);
-	Manager->InvalidateSavedState(*Package);
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
+	Package->ClearDirty();
+	Package->MarkDirty();
 	EXPECT_TRUE(Package->IsDirty());
 
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Package})));
 	ASSERT_TRUE(Manager->Undo());
 	EXPECT_TRUE(Package->IsDirty());
-	Manager->MarkSaved(*Package);
-	EXPECT_TRUE(Manager->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
+	Package->ClearDirty();
 	EXPECT_FALSE(Package->IsDirty());
 
 	Manager->ForgetPackage(*Package);
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*Package).has_value());
 	EXPECT_FALSE(Manager->CanRedo());
 }
 
-TEST(FEditorTransactionManagerTests, HistoryEvictionDoesNotChangeSavedRevisionComparison)
+TEST(FEditorTransactionManagerTests, UndoAfterEvictionRestoresCleanPackage)
 {
 	Durin::DPackage* Package = MakeRevisionTestPackage();
+	Durin::Testing::FScopedMountRegistryFixture MountFixture;
+	Durin::Testing::RegisterMountPointForTests("/EditorRevisionTests/", Durin::Testing::GetTestWorkDirectory().generic_string());
+	Durin::NewObject<Durin::DObject>(Package, "SavedAsset");
 	int Value = 0;
 	Durin::Tests::FTestTransactorOwner Manager;
-	Manager->EstablishSavedState(*Package);
+	Package->ClearDirty();
 	for (int Index = 0; Index < 256; ++Index)
 	{
 		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Package})));
 	}
-	Manager->MarkSaved(*Package);
-	const Durin::FRevisionId SavedRevision = Manager->GetPackageRevisionState(*Package)->SavedRevision;
+	ASSERT_TRUE(Durin::Tests::SaveTransactionTestPackage(*Package));
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Package})));
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(Manager->Undo());
-	EXPECT_EQ(Manager->GetPackageRevisionState(*Package)->CurrentRevision, SavedRevision);
 	EXPECT_FALSE(Package->IsDirty());
-}
-
-TEST(FEditorTransactionManagerTests, ClearForgetsMetadataWithoutReusingRevisionIds)
-{
-	Durin::DPackage* First = MakeRevisionTestPackage("BeforeClear");
-	Durin::DPackage* Second = MakeRevisionTestPackage("AfterClear");
-	Durin::Tests::FTestTransactorOwner Manager;
-	Manager->EstablishSavedState(*First);
-	const Durin::FRevisionId BeforeClear = Manager->GetPackageRevisionState(*First)->CurrentRevision;
-	Manager->Reset();
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*First).has_value());
-	Manager->EstablishSavedState(*Second);
-	EXPECT_GT(Manager->GetPackageRevisionState(*Second)->CurrentRevision, BeforeClear);
 }
 
 TEST(FLevelDocumentResidencyTests, CloseReleasesWorldAndLoadHandleOwnership)
@@ -951,69 +863,25 @@ TEST(FLevelDocumentResidencyTests, ReactivatedLevelRemainsAliveThroughWorldOwner
 	EXPECT_EQ(WeakPackage.Get(), nullptr);
 }
 
-TEST(FLevelDocumentRevisionStateTests, AdvancesCheckpointOnlyAfterSuccessfulSave)
+TEST(FEditorTransactionManagerTests, ForgettingLevelPreservesUnrelatedUndoRedoAndDirtyFlags)
 {
-	Durin::DPackage* Package = MakeRevisionTestPackage();
-	int Value = 0;
-	Durin::Tests::FTestTransactorOwner Manager;
-	Manager->EstablishSavedState(*Package);
-	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Package})));
-	const Durin::FPackageRevisionState BeforeFailure = *Manager->GetPackageRevisionState(*Package);
-
-	Durin::LevelEditor::FLevelDocumentRevisionState::CompleteSave(Manager.Get(), *Package, false);
-	EXPECT_EQ(Manager->GetPackageRevisionState(*Package)->SavedRevision, BeforeFailure.SavedRevision);
-	EXPECT_TRUE(Package->IsDirty());
-	Durin::LevelEditor::FLevelDocumentRevisionState::CompleteSave(Manager.Get(), *Package, true);
-	EXPECT_EQ(
-		Manager->GetPackageRevisionState(*Package)->SavedRevision,
-		Manager->GetPackageRevisionState(*Package)->CurrentRevision
-	);
-	EXPECT_FALSE(Package->IsDirty());
-}
-
-TEST(FLevelDocumentRevisionStateTests, ReplacesActivationStateWithoutClearingDirtyPackages)
-{
-	Durin::DPackage* Previous = MakeRevisionTestPackage("Previous");
-	Durin::DPackage* CleanReplacement = MakeRevisionTestPackage("CleanReplacement");
-	Durin::DPackage* DirtyReplacement = MakeRevisionTestPackage("DirtyReplacement");
-	int Value = 0;
-	Durin::Tests::FTestTransactorOwner Manager;
-	Manager->EstablishSavedState(*Previous);
-	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Previous})));
-
-	Durin::LevelEditor::FLevelDocumentRevisionState::Activate(Manager.Get(), Previous, CleanReplacement);
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*Previous).has_value());
-	ASSERT_TRUE(Manager->GetPackageRevisionState(*CleanReplacement).has_value());
-	EXPECT_TRUE(Manager->GetPackageRevisionState(*CleanReplacement)->HasSavedCheckpoint());
-	EXPECT_FALSE(CleanReplacement->IsDirty());
-
-	DirtyReplacement->MarkDirty();
-	Durin::LevelEditor::FLevelDocumentRevisionState::Activate(Manager.Get(), CleanReplacement, DirtyReplacement);
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*CleanReplacement).has_value());
-	ASSERT_TRUE(Manager->GetPackageRevisionState(*DirtyReplacement).has_value());
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*DirtyReplacement)->HasSavedCheckpoint());
-	EXPECT_TRUE(DirtyReplacement->IsDirty());
-
-}
-
-TEST(FLevelDocumentRevisionStateTests, PreservesUnrelatedUndoRedoAndSavedCheckpoints)
-{
-	using Durin::LevelEditor::FLevelDocumentRevisionState;
 	auto* Previous = MakeRevisionTestPackage("Previous");
-	auto* Replacement = MakeRevisionTestPackage("Replacement");
 	auto* Material = MakeRevisionTestPackage("Material");
 	auto* Texture = MakeRevisionTestPackage("Texture");
+	Durin::Testing::FScopedMountRegistryFixture MountFixture;
+	Durin::Testing::RegisterMountPointForTests("/EditorRevisionTests/", Durin::Testing::GetTestWorkDirectory().generic_string());
+	Durin::NewObject<Durin::DObject>(Material, "SavedAsset");
 	int LevelValue = 0;
 	int MaterialValue = 0;
 	int TextureValue = 0;
 	Durin::Tests::FTestTransactorOwner Manager;
-	Manager->EstablishSavedState(*Previous);
-	Manager->EstablishSavedState(*Material);
-	Manager->EstablishSavedState(*Texture);
+	Previous->ClearDirty();
+	Material->ClearDirty();
+	Texture->ClearDirty();
 	const auto MaterialEdit = Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
 		MaterialValue, std::initializer_list{Material}));
 	ASSERT_TRUE(MaterialEdit);
-	Manager->MarkSaved(*Material);
+	ASSERT_TRUE(Durin::Tests::SaveTransactionTestPackage(*Material));
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
 		LevelValue, std::initializer_list{Previous})));
 	const auto TextureEdit = Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
@@ -1023,17 +891,10 @@ TEST(FLevelDocumentRevisionStateTests, PreservesUnrelatedUndoRedoAndSavedCheckpo
 		LevelValue, std::initializer_list{Previous})));
 	ASSERT_TRUE(Manager->Undo());
 	ASSERT_TRUE(Manager->Undo());
-	const auto MaterialState = *Manager->GetPackageRevisionState(*Material);
-	const auto TextureState = *Manager->GetPackageRevisionState(*Texture);
 
-	FLevelDocumentRevisionState::Activate(Manager.Get(), Previous, Replacement);
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*Previous).has_value());
+	Manager->ForgetPackage(*Previous);
 	EXPECT_EQ(Manager->GetUndoContext().TransactionId, MaterialEdit);
 	EXPECT_EQ(Manager->GetRedoContext().TransactionId, TextureEdit);
-	EXPECT_EQ(Manager->GetPackageRevisionState(*Material)->CurrentRevision, MaterialState.CurrentRevision);
-	EXPECT_EQ(Manager->GetPackageRevisionState(*Material)->SavedRevision, MaterialState.SavedRevision);
-	EXPECT_EQ(Manager->GetPackageRevisionState(*Texture)->CurrentRevision, TextureState.CurrentRevision);
-	EXPECT_EQ(Manager->GetPackageRevisionState(*Texture)->SavedRevision, TextureState.SavedRevision);
 	EXPECT_FALSE(Material->IsDirty());
 	EXPECT_FALSE(Texture->IsDirty());
 	ASSERT_TRUE(Manager->Redo());
@@ -1047,25 +908,6 @@ TEST(FLevelDocumentRevisionStateTests, PreservesUnrelatedUndoRedoAndSavedCheckpo
 	EXPECT_FALSE(Manager->CanUndo());
 	ASSERT_TRUE(Manager->Redo());
 	EXPECT_FALSE(Material->IsDirty());
-}
-
-TEST(FLevelDocumentRevisionStateTests, ReactivatingSamePackagePreservesHistory)
-{
-	auto* Package = MakeRevisionTestPackage();
-	int Value = 0;
-	Durin::Tests::FTestTransactorOwner Manager;
-	Manager->EstablishSavedState(*Package);
-	const auto Edit = Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
-		Value, std::initializer_list{Package}));
-	ASSERT_TRUE(Edit);
-	Manager->MarkSaved(*Package);
-	const auto SavedRevision = Manager->GetPackageRevisionState(*Package)->SavedRevision;
-	Durin::LevelEditor::FLevelDocumentRevisionState::Activate(Manager.Get(), Package, Package);
-	EXPECT_EQ(Manager->GetUndoContext().TransactionId, Edit);
-	EXPECT_EQ(Manager->GetPackageRevisionState(*Package)->SavedRevision, SavedRevision);
-	ASSERT_TRUE(Manager->Undo());
-	EXPECT_EQ(Value, 0);
-	EXPECT_TRUE(Package->IsDirty());
 }
 
 TEST(FViewportCameraTransformTests, ClampsPitchAndBuildsOrthonormalDirections)

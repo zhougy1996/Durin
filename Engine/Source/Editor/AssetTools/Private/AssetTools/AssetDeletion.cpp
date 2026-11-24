@@ -58,7 +58,7 @@ namespace Durin
 		bool bPrepared = false;
 		bool bExecuted = false;
 		bool bExecuting = false;
-		struct FResident { FWeakObjectPtr Package; uint64 Revision; std::vector<FObjectKey> Exports; };
+		struct FResident { FWeakObjectPtr Package; bool bWasDirty; std::vector<FObjectKey> Exports; };
 		std::vector<FResident> Residents;
 		FAssetRegistrySnapshot PreparedSnapshot;
 		FAssetDeletionFileIdentities ConfirmedBytes;
@@ -329,7 +329,7 @@ namespace Durin
 
 			if (auto* Loaded = FindResidentPackage(Path))
 			{
-				FResident Resident{FWeakObjectPtr(Loaded), Loaded->GetEditRevision()};
+				FResident Resident{FWeakObjectPtr(Loaded), Loaded->IsDirty()};
 				for (auto* Export : Loaded->GetTopLevelAssets()) Resident.Exports.emplace_back(Export);
 				Residents.push_back(std::move(Resident));
 			}
@@ -592,7 +592,7 @@ namespace Durin
 			auto* Package = Cast<DPackage>(Resident.Package.Get());
 			std::vector<FObjectKey> Exports;
 			if (Package) for (auto* Export : Package->GetTopLevelAssets()) Exports.emplace_back(Export);
-			if (!Package || Package->GetEditRevision() != Resident.Revision || Exports != Resident.Exports)
+			if (!Package || Package->IsDirty() != Resident.bWasDirty || Exports != Resident.Exports)
 				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "The live deletion selection or its unsaved changes changed after confirmation."});
 		}
 		return true;

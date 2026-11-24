@@ -108,8 +108,7 @@ keys preserve wide environment orientation and visual-contract versions.
 Texture2D captures the published built GPU allocation through the shared
 TextureEditor preview renderer, including compression and mip sampling. It never
 reads source art or falls back to it. Cold jobs wait for pending publication,
-retain an immutable allocation snapshot, and reject changed package revisions,
-platform data, usage, or allocations before publication. Keys identify the
+retain an immutable allocation snapshot, and reject changed platform data, usage, or allocations before publication. Keys identify the
 Built/Auto/RGBA presentation through the renderer class and private cache version; package fingerprints
 cover saved build settings. Warm hits do not load textures or source pixels.
 Image captures use the same scheduler, cancellation, readback, and persistence
@@ -168,7 +167,7 @@ Renderers combine readiness and preview setup in one draw operation.
 asset compilation, shaders or GPU completion. Renderers retain reusable shader
 preparation handles; their polling refreshes after shader reload. The context
 owns configuration and validation callbacks that capture submission snapshots
-by value. Root edit revisions are checked centrally by the context.
+by value. The context checks that the root object still exists.
 Terminal drawing failures receive a default reason at the context boundary when
 needed; the pool forwards that reason without repeated fallback wrappers.
 The context exposes neither generic renderer state storage nor asset loading.

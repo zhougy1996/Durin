@@ -24,8 +24,8 @@ namespace
 	struct FReplayBarrier
 	{
 		explicit FReplayBarrier(Durin::DTransactor* Transactor) : Buffer(static_cast<Durin::DTransBuffer&>(*Transactor))
-		{ Durin::FTransBufferTestAccess::SetState(Buffer, Durin::ETransactorState::Undoing); }
-		~FReplayBarrier() { Durin::FTransBufferTestAccess::SetState(Buffer, Durin::ETransactorState::Idle); }
+		{ Durin::FTransBufferTestAccess::SetHistoryBusy(Buffer, true); }
+		~FReplayBarrier() { Durin::FTransBufferTestAccess::SetHistoryBusy(Buffer, false); }
 		Durin::DTransBuffer& Buffer;
 	};
 }

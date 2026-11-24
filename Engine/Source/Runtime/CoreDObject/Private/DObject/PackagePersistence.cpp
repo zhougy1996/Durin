@@ -195,7 +195,6 @@ namespace Durin
 		std::vector<FObjectKey> DiskExports;
 		FXxHash128 MainDigest{};
 		FPackagePath Identity;
-		uint64 Revision = 0;
 		uint64 DetachedBytes = 0;
 		FSavePackageContext Context;
 		std::unique_ptr<IPackageWriteOperation> Write;
@@ -251,7 +250,6 @@ namespace Durin
 		FFilePublicationStamp MainStamp, BulkStamp;
 		FByteBuffer Bytes, Bulk;
 		Data.Identity = Package->GetPackagePathIdentity();
-		Data.Revision = Package->GetEditRevision();
 		Data.bClearDirty = !Options.Capture.bCooking && !Options.Capture.PropertyFilter
 			&& (!Options.Capture.SaveOverrides || Options.Capture.SaveOverrides->IsEmpty());
 		auto Resolver = DestinationResolver;
@@ -279,7 +277,7 @@ namespace Durin
 		ObjectPackage::FPackageWriterResult Diagnostic;
 		if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Bytes, Bulk)))
 		{ if (OutError) *OutError = ObjectPackage::ToError(Diagnostic); return {}; }
-		if (Package->GetEditRevision() != Data.Revision || Package->GetPackagePathIdentity() != Data.Identity)
+		if (Package->GetPackagePathIdentity() != Data.Identity)
 		{ if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::StaleData, "Package changed during capture."}; return {}; }
 		const std::string Suffix = ".package-save-" + FGuid::NewGuid().ToString();
 		MainFile.Staged = MainFile.Destination.string() + Suffix + ".stage.tmp";
@@ -324,8 +322,7 @@ namespace Durin
 				return FinishFailure(Fail(PackageSaveErrors::IoError, "Staging task did not succeed."));
 		}
 		if (Data.StagingError) return FinishFailure(FPackageWriteResult{.Error = Data.StagingError});
-		if (Data.Package->GetEditRevision() != Data.Revision
-			|| Data.Package->GetPackagePathIdentity() != Data.Identity)
+		if (Data.Package->GetPackagePathIdentity() != Data.Identity)
 			return FinishFailure(Fail(PackageSaveErrors::StaleData, "Package changed while saving."));
 		Data.bCommitting = true;
 		auto Result = Data.Write->Commit();
@@ -354,9 +351,11 @@ namespace Durin
 		Data.Result = Data.Write->Finalize();
 		Data.bCommitted = false;
 		if (Data.bClearDirty && Data.Package->GetPackagePathIdentity() == Data.Identity)
+		{
 			Data.Package->RecordDiskExports(std::move(Data.DiskExports), Data.MainDigest);
-		if (Data.bClearDirty && Data.Package->GetEditRevision() == Data.Revision
-			&& Data.Package->GetPackagePathIdentity() == Data.Identity) Data.Package->ClearDirty();
+			Data.Package->ClearDirty();
+			OnPackageSaved().Broadcast(*Data.Package);
+		}
 		Data.Cleanup();
 		return *Data.Result;
 	}

@@ -1,7 +1,6 @@
-#include "Asset/RegistryOperations.h"
-#include "AssetRegistry/Publication.h"
 #include "Documents/LevelDocumentController.h"
-#include "Documents/LevelDocumentRevisionState.h"
+#include "Transactions/Transactor.h"
+#include "Toolkits/AssetEditorSession.h"
 #include "FileHelpers.h"
 #include "MonaImGui.h"
 
@@ -205,8 +204,9 @@ namespace Durin::LevelEditor
 		auto* World = Context.EditorHost ? Context.EditorHost->GetEditorWorld() : nullptr;
 		auto* Level = World ? World->GetCurrentLevel() : nullptr;
 		auto* Package = Level ? Level->GetPackage() : nullptr;
-		FLevelDocumentRevisionState::Activate(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr,
-			DocumentPackage.Get(), Package);
+		if (DocumentPackage.Get() && DocumentPackage.Get() != Package && Context.EditorHost && Context.EditorHost->GetTransactor())
+			Context.EditorHost->GetTransactor()->ForgetPackage(*DocumentPackage.Get());
+		if (Package && DocumentPackage.Get() != Package) FAssetEditorSession::Activate(Package);
 		Context.Synchronize(World);
 		WorkspaceSettings.RestoreViewportState(Level, SceneViewportPanel);
 		DocumentPackage = Package;
@@ -253,9 +253,6 @@ namespace Durin::LevelEditor
 		WorkspaceSettings.Save(&SceneViewportPanel);
 		FAssetWriteResult Result;
 		const bool Saved = SavePackage(Package.Get(), {}, &Result);
-		FLevelDocumentRevisionState::CompleteSave(
-			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Package, Saved
-		);
 		if (!Saved)
 		{
 			SetError((Result.Error ? Result.Error->ToString() : std::string{}));
@@ -316,12 +313,6 @@ namespace Durin::LevelEditor
 		const FEditorAssetMove Move{TWeakObjectPtr<DObject>(Context.Level), OldPathString.substr(0, Separator), NewName};
 		std::string MoveError;
 		const bool MoveResult = AssetMoveCoordinator.MoveAssets(std::span{&Move, 1}, &MoveError);
-		auto& RenamedPackage = *Context.Level->GetPackage();
-		FLevelDocumentRevisionState::CompleteSave(
-			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), RenamedPackage,
-			MoveResult && !RenamedPackage.IsDirty() && !RenamedPackage.IsNewlyCreated()
-				&& !IsAssetRegistryProjectionFenced(RenamedPackage.GetPackagePathIdentity())
-		);
 		if (!MoveError.empty()) SetError(MoveError);
 		return MoveResult;
 	}

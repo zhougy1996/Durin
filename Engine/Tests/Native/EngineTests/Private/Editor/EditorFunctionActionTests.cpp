@@ -227,7 +227,7 @@ TEST_F(FEditorFunctionTests, OversizedActionRemainsUndoableAndPreservesCheckpoin
 	Tests::FTestEditorTransactorOwner Buffer("OversizedAction", 1);
 	auto* Package = MakeActionPackage();
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(Package, "FailedHistoryAction"));
-	Buffer->EstablishSavedState(*Package);
+	Package->ClearDirty();
 	FPropertyView View;
 	std::string Error;
 	FPropertyViewContext Context{.ReportError = [&](std::string Message) { Error = std::move(Message); }};
@@ -237,8 +237,6 @@ TEST_F(FEditorFunctionTests, OversizedActionRemainsUndoableAndPreservesCheckpoin
 	EXPECT_EQ(Target->Value, 5);
 	EXPECT_TRUE(Error.empty());
 	EXPECT_TRUE(Package->IsDirty());
-	ASSERT_TRUE(Buffer->GetPackageRevisionState(*Package));
-	EXPECT_TRUE(Buffer->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->Value, 0);
 	EXPECT_FALSE(Package->IsDirty());
@@ -267,11 +265,11 @@ TEST_F(FEditorFunctionTests, GeneratedPrivatePointLightActionSupportsUndoAndNoOp
 {
 	Tests::FTestEditorTransactorOwner Buffer;
 	auto* Package = MakeActionPackage();
-	TStrongObjectPtr<DPointLightComponent> Light(NewObject<DPointLightComponent>(Package, "NormalizeLight"));
+	TStrongObjectPtr<DPointLightComponent> Light(NewObject<DPointLightComponent>(Package, "NormalizeLight", EObjectFlags::Transactional));
 	auto* Intensity = Light->GetClass()->FindPropertyByName("Intensity");
 	ASSERT_NE(Intensity, nullptr);
 	*Intensity->ContainerPtrToValuePtr<float>(Light.Get()) = -3.0f;
-	Buffer->EstablishSavedState(*Package);
+	Package->ClearDirty();
 	FPropertyView View;
 	FPropertyViewContext Context{};
 	const auto ActionRequest = Request(Light, "NormalizeSettings");
@@ -284,7 +282,7 @@ TEST_F(FEditorFunctionTests, GeneratedPrivatePointLightActionSupportsUndoAndNoOp
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_EQ(*Intensity->ContainerPtrToValuePtr<float>(Light.Get()), 0.0f);
-	Buffer->MarkSaved(*Package);
+	Package->ClearDirty();
 	const auto NoOp = ExecuteEditorFunction(View, Context, ActionRequest);
 	EXPECT_TRUE(NoOp.bInvoked);
 	EXPECT_EQ(NoOp.Error, EEditorFunctionError::None);
@@ -438,7 +436,7 @@ TEST_F(FEditorFunctionTests, DirtyCallbackCancellationPreventsNativeInvocation)
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
-TEST_F(FEditorFunctionTests, NestedInvocationLeavesPublicationToOuterScope)
+TEST_F(FEditorFunctionTests, NestedInvocationUsesTheVisibleOuterEntry)
 {
 	Tests::FTestEditorTransactorOwner Buffer;
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "NestedAction"));
@@ -448,7 +446,9 @@ TEST_F(FEditorFunctionTests, NestedInvocationLeavesPublicationToOuterScope)
 		const auto Result = ExecuteEditorFunction(View, {}, Request(Target));
 		EXPECT_TRUE(Result.bInvoked);
 		EXPECT_EQ(Result.Error, EEditorFunctionError::None);
-		EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+		ASSERT_EQ(Buffer->GetQueueLength(), 1u);
+		EXPECT_EQ(Buffer->GetTransaction(0), GUndo);
+		EXPECT_FALSE(Buffer->CanUndo());
 	}
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->Value, 0);

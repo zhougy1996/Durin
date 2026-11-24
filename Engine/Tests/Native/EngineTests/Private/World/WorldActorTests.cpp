@@ -227,11 +227,11 @@ TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevel
 	ASSERT_NE(Actor, nullptr);
 	Actor->Desired = {{MakeGeneratedKey(1), Durin::DSceneComponent::StaticClass()}};
 	Level->GetPackage()->ClearDirty();
-	const uint64 Revision = Level->GetPackage()->GetEditRevision();
+	const bool bWasDirty = Level->GetPackage()->IsDirty();
 	ASSERT_TRUE(Actor->RerunConstructionScripts());
 	ASSERT_TRUE(Actor->RerunConstructionScripts());
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
-	EXPECT_EQ(Level->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_EQ(Level->GetPackage()->IsDirty(), bWasDirty);
 	EXPECT_TRUE(Durin::UnloadPackage(Level->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 

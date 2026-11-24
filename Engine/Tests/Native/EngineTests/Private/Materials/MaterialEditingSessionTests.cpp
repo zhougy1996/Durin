@@ -671,7 +671,7 @@ TEST_F(FMaterialEditingSessionTests, FailedSourcePublicationLeavesDraftDirtyAndS
 	Invalid.Get(EMaterialProperty::MP_Roughness).Connection.OutputIndex = -1;
 	ASSERT_TRUE(FMaterialExpressionEditing::SetRootInputs(*Draft, std::move(Invalid)));
 	Draft->MarkPackageDirty();
-	const auto SourceRevision = Package->GetEditRevision();
+	const bool bSourceWasDirty = Package->IsDirty();
 	const auto SourceCompile = Source->GetMaterialCompileDebugInfo();
 	const auto SourceMode = Source->GetEditCompileMode();
 	EXPECT_FALSE(Session.FinishAndApply(Error));
@@ -680,7 +680,7 @@ TEST_F(FMaterialEditingSessionTests, FailedSourcePublicationLeavesDraftDirtyAndS
 	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().AuthoredRevision, SourceCompile.AuthoredRevision);
 	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().RequestId, SourceCompile.RequestId);
 	EXPECT_EQ(Source->GetEditCompileMode(), SourceMode);
-	EXPECT_EQ(Package->GetEditRevision(), SourceRevision);
+	EXPECT_EQ(Package->IsDirty(), bSourceWasDirty);
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 	EXPECT_FALSE(Transactions->CanUndo());

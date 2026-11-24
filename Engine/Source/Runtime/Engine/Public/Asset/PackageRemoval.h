@@ -3,12 +3,17 @@
 #include "CoreMinimal.h"
 
 #include "Misc/UnifiedError.h"
+#include "Delegates/Delegate.h"
 #include "AssetRegistry/Catalog.h"
 #include "EngineAPI.h"
 
 namespace Durin
 {
+	class DPackage;
 	class FStrongObjectPtr;
+	// Broadcast on the game thread for each resident package admitted for deletion.
+	ENGINE_API auto OnPackageDeleted() -> TMulticastDelegate<void(DPackage&)>&;
+
 	// Read-only admission check for open levels, roots, native owners and external
 	// live GC references. References within the complete removal set are allowed.
 	ENGINE_API auto ValidatePackageRemovalReferences(std::span<const FPackagePath> Packages,

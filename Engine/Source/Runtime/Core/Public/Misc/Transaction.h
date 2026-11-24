@@ -39,6 +39,8 @@ namespace Durin
 		virtual ~FCommandChange() = default;
 		virtual auto Apply() -> FCommandChangeResult = 0;
 		virtual auto Revert() -> FCommandChangeResult = 0;
+		// Read-only admission. Later records may depend on changes made by earlier records.
+		virtual auto ValidateReplay(ETransactionOperation, bool /*bFirstRecord*/) const -> FTransactionCaptureResult { return {}; }
 		// The history supplies the primary object when the change has one.
 		virtual auto HasExpired(DObject*) const noexcept -> bool { return false; }
 		virtual auto GetDescription() const -> std::string_view = 0;

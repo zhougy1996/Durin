@@ -9,6 +9,12 @@
 
 namespace Durin
 {
+	auto OnPackageSaved() -> TMulticastDelegate<void(DPackage&)>&
+	{
+		static TMulticastDelegate<void(DPackage&)> Event;
+		return Event;
+	}
+
 	auto OnAssetPackagesChanged() -> TMulticastDelegate<void()>& { static TMulticastDelegate<void()> Event; return Event; }
 	auto Private::NotifyAssetPackageChanged() -> void { OnAssetPackagesChanged().Broadcast(); }
 
@@ -183,7 +189,6 @@ namespace Durin
 	{
 		if (!IsAssetPackage()) return;
 		bDirty = true;
-		++EditRevision;
 		if (!bGraphPrivate) Private::NotifyAssetPackageChanged();
 	}
 

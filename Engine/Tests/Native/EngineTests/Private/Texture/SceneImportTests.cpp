@@ -361,14 +361,14 @@ TEST(FSceneImportTests, ExistingMaterialMappingPublishesOnlyMeshAndPreservesMapp
 	ASSERT_NE(Row, Original.Outputs.end());
 	auto* Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Row->AssetPath));
 	ASSERT_NE(Material, nullptr);
-	const auto Revision = Material->GetPackage()->GetEditRevision();
+	const auto Revision = Material->GetMaterialContentRevision();
 	const auto Result = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/MappedMesh"),
 		FStaticMeshImportSettings::MakeDurin(), {}, {.Default = {.Mode = ESceneMaterialImportMode::UseExisting,
 			.ExistingMaterialPath = Material->GetObjectPath()}});
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Result.ImportedPackages.size(), 1u);
 	EXPECT_EQ(std::ranges::count(Result.Outputs, EImportOutputState::Preserved, &FImportOutputSummary::State), 1);
-	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_EQ(Material->GetMaterialContentRevision(), Revision);
 	const auto MeshRow = std::ranges::find(Result.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
 	ASSERT_NE(MeshRow, Result.Outputs.end());
 	auto* Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshRow->AssetPath));
@@ -754,11 +754,11 @@ TEST(FSceneImportTests, SavedGltfOutputsReloadWithoutSourcesAndRejectEveryReimpo
 		}
 		if (auto* Material = Cast<DMaterial>(Object))
 		{
-			const auto Revision = Material->GetPackage()->GetEditRevision();
 			auto Properties = Material->GetStaticProperties();
 			Properties.bTwoSided = !Properties.bTwoSided;
 			ASSERT_TRUE(Material->SetStaticProperties(Properties));
-			EXPECT_GT(Material->GetPackage()->GetEditRevision(), Revision);
+			EXPECT_EQ(Material->GetStaticProperties(), Properties);
+			EXPECT_TRUE(Material->GetPackage()->IsDirty());
 		}
 	}
 }
@@ -1031,7 +1031,7 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 	ASSERT_NE(Instance, nullptr);
 	auto* Parent = Instance;
 	ASSERT_NE(Parent, nullptr);
-	const auto Revision = Parent->GetPackage()->GetEditRevision();
+	const bool bWasDirty = Parent->GetPackage()->IsDirty();
 	FSceneMaterialImportOptions Options;
 	Options.Default = {ESceneMaterialImportMode::CreateInstances, Parent->GetObjectPath()};
 	auto Second = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/Second"),
@@ -1050,7 +1050,7 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 			}
 			EXPECT_EQ(Reused->GetParent(), Parent);
 		}
-	EXPECT_EQ(Parent->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_EQ(Parent->GetPackage()->IsDirty(), bWasDirty);
 	EXPECT_FALSE(Parent->GetPackage()->IsDirty());
 	const auto Original = Parent->CaptureRootInputs();
 	const auto ApplyOutputs = [&](const FMaterialRootInputs& Outputs) {
@@ -1116,13 +1116,13 @@ TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdit
 	ASSERT_TRUE(Material->GetTextureParameterValue(MaterialParameters::BaseColorTextureName(), PreviousTexture));
 	const auto MaterialPath = Material->GetPackage()->GetPackagePathIdentity();
 	const auto MeshPath = Mesh->GetPackage()->GetPackagePathIdentity();
-	const auto Revision = Material->GetPackage()->GetEditRevision();
+	const auto Revision = Material->GetMaterialContentRevision();
 	const auto Reimport = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	EXPECT_FALSE(Reimport);
 	EXPECT_TRUE(Reimport.ImportedPackages.empty());
-	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_EQ(Material->GetMaterialContentRevision(), Revision);
 	EXPECT_EQ(LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath)), Material);
 	EXPECT_EQ(LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath)), Mesh);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].DefaultMaterial.Get(), Custom);
@@ -1248,7 +1248,7 @@ TEST(FSceneImportTests, StandardPBRParentMapsPackedChannelsUVsEmissiveAndOpacity
 	ASSERT_TRUE(Parent->CompileEdits());
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	ASSERT_TRUE(SavePackage(Parent->GetPackage()));
-	const auto ParentRevision = Parent->GetPackage()->GetEditRevision();
+	const bool bParentWasDirty = Parent->GetPackage()->IsDirty();
 	FSceneMaterialImportOptions Options;
 	Options.Default = {ESceneMaterialImportMode::CreateInstances, Parent->GetObjectPath()};
 	FSceneTaskHarness PreviewSession(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(),
@@ -1303,7 +1303,7 @@ TEST(FSceneImportTests, StandardPBRParentMapsPackedChannelsUVsEmissiveAndOpacity
 		if (bTranslucent) { EXPECT_EQ(Opacity, BaseColor); EXPECT_EQ(Mask, nullptr); }
 		else { EXPECT_EQ(Opacity, nullptr); EXPECT_NE(Mask, nullptr); }
 	}
-	EXPECT_EQ(Parent->GetPackage()->GetEditRevision(), ParentRevision);
+	EXPECT_EQ(Parent->GetPackage()->IsDirty(), bParentWasDirty);
 	EXPECT_FALSE(Parent->GetPackage()->IsDirty());
 }
 

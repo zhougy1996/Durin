@@ -1041,45 +1041,36 @@ def read():
         EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error; EXPECT_EQ("stopped\n", Result.Output);
     }
 
-    TEST_F(FPythonToolIntegrationTests, ScopeFinalizationFailureRemainsAHistoryDiagnostic)
+    TEST_F(FPythonToolIntegrationTests, PythonScopeFinalizationFaultTerminatesTheHost)
     {
         class FFailingHistoryChange final : public FCommandChange
         {
         public:
             auto Apply() -> FCommandChangeResult override { return {}; }
             auto Revert() -> FCommandChangeResult override { return {}; }
-            auto GetDescription() const -> std::string_view override { return "Fail final accounting"; }
+            auto GetDescription() const -> std::string_view override { return "Fail final details"; }
             auto GetModifiedObjects() const -> std::vector<DObject*> override { return {}; }
-            auto GetAllocatedSize() const -> size_t override { throw std::runtime_error("Injected final accounting failure"); }
+            auto GetDetails(ETransactionOperation) const -> std::string override { throw std::runtime_error("Injected final details failure"); }
         };
-        Register(FToolSchema(EToolValueType::Object), true, [&](const auto& Request, const auto&) {
-            EXPECT_TRUE(Host->GetTransactor()->StoreUndo(std::make_unique<FFailingHistoryChange>()));
-            return FToolResult{EToolStatus::Succeeded, Request.Arguments};
-        });
-        auto Job = Submit(R"PY(
+        auto Run = [&] {
+            Register(FToolSchema(EToolValueType::Object), true, [&](const auto& Request, const auto&) {
+                EXPECT_TRUE(Host->GetTransactor()->StoreUndo(std::make_unique<FFailingHistoryChange>()));
+                return FToolResult{EToolStatus::Succeeded, Request.Arguments};
+            });
+            auto Job = Submit(R"PY(
 import durin
 @durin.defer
 def edit():
-    with durin.ScopedEditorTransaction('Fail final accounting'):
+    with durin.ScopedEditorTransaction('Fail final details'):
         durin.tools.call('python.tests', 'echo', {})
         yield
     print('continued after scope')
 )PY");
-        Tools->TickScripts(); Tools->TickScripts(); Tools->TickScripts();
-        ASSERT_TRUE(Host->GetTransactor()->IsActive());
-        std::string Diagnostic;
-        auto* Buffer = Host->GetTransactor();
-        const auto Listener = Buffer->AddTransactionListener([&](const FTransactionEvent& Event) {
-            if (Event.Type == ETransactionEventType::Failed) Diagnostic = Event.Details;
-        });
-        auto Result = Wait(Job);
-        EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error;
-        EXPECT_TRUE(Result.Error.empty());
-        EXPECT_EQ("continued after scope\n", Result.Output);
-        Buffer->DispatchEvents();
-        Buffer->RemoveTransactionListener(Listener);
-        EXPECT_NE(Diagnostic.find("Injected final accounting failure"), std::string::npos);
-        EXPECT_FALSE(Host->GetTransactor()->IsActive()); EXPECT_EQ(0u, Host->GetTransactor()->GetQueueLength());
+            Tools->TickScripts(); Tools->TickScripts(); Tools->TickScripts();
+            ASSERT_TRUE(Host->GetTransactor()->IsActive());
+            (void)Wait(Job);
+        };
+        EXPECT_DEATH(Run(), "Injected final details failure");
     }
 
     TEST_F(FPythonToolIntegrationTests, IntegratedFoundationRevalidatesAndPreservesCancelledGlobalRecording)

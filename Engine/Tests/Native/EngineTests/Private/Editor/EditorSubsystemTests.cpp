@@ -710,13 +710,13 @@ namespace
 		EXPECT_EQ(1, *Stopped);
 	}
 
-	TEST_F(FEditorSubsystemTests, ModuleLifecycleDoesNotDependOnUnrelatedTransactionRecovery)
+	TEST_F(FEditorSubsystemTests, ModuleLifecycleDoesNotDependOnUnrelatedHistoryOperation)
 	{
 		auto* Host = NewHost();
 		auto& History = *static_cast<DTransBuffer*>(Host->GetTransactor());
-		FTransBufferTestAccess::SetState(History, ETransactorState::RecoveryRequired);
+		FTransBufferTestAccess::SetHistoryBusy(History, true);
 		ASSERT_FALSE(History.CanTransact());
-		const FName Name("EditorModuleDuringTransactionRecovery");
+		const FName Name("EditorModuleDuringHistoryOperation");
 		auto Stopped = std::make_shared<int>(0);
 		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(Name, std::make_unique<FDynamicProvider>(Stopped)));
 		ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems());
@@ -725,7 +725,7 @@ namespace
 		EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		EXPECT_EQ(1, *Stopped);
 		EXPECT_FALSE(History.CanTransact());
-		FTransBufferTestAccess::SetState(History, ETransactorState::Idle);
+		FTransBufferTestAccess::SetHistoryBusy(History, false);
 	}
 
 	TEST_F(FEditorSubsystemTests, ProviderMustFinishStartupBeforeItsServiceCanBeAdded)

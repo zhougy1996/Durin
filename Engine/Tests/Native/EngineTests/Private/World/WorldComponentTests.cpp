@@ -278,12 +278,12 @@ TEST(FSceneComponentTests, EqualTransformSettersDoNotDirtyTheOwningPackage)
 	RootComponent->SetRelativeLocation(Durin::FVector3(1.0, 2.0, 3.0));
 	Durin::DPackage* Package = Level->GetPackage();
 	ASSERT_NE(Package, nullptr);
-	const uint64 Revision = Package->GetEditRevision();
+	const bool bWasDirty = Package->IsDirty();
 
 	RootComponent->SetRelativeTransform(RootComponent->GetRelativeTransform());
 	RootComponent->SetWorldTransform(RootComponent->GetWorldTransform());
 
-	EXPECT_EQ(Package->GetEditRevision(), Revision);
+	EXPECT_EQ(Package->IsDirty(), bWasDirty);
 	EXPECT_TRUE(Durin::UnloadPackage(Package, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 

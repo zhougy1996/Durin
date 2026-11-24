@@ -28,8 +28,7 @@ is separate from StoreUndo retention; Undo calls Revert and Redo calls Apply.
 LevelEditor transform gizmo changes retain typed `FActorChangeError` in their
 domain adapter. MaterialEditor owns its independent `FMaterialChangeError`,
 including material diagnostic causes. Domain composition and rollback preserve
-these causes until conversion at the generic history boundary. Incomplete rollback
-or an exception propagates a recovery disposition, rather than a retryable message.
+these causes until conversion at the generic history boundary. During Undo or Redo, any domain error or exception follows the buffer execution-failure contract.
 Descriptions/details are presentation metadata and do not store failure state.
 
 Bound custom records retain an exact owning object for UE-style per-object
@@ -150,20 +149,14 @@ an available name and preserves the child's object identity.
 Historical load bypasses new-edit proposal validation and normalization.
 Reflected member notifications follow the complete load and precede object
 completion; native data does not invent reflected members. Whole-object capture, validation and application preserve a typed serialization error. Errors own
-exact target identity, serialization diagnostics and recovery disposition.
+target identity and serialization diagnostics.
 `FTransaction::FObjectRecord` formats diagnostics at the generic history boundary.
 
 Replay prepares all live inverses before ordered loading, matching UE's separate
 Save and Load passes. The canonical editor record validates the desired transfer,
-loads through CoreDObject's single serializer, and compensates a failed load from
-its prepared inverse. Durin's checked coordinator publishes historical flips only
-after every record and native completion succeed. Clean compensation loads the
-prepared live inverse without replacing either historical side; temporary external
-references cannot become new history dependencies after a rejected replay.
-A native exception or
-failed compensation requires recovery and retains the prepared reference graph;
-failed replay does not advance the history cursor or emit a successful UndoRedo
-event. Compensation does not flip history from an intermediate state.
+and loads through CoreDObject's single serializer. Historical flips are published
+after all records and native completion succeed. A deserialization or ordered
+application fault reports the failing transaction and record, then terminates.
 
 No-op detection applies to the complete transaction, as in UE's `IsTransient`.
 If any record or annotation retains an edit, unchanged SaveObject baselines stay
@@ -174,8 +167,7 @@ implicitly cleared.
 
 Initial, final and inverse captures acquire immutable annotations before virtual
 Serialize; schema checks do not acquire another annotation. Replay delivers the
-restored side's annotation through annotation-aware PostEditUndo. A compensated
-load delivers the pre-operation annotation. Completion annotations stay
+restored side's annotation through annotation-aware PostEditUndo. Completion annotations stay
 collector-visible through callbacks and are released at operation end. An
 annotation alone retains a record despite equal serialized bytes.
 
@@ -215,9 +207,7 @@ for the shared property decoder; general property snapshots keep exact semantics
 
 Multiple range records retain operation order. Each inverse is captured at its
 ordered replay step, because later edits may relocate earlier ranges. Flips are
-published only after complete successful replay; compensation uses the prepared
-inverse without changing history. This checked sequencing is a Durin adaptation.
-Native callback failure after a splice requires recovery. Zero-count operations
+published only after successful replay. A splice remains applied if a later callback or record fails. Zero-count operations
 and equal-value edits through the mutation adapter record nothing; raw SaveArray
 requires callers to perform the declared operation and does not infer net no-ops.
 
@@ -260,8 +250,7 @@ unaffected records move with their original ownership at commit and need no copy
 hook. The editor validates frozen modified participants, affected packages and
 the complete retained reference graph. Unsupported required replacement or
 incompatible state retires its whole transaction, including otherwise compatible
-peer records. Its cross-package peers keep their applied content and lose any
-checkpoint that could falsely treat shortened history as a saved baseline.
+peer records. Its cross-package peers keep their applied content and are marked dirty.
 
 Preparation retains the source history and its position. Final validation checks
 history revision, record snapshots, exact collector edges, package tracking,
@@ -272,17 +261,14 @@ into live targets and construction/lifecycle callbacks do not run during this wo
 Commit only moves prepared entries into reserved storage and swaps history,
 package tracking and queued events. IDs and Undo/Redo position survive for retained
 entries. Old command/annotation destruction occurs during retirement while old
-objects remain pinned, outside the non-failing publication. Replaced packages
-receive a fresh revision for the newly loaded baseline; corresponding transition
-boundaries and save checkpoints rebind together. Candidate objects acquire editor
-transactional admission during preparation. Document Discard does not call
-`EstablishSavedState` again after publication, which would erase the retained history.
+objects remain pinned, outside the non-failing publication. Retained transaction package records rebind to the replacement packages.
+Candidate objects acquire editor transactional admission during preparation.
 
 `DTransBuffer::OnObjectsReinstanced` accepts an explicit checked map and reuses
 this same participant for synchronous native history replacement. The caller
 coordinates actual graph publication and all external owners. Busy/stale
 preparation publishes nothing; incompatible records retire their complete entry
-under the same package/checkpoint rules. CDO/default-subobject transactions use
+under the same package dirty-state rules. CDO/default-subobject transactions use
 the native admission and logical reference categories above; arbitrary archetypes
 and script template mutation remain unsupported.
 
@@ -293,11 +279,7 @@ directly referenced child keeps its complete Outer chain alive. Referencing an
 Outer does not retain children or siblings. Record ownership changes on the owner and call `Modify()` on the child before marking it as garbage. Replay restores the recorded liveness before loading fields and references. [Component structure history](../LevelEditing/LevelEditorDetails.md#component-structure-history)
 uses owner and participant snapshots. History enumerates recorded targets, serialized references and annotation dependencies. Unreferenced children with only an Outer relationship can be collected while history survives. Actor and component completion restore native lifecycle and attachment state on the retained identities.
 
-Record callbacks request GC; the owner collects only after application and any
-compensation have completed. Record application does not block GC dynamically. A custom replay
-exception becomes an owned failure with recovery required because its side
-effects are unknown. Failed domain execution requiring recovery remains collector-visible in pending
-recovery storage, preserving their participant graphs and module references.
+Record callbacks request GC; the owner collects after application and native completion. A custom replay exception terminates execution with the transaction, direction and record diagnostic.
 
 ## Related Documentation
 

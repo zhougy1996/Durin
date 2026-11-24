@@ -28,18 +28,6 @@ namespace Durin
 			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(AuthoredObjects[Index], EObjectQueryScope::LiveOnly))
 				AuthoredObjects.push_back(Child);
 		}
-		if (GetEditor() && GetEditor()->GetTransactor())
-		{
-			if (DPackage* Package = Object->GetPackage())
-			{
-				DTransactor& Transactions = *GetEditor()->GetTransactor();
-				if (!Transactions.GetPackageRevisionState(*Package))
-				{
-					if (Package->IsDirty()) Transactions.InvalidateSavedState(*Package);
-					else Transactions.EstablishSavedState(*Package);
-				}
-			}
-		}
 		return true;
 	}
 
@@ -59,11 +47,7 @@ namespace Durin
 	{
 		if (!CanSave(Object) || (BeforeSave && !BeforeSave())) return false;
 		FAssetWriteResult Result;
-		if (SavePackage(Object->GetPackage(), {}, &Result))
-		{
-			if (GetEditor() && GetEditor()->GetTransactor()) GetEditor()->GetTransactor()->MarkSaved(*Object->GetPackage());
-			return true;
-		}
+		if (SavePackage(Object->GetPackage(), {}, &Result)) return true;
 		if (ReportError) ReportError((Result.Error ? Result.Error->ToString() : std::string{}));
 		return false;
 	}

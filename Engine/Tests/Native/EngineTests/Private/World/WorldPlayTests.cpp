@@ -326,9 +326,9 @@ TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues
 	Settings.FarClip = 100.0f;
 	Settings.AspectRatioMode = Durin::ECameraAspectRatioMode::Custom;
 	Settings.CustomAspectRatio = 20.0f;
-	const uint64 SettingsRevision = Package->GetEditRevision();
+	Package->ClearDirty();
 	Camera->SetProjectionSettings(Settings);
-	EXPECT_EQ(Package->GetEditRevision(), SettingsRevision + 1);
+	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FLOAT_EQ(Camera->GetFieldOfViewDegrees(), 170.0f);
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.001f);
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 100.0f);
@@ -336,15 +336,15 @@ TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues
 	EXPECT_LT(Camera->GetViewRenderDistance(), 100.0f);
 
 	Package->ClearDirty();
-	const uint64 EquivalentRevision = Package->GetEditRevision();
+	const bool bEquivalentWasDirty = Package->IsDirty();
 	Camera->SetProjectionSettings(Camera->GetProjectionSettings());
 	Camera->SetViewDistance(Camera->GetViewDistance());
 	EXPECT_FALSE(Package->IsDirty());
-	EXPECT_EQ(Package->GetEditRevision(), EquivalentRevision);
+	EXPECT_EQ(Package->IsDirty(), bEquivalentWasDirty);
 
-	const uint64 TransformRevision = Package->GetEditRevision();
+	Package->ClearDirty();
 	Camera->SetLookAt({10.0, 20.0, 30.0}, {11.0, 20.0, 30.0});
-	EXPECT_EQ(Package->GetEditRevision(), TransformRevision + 1);
+	EXPECT_TRUE(Package->IsDirty());
 	ExpectVectorNear(Camera->GetWorldLocation(), {10.0, 20.0, 30.0});
 	ExpectVectorNear(
 		Durin::Math::RotateVector(Camera->GetWorldRotation(), Durin::FVectorConstants::Forward),

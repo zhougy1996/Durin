@@ -75,13 +75,17 @@ namespace Durin::MaterialEditor
 		Working->SetEditCompileMode(Mode);
 		Graph = DMaterialGraph::Create(*Working);
 		WorkingPackage->ClearDirty();
-		if (Transactor.IsValid()) Transactor->EstablishSavedState(*WorkingPackage);
+
 		return true;
 	}
 
 	auto FMaterialEditingSession::HasUnappliedChanges() const -> bool
 	{
-		return WorkingPackage && WorkingPackage->IsDirty();
+		return Working && WorkingPackage && (WorkingPackage->IsDirty()
+			|| (Source && Source->GetGraphChanges().GetEditRevision() == SourceRevision
+				&& (Source->GetRootPosition() != Working->GetRootPosition()
+					|| Source->GetMaterialGraphPresentation() != Working->GetMaterialGraphPresentation()
+					|| HasSemanticChanges())));
 	}
 
 	auto FMaterialEditingSession::HasSemanticChanges() const -> bool
@@ -125,7 +129,7 @@ namespace Durin::MaterialEditor
 			return ApplyCurrent(Error);
 		}
 		bApplyPending = true;
-		RequestedWorkingRevision = WorkingPackage->GetEditRevision();
+		RequestedWorkingRevision = Working->GetGraphChanges().GetEditRevision();
 		if (!Working->GetMaterialCompileStatus().IsCurrent()) Working->CompileEdits();
 		Tick(Error);
 		return Error.empty();
@@ -134,7 +138,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditingSession::Tick(std::string& Error) -> void
 	{
 		if (!bApplyPending || !Working) return;
-		if (WorkingPackage->GetEditRevision() != RequestedWorkingRevision)
+		if (Working->GetGraphChanges().GetEditRevision() != RequestedWorkingRevision)
 		{
 			bApplyPending = false;
 			Error = "The preview changed while Apply was compiling. Apply the latest edits again.";
@@ -178,7 +182,7 @@ namespace Durin::MaterialEditor
 			}
 		}
 		const auto [X, Y] = Working->GetRootPosition();
-		const auto WorkingRevision = WorkingPackage->GetEditRevision();
+		const auto WorkingRevision = Working->GetGraphChanges().GetEditRevision();
 		struct FPublishScope
 		{
 			bool& Flag;
@@ -207,15 +211,14 @@ namespace Durin::MaterialEditor
 				Source->SetMaterialGraphPresentation(Working->GetMaterialGraphPresentation());
 			}
 			Source->SetRootPosition(X, Y);
-			if (Transactor.IsValid() && Source->GetGraphChanges().GetEditRevision() != SourceRevision)
-				Transactor->InvalidateSavedState(*Source->GetPackage());
+			if (Source->GetGraphChanges().GetEditRevision() != SourceRevision)
+				Source->MarkPackageDirty();
 			SourceRevision = Source->GetGraphChanges().GetEditRevision();
 		}
 		// Publication listeners can edit the draft while the source is being updated.
-		if (WorkingPackage->GetEditRevision() == WorkingRevision)
+		if (Working->GetGraphChanges().GetEditRevision() == WorkingRevision)
 		{
-			if (Transactor.IsValid()) Transactor->MarkSaved(*WorkingPackage);
-			else WorkingPackage->ClearDirty();
+			WorkingPackage->ClearDirty();
 		}
 		return true;
 	}

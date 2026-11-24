@@ -126,7 +126,8 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	ASSERT_TRUE(Editor->Modify(false));
 	Editor->BeginDestroy();
 	EXPECT_EQ(Editor->GetTransactor(), nullptr);
-	EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), Durin::ETransactorState::Destroying);
+	EXPECT_FALSE(Buffer->CanTransact());
+	EXPECT_FALSE(Buffer->IsActive());
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	EXPECT_EQ(Buffer->GetUndoSize(), 0u);
 }
@@ -155,14 +156,10 @@ TEST(FAssetEditorSessionTests, UndoToActivatedRevisionClearsDirtyState)
 
 	Durin::FAssetEditorSession Documents;
 	ASSERT_TRUE(Documents.Activate(Asset));
-	Durin::DTransactor& Transactions =
-		*Editor->GetTransactor();
-	const auto OpenRevision = Transactions.GetPackageRevisionState(*Package);
-	ASSERT_TRUE(OpenRevision.has_value());
-	EXPECT_EQ(OpenRevision->CurrentRevision, OpenRevision->SavedRevision);
-
+	auto& Transactions = *Editor->GetTransactor();
 	{
 		Durin::FScopedTransaction Recording("Edit Asset");
+		ASSERT_TRUE(Asset->Modify(false));
 		Package->MarkDirty();
 		ASSERT_TRUE(Transactions.StoreUndo(
 			std::make_unique<FAppliedPackageEdit>(*Package)));

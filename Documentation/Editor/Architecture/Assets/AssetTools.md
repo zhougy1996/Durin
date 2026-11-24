@@ -46,7 +46,7 @@ passed to FactoryCreateNew; it is not an arbitrary DObject context or flags tail
 
 Creation rejects occupied destinations unless overwrite is explicitly requested.
 Same-class replacement prepares a separate graph, preserves sibling assets and
-validates the original package revision before replacing it. Failed factories,
+rechecks the original package identity and dirty state before replacing it. Failed factories,
 stale identities, incompatible classes and unclaimed native strong owners leave
 the original graph intact. Replacement does not force destruction of an active
 document or discard the old graph to make space. Creation performs no saving.

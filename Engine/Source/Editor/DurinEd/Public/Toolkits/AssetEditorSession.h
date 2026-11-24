@@ -15,7 +15,7 @@ namespace Durin
 	public:
 		DURINED_API auto BindEditor(DEditorEngine* Editor) -> void;
 		DURINED_API auto GetEditor() const -> DEditorEngine*;
-		DURINED_API auto Activate(DObject* Object) -> bool;
+		static DURINED_API auto Activate(DObject* Object) -> bool;
 		DURINED_API auto IsDirty(const DObject* Object) const -> bool;
 		DURINED_API auto CanSave(const DObject* Object) const -> bool;
 		DURINED_API auto Save(DObject* Object, const std::function<bool()>& BeforeSave,
