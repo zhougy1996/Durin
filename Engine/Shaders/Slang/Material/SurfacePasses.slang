@@ -129,8 +129,8 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
     FSurfaceLightingFrame frame = BuildSurfaceLightingFrameFromViewVector(normal, mul((float3x3)MaterialView.ViewToWorld, -incident));
     float waterIor = WaterIor(surface.specular);
     float4 viewport = MaterialView.Viewport;
-    FWaterBackground background = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterView,
-        viewport, input.pos.xy, viewForward, surfaceDepth, slopeTolerance);
+    FWaterBackground background = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
+        viewport, input.pos.xy, viewForward, surfaceDepth, slopeTolerance, DURIN_MATERIAL_REFRACTION_METHOD != 0);
     float2 offset = 0.0;
 #if DURIN_MATERIAL_REFRACTION_METHOD != 0
     float3 viewNormal = normalize(mul((float3x3)MaterialView.WorldToView, normal));
@@ -153,8 +153,8 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
         float2 target = ClampWaterPixel(ClampWaterPixel(input.pos.xy, viewport) + distortion, viewport);
         if (any(distortion != 0.0))
         {
-            FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterView,
-                viewport, target, viewForward, surfaceDepth, slopeTolerance);
+            FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
+                viewport, target, viewForward, surfaceDepth, slopeTolerance, true);
             if (refracted.valid)
             {
                 background = refracted;

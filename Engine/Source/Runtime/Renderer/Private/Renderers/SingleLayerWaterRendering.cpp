@@ -124,7 +124,8 @@ namespace Durin
 			};
 			const auto Projection = Math::TransposeToFloat(View.ProjectionMatrix);
 			const FWaterViewUniform ViewData{{Projection[0], Projection[1], Projection[2], Projection[3]},
-				FVector4f(View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f, float(Readback), 0.0f, 0.0f)};
+				FVector4f(View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f,
+					float(Readback), View.Settings.Mode.bEnableWaterRefractionMask ? 1.0f : 0.0f, 0.0f)};
 			const auto ViewBuffer = Commands.CreateUniformBufferRange(&ViewData, sizeof(ViewData));
 			if (!ViewBuffer.Buffer) return false;
 			FMeshDrawCommandStateCache Cache;

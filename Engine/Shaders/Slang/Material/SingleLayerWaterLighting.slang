@@ -36,11 +36,15 @@ public float2 ClampWaterPixel(float2 pixel, float4 viewport)
 }
 
 public FWaterBackground SampleWaterBackground(
-    Texture2D<float4> sceneColor, Texture2D<float> sceneDepth,
+    Texture2D<float4> sceneColor, Texture2D<float> sceneDepth, Texture2D<float> refractionMask,
     FWaterViewUniform view, float4 viewport, float2 samplePixel,
-    float3 viewForward, float surfaceDepth, float slopeTolerance)
+    float3 viewForward, float surfaceDepth, float slopeTolerance, bool refracting)
 {
-    float2 texel = ClampWaterPixel(samplePixel, viewport) - 0.5;
+    float2 colorTexel = ClampWaterPixel(samplePixel, viewport) - 0.5;
+    int2 colorCorner = int2(floor(colorTexel));
+    // UE biases the depth/mask gather and its bilinear weights, but gathers color at the original UV.
+    // Materials with refraction disabled preserve the original pixel-center lookup.
+    float2 texel = colorTexel + select(viewport.zw > 1.0, refracting ? 1.0 / 512.0 : 0.0, 0.0);
     int2 corner = int2(floor(texel));
     float2 fraction = frac(texel);
     float totalWeight = 0.0;
@@ -55,6 +59,15 @@ public FWaterBackground SampleWaterBackground(
         float weight = bilinear.x * bilinear.y;
         if (weight <= 0.0) continue;
         int3 pixel = int3(corner + offset, 0);
+        float transmissionWeight = 1.0;
+        if (view.DepthParameters.z != 0.0)
+        {
+            // R8: high bit marks water, low seven bits weight transmitted color.
+            // The nearest-water pass writes 0 or 255 (full transmission on visible water).
+            uint packedMask = uint(round(refractionMask.Load(pixel) * 255.0));
+            if (packedMask < 128u) continue;
+            transmissionWeight = float(packedMask - 128u) / 127.0;
+        }
         float deviceDepth = sceneDepth.Load(pixel);
         if (!isfinite(deviceDepth)) continue;
         bool clear = deviceDepth == view.DepthParameters.x;
@@ -71,7 +84,7 @@ public FWaterBackground SampleWaterBackground(
         allClear = allClear && clear;
         totalWeight += weight;
         depth += tapDepth * weight;
-        radiance += sceneColor.Load(pixel).rgb * weight;
+        radiance += sceneColor.Load(int3(colorCorner + offset, 0)).rgb * (weight * transmissionWeight);
     }
     FWaterBackground result = (FWaterBackground)0;
     if (totalWeight > 1.0e-5)

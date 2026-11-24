@@ -124,6 +124,8 @@ namespace Durin
 		// it per submitted view for exact A/B evidence; normal views keep it on.
 		bool bEnableSpecularAA = true;
 		bool bEnableOcclusionCulling = true;
+		// Restrict water background sampling to taps covered by visible water.
+		bool bEnableWaterRefractionMask = false;
 	};
 
 	enum class EBloomResolution : uint8 { Half, Quarter };

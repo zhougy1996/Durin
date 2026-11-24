@@ -704,6 +704,12 @@ TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
 	ASSERT_FALSE(HasFailure());
 	EXPECT_NEAR(ReadChannel(Refraction, 147, 120, 0), Offset, .05f);
 	EXPECT_NEAR(ReadChannel(Refraction, 160, 120, 0), Offset, .05f);
+	View.Settings.Mode.bEnableWaterRefractionMask = true;
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	ASSERT_FALSE(HasFailure());
+	EXPECT_NEAR(ReadChannel(Refraction, 147, 120, 0), Offset, .05f);
+	EXPECT_FLOAT_EQ(ReadChannel(Refraction, 160, 120, 0), 0.0f);
+	View.Settings.Mode.bEnableWaterRefractionMask = false;
 	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(713));
 	Add(713, 0.0, 0.0, 6.0, 6.0, Water);
 	Add(714, 0.0, -.1, 1.0, 1.0, Water);
