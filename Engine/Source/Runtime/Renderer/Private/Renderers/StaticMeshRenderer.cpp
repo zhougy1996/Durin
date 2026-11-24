@@ -421,6 +421,7 @@ namespace Durin
 		}
 		ResolvedView.FallbackPrimitiveUniforms.clear();
 		ResolvedView.PersistentCommandsReused.assign(PreparedView.GetNumSections(), false);
+		ResolvedView.SelectedShadowCommands = 0;
 		ResolvedView.MaterialUniforms.clear();
 		ResolvedView.MaterialUniforms.resize(PreparedView.MaterialUniformGroups.size());
 		if (PreparedView.RenderFrame != GRenderFrameCounterRenderThread) return false;
@@ -529,6 +530,7 @@ namespace Durin
 					Material ? nullptr : &CachedMaterial, Primitive->CollectedBinding.get());
 				if (!Existing) { AllHit = false; continue; }
 				Record.SelectedCachedCommands.emplace(PassKey, Existing);
+				if (bShadow) ++ResolvedView.SelectedShadowCommands;
 
 				if (!Material && Requests[Draw.MaterialUniformIndex].contains(Pass))
 				{
@@ -645,6 +647,9 @@ namespace Durin
 				&& (Buffers->DynamicContext != ResolvedView.GPUSceneDynamicContext
 					|| !Buffers->SceneData[0] || !Buffers->SceneData[1] || !Buffers->InstanceIds)) return false;
 		ResolvedView.MeshDrawCommandPasses.clear();
+		if (bShadow && ResolvedView.SelectedShadowCommands)
+			ResolvedView.GetMeshDrawCommandPass({EMeshPipelinePass::ShadowDepth})
+				.ReserveCachedCommands(ResolvedView.SelectedShadowCommands);
 		ResolvedView.DrawCommandStorage = std::make_shared<FDynamicMeshDrawCommandStorage>();
 
 		ResolvedView.DynamicInstancingInstanceIds = {};

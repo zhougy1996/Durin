@@ -214,6 +214,13 @@ namespace Durin::RendererPrivate
 		auto operator=(const FParallelMeshDrawCommandPass&) -> FParallelMeshDrawCommandPass& = delete;
 		auto GetPass() const -> FMeshPassKey { return Pass; }
 		auto GetMeshDrawCommands() const -> std::span<const FVisibleMeshDrawCommand> { return VisibleMeshDrawCommands; }
+		auto ReserveCachedCommands(size_t Count) -> void
+		{
+			VisibleMeshDrawCommands.reserve(Count);
+			CachedCommands.reserve(Count);
+			RetainedInfos.reserve(Count);
+			RetainedPasses.reserve(Count);
+		}
 		auto GetBasePassRange(EMeshBasePass Bucket) const -> FMeshDrawCommandRun { return BasePassRanges[static_cast<uint32>(Bucket)]; }
 		RENDERER_API auto AddCachedMeshDrawCommand(std::shared_ptr<const FMeshDrawCommand> Command,
 			std::shared_ptr<const FCachedMeshDrawCommandInfo> Info, std::shared_ptr<const FMeshPassBindings> Bindings,

@@ -428,6 +428,7 @@ namespace Durin
 		std::vector<FResolvedMeshDrawRecord> Draws;
 		// Selected before uniform/surface preparation; stable bindings survive into recording.
 		std::vector<bool> PersistentCommandsReused;
+		size_t SelectedShadowCommands = 0;
 		// A retained command can reuse its geometry/pipelines while Collection ranges change.
 		// Only unsupported vertex factories allocate the legacy uniform contract.
         std::unordered_map<uint32, FRHIUniformBufferRange> FallbackPrimitiveUniforms;

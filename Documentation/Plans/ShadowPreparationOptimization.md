@@ -14,7 +14,9 @@ cascades. See [render-thread alignment Stage 2](UERenderThreadMechanismAlignment
 for the workload comparison. Stage 3 now projects unit-w orthographic bounds
 by center and half-extent, with the general path resolving ambiguous boundaries.
 The renderer reuses the existing pass bindings directly when the draw command
-and pass group both hit. The [warm command-hit resource profile](#warm-command-hit-resource-profile)
+and pass group both hit. Each shadow cascade also reserves space for the
+cached commands selected during its existing uniform preparation scan.
+The [warm command-hit resource profile](#warm-command-hit-resource-profile)
 records the selection and the matched-frame comparison.
 
 Baseline measurement is complete at `6ccf6abdc`. Temporary instrumentation was
@@ -791,6 +793,22 @@ reference images and their metrics file byte-for-byte. Eight focused Vulkan
 cases passed, including masked material collections, instance grouping,
 multi-batch geometry, cache invalidation, spline mirrors and hit proxies.
 
+With baseline `1f9be3637`, a separate growth-counting run found 39 append-time
+capacity increases per vector across three cascades for 128 overlapping
+casters (156 across the visible list and its three ownership arrays). Five boxes
+had 10 per vector. Reserving from the selected shadow command count eliminated
+append-time growth in both fixtures. The initial reserve still allocates once
+per vector in a populated pass. Dynamic commands and additional cache misses
+can still grow the lists.
+
+Six Release Vulkan runs compared alternating ABBA frames in the same binary,
+reversing order on alternate runs, with the same 30/120 warm-up/sample counts.
+Timing runs disabled the growth counters. The median of run medians for the
+128-caster shadow binding stage fell from 0.1572 to 0.1186 ms and total shadow
+resource preparation from 0.3849 to 0.3440 ms. Five-box total preparation fell
+from 0.0584 to 0.0543 ms. Both fixtures improved in all six paired medians.
+Per-frame measurements and summaries are under ignored `Build/ShadowListReserve/`.
+
 ## Implementation Stages
 
 ### Stage 0: Baseline and dependency contract
@@ -844,6 +862,8 @@ appropriate primitive/material boundary and views reference compact frame facts.
   lookup while retaining exact current-value checks; remove temporary probes.
 - [x] Reuse pass bindings on a selected-command/group hit before constructing
   per-draw build inputs; measure warm binding and total resource preparation.
+- [x] Reserve the shadow pass visible list and its existing ownership arrays
+  from selection counts; compare append-time growth and total resource cost.
 - [ ] Separate current primitive-state validation from shared material/resource
   validation; reuse each within a command without losing current-value checks.
 - [ ] Reduce repeated complete Batch/Record construction, owner copies and small
