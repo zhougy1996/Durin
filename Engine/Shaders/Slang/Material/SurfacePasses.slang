@@ -132,55 +132,50 @@ SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool
     FWaterBackground background = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
         viewport, input.pos.xy, viewForward, surfaceDepth, slopeTolerance);
     float2 offset = 0.0;
-    float3 bedInView = surfaceInView;
-    if (background.valid && !background.open)
-        bedInView = ReconstructWaterBed(WaterView, viewport, input.pos.xy, viewForward, background.depth);
-    float thicknessCm = length(bedInView - surfaceInView) * 100.0;
 #if DURIN_MATERIAL_REFRACTION_METHOD != 0
     float3 viewNormal = normalize(mul((float3x3)MaterialView.WorldToView, normal));
-#if DURIN_MATERIAL_REFRACTION_METHOD == 2
-    float ior = waterIor;
-#else
-    float ior = surface.refraction;
-#endif
-    float eta = 1.0 / max(ior, 1.0e-4);
-    float3 direction = refract(incident, faceforward(viewNormal, incident, viewNormal), eta);
 #if DURIN_MATERIAL_REFRACTION_METHOD == 3
-    float3 meshNormal = normalize(mul((float3x3)MaterialView.WorldToView, shading.normalFrame.geometricNormal));
-    float3 reference = refract(incident, faceforward(meshNormal, incident, meshNormal), eta);
-    if (dot(reference, reference) > 0.0 && dot(direction, direction) > 0.0)
-        direction = WaterPixelNormalRay(incident, reference, direction);
+    float3 vertexNormal = normalize(mul((float3x3)MaterialView.WorldToView, shading.normalFrame.geometricNormal));
+    float3 distortionNormal = vertexNormal - viewNormal;
+#else
+    float3 distortionNormal = viewNormal;
 #endif
-    if (background.valid && dot(direction, direction) > 0.0 && length(direction - incident) > 1.0e-6)
+#if DURIN_MATERIAL_REFRACTION_METHOD == 2
+    float distortionStrength = waterIor;
+#else
+    float distortionStrength = surface.refraction;
+#endif
+    if (background.valid)
     {
-        // The authored depth bias moves the interface along the original view
-        // ray in centimetres. Its screen position stays fixed in either projection.
-        float bias = asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)) * 0.01;
-        float3 origin = surfaceInView + incident * (bias / max(dot(incident, viewForward), 1.0e-6));
-        FWaterBackground hit;
-        float distance;
-        float2 hitPixel;
-        if ((background.open || dot(origin, viewForward) < background.depth)
-            && TraceWaterReceiver(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
-                viewport, input.pos.xy, origin, direction, viewForward, hit, distance, hitPixel))
+        float2 distortion = WaterDistortionPixels(WaterView, viewport.zw, distortionNormal, viewForward, distortionStrength,
+            max(background.depth - surfaceDepth, 0.0) * 100.0,
+            asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)), background.open);
+        float2 target = ClampWaterPixel(ClampWaterPixel(input.pos.xy, viewport) + distortion, viewport);
+        if (any(distortion != 0.0))
         {
-            background = hit;
-            offset = hitPixel - input.pos.xy;
-            bedInView = origin + direction * distance;
-            thicknessCm = length(bedInView - surfaceInView) * 100.0;
+            FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterCoverage, WaterView,
+                viewport, target, viewForward, surfaceDepth, slopeTolerance);
+            if (refracted.valid)
+            {
+                background = refracted;
+                offset = target - input.pos.xy;
+            }
         }
     }
 #endif
+    if (!background.valid) background.depth = surfaceDepth;
+    float thicknessCm = max(background.depth - surfaceDepth, 0.0) * 100.0;
     float3 extinction = scattering + absorption;
     float3 transmission = WaterTransmission(extinction, thicknessCm, background.open);
     float3 scatterWeight = WaterIntegratedScattering(scattering, extinction, transmission);
     float3 bedLight = 1.0;
     if (background.valid && !background.open)
     {
+        float3 bedInView = ReconstructWaterBed(WaterView, viewport, input.pos.xy, viewForward, background.depth);
         float3 bedInWorld = mul(MaterialView.ViewToWorld, float4(bedInView, 1.0)).xyz;
         bedLight = exp(-extinction * (max(input.worldPosition.z - bedInWorld.z, 0.0) * 100.0));
     }
-    float shoreline = background.open ? 1.0 : saturate((background.depth - surfaceDepth) * 2.0);
+    float shoreline = background.open ? 1.0 : saturate(thicknessCm * 0.02);
     float3 behind = background.radiance * bedLight * lerp(1.0, colorScale, shoreline);
 
     float3 rotatedNormal = normal + 2.0 * cross(Lighting.EnvironmentRotation.xyz,

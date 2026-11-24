@@ -31,21 +31,16 @@ Disconnected inputs use zero coefficients, PhaseG zero and white scale. Water
 Opacity controls surface versus volume contributions independently of Opacity
 Mask, which controls coverage. The refraction method can disable distortion,
 use an authored index, derive the index from dielectric F0, or use Pixel Normal Offset.
-Above water, the authored and F0-derived indices determine the transmitted ray
-through Snell's law. Pixel Normal Offset rotates the incident ray by the change
-in refraction between the mesh and shading normals. Matching normals preserve
-the original image in this mode. Refraction depth bias moves the ray origin
-along the view ray by the specified view-depth distance in centimeters.
-
-The renderer walks the projected ray through the opaque depth snapshot. Each
-visited texel supplies a local plane in device depth. A hit must lie within
-the part of the ray inside that texel and within visible water coverage.
-The hit position supplies the background color lookup, the water path length
-for absorption and scattering, and the world-space height for bed lighting.
-Color filtering uses taps consistent with the hit surface. The original view
-ray supplies the background when the trace leaves the viewport or finds no
-visible intersection within its 192-texel budget. Orthographic views use
-parallel incident rays. The compiler retains the water roots and passes in
+Pixel Normal Offset uses the view-space vertex normal minus the shading normal,
+scaled by the authored Refraction input minus one. A flat normal gives zero offset at any angle.
+Above water, the desktop pass offsets the background lookup using the view-space
+surface normal, IOR, horizontal projection scale and viewport dimensions. Depth
+bias and shallow water fade the offset near contact. The lookup stays inside the
+active viewport. Four bilinear taps from the opaque snapshot share depth and
+color weights. Foreground taps are rejected using the water fragment's view depth
+and screen-space slope. If all distorted taps are rejected, the original lookup
+supplies both depth and color. Orthographic lighting and sky reflections use parallel
+view rays. The compiler retains the water roots and passes in
 source-free Cook payloads. Numeric instance coefficients follow ordinary
 parameter update rules.
 
