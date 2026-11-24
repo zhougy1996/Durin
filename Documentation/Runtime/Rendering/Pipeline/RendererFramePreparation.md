@@ -34,6 +34,9 @@ Geometry preparation has three boundaries:
    static meshes with a single LOD or forced LOD 0 resolve availability
    immediately. Their preparation chunks compute the projection fallback
    statistic from captured view and bounds. Small collections project inline.
+   Unit-w orthographic views project AABB centers and half-extents. When
+   rounding could change the near-plane status or the float used for LOD
+   selection, they use the same eight-corner calculation as perspective views.
    Within a submission the receiver and cascades share the admitted ordinary
    static batch for each primitive and selected LOD. Each view keeps its own
    requested LOD, purpose filter and pass-specific section facts. After a static

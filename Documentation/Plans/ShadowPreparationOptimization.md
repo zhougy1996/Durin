@@ -2,7 +2,7 @@
 
 Summary: Reduce repeated StaticMesh collection, resource resolution and command-hit work across directional shadow cascades while preserving dynamic validation and resource lifetime.
 
-Last reviewed: 2026-11-21
+Last reviewed: 2026-11-24
 
 Status: Active
 Completed:
@@ -11,7 +11,9 @@ Completed:
 
 Ordinary static meshes now share admitted batches between the receiver and its
 cascades. See [render-thread alignment Stage 2](UERenderThreadMechanismAlignment.md#stage-2-build-a-dependency-driven-preparation-pipeline)
-for the workload comparison. Resource validation and cascade projection remain open.
+for the workload comparison. Stage 3 now projects unit-w orthographic bounds
+by center and half-extent, with the general path resolving ambiguous boundaries.
+Resource validation remains open.
 
 Baseline measurement is complete at `6ccf6abdc`. Temporary instrumentation was
 removed, eight source files were restored with matching original hashes, and
@@ -21,8 +23,7 @@ byte-identical. Stage 1 is complete: ordinary StaticMesh now reuses stable Secti
 resource preparation within a command and across cascades. Dependency comparison,
 matched Release CPU diagnostics, final regression and source cleanup passed.
 
-Stages 0 and 1 are complete. Stage 2 is partially implemented; Stage 3 remains
-pending. The new profile still puts logical collection/preparation ahead
+Stages 0 and 1 are complete. Stage 2 is partially implemented. The profile put logical collection/preparation ahead
 of resources; narrow the next measurements before implementing another stage.
 The Stage 1 follow-up simplifies redundant resource keys/owners and resource
 policy parameters. The logical-stage reprofile is complete and selects collector
@@ -792,18 +793,38 @@ measured hit/collection work decreases without duplicate persistent caches.
 Depends on the latest bottleneck measurement. Outcome: cheaper projection/LOD
 preparation with the same observable selection and conservative fallbacks.
 
-- [ ] Prepare view-constant validation once; specialize orthographic cascades
+- [x] Prepare view-constant validation once; specialize orthographic cascades
   using center/half extent while retaining the general projection path.
-- [ ] Evaluate lazy projection for single-LOD/ForceLOD0 inputs only where its
+- [x] Evaluate lazy projection for single-LOD/ForceLOD0 inputs only where its
   lack of necessity is proven; preserve diagnostic status/counters explicitly.
-- [ ] Compare projected size and LOD decisions around thresholds, touching and
+- [x] Compare projected size and LOD decisions around thresholds, touching and
   crossing near planes, invalid bounds/views, aspect ratios and depth conventions.
   Use a general-path fallback where boundary equivalence is uncertain.
-- [ ] Measure projection/LOD and total logical preparation; retain authored
+- [x] Measure projection/LOD and total logical preparation; retain authored
   threshold semantics and require the recorded numerical/correctness guardrails.
 
 Completion: selection/fallback semantics agree with the reference and the
 optimization reduces measured work in the applicable views.
+
+On 2026-11-24, Win64 Release, GTX 1060 6 GB, Vulkan at 1920x1080,
+baseline `b4d3627a8` and the Stage 3 change ran both preparation fixtures in
+A/B then B/A order. Each block comprised three runs with 30 warm-up and 120
+measured frames per configuration. Medians across the six run summaries:
+
+| Three-cascade CPU logical preparation | Reference median / p95 | Stage 3 median / p95 |
+| --- | ---: | ---: |
+| 128 overlapping casters | 0.578 / 1.038 ms | 0.478 / 0.703 ms |
+| 5 boxes | 0.0690 / 0.0912 ms | 0.0696 / 0.0937 ms |
+
+A temporary serial `PrepareMeshViewFacts` probe over 128 boxes and three fitted
+cascades measured 378 to 108 ns per box/cascade (median of ten batches of 512
+repetitions, matching checksums). This includes input/output handling. Single-LOD
+and forced-LOD inputs still evaluate projected status where diagnostics need it.
+The Release Vulkan regression reproduced 106 images and the metrics file
+byte-for-byte. Its recording-policy comparison checks declared cascade passes
+and their depth/color outputs independently of worker scheduling.
+Raw run summaries and the removed probe are under ignored
+`Build/OrthoProjection-*`. GPU times are diagnostic.
 
 ### Stage 4: Final acceptance and handoff
 

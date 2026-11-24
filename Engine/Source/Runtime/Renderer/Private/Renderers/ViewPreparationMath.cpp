@@ -144,19 +144,67 @@ namespace Durin
 						   : EViewBoundsClassification::Inside;
 	}
 
-	auto ComputeProjectedScreenSize(
-		const FSceneView& View,
-		const FBox& WorldBounds) -> FProjectedScreenSizeResult
+	FBoxScreenSizeProjection::FBoxScreenSizeProjection(const FSceneView& InView) : View(InView)
+	{
+		const auto& M = View.ViewProjectionMatrix;
+		bValid = View.ViewportWidth && View.ViewportHeight && Math::IsFinite(M)
+			&& IsSupportedProjection(View.ProjectionMatrix);
+		bUnitW = bValid && GetRow(M, 3) == FVector4(0.0, 0.0, 0.0, 1.0);
+		if (!bUnitW) return;
+		AbsoluteX = Math::Abs(FVector3(M[0]));
+		AbsoluteY = Math::Abs(FVector3(M[1]));
+		AbsoluteZ = Math::Abs(FVector3(M[2]));
+		const FVector3 RowSums = AbsoluteX + AbsoluteY + AbsoluteZ;
+		MaxAxisSum = std::max({RowSums.x, RowSums.y, RowSums.z});
+		MaxTranslation = std::max({std::abs(M[3][0]), std::abs(M[3][1]), std::abs(M[3][2])});
+	}
+
+	auto FBoxScreenSizeProjection::ProjectOrthographic(const FBox& Bounds) const
+		-> std::optional<FProjectedScreenSizeResult>
+	{
+		const FVector3 Center = Bounds.Min * 0.5 + Bounds.Max * 0.5;
+		const FVector3 Half = Bounds.Max * 0.5 - Bounds.Min * 0.5;
+		const FVector3 Radius = AbsoluteX * Half.x + AbsoluteY * Half.y + AbsoluteZ * Half.z;
+		const auto& M = View.ViewProjectionMatrix;
+		const double CenterZ = Math::Dot(FVector3(GetRow(M, 2)), Center) + M[3][2];
+		const double NearDistance = (View.DepthConvention == ESceneDepthConvention::ReversedZ
+			? 1.0 - CenterZ : CenterZ) - Radius.z;
+
+		// Bound rounding error for both the affine extrema and the eight-corner
+		// calculation. At a classification or float rounding boundary use the latter.
+		const double Magnitude = std::max(1.0, GetBoundsScale(Bounds) * MaxAxisSum + MaxTranslation);
+		const double MaxDimension = std::max(View.ViewportWidth, View.ViewportHeight);
+		if (Magnitude * MaxDimension >= std::numeric_limits<double>::max() * 0.25)
+			return {};
+		const double Error = 32.0 * std::numeric_limits<double>::epsilon() * Magnitude;
+		if (std::abs(NearDistance - PlaneTouchRelativeEpsilon) <= Error)
+			return {};
+		if (NearDistance < PlaneTouchRelativeEpsilon)
+			return FProjectedScreenSizeResult{1.0f, EProjectedScreenSizeStatus::NearPlaneOrCameraCrossing};
+
+		const double MinDimension = std::min(View.ViewportWidth, View.ViewportHeight);
+		const double Size = std::max(Radius.x * View.ViewportWidth, Radius.y * View.ViewportHeight) / MinDimension;
+		const double SizeError = Error * MaxDimension / MinDimension;
+		const float Lower = static_cast<float>(std::clamp(Size - SizeError, 0.0, 1.0));
+		const float Upper = static_cast<float>(std::clamp(Size + SizeError, 0.0, 1.0));
+		if (Lower != Upper) return {};
+		return FProjectedScreenSizeResult{Lower, EProjectedScreenSizeStatus::Valid};
+	}
+
+	auto FBoxScreenSizeProjection::Project(const FBox& WorldBounds) const -> FProjectedScreenSizeResult
 	{
 		if (!IsFiniteBounds(WorldBounds))
 		{
 			return {1.0f, EProjectedScreenSizeStatus::InvalidBounds};
 		}
-		if (View.ViewportWidth == 0 || View.ViewportHeight == 0
-			|| !Math::IsFinite(View.ViewProjectionMatrix)
-			|| !IsSupportedProjection(View.ProjectionMatrix))
+		if (!bValid)
 		{
 			return {1.0f, EProjectedScreenSizeStatus::InvalidView};
+		}
+
+		if (bUnitW)
+		{
+			if (const auto Affine = ProjectOrthographic(WorldBounds)) return *Affine;
 		}
 
 		double MinimumX = std::numeric_limits<double>::max();
@@ -211,6 +259,11 @@ namespace Durin
 		return {
 			static_cast<float>(std::clamp(NormalizedSize, 0.0, 1.0)),
 			EProjectedScreenSizeStatus::Valid};
+	}
+
+	auto ComputeProjectedScreenSize(const FSceneView& View, const FBox& Bounds) -> FProjectedScreenSizeResult
+	{
+		return FBoxScreenSizeProjection(View).Project(Bounds);
 	}
 
 	auto MakeDefaultStaticMeshLODScreenSizes(uint32 NumLODs)

@@ -33,12 +33,13 @@ namespace Durin
 		FrozenView.ViewportHeight = View.ViewportHeight;
 		FrozenView.Settings.Mode = View.Settings.Mode;
 		FrozenView.DepthConvention = View.DepthConvention;
+		const FBoxScreenSizeProjection Projection(FrozenView);
 		FMeshViewPreparationFacts Result;
 		Result.Primitives.resize(Inputs.size());
 		const auto BuildFact = [&](size_t Index) {
 			const auto& Input = Inputs[Index];
 			auto& Fact = Result.Primitives[Index];
-			Fact.Projected = ComputeProjectedScreenSize(FrozenView, Input.WorldBounds);
+			Fact.Projected = Projection.Project(Input.WorldBounds);
 			if (Input.StaticBatches || Input.LODs)
 			{
 				const auto LODs = Input.StaticBatches ? std::span<const FMeshLODSelectionEntry>(Input.StaticBatches->Geometry->LODs)
@@ -798,6 +799,7 @@ namespace Durin
 		check(Resolved.Collected);
 		const auto& Collected = *Resolved.Collected;
 		const auto& View = Collected.View;
+		const FBoxScreenSizeProjection Projection(View);
 		FPreparedStaticMeshView Result;
 		Result.RenderFrame = Collected.RenderFrame;
 		Result.Primitives.reserve(PrimitiveCount);
@@ -825,7 +827,7 @@ namespace Durin
 			else ++Result.VisibleLocalCandidates;
 			++Result.SharedPrimitiveFactBuilds;
 			const auto ProjectionStatus = Primitive.ProjectionStatus ? *Primitive.ProjectionStatus
-				: ComputeProjectedScreenSize(View, Primitive.WorldBounds).Status;
+				: Projection.Project(Primitive.WorldBounds).Status;
 			if (ProjectionStatus != EProjectedScreenSizeStatus::Valid) ++Result.ProjectedSizeFallbacks;
 			for (size_t I = 0; I < Result.SubmissionOutcomes.size(); ++I)
 				Result.SubmissionOutcomes[I] += Primitive.Outcomes[I];

@@ -1196,8 +1196,15 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				}
 			}
 			EXPECT_EQ(CoveredLayers, (1u << GLastTelemetry.DirectionalShadow.ShadowCascadeCount) - 1u);
-			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowWorkerRecordingChunks,
-				std::string_view(Fixture.RecordingPolicy) == "parallel" ? 3u : 0u);
+			const std::string_view Policy = Fixture.RecordingPolicy;
+			if (Policy != "auto")
+			{
+				// Parallel recording may execute inline. Check the cascade passes
+				// here and compare their depth layers and final color below.
+				const auto CascadePasses = std::ranges::count_if(GLastSceneRenderGraphCapture.Passes,
+					[](const auto& Pass) { return Pass.Name.starts_with("Scene.DirectionalShadow.Cascade"); });
+				EXPECT_EQ(CascadePasses, Policy == "immediate" ? 0u : GLastTelemetry.DirectionalShadow.ShadowCascadeCount);
+			}
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSelectedLights, 1u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowValidReceiverViews, 1u);
 			EXPECT_GT(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);

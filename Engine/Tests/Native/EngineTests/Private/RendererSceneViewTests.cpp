@@ -1226,6 +1226,54 @@ namespace Durin
 			EProjectedScreenSizeStatus::NearPlaneOrCameraCrossing);
 	}
 
+	TEST(FRendererSceneViewTests, OrthographicBoxProjectionPreservesCornerSizeAndNearPlane)
+	{
+		FSceneView View;
+		View.ViewportWidth = 1600;
+		View.ViewportHeight = 900;
+		View.ProjectionMatrix = FMatrix(1.0);
+		View.ViewProjectionMatrix = FMatrix(1.0);
+		const auto Check = [&](const FBox& Box) {
+			// Homogeneous scaling is exact in binary; non-unit w exercises the
+			// general eight-corner projection with the same NDC and near plane.
+			FSceneView Reference = View;
+			Reference.ViewProjectionMatrix *= 2.0;
+			const auto Expected = ComputeProjectedScreenSize(Reference, Box);
+			const auto Actual = ComputeProjectedScreenSize(View, Box);
+			EXPECT_EQ(Actual.Status, Expected.Status);
+			EXPECT_EQ(Actual.NormalizedScreenSize, Expected.NormalizedScreenSize);
+		};
+		for (auto Depth : {ESceneDepthConvention::ForwardZ, ESceneDepthConvention::ReversedZ})
+		{
+			View.DepthConvention = Depth;
+			for (double Offset : {-1.0e-12, 0.0, 1.0e-12})
+			{
+				const double Near = PlaneTouchRelativeEpsilon + Offset;
+				const double Z = Depth == ESceneDepthConvention::ForwardZ ? Near : 1.0 - Near;
+				Check(FBox({-1.0, -1.0, Z}, {1.0, 1.0, Z}));
+			}
+		}
+		Check(FBox{});
+		for (float Size : {std::nextafter(0.5f, 0.0f), 0.5f, std::nextafter(0.5f, 1.0f)})
+			Check(FBox({0.0, -Size, 0.5}, {0.0, Size, 0.5}));
+		View.ViewProjectionMatrix[0][0] = -0.25;
+		View.ViewProjectionMatrix[1][0] = 0.75;
+		View.ViewProjectionMatrix[1][2] = 0.125;
+		Check(FBox({-0.25, -0.125, 0.1}, {0.375, 0.25, 0.5}));
+		Check(FBox({0.0, 0.0, 0.5}, {0.0, 0.0, 0.5}));
+		for (int Index = 0; Index < 256; ++Index)
+		{
+			const double S = (Index + 1.0) / 512.0;
+			Check(FBox({-S, -S * 0.5, -0.25}, {S * 0.25, S, 0.75 + S}));
+		}
+		// A projected width much smaller than the translated screen coordinate
+		// can round away in the reference even with finite world bounds.
+		View.ViewProjectionMatrix[3][0] = 1.0e16;
+		Check(FBox({0.0, 0.0, 0.5}, {1.0, 0.0, 0.5}));
+		View.ViewportWidth = 0;
+		Check(FBox({0.0, 0.0, 0.5}, {1.0, 1.0, 0.5}));
+	}
+
 	TEST(FRendererSceneViewTests, LODGoldensFreezeDefaultsEqualityAndAvailabilityFallback)
 	{
 		const std::vector<float> ScreenSizes =

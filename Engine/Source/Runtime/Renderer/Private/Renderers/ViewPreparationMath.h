@@ -51,6 +51,24 @@ namespace Durin
 			EProjectedScreenSizeStatus::InvalidView;
 	};
 
+	// Borrows an immutable view for a batch of world bounds.
+	class FBoxScreenSizeProjection
+	{
+	public:
+		explicit FBoxScreenSizeProjection(const FSceneView& InView);
+		auto Project(const FBox& Bounds) const -> FProjectedScreenSizeResult;
+
+	private:
+		auto ProjectOrthographic(const FBox& Bounds) const -> std::optional<FProjectedScreenSizeResult>;
+
+		const FSceneView& View;
+		FVector3 AbsoluteX{}, AbsoluteY{}, AbsoluteZ{};
+		double MaxAxisSum = 0.0;
+		double MaxTranslation = 0.0;
+		bool bValid = false;
+		bool bUnitW = false;
+	};
+
 	// Extracts Vulkan-depth clip planes from a finite world-to-clip matrix transactionally.
 	RENDERER_API auto TryBuildViewFrustum(
 		const FMatrix& ViewProjectionMatrix,
