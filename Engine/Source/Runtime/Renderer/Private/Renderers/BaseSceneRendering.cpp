@@ -6,7 +6,7 @@
 #include "Renderers/SceneTextureGroupParameters.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/DirectionalShadowRenderer.h"
-#include "Renderers/SkyBackgroundRenderer.h"
+#include "Renderers/SkydomeMeshPass.h"
 #include "Renderers/StaticMeshRenderer.h"
 #include "Resources/DefaultTextureResources.h"
 
@@ -72,7 +72,7 @@ namespace Durin
 		{
 			FDeferredDirectionalLightingRenderer& DeferredDirectionalLightingRenderer;
 			FStaticMeshRenderer& StaticMeshRenderer;
-			FSkyBackgroundRenderer& SkyBackgroundRenderer;
+			FSkydomeMeshPass& SkydomeMeshPass;
 			FSceneRenderTelemetry& Telemetry;
 			FResolvedSceneResources& ResolvedSceneResources;
 			auto RenderBootstrap(FRHICommandListImmediate&, const FSceneGeometryRecordInputs&) -> FSceneColorPassResult;
@@ -213,7 +213,7 @@ namespace Durin
 		bool bBootstrapRendered = true;
 		if (Inputs.Environment)
 		{
-			const bool bSkyRendered = SkyBackgroundRenderer.Draw_RenderThread(CommandList, *Inputs.Environment, true);
+			const bool bSkyRendered = SkydomeMeshPass.Draw_RenderThread(CommandList, *Inputs.Environment, true);
 			bBootstrapRendered = bSkyRendered || !Inputs.bRequireEnvironmentTexture;
 		}
 		if (!bBootstrapRendered)
@@ -270,7 +270,7 @@ namespace Durin
 
 		if (Inputs.Environment)
 		{
-			const bool bSkyRendered = SkyBackgroundRenderer.Draw_RenderThread(CommandList, *Inputs.Environment);
+			const bool bSkyRendered = SkydomeMeshPass.Draw_RenderThread(CommandList, *Inputs.Environment);
 			if (!bSkyRendered && Inputs.bRequireEnvironmentTexture) return false;
 		}
 

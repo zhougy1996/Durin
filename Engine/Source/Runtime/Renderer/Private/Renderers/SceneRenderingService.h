@@ -14,7 +14,7 @@
 #include "Renderers/GBufferDebugRenderer.h"
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
-#include "Renderers/SkyBackgroundRenderer.h"
+#include "Renderers/SkydomeMeshPass.h"
 #include "Renderers/StaticMeshRenderer.h"
 #include "Renderers/VolumetricCloudRenderer.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
@@ -131,7 +131,7 @@ namespace Durin
 		FDeferredDirectionalLightingRenderer DeferredDirectionalLightingRenderer;
 		FGroundTruthAmbientOcclusionRenderer GroundTruthAmbientOcclusionRenderer;
 		FStaticMeshRenderer StaticMeshRenderer;
-		FSkyBackgroundRenderer SkyBackgroundRenderer;
+		FSkydomeMeshPass SkydomeMeshPass;
 		FPostProcessRenderer PostProcessRenderer;
 		FContactShadowVisibilityRenderer ContactShadowRenderer;
 		FVolumetricCloudRenderer VolumetricCloudRenderer;

@@ -4,7 +4,7 @@ Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, p
 
 Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, LevelEditor
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-25
 
 Asset thumbnails are optional editor-derived data. They never replace authored
 packages or source files, and deleting the thumbnail cache cannot lose project
@@ -297,7 +297,7 @@ snapshot as a counted RHI environment value. Texture2D supplies an image rendere
 without creating or binding any preview world. The shared capture implementation
 contains no concrete asset casts, readiness rules, framing rules, or feature diagnostics.
 
-TextureCube previews pass their retained cube to the fullscreen DefaultCubeSky
+TextureCube previews pass their retained cube to the skydome DefaultCubeSky
 material. Stage 0 and material-backed captures agree byte for byte, so the cube
 thumbnail cache version is unchanged. The water preview regression captures
 DefaultWater on the ordinary sphere over an opaque studio clear and compares

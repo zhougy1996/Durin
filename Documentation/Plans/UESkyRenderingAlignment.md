@@ -8,16 +8,27 @@ Completed:
 
 ## Current Status
 
-Stage 0 selected a fullscreen material draw in the existing scene-color passes.
-Stage 3 replaces the legacy visible shader. The inward-facing Unlit sphere prototype
-produces the expected HDR emissive color from inside the sphere, but requires a
-mesh proxy, finite geometry and ordinary mesh depth. The background draw will
-take its sky role from the selected provider, reconstruct each view's direction
-using the double-precision camera-relative inverse transform and keep the
-existing far-depth convention (0 reversed, 1 forward). Keep the hybrid bootstrap
-depth-equal test with depth writes off, the forward background order, and the
-current position upstream of water and cloud composition. Each submitted view,
-including previews and auxiliary views, supplies its own projection and override.
+Stage 4 replaces the Stage 0 fullscreen geometry with one camera-centered
+skydome for all visible sky materials. Each view supplies its own projection
+and override. The indexed sphere provides spherical UV0 and interpolated sky
+direction. Forward and hybrid render the same dome at far depth before water
+and clouds. Sky Light continues to capture the analytic provider independently.
+
+On Win64 Debug Vulkan (GTX 1060, working tree based on `ee86e27fa`), the
+authored UV probe distinguished opposite longitudes at equal latitude. All
+six cube and HDR face probes passed. Against Stage 3 run 4608, the largest
+full-image channel differences were 16/255 for the LDR cube, 1/255 for the HDR
+cube display and 1/255 for the procedural sun. The procedural horizon, empty
+view and half-float capture matched exactly. The dome draw measured 6.784
+microseconds median and 9.120 p95 at 17 x 17 over 32 paired draws. Readbacks
+and raw samples are under `Build/UESkyRenderingAlignment/Skydome/26948/SkyParity`.
+
+The same revision passed the Win64 SkyBox component and Vulkan suites,
+water composition, material compiler, source-free shader Cook, Vulkan thumbnail
+and volumetric cloud scene tests (166 cases in total). The
+Debug Sandbox export included both default sky materials and passed packaged
+startup verification under `Build/UESkyRenderingAlignment/Skydome/SandboxExport`.
+Metal GPU qualification remains open.
 
 Stage 1 has an authored `/Engine/Materials/DefaultCubeSky` asset. Its Unlit
 emissive graph samples in the world-position-minus-camera-position direction
@@ -204,3 +215,10 @@ LUTs, aerial perspective and UE-style general scene capture are outside this pla
   Metal configurations. Follow the [build](../Agents/BuildAndRun.md) and
   [test](../Agents/Testing.md) workflows. Record tested revisions, configurations,
   image comparisons, GPU cost and any outstanding coverage in Current Status.
+
+### Stage 4: Unify visible skies on a skydome mesh
+
+- [x] Route cubemap, procedural and override materials through one indexed
+  camera-centered sphere with spherical UV0 and per-view far depth. Retire
+  the fullscreen vertex shader and its screen-space material coordinates.
+- [x] Validate material UVs, HDR, depth and water composition on Win64 Vulkan.

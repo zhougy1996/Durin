@@ -4,7 +4,7 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureCompressor, Renderer, RHI
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-11-25
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
@@ -403,16 +403,15 @@ source pixel.
 
 ## Sky Rendering
 
-- The renderer uses a dedicated fullscreen triangle generated from
-  Vulkan `VertexIndex`; its pipeline has an empty vertex declaration and binds
-  no vertex buffer.
+- Cubemap, procedural and component override materials share an indexed unit
+  sphere. Its UV0 wraps around the Z axis and runs north to south. The camera
+  sits at its center and the vertex stage projects it to the view's far depth.
 - The forward background draws before opaque meshes. The hybrid scene-color
   bootstrap tests for equal far depth with writes disabled. Both draw the
   material emissive output before water snapshots and cloud composition.
-- The fragment shader transforms a far clip-space position through inverse
-  view-projection, subtracts the camera world position, and normalizes the
-  result. It then applies the inverse normalized component rotation before cube
-  sampling. Component translation and scale never enter this transform.
+- The CPU builds the camera-relative projection in double precision with the
+  component rotation. Materials sample the normalized interpolated direction.
+  Component translation and scale have no effect on the sky.
 - The draw uses the view's fitted viewport and scissor, preserving black
   letterbox regions. The same path is independent of Lit/Unlit and
   Solid/Wireframe mesh settings.
@@ -438,7 +437,7 @@ in [Texture Cube Workflow](../../../Editor/Guides/TextureCubeWorkflow.md).
 - `Engine/Source/Runtime/Engine/Public/Rendering/SceneInterface.h`
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
 - `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.cpp`
-- `Engine/Shaders/Slang/SkyBackground.slang`
+- `Engine/Shaders/Slang/Skydome.slang`
 - `Engine/Shaders/Slang/Material/SurfacePasses.slang`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureCubeImportDialog.cpp`
 

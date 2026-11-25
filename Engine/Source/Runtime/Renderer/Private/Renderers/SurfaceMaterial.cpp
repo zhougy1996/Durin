@@ -14,7 +14,7 @@
 namespace Durin::RendererPrivate
 {
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceFragmentShader);
-	DURIN_IMPLEMENT_MATERIAL_SHADER(FSkyBackgroundMaterialShader);
+	DURIN_IMPLEMENT_MATERIAL_SHADER(FSkydomeMaterialShader);
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSingleLayerWaterFragmentShader);
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSingleLayerWaterDepthFragmentShader);
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader);

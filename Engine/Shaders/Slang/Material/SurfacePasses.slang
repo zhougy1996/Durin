@@ -20,25 +20,21 @@ import ProceduralSky;
 
 struct MaterialSkyUniform
 {
-    float4x4 ClipToSkyDirection;
-    float4 TintIntensity;
     FProceduralSkyUniform ProceduralSky;
-    float4 DepthParams;
 };
 #define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage) Type Name;
 #include "SkyParameters.inl"
 #undef DURIN_MATERIAL_PARAMETER
 
 [shader("fragment")]
-float4 SkyBackgroundMain(float4 position : SV_Position, float2 clipPosition : TEXCOORD0, out float depth : SV_Depth) : SV_Target0
+float4 SkydomeMain(float4 position : SV_Position, float3 localDirection : TEXCOORD0, float2 uv : TEXCOORD1) : SV_Target0
 {
-    depth = MaterialSky.DepthParams.x;
-    float3 direction = normalize(mul(MaterialSky.ClipToSkyDirection, float4(clipPosition, 1, 1)).xyz);
+    float3 direction = normalize(localDirection);
     VSOutput input = (VSOutput)0;
     input.pos = position;
     input.worldPosition = direction;
     input.worldNormal = direction;
-    input.uv0 = clipPosition * 0.5 + 0.5;
+    input.uv0 = uv;
     input.color = float4(1);
 #if DURIN_MATERIAL_PROCEDURAL_SKY
     float3 radiance = MaterialSky.ProceduralSky.ToSunEnabled.w > 0.5

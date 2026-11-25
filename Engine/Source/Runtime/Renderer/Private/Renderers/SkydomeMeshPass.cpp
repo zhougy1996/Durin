@@ -1,4 +1,4 @@
-#include "Renderers/SkyBackgroundRenderer.h"
+#include "Renderers/SkydomeMeshPass.h"
 
 #include "RenderPipelineCreation.h"
 #include "Resources/DefaultTextureResources.h"
@@ -21,24 +21,30 @@ namespace Durin
 {
 	namespace
 	{
-		class FSkyBackgroundVertexShader : public FGlobalShader
+		class FSkydomeVertexShader : public FGlobalShader
 		{
 		public:
 			DURIN_DECLARE_GLOBAL_SHADER(
-				FSkyBackgroundVertexShader,
+				FSkydomeVertexShader,
 				FGlobalShader,
-				"/Engine/SkyBackground",
+				"/Engine/Skydome",
 				EShaderFrequency::Vertex,
 				"VertexMain"
 			);
 		};
 
-		DURIN_IMPLEMENT_GLOBAL_SHADER(FSkyBackgroundVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FSkydomeVertexShader);
 		const FGlobalShaderSetRegistration GSkyBackgroundShaderSet(
-			"Renderer", "SkyBackground.Default",
+			"Renderer", "Skydome.Default",
 			EShaderRequestEligibility::GameAndEditor,
-			{&FSkyBackgroundVertexShader::StaticType()});
+			{&FSkydomeVertexShader::StaticType()});
 	} // namespace
+
+	struct FSkydomeVertex
+	{
+		FVector3f Direction;
+		FVector2f UV;
+	};
 
 	struct FSkyMaterialPipeline
 	{
@@ -52,19 +58,21 @@ namespace Durin
 	struct FPreparedSkyMaterial
 	{
 		std::shared_ptr<const FSkyMaterialPipeline> Pipeline;
+		std::array<FVector4f, 3> Projection;
 		std::vector<FRHIShaderParameterResource> Bindings;
 		std::vector<TRefCountPtr<FRHIResource>> Resources;
 	};
 
-	struct FSkyBackgroundRenderer::FState
+	struct FSkydomeMeshPass::FState
 	{
-		TShaderMapRef<FSkyBackgroundVertexShader> VertexShader;
+		TShaderMapRef<FSkydomeVertexShader> VertexShader;
 		FVertexDeclarationRHIRef VertexDeclaration;
-		FBufferRHIRef IndexBuffer;
+		FBufferRHIRef VertexBuffer, IndexBuffer;
+		uint32 IndexCount = 0;
 		std::vector<std::shared_ptr<const FSkyMaterialPipeline>> Programs;
 	};
 
-	FSkyBackgroundRenderer::FSkyBackgroundRenderer(
+	FSkydomeMeshPass::FSkydomeMeshPass(
 		FDefaultTextureResources& InDefaultTextures, RendererPrivate::FSurfaceMaterialResources& InMaterials
 	)
 		: DefaultTextures(InDefaultTextures)
@@ -73,35 +81,58 @@ namespace Durin
 	{
 	}
 
-	FSkyBackgroundRenderer::~FSkyBackgroundRenderer() = default;
+	FSkydomeMeshPass::~FSkydomeMeshPass() = default;
 
-	auto FSkyBackgroundRenderer::EnsureResources_RenderThread() -> bool
+	auto FSkydomeMeshPass::EnsureResources_RenderThread() -> bool
 	{
-		State->VertexShader = GetGlobalShaderMap().GetShader<FSkyBackgroundVertexShader>();
+		State->VertexShader = GetGlobalShaderMap().GetShader<FSkydomeVertexShader>();
 		if (!State->VertexShader.GetRHIShader(false)) return false;
 		if (!State->VertexDeclaration)
-			State->VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration({});
-
-		if (!State->IndexBuffer)
 		{
-			const std::array<uint32, 3> FullscreenIndices = {0, 1, 2};
-			FRHIBufferCreateDesc IndexBufferDesc =
-				FRHIBufferCreateDesc::CreateIndex(
-					"SkyBackgroundFullscreenIndexBuffer",
-					sizeof(FullscreenIndices),
-					sizeof(uint32)
-				);
-			IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
-			IndexBufferDesc.InitialData = {
-				FullscreenIndices.data(),
-				sizeof(FullscreenIndices)
-			};
-			State->IndexBuffer = RHICreateBuffer(IndexBufferDesc);
+			FVertexDeclarationElementList Elements{};
+			Elements[0] = {0, offsetof(FSkydomeVertex, Direction), EVertexElementType::Float3, 0, sizeof(FSkydomeVertex)};
+			Elements[1] = {0, offsetof(FSkydomeVertex, UV), EVertexElementType::Float2, 1, sizeof(FSkydomeVertex)};
+			State->VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
 		}
-		return State->VertexDeclaration && State->IndexBuffer;
+
+		if (!State->VertexBuffer || !State->IndexBuffer)
+		{
+			constexpr uint32 Slices = 32, Rings = 16;
+			constexpr double Pi = 3.14159265358979323846;
+			std::array<FSkydomeVertex, (Slices + 1) * (Rings + 1)> Vertices;
+			std::vector<uint32> Indices;
+			for (uint32 Ring = 0; Ring <= Rings; ++Ring)
+			{
+				const double V = static_cast<double>(Ring) / Rings;
+				const double Radius = Ring == 0 || Ring == Rings ? 0.0 : std::sin(Pi * V);
+				for (uint32 Slice = 0; Slice <= Slices; ++Slice)
+				{
+					const double U = static_cast<double>(Slice) / Slices;
+					const double Angle = Slice == Slices ? 0.0 : 2.0 * Pi * U;
+					const uint32 A = Ring * (Slices + 1) + Slice;
+					Vertices[A] = {FVector3f(Radius * std::cos(Angle), Radius * std::sin(Angle), std::cos(Pi * V)),
+						FVector2f(U, V)};
+					if (Ring == Rings || Slice == Slices) continue;
+					const uint32 B = A + Slices + 1;
+					if (Ring != 0) Indices.insert(Indices.end(), {A, B, A + 1});
+					if (Ring + 1 != Rings) Indices.insert(Indices.end(), {A + 1, B, B + 1});
+				}
+			}
+			auto VertexDesc = FRHIBufferCreateDesc::CreateVertex("SkydomeVertices", sizeof(Vertices));
+			VertexDesc.Usage |= EBufferUsageFlags::Static;
+			VertexDesc.InitialData = {Vertices.data(), sizeof(Vertices)};
+			State->VertexBuffer = RHICreateBuffer(VertexDesc);
+			State->IndexCount = static_cast<uint32>(Indices.size());
+			const uint32 IndexBytes = State->IndexCount * sizeof(uint32);
+			auto IndexDesc = FRHIBufferCreateDesc::CreateIndex("SkydomeIndices", IndexBytes, sizeof(uint32));
+			IndexDesc.Usage |= EBufferUsageFlags::Static;
+			IndexDesc.InitialData = {Indices.data(), IndexBytes};
+			State->IndexBuffer = RHICreateBuffer(IndexDesc);
+		}
+		return State->VertexDeclaration && State->VertexBuffer && State->IndexBuffer;
 	}
 
-	auto FSkyBackgroundRenderer::PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
+	auto FSkydomeMeshPass::PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
 		FScene* Scene, FPreparedEnvironment& Environment) -> bool
 	{
 		using namespace RendererPrivate;
@@ -125,7 +156,7 @@ namespace Durin
 		{
 			const auto& Map = Program->GetShaderMap();
 			const auto Entry = std::ranges::find_if(Map.Entries, [](const auto& E) {
-				return E.Shader.ShaderType == "FSkyBackgroundMaterialShader";
+				return E.Shader.ShaderType == "FSkydomeMaterialShader";
 			});
 			if (Entry == Map.Entries.end()) return false;
 			const auto& Code = Map.CompiledShaders.at(Entry - Map.Entries.begin());
@@ -152,6 +183,7 @@ namespace Durin
 			Forward.BoundShaders.FragmentShader = Pipeline->Fragment;
 			Forward.VertexDeclaration = Pipeline->Declaration;
 			Forward.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+			Layout.PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, sizeof(FPreparedSkyMaterial::Projection)});
 			Forward.PipelineLayout = Layout;
 			Pipeline->Hybrid = Forward;
 			Pipeline->Hybrid.RenderTargetLayout = RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
@@ -203,8 +235,9 @@ namespace Durin
 		}
 		SkyBoxRendering::FSkyBoxUniform Uniform;
 		if (!SkyBoxRendering::BuildUniform(View, Sky, Uniform)) return false;
+		Draw->Projection = Uniform.DomeProjection;
 		const auto MaterialBuffer = Payload.empty() ? FRHIUniformBufferRange{} : Commands.CreateUniformBufferRange(Payload.data(),Payload.size());
-		const auto SkyBuffer = Commands.CreateUniformBufferRange(&Uniform,sizeof(Uniform));
+		const auto SkyBuffer = Commands.CreateUniformBufferRange(&Uniform.ProceduralSky, sizeof(Uniform.ProceduralSky));
 		const auto ViewBuffer = PrepareMeshViewUniform(Commands, View, false);
 		std::vector<FRHIUniformBufferRange> Collections;
 		for (const auto& Required : Program->ActiveCollections)
@@ -223,19 +256,21 @@ namespace Durin
 		return true;
 	}
 
-	auto FSkyBackgroundRenderer::Draw_RenderThread(FRHICommandListImmediate& CommandList,
+	auto FSkydomeMeshPass::Draw_RenderThread(FRHICommandListImmediate& CommandList,
 		const FPreparedEnvironment& Environment, bool bHybridBootstrap) -> bool
 	{
 		const auto& Draw = Environment.Draw;
 		if (!Draw) return false;
 		SetGraphicsPipelineState(CommandList, bHybridBootstrap ? Draw->Pipeline->Hybrid : Draw->Pipeline->Forward);
 		CommandList.SetShaderParameters(Draw->Pipeline->Fragment, Draw->Bindings);
+		CommandList.BindVertexBuffer(0, State->VertexBuffer, 0);
+		CommandList.PushConstants(EShaderStageFlags::Vertex, 0, sizeof(Draw->Projection), Draw->Projection.data());
 		CommandList.BindIndexBuffer(State->IndexBuffer, 0);
-		CommandList.DrawIndexed(3, 0, 0);
+		CommandList.DrawIndexed(State->IndexCount, 0, 0);
 		return true;
 	}
 
-	auto FSkyBackgroundRenderer::ReleaseResources_RenderThread() -> void
+	auto FSkydomeMeshPass::ReleaseResources_RenderThread() -> void
 	{
 		*State = {};
 	}

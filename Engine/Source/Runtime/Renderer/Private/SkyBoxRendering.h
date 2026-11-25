@@ -11,13 +11,10 @@ namespace Durin::SkyBoxRendering
 {
 	struct FSkyBoxUniform
 	{
-		// Maps clip positions directly to translation-free sky directions. Building
-		// this in double precision avoids subtracting two large, nearby world
-		// positions in the fragment shader when the near clip is very small.
-		FMatrix4f ClipToSkyDirection{1.0f};
+		// Homogeneous clip X, Y and W rows. The last row also carries far depth.
+		std::array<FVector4f, 3> DomeProjection{};
 		FVector4f TintIntensity{1.0f};
 		FProceduralSkyUniform ProceduralSky;
-		FVector4f DepthParams{};
 	};
 
 	// Builds the shader snapshot without retaining scene objects or camera

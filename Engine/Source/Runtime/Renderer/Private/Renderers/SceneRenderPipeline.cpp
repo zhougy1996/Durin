@@ -249,7 +249,7 @@ namespace Durin
 	{
 		auto* Scene = Context.Logical.Scene;
 		const auto& Options = Context.Logical.Options;
-		auto& SkyBackgroundRenderer = Service.SkyBackgroundRenderer;
+		auto& SkydomeMeshPass = Service.SkydomeMeshPass;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.EnsureViewResources");
 			// Generate before Scene Color. World-driven scenes already admitted work
@@ -264,8 +264,8 @@ namespace Durin
 			// Sky resources include a static index upload, so initialize them before
 			// entering the Scene Color render pass.
 			auto& Environment = Context.Logical.PreparedView->Environment;
-			const bool bSkyBoxResourcesReady = !Environment || (SkyBackgroundRenderer.EnsureResources_RenderThread()
-				&& SkyBackgroundRenderer.PrepareMaterial_RenderThread(CommandList, Context.Logical.PreparedView->View, Scene, *Environment));
+			const bool bSkyBoxResourcesReady = !Environment || (SkydomeMeshPass.EnsureResources_RenderThread()
+				&& SkydomeMeshPass.PrepareMaterial_RenderThread(CommandList, Context.Logical.PreparedView->View, Scene, *Environment));
 			if (!bSkyBoxResourcesReady)
 			{
 				return ERenderViewResult::RendererResourcesUnavailable;

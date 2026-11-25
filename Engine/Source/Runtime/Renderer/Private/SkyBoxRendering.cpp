@@ -8,17 +8,6 @@ namespace Durin::SkyBoxRendering
 	{
 		constexpr double MatrixInverseEpsilon = 1.e-8;
 
-		auto IsFinite(const FMatrix4f& Matrix) -> bool
-		{
-			for (uint32 ColumnIndex = 0; ColumnIndex < 4; ++ColumnIndex)
-			{
-				const auto& Column = Matrix[ColumnIndex];
-				if (!std::isfinite(Column.x) || !std::isfinite(Column.y)
-					|| !std::isfinite(Column.z) || !std::isfinite(Column.w)) return false;
-			}
-			return true;
-		}
-
 	}
 
 	auto BuildUniform(const FSceneView& View, const FSkyBoxSceneData& SkyBox, FSkyBoxUniform& OutUniform) -> bool
@@ -31,12 +20,24 @@ namespace Durin::SkyBoxRendering
 		const FMatrix WorldToSky = Math::RotationMatrix(Math::Inverse(NormalizedRotation));
 		const FMatrix RemoveViewTranslation = Math::TranslationMatrix(-View.ViewLocation);
 		const FMatrix ClipToSkyDirection = WorldToSky * RemoveViewTranslation * ClipToWorld;
-		OutUniform.ClipToSkyDirection =
-			Math::TransposeToFloat(ClipToSkyDirection);
-		if (!IsFinite(OutUniform.ClipToSkyDirection)) return false;
-
 		OutUniform.ProceduralSky = SkyBox.ProceduralSky;
-		OutUniform.DepthParams.x = View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f;
+		const float FarDepth = View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f;
+		// At the sampled clip depth a ray is B * (ndc.x, ndc.y, 1).
+		// Its inverse projects a dome vertex, including off-axis and orthographic views.
+		glm::dmat3 Basis{FVector3(ClipToSkyDirection[0]), FVector3(ClipToSkyDirection[1]),
+			FVector3(ClipToSkyDirection[2] + ClipToSkyDirection[3])};
+		const FVector3 Normal = glm::normalize(glm::cross(Basis[0], Basis[1]));
+		const double MinimumDepth = 1.e-6 * std::max(glm::length(Basis[0]), glm::length(Basis[1]));
+		const double AxialDepth = glm::dot(Basis[2], Normal);
+		if (std::abs(AxialDepth) < MinimumDepth)
+			Basis[2] += Normal * (std::copysign(MinimumDepth, AxialDepth) - AxialDepth);
+		const auto Rows = glm::transpose(glm::inverse(Basis));
+		for (int Axis = 0; Axis < 3; ++Axis)
+		{
+			const FVector3f Row(Rows[Axis]);
+			if (!std::isfinite(Row.x) || !std::isfinite(Row.y) || !std::isfinite(Row.z)) return false;
+			OutUniform.DomeProjection[Axis] = FVector4f(Row, Axis == 2 ? FarDepth : 0.0f);
+		}
 		OutUniform.TintIntensity = FVector4f(SkyBox.Tint, std::max(0.0f, SkyBox.Intensity));
 		return std::isfinite(OutUniform.TintIntensity.x)
 			&& std::isfinite(OutUniform.TintIntensity.y) && std::isfinite(OutUniform.TintIntensity.z)

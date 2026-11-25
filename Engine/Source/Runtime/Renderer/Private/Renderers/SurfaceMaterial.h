@@ -105,7 +105,7 @@ namespace Durin
 				"FragmentMain");
 		};
 
-		class FSkyBackgroundMaterialShader final : public FCompiledSurfaceMaterialShader
+		class FSkydomeMaterialShader final : public FCompiledSurfaceMaterialShader
 		{
 		public:
 			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
@@ -113,15 +113,15 @@ namespace Durin
 			static auto ShouldCompileMaterialPermutation(const FMaterialShaderPermutationParameters& P) -> bool
 			{ return P.Properties.ShadingModel == EMaterialShadingModel::Unlit; }
 
-			DURIN_BEGIN_SHADER_PARAMETERS(FSkyBackgroundMaterialShader)
+			DURIN_BEGIN_SHADER_PARAMETERS(FSkydomeMaterialShader)
 				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
 #include "Material/ViewParameters.inl"
 #include "Material/PrimitiveParameters.inl"
 #include "Material/SkyParameters.inl"
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_MATERIAL_SHADER(FSkyBackgroundMaterialShader, FCompiledSurfaceMaterialShader,
-				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "SkyBackgroundMain");
+			DURIN_DECLARE_MATERIAL_SHADER(FSkydomeMaterialShader, FCompiledSurfaceMaterialShader,
+				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "SkydomeMain");
 		};
 
 		class FSingleLayerWaterFragmentShader final : public FCompiledSurfaceMaterialShader

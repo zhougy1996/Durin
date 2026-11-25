@@ -15,7 +15,7 @@ namespace Durin
 	class FDefaultTextureResources;
 	class FDeferredDirectionalLightingRenderer;
 	class FDirectionalShadowRenderer;
-	class FSkyBackgroundRenderer;
+	class FSkydomeMeshPass;
 	class FStaticMeshRenderer;
 	struct FPreparedEnvironment;
 	struct FPreparedReceiverGeometry;
@@ -85,7 +85,7 @@ namespace Durin
 		FDirectionalShadowRenderer& DirectionalShadowRenderer;
 		FDeferredDirectionalLightingRenderer& DeferredRenderer;
 		FStaticMeshRenderer& StaticMeshes;
-		FSkyBackgroundRenderer& SkyBox;
+		FSkydomeMeshPass& SkyBox;
 		FResolvedSceneResources& Resolved;
 		FSceneRenderTelemetry& Telemetry;
 		std::optional<FRDGTextureHandle> DefaultWhite;

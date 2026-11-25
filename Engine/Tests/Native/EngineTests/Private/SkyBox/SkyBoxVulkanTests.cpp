@@ -20,6 +20,8 @@
 #include "Asset/Load.h"
 #include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialExpressionTextureCoordinates.h"
+#include "Materials/MaterialExpressionVector.h"
 #include "Client/SceneViewport.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Misc/FileHelper.h"
@@ -693,6 +695,34 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, Token);
 			ASSERT_TRUE(BackgroundDrawn);
 			ExpectRgbNear(Background, 17, 8, 8, HdrSourceColors[0], 12);
+			auto* UVMaterial = NewObject<DMaterial>(nullptr, "SkydomeUVProbe");
+			auto* UV = NewObject<DMaterialExpressionTextureCoordinates>(UVMaterial, "DomeUV");
+			auto* RGB = NewObject<DMaterialExpressionAppendVector>(UVMaterial, "UVColor");
+			UV->Id = FGuid::NewGuid();
+			UV->Channel.SetConstant({0.f});
+			RGB->Id = FGuid::NewGuid();
+			RGB->ResultType = EMaterialProgramValueType::Float3;
+			RGB->A = {UV};
+			RGB->B.SetConstant({0.f});
+			FMaterialRootInputs UVOutputs;
+			UVOutputs.Get(EMaterialProperty::MP_EmissiveColor) = {RGB};
+			const std::array<DMaterialExpression*, 2> UVExpressions{UV, RGB};
+			ASSERT_TRUE(UVMaterial->SetMaterialExpressions(UVExpressions, UVOutputs));
+			ASSERT_TRUE(UVMaterial->SetStaticProperties({.ShadingModel = EMaterialShadingModel::Unlit}));
+			FAssetCompilingManager::Get().FinishCompilationForObject(*UVMaterial);
+			ASSERT_TRUE(UVMaterial->GetMaterialCompileStatus().IsCurrent());
+			CustomSky.MaterialOverride = UVMaterial->GetRenderProxy();
+			const auto UVToken = PublishSkyBox(Scene, CustomSky);
+			ASSERT_TRUE(UVToken);
+			FByteBuffer East, West;
+			const bool DrewUV = Render(MakePrincipalAxisView(Directions[2], {}, 17, 17), East)
+				&& Render(MakePrincipalAxisView(Directions[3], {}, 17, 17), West);
+			FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, UVToken);
+			ASSERT_TRUE(DrewUV);
+			// The equator has v=0.5 in both views, with u=0.25 and 0.75.
+			EXPECT_GT(int(West[Center]), int(East[Center]) + 20);
+			EXPECT_NEAR(int(East[Center + 1]), int(West[Center + 1]), 2);
+			EXPECT_GT(int(East[Center + 1]), 50);
 			ASSERT_TRUE(FSoftObjectPath::TryCreate("/Engine/Materials/DefaultProceduralSky.DefaultProceduralSky", MaterialPath));
 			auto* ProceduralMaterial = LoadObject<DMaterial>(MaterialPath);
 			ASSERT_NE(ProceduralMaterial, nullptr);
