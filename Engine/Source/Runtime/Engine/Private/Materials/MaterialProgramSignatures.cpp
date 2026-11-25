@@ -90,6 +90,7 @@ namespace Durin
 			break;
 		case EMaterialProgramOpcode::WorldPosition:
 		case EMaterialProgramOpcode::CameraPosition:
+		case EMaterialProgramOpcode::ProceduralSkyRadiance:
 		case EMaterialProgramOpcode::CameraVector:
 		case EMaterialProgramOpcode::ObjectPosition:
 		case EMaterialProgramOpcode::VertexNormal:
@@ -365,6 +366,7 @@ namespace Durin
 		case OpcodeType::VertexNormal:
 			Result.Kind = Kind::Normal; Result.Space = Space::World;
 			return WithStages(Result, Inputs, Stage::Vertex);
+		case OpcodeType::ProceduralSkyRadiance:
 		case OpcodeType::SceneTexture:
 		case OpcodeType::SceneDepth:
 			return WithStages(Result, Inputs, Stage::Pixel);

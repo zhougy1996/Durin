@@ -410,6 +410,7 @@ namespace Durin
 	}
 	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionCameraPosition, CameraPosition, Float3)
 	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionCameraVector, CameraVector, Float3)
+	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionProceduralSkyRadiance, ProceduralSkyRadiance, Float3)
 	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionObjectPosition, ObjectPosition, Float3)
 	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionVertexNormal, VertexNormal, Float3)
 	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionScreenPosition, ScreenPosition, Float2)

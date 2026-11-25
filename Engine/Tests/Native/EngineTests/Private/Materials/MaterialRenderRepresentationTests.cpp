@@ -312,6 +312,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	const auto CookRoots = Durin::GetEngineBuiltInCookRoots();
 	EXPECT_NE(std::ranges::find(CookRoots, Durin::DefaultMaterialPackagePath), CookRoots.end());
 	EXPECT_NE(std::ranges::find(CookRoots, "/Engine/Materials/DefaultCubeSky"), CookRoots.end());
+	EXPECT_NE(std::ranges::find(CookRoots, "/Engine/Materials/DefaultProceduralSky"), CookRoots.end());
 
 	Durin::ShutdownDefaultMaterialService();
 	EXPECT_FALSE(Durin::IsDefaultMaterialServiceAvailable());

@@ -34,6 +34,12 @@ clear and occlusion probes, including an authored material instance with its own
 texture and intensity. All 16 SkyBox feature tests passed, including level
 reload and transaction replay. Cooked runtime rendering remains open.
 
+Stage 2 now loads the authored `/Engine/Materials/DefaultProceduralSky` asset
+and evaluates the selected component snapshot in its emissive graph. The Win64
+Debug Vulkan integration passed after loading the saved package. Procedural sun
+and horizon samples matched the Stage 0 images exactly. Captured Sky retains its
+independent analytic capture and excludes the visible sun disc.
+
 **Consumer inventory.** LevelEditor placement creates or transactionally
 replaces a visible SkyBox and rejects ambiguous placement. The scene accepts
 one cubemap proxy. A hidden actor publishes none. View preparation first
@@ -128,14 +134,14 @@ LUTs, aerial perspective and UE-style general scene capture are outside this pla
 
 ### Stage 2: Render Procedural Sky through the material path
 
-- [ ] Keep `DProceduralSkyComponent` as the provider for the analytic parameters
+- [x] Keep `DProceduralSkyComponent` as the provider for the analytic parameters
   and publish them through the existing retained scene snapshot. Bind that
   selected snapshot and the sky direction to the default Unlit sky material.
   Expose the shared `EvaluateProceduralSky` calculation through a sky-specific
   material expression or intrinsic with defined behavior when the provider is
   absent. Use the same [radiance evaluator](../../Engine/Shaders/Slang/ProceduralSky.slang)
   in the visible draw and the [Sky Light capture](../Runtime/Rendering/Features/SkyLighting.md).
-- [ ] Keep `Captured Sky` scoped to the analytic provider and `Specified Cube`
+- [x] Keep `Captured Sky` scoped to the analytic provider and `Specified Cube`
   scoped to its explicit asset. Preserve the existing capture scheduling and
   publication lifetimes. Define whether any authored visual customization also
   affects capture before exposing it. Verify capture and visible output against

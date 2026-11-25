@@ -149,6 +149,7 @@ namespace Durin::Testing
 			case EMaterialProgramOpcode::Time: Expression = NewObject<DMaterialExpressionTime>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::CameraPosition: Expression = NewObject<DMaterialExpressionCameraPosition>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::CameraVector: Expression = NewObject<DMaterialExpressionCameraVector>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::ProceduralSkyRadiance: Expression = NewObject<DMaterialExpressionProceduralSkyRadiance>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::ObjectPosition: Expression = NewObject<DMaterialExpressionObjectPosition>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::VertexNormal: Expression = NewObject<DMaterialExpressionVertexNormal>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::ScreenPosition: Expression = NewObject<DMaterialExpressionScreenPosition>(nullptr, NAME_None); break;

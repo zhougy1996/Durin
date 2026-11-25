@@ -40,7 +40,13 @@ float4 SkyBackgroundMain(float4 position : SV_Position, float2 clipPosition : TE
     input.worldNormal = direction;
     input.uv0 = clipPosition * 0.5 + 0.5;
     input.color = float4(1);
+#if DURIN_MATERIAL_PROCEDURAL_SKY
+    float3 radiance = MaterialSky.ProceduralSky.ToSunEnabled.w > 0.5
+        ? EvaluateProceduralSky(MaterialSky.ProceduralSky, direction) : float3(0);
+    return float4(EvaluateGeneratedMaterial(input, radiance).emissive, 1);
+#else
     return float4(EvaluateGeneratedMaterial(input).emissive, 1);
+#endif
 }
 #endif
 

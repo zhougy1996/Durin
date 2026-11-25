@@ -1319,6 +1319,7 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 		FEntry{DMaterialExpressionTime::StaticClass(), EMaterialProgramOpcode::Time, EMaterialProgramValueType::Float},
 		FEntry{DMaterialExpressionCameraPosition::StaticClass(), EMaterialProgramOpcode::CameraPosition, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionCameraVector::StaticClass(), EMaterialProgramOpcode::CameraVector, EMaterialProgramValueType::Float3},
+		FEntry{DMaterialExpressionProceduralSkyRadiance::StaticClass(), EMaterialProgramOpcode::ProceduralSkyRadiance, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionObjectPosition::StaticClass(), EMaterialProgramOpcode::ObjectPosition, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionVertexNormal::StaticClass(), EMaterialProgramOpcode::VertexNormal, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionScreenPosition::StaticClass(), EMaterialProgramOpcode::ScreenPosition, EMaterialProgramValueType::Float2},

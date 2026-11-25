@@ -331,6 +331,10 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				});
 			});
 			const bool EmitCustom = !bVertex && !CustomOutputs.empty();
+			const bool EmitSky = !bVertex && !EmitCustom && std::ranges::any_of(IR.Nodes, [](const auto& Node) {
+				return Node.Opcode == EMaterialProgramOpcode::ProceduralSkyRadiance;
+			});
+			if (EmitSky) OutSource += "#define DURIN_MATERIAL_PROCEDURAL_SKY 1\n";
 			if (EmitCustom)
 			{
 				for (const auto& Family : CustomOutputs)
@@ -347,6 +351,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			}
 			OutSource += bVertex
 				? "VSOutput EvaluateGeneratedVertex(VSOutput input, MaterialPrimitiveUniform MaterialPrimitive, out float3 offset)\n{\n"
+				: EmitSky ? "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input, float3 proceduralSkyRadiance = float3(0))\n{\n"
 				: !EmitCustom ? "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)\n{\n"
 				: "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input, out FMaterialCustomOutputs customOutputs)\n{\n";
             if (!bVertex && PixelNeedsPrimitiveData) OutSource += "    MaterialPrimitiveUniform MaterialPrimitive = TranslateMaterialPrimitive(GetMaterialPrimitiveData(input.sceneInstanceId), MaterialView);\n";
@@ -405,6 +410,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				}
 				case EMaterialProgramOpcode::Time: Expression = "MaterialView.Parameters.x"; break;
 				case EMaterialProgramOpcode::CameraPosition: Expression = "MaterialView.CameraWorldPosition.xyz"; break;
+				case EMaterialProgramOpcode::ProceduralSkyRadiance: Expression = EmitSky ? "proceduralSkyRadiance" : "float3(0)"; break;
 				case EMaterialProgramOpcode::CameraVector: Expression = "MaterialSafeNormalize(MaterialView.CameraWorldPosition.xyz - input.worldPosition)"; break;
 				case EMaterialProgramOpcode::ObjectPosition: Expression = "MaterialPrimitive.BoundsCenter.xyz"; break;
 				case EMaterialProgramOpcode::VertexNormal: Expression = "MaterialSafeNormalize(input.worldNormal)"; break;

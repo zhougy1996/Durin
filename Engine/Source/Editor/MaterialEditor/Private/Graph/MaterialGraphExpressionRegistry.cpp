@@ -45,6 +45,7 @@ namespace Durin::MaterialEditor
 			{&DMaterialExpressionCollectionParameter::StaticClass, "Parameters", EMaterialGraphCreationKind::AssetBound, EMaterialGraphPaletteShape::InspectOnly},
 			{&DMaterialExpressionCameraPosition::StaticClass, "Inputs"},
 			{&DMaterialExpressionCameraVector::StaticClass, "Inputs"},
+			{&DMaterialExpressionProceduralSkyRadiance::StaticClass, "Inputs"},
 			{&DMaterialExpressionObjectPosition::StaticClass, "Inputs"},
 			{&DMaterialExpressionVertexInterpolator::StaticClass, "Vertex", EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::Adaptive},
 			{&DMaterialExpressionVertexNormal::StaticClass, "Inputs"},

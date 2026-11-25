@@ -219,6 +219,7 @@ namespace Durin
 		SceneTexture,
 		SceneDepth,
 		SingleLayerWaterOutput,
+		ProceduralSkyRadiance,
 	};
 
 	struct FMaterialTransformPayload

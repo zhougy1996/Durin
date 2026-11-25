@@ -121,6 +121,8 @@ namespace Durin
 					"Reads a numeric value from a material parameter collection in the current world.", {}, ""),
 				Describe<DMaterialExpressionCameraPosition>(EMaterialProgramOpcode::CameraPosition, "Camera Position",
 					"Active pass camera position in translated world space; zero at the view origin (Float3).", {}, ""),
+				Describe<DMaterialExpressionProceduralSkyRadiance>(EMaterialProgramOpcode::ProceduralSkyRadiance, "Procedural Sky Radiance",
+					"Linear RGB radiance of the active analytic sky background. Returns black outside that background.", {}, ""),
 				Describe<DMaterialExpressionCameraVector>(EMaterialProgramOpcode::CameraVector, "Camera Vector",
 					"Direction from the fragment to the active pass camera (Float3).", {}, ""),
 				Describe<DMaterialExpressionObjectPosition>(EMaterialProgramOpcode::ObjectPosition, "Object Position",

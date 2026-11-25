@@ -97,6 +97,10 @@ consume `VertexNormal` directly, including through a function call. An explicit
 `VertexInterpolator` retains its World/Normal meaning and produces a Pixel value.
 Vertex WorldPosition is pre-WPO; pixel WorldPosition is displaced and interpolated.
 
+`ProceduralSkyRadiance` is a pixel-only Float3 expression. It reads linear RGB
+from the selected analytic provider in the sky background pass and evaluates to
+black for other surface draws and when the view has no procedural sky.
+
 Transform Position accepts exact Float3 Position values between Object, World,
 and View. Transform Direction and Transform Normal accept exact Float3 values
 for every ordered Object, World, View, and Tangent pair. Source and destination
@@ -244,7 +248,7 @@ not share values computed from different caller bindings.
 Every authored expression is checked for locally valid storage, including
 disconnected nodes and unused function calls. Compilation semantics and expanded
 bounds are evaluated only for the root-reachable, selector-chosen closure.
-Surface finalization consumes the owning material’s named inputs and mode. Builds run on the owning thread and must finish
+Surface finalization consumes the owning material鈥檚 named inputs and mode. Builds run on the owning thread and must finish
 before a graph edit or asynchronous dispatch.
 
 ## Validation and publication

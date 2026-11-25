@@ -31,6 +31,12 @@ or specified-cube rotation does not require filtering again.
 
 ## Radiance and filter conventions
 
+The visible procedural background evaluates the Unlit material
+`/Engine/Materials/DefaultProceduralSky`. Its Procedural Sky Radiance expression
+receives the selected provider snapshot and normalized view direction. Captured
+Sky evaluates that provider directly and excludes the visible sun disc. SkyBox
+material overrides affect the visible background only.
+
 Visible sky and capture use `ProceduralSky.slang`. Coordinates are +X forward,
 +Y right, +Z up; cube layers are +X, -X, +Y, -Y, +Z, -Z.
 For normalized direction D, h=dot(D,Up). Above the horizon the base is

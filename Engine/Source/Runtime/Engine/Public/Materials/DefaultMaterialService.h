@@ -8,7 +8,7 @@
 namespace Durin
 {
 	class DMaterialInterface;
-	ENGINE_API auto GetDefaultCubeSkyProxy_RenderThread() -> FMaterialRenderProxyRef;
+	ENGINE_API auto GetDefaultSkyMaterialProxy_RenderThread(bool bProcedural) -> FMaterialRenderProxyRef;
 	ENGINE_API auto GetDefaultMaterial() -> DMaterialInterface*;
 	inline constexpr std::string_view DefaultMaterialPackagePath =
 		"/Engine/Materials/DefaultMaterial";

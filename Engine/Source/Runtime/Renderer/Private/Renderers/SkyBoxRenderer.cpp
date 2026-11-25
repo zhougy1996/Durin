@@ -186,8 +186,8 @@ namespace Durin
 	{
 		using namespace RendererPrivate;
 		const auto& Sky = Environment.SkyBox;
-		if (Sky.ProceduralSky.ToSunEnabled.w > 0.5f) return true;
-		const auto Proxy = Sky.MaterialOverride ? Sky.MaterialOverride : GetDefaultCubeSkyProxy_RenderThread();
+		const bool bProcedural = Sky.ProceduralSky.ToSunEnabled.w > 0.5f;
+		const auto Proxy = Sky.MaterialOverride ? Sky.MaterialOverride : GetDefaultSkyMaterialProxy_RenderThread(bProcedural);
 		if (!Proxy) return false;
 		const auto& Data = Proxy->QueryMaterial_RenderThread();
 		const auto Program = Data.CompiledProgram;
@@ -246,7 +246,7 @@ namespace Durin
 			|| !Materials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::Background)
 			|| !Materials.Resolve_RenderThread(Binding, ESurfaceMaterialPass::Background, {}, nullptr, nullptr, Material)) return false;
 		FByteBuffer Payload(Binding.CompiledUniformPayload.begin(), Binding.CompiledUniformPayload.end());
-		if (!Sky.MaterialOverride)
+		if (!bProcedural && !Sky.MaterialOverride)
 		{
 			auto* Texture = Environment.Texture;
 			if (!Texture && Sky.TextureReference) Texture = Sky.TextureReference->GetReferencedTexture_RenderThread();

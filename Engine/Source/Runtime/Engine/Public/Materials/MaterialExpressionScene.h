@@ -47,6 +47,15 @@ namespace Durin
 	};
 
 	DCLASS()
+	class DMaterialExpressionProceduralSkyRadiance : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionProceduralSkyRadiance(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
 	class DMaterialExpressionObjectPosition : public DMaterialExpression
 	{
 		GENERATED_BODY()
