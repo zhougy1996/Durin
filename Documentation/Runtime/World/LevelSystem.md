@@ -44,7 +44,7 @@ whole-object record rather than dedicated rename commands.
 Editor publication and removal capture the Level before changing its Actors array.
 That snapshot restores order and the primary camera. The editor host checks World availability before Undo and Redo. Rename and
 Outer changes reserve sibling names even for unpublished Actors held by history. Actor
-completion restores registration through lifecycle annotations. Level completion
+completion activates restored components through the Level after reconstruction. Level completion
 preserves independently published Actors that the historical array omitted.
 
 Actors index transient generated components by stable native-construction keys.

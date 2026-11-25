@@ -209,7 +209,7 @@ TEST(FEngineTransactionAnnotationTests, StandaloneComponentRecordsAuthoredFields
 	EXPECT_EQ(Component->GetRelativeLocation().x, 17.0);
 }
 
-TEST(FEngineTransactionAnnotationTests, ExplicitAnnotationArchiveRoundTripsNativeStateWithoutDuplicatingCreation)
+TEST(FEngineTransactionAnnotationTests, AnnotationArchiveRestoresActorTickWithoutRegisteringComponents)
 {
 	using namespace Durin;
 	FTransactionEngineWorld Fixture;
@@ -221,11 +221,11 @@ TEST(FEngineTransactionAnnotationTests, ExplicitAnnotationArchiveRoundTripsNativ
 	Actor->SetActorTickEnabled(true); Root->UnregisterComponent();
 	FActorTransactionAnnotation Restored; FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction); Restored.Serialize(Reader);
 	ASSERT_FALSE(Reader.IsError()) << Reader.GetError(); EXPECT_EQ(Reader.GetRemainingPayloadBytes(), 0u);
-	Restored.Restore(*Actor); EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Root->IsRegistered());
-	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 2u);
+	Restored.Restore(*Actor); EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_FALSE(Root->IsRegistered());
+	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 1u);
 }
 
-TEST(FEngineTransactionAnnotationTests, ActorAndRootRestoreNativeLifecycleOncePerOperation)
+TEST(FEngineTransactionAnnotationTests, ActorReplayUsesNormalComponentRegistrationAndPreservesLiveComponentTick)
 {
 	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
@@ -239,12 +239,12 @@ TEST(FEngineTransactionAnnotationTests, ActorAndRootRestoreNativeLifecycleOncePe
 	const auto Constructions = Actor->ConstructionCalls;
 	Root->bRequestCollectionOnRegister = true;
 	ASSERT_TRUE(Buffer->Undo());
-	EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_FALSE(Root->IsComponentTickEnabled()); EXPECT_TRUE(Root->IsRegistered());
+	EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Root->IsComponentTickEnabled()); EXPECT_TRUE(Root->IsRegistered());
 	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 2u); EXPECT_EQ(Root->Initialized, 1u);
 	EXPECT_EQ(Actor->ConstructionCalls, Constructions + 1);
 	ASSERT_TRUE(Buffer->Redo());
-	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Root->IsComponentTickEnabled()); EXPECT_FALSE(Root->IsRegistered());
-	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 2u); EXPECT_EQ(Root->Unregistered, 2u); EXPECT_EQ(Root->Uninitialized, 0u);
+	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Root->IsComponentTickEnabled()); EXPECT_TRUE(Root->IsRegistered());
+	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 2u); EXPECT_EQ(Root->Unregistered, 1u); EXPECT_EQ(Root->Uninitialized, 0u);
 	EXPECT_EQ(Actor->ConstructionCalls, Constructions + 2);
 }
 

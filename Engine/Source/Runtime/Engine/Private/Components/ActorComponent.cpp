@@ -4,7 +4,6 @@
 #include "EditorSupportDelegates.h"
 
 #include "DObject/ObjectLifecycle.h"
-#include "DObject/Archive.h"
 #include "ComponentReregisterContext.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
@@ -69,11 +68,6 @@ namespace Durin
 		}
 		catch (const std::exception& Error) { return std::unexpected(Error.what()); }
 		catch (...) { return std::unexpected("Component lifecycle callback threw."); }
-	}
-	auto DActorComponent::SerializeLifecycleState(FArchive& Archive, FActorComponentLifecycleState& State) -> void
-	{
-		FTickFunction::SerializeState(Archive, State.Tick);
-		Archive << State.bCreated << State.bRegistered << State.bInitialized << State.bPlaying;
 	}
 	auto DActorComponent::ReregisterComponent() -> void
 	{

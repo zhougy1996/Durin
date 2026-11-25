@@ -514,21 +514,6 @@ TEST_F(FTransactionReinstancingTests, ResetAfterPreparationPublishesEmptyHistory
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
-TEST_F(FTransactionReinstancingTests, ActorLifecycleStateRebindsExactComponentWithoutCallbacks)
-{
-	using namespace Durin;
-	auto* BeforeActor = NewObject<DTransactionConstructionActor>(Current, "Actor");
-	auto* AfterActor = NewObject<DTransactionConstructionActor>(Candidate, "Actor");
-	auto* BeforeRoot = static_cast<DTransactionLifecycleScene*>(BeforeActor->GetRootComponent());
-	auto* AfterRoot = static_cast<DTransactionLifecycleScene*>(AfterActor->GetRootComponent());
-	FComponentInstanceLifecycleState State(*BeforeRoot);
-	FObjectReplacementMap Map; ASSERT_TRUE(Map.Build(std::span(&Pair, 1)));
-	auto Replaced = State.FindAndReplaceInstances(Map);
-	ASSERT_TRUE(Replaced) << Replaced.error();
-	EXPECT_EQ(State.GetComponent(), AfterRoot);
-	EXPECT_EQ(AfterRoot->Created, 0u); EXPECT_EQ(AfterRoot->Registered, 0u);
-}
-
 TEST_F(FTransactionReinstancingTests, GeneratedSourceRejectsSameNamedAuthoredComponentAndPreservesCache)
 {
 	using namespace Durin;

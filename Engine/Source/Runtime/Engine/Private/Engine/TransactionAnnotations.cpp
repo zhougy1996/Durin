@@ -68,15 +68,6 @@ namespace Durin
 		}
 	}
 
-	auto FComponentInstanceLifecycleState::FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
-	{
-		auto Result = *this;
-		if (auto Valid = Result.Target.FindAndReplaceInstances(Map); !Valid) return Valid;
-		if (auto Valid = Result.ValidateReferences(); !Valid) return Valid;
-		*this = std::move(Result);
-		return {};
-	}
-
 	auto FActorTransactionAnnotation::FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
 	{
 		FActorTransactionAnnotation Rebound(*this);
@@ -85,8 +76,6 @@ namespace Durin
 		Rebound.Data.Target = FPersistentObjectRef::FromKey(*Key);
 		if (auto Valid = Rebound.Data.ComponentInstanceData.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
 		if (auto Valid = Rebound.Data.RootData.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
-		for (auto& State : Rebound.Data.ComponentLifecycle)
-			if (auto Valid = State.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
 		for (auto& Info : Rebound.DiffableComponentInfos)
 		{
 			if (auto Valid = Info.ComponentSourceInfo.FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
@@ -130,50 +119,21 @@ namespace Durin
 
 	}
 
-	FComponentInstanceLifecycleState::FComponentInstanceLifecycleState(const DActorComponent& Component)
-		: Target(&Component), State(Component.CaptureLifecycleState()) {}
-	auto FComponentInstanceLifecycleState::IsDefault() const -> bool { return State == FActorComponentLifecycleState{}; }
-	auto FComponentInstanceLifecycleState::Validate() const -> FTransactionCaptureResult
-	{
-		if (auto Result = ValidateReferences(); !Result) return Result;
-		auto* Component = Target.Resolve();
-		if (!Component) return std::unexpected("Component lifecycle participant is unavailable.");
-		return Component->ValidateLifecycleState(State);
-	}
-	auto FComponentInstanceLifecycleState::ValidateReferences() const -> FTransactionCaptureResult
-	{
-		if (Target.IsNull()) return std::unexpected("Component lifecycle owner or target expired.");
-		return Target.Validate();
-	}
-	auto FComponentInstanceLifecycleState::Restore() const -> void
-	{
-		if (auto Valid = Validate(); !Valid) throw std::runtime_error(Valid.error());
-		if (auto Result = Target.Resolve()->ApplyLifecycleState(State); !Result) throw std::runtime_error(Result.error());
-	}
-	auto FComponentInstanceLifecycleState::AddReferencedObjects(FReferenceCollector& Collector) const -> void
-	{ Target.AddReferencedObjects(Collector); }
-	auto FComponentInstanceLifecycleState::Serialize(FArchive& Ar) -> void
-	{ Target.Serialize(Ar); DActorComponent::SerializeLifecycleState(Ar, State); }
-
 	FActorTransactionAnnotation::FActorTransactionAnnotation(const AActor& Actor, const FActorTransactionAnnotation* Previous)
 		: Data{FPersistentObjectRef(const_cast<AActor*>(&Actor)), Actor.GetPrimaryActorTick().CaptureState(),
-			FComponentInstanceDataCache(Actor), {}, FActorRootComponentReconstructionData(Actor, Previous ? &Previous->Data.RootData : nullptr)}
+			FComponentInstanceDataCache(Actor), FActorRootComponentReconstructionData(Actor, Previous ? &Previous->Data.RootData : nullptr)}
 	{
 		for (const auto& Component : Actor.GetComponentsSnapshot())
-			if (Component)
+			if (Component && Component->GetCreationMethod() == EComponentCreationMethod::Generated)
 			{
-				Data.ComponentLifecycle.emplace_back(*Component);
-				if (Component->GetCreationMethod() == EComponentCreationMethod::Generated)
-				{
-					auto Observation = DiffUtil::GetDiffableObject(*Component, {DiffUtil::EGetDiffableObjectMode::SerializeProperties});
-					if (!Observation) throw std::runtime_error(Observation.error());
-					TransformObservationReferences(*Observation, [](FByteView Bytes) {
-						FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction); FObjectKey Key; Key.SerializeForSnapshot(Reader);
-						if (Reader.IsError()) throw std::runtime_error("Component observation reference decoding failed.");
-						return ObservationPath(ResolveObjectKey(Key));
-					});
-					DiffableComponentInfos.push_back({FActorComponentInstanceSourceInfo(Component.Get()), std::move(*Observation)});
-				}
+				auto Observation = DiffUtil::GetDiffableObject(*Component, {DiffUtil::EGetDiffableObjectMode::SerializeProperties});
+				if (!Observation) throw std::runtime_error(Observation.error());
+				TransformObservationReferences(*Observation, [](FByteView Bytes) {
+					FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction); FObjectKey Key; Key.SerializeForSnapshot(Reader);
+					if (Reader.IsError()) throw std::runtime_error("Component observation reference decoding failed.");
+					return ObservationPath(ResolveObjectKey(Key));
+				});
+				DiffableComponentInfos.push_back({FActorComponentInstanceSourceInfo(Component.Get()), std::move(*Observation)});
 			}
 	}
 
@@ -188,7 +148,6 @@ namespace Durin
 		if (!Actor) return true;
 		const auto DefaultTick = GetDefaultActorTickState(*Actor);
 		return !DiffableComponentInfos.empty() || Data.ComponentInstanceData.HasInstanceData() || Data.RootData.HasInstanceData()
-			|| std::ranges::any_of(Data.ComponentLifecycle, [](const auto& State) { return !State.IsDefault(); })
 			|| Data.Tick.Group != DefaultTick.Group || Data.Tick.bEnabled != DefaultTick.bEnabled
 			|| Data.Tick.bRegistered != DefaultTick.bRegistered;
 	}
@@ -209,7 +168,6 @@ namespace Durin
 		if (!Actor || Actor->IsBeingDestroyed()) return std::unexpected("Actor annotation target expired.");
 		if (auto Result = FTickFunction::ValidateState(Data.Tick, Cast<DLevel>(Actor->GetOuter())); !Result) return Result;
 		if (auto Result = Data.ComponentInstanceData.Validate(); !Result) return Result;
-		for (const auto& State : Data.ComponentLifecycle) if (auto Result = State.ValidateReferences(); !Result) return Result;
 		for (const auto& Info : DiffableComponentInfos)
 			if (auto Result = Info.ComponentSourceInfo.Validate(); !Result) return Result;
 		return Data.RootData.Validate();
@@ -221,15 +179,12 @@ namespace Durin
 		if (auto Result = Actor.GetPrimaryActorTick().RestoreState(Data.Tick, Cast<DLevel>(Actor.GetOuter())); !Result)
 			throw std::runtime_error(Result.error());
 		if (bApplyRootData) if (auto Result = Data.RootData.ApplyToActor(Actor); !Result) throw std::runtime_error(Result.error());
-		for (const auto& State : Data.ComponentLifecycle) if (auto Result = State.Validate(); !Result) throw std::runtime_error(Result.error());
-		for (const auto& State : Data.ComponentLifecycle) State.Restore();
 	}
 	auto FActorTransactionAnnotation::AddReferencedObjects(FReferenceCollector& Collector) -> void
 	{
 		Data.Target.AddReferencedObjects(Collector);
 		Data.ComponentInstanceData.AddReferencedObjects(Collector);
 		Data.RootData.AddReferencedObjects(Collector);
-		for (const auto& State : Data.ComponentLifecycle) State.AddReferencedObjects(Collector);
 		for (const auto& Info : DiffableComponentInfos)
 		{
 			Info.ComponentSourceInfo.AddReferencedObjects(Collector);
@@ -248,10 +203,6 @@ namespace Durin
 		FTickFunction::SerializeState(Archive, Data.Tick);
 		Data.ComponentInstanceData.Serialize(Archive);
 		Data.RootData.Serialize(Archive);
-		uint64 Count = Data.ComponentLifecycle.size(); Archive << Count;
-		if (Count > 1000000) { Archive.SetError("Component lifecycle annotation count exceeds the limit."); return; }
-		if (Archive.IsLoading() && !Archive.IsError()) Data.ComponentLifecycle.resize(static_cast<size_t>(Count));
-		for (auto& State : Data.ComponentLifecycle) { if (Archive.IsError()) break; State.Serialize(Archive); }
 	}
 	auto FActorTransactionAnnotation::GetAllocatedSize() const -> size_t
 	{
@@ -262,9 +213,7 @@ namespace Durin
 		const auto CacheBytes = CacheSize - sizeof(Data.ComponentInstanceData);
 		const auto RootBytes = RootSize - sizeof(Data.RootData);
 		if (CacheBytes > Limit - sizeof(*this) || RootBytes > Limit - sizeof(*this) - CacheBytes) return Limit;
-		const auto BaseBytes = sizeof(*this) + CacheBytes + RootBytes;
-		if (Data.ComponentLifecycle.capacity() > (Limit - BaseBytes) / sizeof(FComponentInstanceLifecycleState)) return Limit;
-		auto Total = BaseBytes + Data.ComponentLifecycle.capacity() * sizeof(FComponentInstanceLifecycleState);
+		auto Total = sizeof(*this) + CacheBytes + RootBytes;
 		if (DiffableComponentInfos.capacity() > (Limit - Total) / sizeof(FDiffableComponentInfo)) return Limit;
 		Total += DiffableComponentInfos.capacity() * sizeof(FDiffableComponentInfo);
 		for (const auto& Info : DiffableComponentInfos)

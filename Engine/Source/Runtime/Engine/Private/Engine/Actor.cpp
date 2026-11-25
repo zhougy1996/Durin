@@ -120,6 +120,7 @@ namespace Durin
 		if (!RerunConstructionScriptsImpl(Annotation ? &Annotation->GetComponentInstanceDataCache() : nullptr,
 			Annotation ? &Annotation->GetRootReconstructionData() : nullptr)) throw std::runtime_error(NativeConstructionError.empty()
 			? "Actor transaction reconstruction failed." : NativeConstructionError);
+		if (Level) Level->ActivateActor(this);
 		if (Annotation) Annotation->Restore(*this, false);
 		else FActorTransactionAnnotation::RestoreDefault(*this);
 		if (RootComponent) RootComponent->UpdateComponentToWorld();

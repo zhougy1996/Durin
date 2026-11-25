@@ -192,7 +192,7 @@ TEST(FActorMutationTests, DeletionRestoresEarlierPropertyHistoryExternalAttachme
 	EXPECT_FALSE(Level->ContainsActor(Actor));
 }
 
-TEST(FActorMutationTests, MixedBatchDeletionRestoresActorOrderPrimaryCameraAndUnregisteredComponents)
+TEST(FActorMutationTests, MixedBatchDeletionRestoresActorOrderPrimaryCameraAndRegistration)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
@@ -211,7 +211,7 @@ TEST(FActorMutationTests, MixedBatchDeletionRestoresActorOrderPrimaryCameraAndUn
 	EXPECT_EQ(Level->GetActors(), Order);
 	EXPECT_EQ(Level->GetPrimaryCameraActor(), First);
 	EXPECT_EQ(Second->GetAttachParentActor(), First);
-	EXPECT_FALSE(First->GetRootComponent()->IsRegistered());
+	EXPECT_TRUE(First->GetRootComponent()->IsRegistered());
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Level->GetPrimaryCameraActor(), Second);
 }
@@ -701,7 +701,7 @@ TEST(FComponentMutationTests, DuplicatePublishesCopiedFieldsBeforeFirstLifecycle
 	EXPECT_EQ(F.Scene.Lights.at(Copy), Source->GetWorldLocation());
 }
 
-TEST(FComponentMutationTests, RootDeletionAndUnregisteredStateRoundTrip)
+TEST(FComponentMutationTests, UndoRootDeletionRegistersRestoredComponent)
 {
 	FComponentFixture F;
 	auto* Empty = F.World->SpawnActor<AActor>("Empty");
@@ -713,7 +713,7 @@ TEST(FComponentMutationTests, RootDeletionAndUnregisteredStateRoundTrip)
 	EXPECT_EQ(Empty->GetRootComponent(), nullptr);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Empty->GetRootComponent(), Result);
-	EXPECT_FALSE(Result->IsRegistered());
+	EXPECT_TRUE(Result->IsRegistered());
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Empty->GetRootComponent(), nullptr);
 }

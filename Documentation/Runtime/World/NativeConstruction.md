@@ -130,7 +130,7 @@ Cache owners enumerate data and source references; unmanaged standalone caches
 must be exposed through their managed owner's collector when retained across GC.
 
 `FindAndReplaceInstances` follows UE's instance-cache replacement responsibility
-on source information, lifecycle data, typed entries, root recovery data and the
+on source information, typed entries, root recovery data and the
 cache. It uses the existing checked `FObjectReplacementMap`. Source matching must
 agree with that map: exact class, owner and construction key cannot be replaced
 by a same-name authored component or an assignable but different class. An
@@ -166,7 +166,7 @@ Durin currently generates components in native `OnConstruction`, the second
 phase follows that hook. This differs from UE's Blueprint path, whose SCS/UCS
 cache phases precede its final native OnConstruction notification. The third
 phase is available to domain supplemental data outside script construction.
-Lifecycle history belongs to transaction annotations, not the reconstruction cache. A scene pose explicitly
+A scene pose explicitly
 assigned during the native hook takes precedence over cached data, including
 same-value writes. Construction-owned fields are also omitted during cache capture.
 Tracking belongs to the component, with Actor's execution flag delimiting construction; automatic attachment and cache application do not
@@ -187,14 +187,7 @@ needed EndPlay, uninitialization and creation/destruction notifications through
 the component owner. Unregistration alone does not clear play-bound timers;
 EndPlay and terminal teardown still clear them.
 
-`DActorComponent::CaptureLifecycleState`, `ValidateLifecycleState` and
-`ApplyLifecycleState` own the supported native checkpoints. Their data is a
-Durin adaptation because these native flags are not reflected properties. Actor and component
-transaction annotation data retain identities and these checkpoints; they do not execute
-a separate transition sequence. Restoring a checkpoint checks ownership and
-retirement after callbacks and reports unsettled results rather than resurrecting
-an object. Registered-but-uninitialized and unregistered-but-initialized/playing
-states are distinct from terminal destruction.
+Structural removal uses `ApplyLifecycleState({})` to settle the component before detaching it from its owner.
 
 `FComponentReregisterContext` temporarily unregisters a component and restores
 registration when its scope ends. Ordinary World render-scene replacement and
@@ -224,12 +217,9 @@ construction/callback work; no transaction-only replay/completion booleans remai
 
 ## Transaction Reconstruction
 
-Actor reconstruction uses `FActorTransactionAnnotation` to retain native lifecycle
-and Tick state for the Actor and its components. Recording a component alone
-captures its authored fields. An operation that needs Actor-wide lifecycle
-recovery records the Actor before the edit.
-Reconstruction caches have no lifecycle capture mode or lifecycle application
-branch. They retain exact authored components and use
+The Actor annotation retains Actor Tick, component instance data and conditional
+root reconstruction data. Component edits capture authored fields. Reconstruction
+caches retain exact authored components and use
 the owning Actor, construction key and exact class for generated components.
 An annotation never retains an obsolete generated instance solely to replay it.
 Participant validation rejects expired exact dependencies before historical
@@ -238,8 +228,7 @@ fields load; generated keys may be absent until reconstruction publishes them.
 Historical completion respects final structural membership. An Actor removed
 from its World Level is not reconstructed or activated by an older annotation;
 an absent component likewise keeps its identity and authored fields without
-restoring registration. Actor annotation preflight checks references, while
-native lifecycle admission runs after structural replay has settled ownership.
+restoring registration. Actor annotation preflight checks reconstruction references.
 During replay, the serialized instance array may precede native membership
 publication. The presence primitive avoids duplicate array entries and Actor
 completion derives and validates the final live set. Outside historical replay,
@@ -249,10 +238,9 @@ Replay completes components before their owning Actor. Actor PreEditUndo holds
 the shared construction suspension until component state settles. Scene completion repairs authored attachment reverse links and
 world transforms before restoring registration, so callbacks see that graph
 consistently. Actor completion reconciles authored ownership, performs one native
-reconstruction request,
-restores supplemental component state through lifecycle APIs, and publishes the
+reconstruction request, activates the Actor in its owning Level, restores Actor Tick, and publishes the
 full-object completion. Already settled registration/creation/initialization
-states do not run their callbacks again.
+states do not run their callbacks again. Restored members of an active Level follow normal registration even if they were manually unregistered before the edit.
 
 `FActorTransactionAnnotation::CreateIfRequired` and `HasInstanceData` omit an
 Actor annotation when its instance/root recovery data and supplemental Tick
@@ -261,7 +249,7 @@ for an Actor admitted to the current World Level. An empty annotation restores
 that baseline through Tick's existing API during historical completion. This
 keeps rejected or unchanged property edits out of history without replaying them
 merely to discard an empty capture. Component/root caches expose HasInstanceData;
-non-default native lifecycle and root recovery data still require annotations.
+non-default Actor Tick and root recovery data still require annotations.
 Previous annotation snapshots retain their external-child capture scope.
 
 Actor annotations also retain `FDiffableComponentInfo` observations for generated

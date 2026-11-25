@@ -65,7 +65,6 @@ namespace Durin
 		ENGINE_API auto CaptureLifecycleState() const -> FActorComponentLifecycleState;
 		ENGINE_API auto ValidateLifecycleState(const FActorComponentLifecycleState& State) const -> std::expected<void, std::string>;
 		ENGINE_API auto ApplyLifecycleState(const FActorComponentLifecycleState& State) -> std::expected<void, std::string>;
-		ENGINE_API static auto SerializeLifecycleState(FArchive& Archive, FActorComponentLifecycleState& State) -> void;
 		ENGINE_API auto ReregisterComponent() -> void;
 		auto HasBeenCreated() const -> bool { return bHasBeenCreated; }
 		auto HasBeenInitialized() const -> bool { return bHasBeenInitialized; }

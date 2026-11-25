@@ -174,7 +174,7 @@ collector-visible through callbacks and are released at operation end. An
 annotation alone retains a record despite equal serialized bytes.
 
 The selected record supplies the completion annotation. An empty annotation invokes ordinary PostEditUndo. Standalone component records
-capture authored fields. Actor reconstruction owns native lifecycle recovery. See
+capture authored fields. Actor completion uses normal Level activation after reconstruction. See
 [native construction](../../../Runtime/World/NativeConstruction.md#transaction-reconstruction).
 
 Each retained payload enumerates its exact hard edges through the enclosing
@@ -270,7 +270,7 @@ and script template mutation remain unsupported.
 Transaction references follow the ordinary CoreDObject reachability rules. A
 directly referenced child keeps its complete Outer chain alive. Referencing an
 Outer does not retain children or siblings. Record ownership changes on the owner and call `Modify()` on the child before marking it as garbage. Replay restores the recorded liveness before loading fields and references. [Component structure history](../LevelEditing/LevelEditorDetails.md#component-structure-history)
-uses owner and participant snapshots. History enumerates recorded targets, serialized references and annotation dependencies. Unreferenced children with only an Outer relationship can be collected while history survives. Actor and component completion restore native lifecycle and attachment state on the retained identities.
+uses owner and participant snapshots. History enumerates recorded targets, serialized references and annotation dependencies. Unreferenced children with only an Outer relationship can be collected while history survives. Completion reconciles attachment and registration with restored ownership.
 
 Record callbacks request GC; the owner collects after application and native completion. A custom replay exception terminates execution with the transaction, direction and record diagnostic.
 
