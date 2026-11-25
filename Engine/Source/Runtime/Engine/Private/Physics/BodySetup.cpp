@@ -248,7 +248,6 @@ namespace Durin
 		if (CollisionTraceMode == Mode) return;
 		CollisionTraceMode = Mode;
 		MarkChanged(EBodySetupChange::QuerySettings);
-		MarkPackageDirty();
 	}
 
 	auto DBodySetup::PopulateCollisionGeometry(FPhysicsBodyDesc& Desc, const FTransform& WorldTransform) const -> bool
@@ -298,7 +297,6 @@ namespace Durin
 		PhysicsMeshStatus = Mode == EBodySetupCollisionSourceMode::None
 			? EPhysicsMeshBuildStatus::Ready : EPhysicsMeshBuildStatus::Unavailable;
 		MarkChanged(EBodySetupChange::SourceRecipe);
-		MarkPackageDirty();
 	}
 
 	auto DBodySetup::SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy Policy) -> void
@@ -309,7 +307,6 @@ namespace Durin
 		if (CollisionQueryPolicy == Policy) return;
 		CollisionQueryPolicy = Policy;
 		MarkChanged(EBodySetupChange::QuerySettings);
-		MarkPackageDirty();
 	}
 
 	auto DBodySetup::InstallPhysicsMeshes(

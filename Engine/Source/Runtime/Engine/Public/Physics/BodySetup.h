@@ -87,7 +87,7 @@ namespace Durin
 			const FCollisionGeometryRef& Complex) -> EPhysicsCookCompletionStatus;
 		ENGINE_API auto FailPhysicsMeshes(uint64 Generation, std::string Error) -> void;
 		ENGINE_API auto CancelPhysicsMeshes(uint64 Generation) -> void;
-		// Geometry setters update physics state. Authored edits call Modify() before mutation.
+		// Geometry and collision policy setters update physics state. Authored edits call Modify() before mutation.
 		ENGINE_API auto SetBox(const FVector3& HalfExtent, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto SetSphere(double Radius, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto SetCapsule(double Radius, double HalfHeight, const FVector3& Center = FVector3(0.0)) -> bool;

@@ -2501,6 +2501,34 @@ TEST(FPhysicsBodySetupTests, UnifiedPrimitiveQueriesApplyElementAndWorldTransfor
 	MarkObjectHierarchyAsGarbage(Body); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FPhysicsBodySetupTests, CollisionPolicyEditsLeavePackageDirtyingToTheCaller)
+{
+	using namespace Durin;
+	Testing::InitializeAssetSystemForTests();
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/CollisionPolicy/", .Owner = EMountOwner::Test,
+		.Root = Testing::GetTestWorkDirectory() / "CollisionPolicy", .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture MountFixture(Mounts);
+	ASSERT_TRUE(MountFixture.IsValid());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CollisionPolicy/Mesh", Path));
+	DStaticMesh* Mesh = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Mesh));
+	auto* Package = Mesh->GetPackage();
+	Package->ClearDirty();
+	ASSERT_EQ(Mesh->GetBodySetup(), nullptr);
+	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
+	auto* Setup = Mesh->GetBodySetup();
+	ASSERT_NE(Setup, nullptr);
+	Mesh->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::ComplexOnly);
+	Setup->SetCollisionTraceMode(EBodySetupCollisionTraceMode::SimpleAsComplex);
+	EXPECT_FALSE(Package->IsDirty());
+	Setup->Modify();
+	Setup->SetCollisionTraceMode(EBodySetupCollisionTraceMode::SimpleAndComplex);
+	EXPECT_TRUE(Package->IsDirty());
+	MarkObjectHierarchyAsGarbage(Package);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
 TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeometry)
 {
 	using namespace Durin;
