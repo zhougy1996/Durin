@@ -129,11 +129,6 @@ namespace Durin
 		UpdateComponentToWorld();
 	}
 
-	auto DSceneComponent::PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void
-	{
-		ReconcileAttachmentAfterUndo();
-		Super::PostEditUndo(std::move(Annotation));
-	}
 	auto DSceneComponent::PostEditUndo() -> void
 	{
 		if (bAttachmentUndoPending) ReconcileAttachmentAfterUndo();

@@ -1,4 +1,4 @@
-#include "DObject/TransactionDiff.h"
+#include "TransactionDiffPrivate.h"
 
 namespace Durin
 {
@@ -21,9 +21,10 @@ namespace Durin
 		const FGenerateObjectDiffOptions& Options) -> std::expected<FTransactionObjectChange, std::string>
 	{
 		const auto& Before = OldObject.ObjectInfo; const auto& After = NewObject.ObjectInfo;
-		if (!OldObject.SerializedObject || !NewObject.SerializedObject || !OldObject.SerializationContext || !NewObject.SerializationContext
-			|| Before.Target != After.Target || Before.Class != After.Class
-			|| !OldObject.SerializationContext->IsCompatibleWith(*NewObject.SerializationContext))
+		const bool bResurrection = !OldObject.SerializedObject && Before.bIsPendingKill && !After.bIsPendingKill;
+		if (!NewObject.SerializedObject || !NewObject.SerializationContext || Before.Target != After.Target || Before.Class != After.Class
+			|| (!bResurrection && (!OldObject.SerializedObject || !OldObject.SerializationContext
+				|| !OldObject.SerializationContext->IsCompatibleWith(*NewObject.SerializationContext))))
 			return std::unexpected("Transaction object diff requires the same compatible target and schema.");
 		FTransactionObjectChange Change(Before.Identity, Before.Flags);
 		if (Options.bFullDiff)
@@ -34,7 +35,15 @@ namespace Durin
 			Change.bNonPropertyDataChanged = Before.Flags != After.Flags || Before.Package != After.Package
 				|| Before.Identity.OriginalPackagePath != After.Identity.OriginalPackagePath;
 		}
-		for (const auto& Field : OldObject.SerializedTaggedData)
+		FDiffableObject Archetype;
+		if (bResurrection)
+		{
+			auto Baseline = GetArchetypeDiffableObject(NewObject);
+			if (!Baseline) return std::unexpected(Baseline.error());
+			Archetype = std::move(*Baseline);
+		}
+		const auto& OldData = bResurrection ? Archetype : OldObject;
+		for (const auto& Field : OldData.SerializedTaggedData)
 		{
 			const auto Other = std::ranges::find_if(NewObject.SerializedTaggedData, [&](const auto& Value) {
 				return Value.DeclaringType == Field.DeclaringType && Value.Name == Field.Name && Value.bReflected == Field.bReflected;
@@ -45,9 +54,9 @@ namespace Durin
 					Change.ChangedProperties.push_back(Field.Name);
 				continue;
 			}
-			if (Field.Begin > Field.End || Field.End > OldObject.SerializedObject->Bytes.size() || Other->Begin > Other->End || Other->End > NewObject.SerializedObject->Bytes.size())
+			if (Field.Begin > Field.End || Field.End > OldData.SerializedObject->Bytes.size() || Other->Begin > Other->End || Other->End > NewObject.SerializedObject->Bytes.size())
 				return std::unexpected("Transaction diff field bounds are invalid.");
-			const bool Changed = !std::ranges::equal(FByteView(OldObject.SerializedObject->Bytes).subspan(Field.Begin, Field.End - Field.Begin),
+			const bool Changed = !std::ranges::equal(FByteView(OldData.SerializedObject->Bytes).subspan(Field.Begin, Field.End - Field.Begin),
 				FByteView(NewObject.SerializedObject->Bytes).subspan(Other->Begin, Other->End - Other->Begin));
 			if (Changed && Field.bReflected && (!Options.ShouldSkipProperty || !Options.ShouldSkipProperty(Field.Name)) && !std::ranges::contains(Change.ChangedProperties, Field.Name)) Change.ChangedProperties.push_back(Field.Name);
 		}
@@ -65,13 +74,13 @@ namespace Durin
 			}
 			Result.insert(Result.end(), State.SerializedObject->Bytes.begin() + Offset, State.SerializedObject->Bytes.end()); return Result;
 		};
-		auto BeforeNative = NativeBytes(OldObject); if (!BeforeNative) return std::unexpected(BeforeNative.error());
+		auto BeforeNative = NativeBytes(OldData); if (!BeforeNative) return std::unexpected(BeforeNative.error());
 		auto AfterNative = NativeBytes(NewObject); if (!AfterNative) return std::unexpected(AfterNative.error());
 		Change.bNonPropertyDataChanged = Change.bNonPropertyDataChanged || *BeforeNative != *AfterNative;
 		if (Options.bFullDiff)
 			for (const auto& Field : NewObject.SerializedTaggedData)
 				if (Field.bReflected && (!Options.ShouldSkipProperty || !Options.ShouldSkipProperty(Field.Name))
-					&& !std::ranges::any_of(OldObject.SerializedTaggedData, [&](const auto& Old) {
+					&& !std::ranges::any_of(OldData.SerializedTaggedData, [&](const auto& Old) {
 						return Old.DeclaringType == Field.DeclaringType && Old.Name == Field.Name && Old.bReflected == Field.bReflected;
 					}) && !std::ranges::contains(Change.ChangedProperties, Field.Name)) Change.ChangedProperties.push_back(Field.Name);
 		return Change;

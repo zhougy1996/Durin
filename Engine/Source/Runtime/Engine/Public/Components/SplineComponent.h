@@ -99,8 +99,6 @@ namespace Durin
 		ENGINE_API auto RemoveSplineMutationListener(uint64 ListenerId) -> bool;
 
 		ENGINE_API auto UpdateSpline(ESplineChangeFlags ChangeFlags = ESplineChangeFlags::Build) -> void;
-		ENGINE_API auto FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation> override;
-		ENGINE_API auto PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
@@ -110,7 +108,7 @@ namespace Durin
 			uint64 HistoryId) -> void;
 		auto UpdateSplineForHistory(ESplineChangeFlags Flags, uint64 HistoryId) -> void;
 		auto GetRecordingHistoryId() const -> uint64;
-		auto EditPointRange(size_t Index, size_t RemoveCount, std::span<const FSplinePoint> Replacement) -> FTransactionCaptureResult;
+		auto BeginPointEdit() -> bool;
 		auto TransformSampleToWorld(const FSplineSample& LocalSample) const -> FSplineSample;
 
 		DPROPERTY(Category = "Spline", Edit)

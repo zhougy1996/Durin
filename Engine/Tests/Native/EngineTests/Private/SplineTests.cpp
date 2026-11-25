@@ -465,7 +465,7 @@ TEST(FSplineComponentTests, RejectsInvalidBulkCandidatesWithoutChangingPublished
 	EXPECT_TRUE(UnloadPackage(Path));
 }
 
-TEST(FSplineEditingTests, PointRangeHistoryExpiresAfterForeignTopology)
+TEST(FSplineEditingTests, PointEditUndoRestoresCurveAndRedoRestoresForeignReorder)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -494,22 +494,21 @@ TEST(FSplineEditingTests, PointRangeHistoryExpiresAfterForeignTopology)
 		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
 	}
 	const auto Reordered = Spline->GetSplinePoints();
-	const auto Snapshot = Spline->GetEvaluationData();
-	EXPECT_TRUE(History->CanUndo());
-	EXPECT_FALSE(History->Undo());
-	EXPECT_TRUE(History->CanRedo());
-	EXPECT_FALSE(History->Redo());
+	ASSERT_NE(Reordered, Original);
+	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(Spline->GetSplinePoints(), Original);
+	ASSERT_TRUE(History->Redo());
 	EXPECT_EQ(Spline->GetSplinePoints(), Reordered);
-	EXPECT_EQ(Spline->GetEvaluationData(), Snapshot);
 }
 
-TEST(FSplineEditingTests, ReflectedPointHistoryExpiresAfterForeignTopology)
+TEST(FSplineEditingTests, WholeCurveUndoAndRedoAcrossUnrecordedReorder)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DSplineComponent> Spline(NewObject<DSplineComponent>(nullptr, "ReflectedPointHistorySpline", EObjectFlags::Transactional));
 	Tests::FTestEditorTransactorOwner History;
-	auto Changed = Spline->GetSplinePoints();
+	const auto Original = Spline->GetSplinePoints();
+	auto Changed = Original;
 	Changed[0].Position.y += 2.0;
 	{
 		Durin::FScopedTransaction Scope("Replace spline points");
@@ -518,11 +517,10 @@ TEST(FSplineEditingTests, ReflectedPointHistoryExpiresAfterForeignTopology)
 	ASSERT_TRUE(History->CanUndo());
 	ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
 	const auto Reordered = Spline->GetSplinePoints();
-	const auto Snapshot = Spline->GetEvaluationData();
-	EXPECT_TRUE(History->CanUndo());
-	EXPECT_FALSE(History->Undo());
+	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(Spline->GetSplinePoints(), Original);
+	ASSERT_TRUE(History->Redo());
 	EXPECT_EQ(Spline->GetSplinePoints(), Reordered);
-	EXPECT_EQ(Spline->GetEvaluationData(), Snapshot);
 }
 
 TEST(FSplineComponentTests, DuplicateObjectPreservesPointsAndPublishesSnapshot)

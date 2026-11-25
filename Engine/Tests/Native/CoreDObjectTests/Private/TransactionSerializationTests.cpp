@@ -285,6 +285,21 @@ TEST(FTransactionDiffTests, VariableReflectedRangesDoNotInventNativeChanges)
 	EXPECT_TRUE(Native->bNonPropertyDataChanged); EXPECT_TRUE(Native->ChangedProperties.empty());
 }
 
+TEST(FTransactionDiffTests, ResurrectionWithoutAClassDefaultReportsLiveData)
+{
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<DTransactionStateObject> Object(NewObject<DTransactionStateObject>(nullptr, "NoArchetype"));
+	ASSERT_EQ(Object->GetClass()->GetDefaultObject(), nullptr);
+	auto Live = DiffUtil::GetDiffableObject(*Object); ASSERT_TRUE(Live);
+	FDiffableObject Dead{.ObjectInfo = Live->ObjectInfo};
+	Dead.ObjectInfo.bIsPendingKill = true;
+	auto Change = DiffUtil::GenerateObjectDiff(Dead, *Live); ASSERT_TRUE(Change) << Change.error();
+	EXPECT_TRUE(Change->bHasPendingKillChange);
+	EXPECT_TRUE(Change->bNonPropertyDataChanged);
+	EXPECT_TRUE(std::ranges::contains(Change->ChangedProperties, FName("Count")));
+	EXPECT_FALSE(std::ranges::contains(Change->ChangedProperties, FName("Ignored")));
+}
+
 TEST(FTransactionDiffTests, PropertiesOnlyObservationBypassesNativeSerialization)
 {
 	Testing::InitializeDObjectSystemForTests();

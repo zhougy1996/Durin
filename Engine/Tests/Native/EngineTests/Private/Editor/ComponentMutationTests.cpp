@@ -1509,16 +1509,19 @@ TEST(FComponentMutationTests, CanceledCreationUnwindsBeforeReplacementRecording)
 	EXPECT_EQ(F.Actor->GetComponents().size(), Count + 1);
 }
 
-TEST(FComponentMutationTests, ComponentDestroyedDuringCreationTerminatesFinalization)
+TEST(FComponentMutationTests, ComponentDestroyedDuringCreationReturnsAbsent)
 {
-	auto AddSelfRemovingComponent = [] {
-		FComponentFixture F;
-		FStructuralTestLight::CreationProbe = [](FStructuralTestLight& Component) {
-			EXPECT_TRUE(Component.GetOwner()->DestroyInstanceComponent(&Component));
-		};
-		F.Editor.GetActorEditor()->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false});
+	FComponentFixture F;
+	const auto Count = F.Actor->GetComponents().size();
+	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::CreationProbe = {}; } } Reset;
+	bool Removed = false;
+	FStructuralTestLight::CreationProbe = [&](FStructuralTestLight& Component) {
+		Removed = Component.GetOwner()->DestroyInstanceComponent(&Component);
 	};
-	EXPECT_DEATH(AddSelfRemovingComponent(), "during Finalize record .*Component lifecycle capture requires settled state");
+	EXPECT_EQ(F.Editor.GetActorEditor()->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false}), nullptr);
+	EXPECT_TRUE(Removed);
+	EXPECT_EQ(F.Actor->GetComponents().size(), Count);
+	EXPECT_FALSE(F.Transactions->IsActive());
 }
 
 TEST(FActorMutationTests, RootlessActorSnapshotNotifiesOutlinerAndReleasesOuterOnlyPayload)

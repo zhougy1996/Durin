@@ -77,11 +77,6 @@ namespace Durin
 		return {};
 	}
 
-	auto FComponentTransactionAnnotation::FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
-	{
-		return Data.FindAndReplaceInstances(Map);
-	}
-
 	auto FActorTransactionAnnotation::FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
 	{
 		FActorTransactionAnnotation Rebound(*this);
@@ -138,12 +133,6 @@ namespace Durin
 	FComponentInstanceLifecycleState::FComponentInstanceLifecycleState(const DActorComponent& Component)
 		: Target(&Component), State(Component.CaptureLifecycleState()) {}
 	auto FComponentInstanceLifecycleState::IsDefault() const -> bool { return State == FActorComponentLifecycleState{}; }
-	auto FComponentInstanceLifecycleState::DefaultFor(const DActorComponent& Component) -> FComponentInstanceLifecycleState
-	{
-		auto Data = FComponentInstanceLifecycleState(Component);
-		Data.State = {};
-		return Data;
-	}
 	auto FComponentInstanceLifecycleState::Validate() const -> FTransactionCaptureResult
 	{
 		if (auto Result = ValidateReferences(); !Result) return Result;

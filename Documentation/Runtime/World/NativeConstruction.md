@@ -224,11 +224,10 @@ construction/callback work; no transaction-only replay/completion booleans remai
 
 ## Transaction Reconstruction
 
-Engine-owned `FActorTransactionAnnotation` and
-`FComponentTransactionAnnotation` supplement authored object serialization with
-native lifecycle and Tick state. Actor-wide component checkpoints are retained
-by the Actor annotation; independently recorded component checkpoints stay with
-the component annotation. Both delegate transitions exclusively to the component.
+Actor reconstruction uses `FActorTransactionAnnotation` to retain native lifecycle
+and Tick state for the Actor and its components. Recording a component alone
+captures its authored fields. An operation that needs Actor-wide lifecycle
+recovery records the Actor before the edit.
 Reconstruction caches have no lifecycle capture mode or lifecycle application
 branch. They retain exact authored components and use
 the owning Actor, construction key and exact class for generated components.
@@ -239,7 +238,7 @@ fields load; generated keys may be absent until reconstruction publishes them.
 Historical completion respects final structural membership. An Actor removed
 from its World Level is not reconstructed or activated by an older annotation;
 an absent component likewise keeps its identity and authored fields without
-restoring registration. Component annotation preflight checks references, while
+restoring registration. Actor annotation preflight checks references, while
 native lifecycle admission runs after structural replay has settled ownership.
 During replay, the serialized instance array may precede native membership
 publication. The presence primitive avoids duplicate array entries and Actor
@@ -253,10 +252,7 @@ consistently. Actor completion reconciles authored ownership, performs one nativ
 reconstruction request,
 restores supplemental component state through lifecycle APIs, and publishes the
 full-object completion. Already settled registration/creation/initialization
-states do not run their callbacks again. A component whose entire supplemental
-state is default needs no allocated annotation; its serialized record's empty
-annotation denotes that default state. Custom-only records keep ordinary
-completion and continue to own their lifecycle changes.
+states do not run their callbacks again.
 
 `FActorTransactionAnnotation::CreateIfRequired` and `HasInstanceData` omit an
 Actor annotation when its instance/root recovery data and supplemental Tick

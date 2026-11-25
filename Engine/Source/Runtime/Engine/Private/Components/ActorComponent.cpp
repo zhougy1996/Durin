@@ -10,7 +10,6 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Engine/ComponentInstanceDataCache.h"
-#include "Engine/TransactionAnnotations.h"
 #include "Components/SceneComponent.h"
 
 namespace Durin
@@ -29,30 +28,6 @@ namespace Durin
 	}
 	auto DActorComponent::GetComponentInstanceData() const -> std::shared_ptr<FActorComponentInstanceData> { return {}; }
 
-	auto DActorComponent::FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>
-	{
-		if (IsTemplateObject()) return nullptr;
-		auto State = std::make_shared<FComponentTransactionAnnotation>(*this);
-		return State->IsDefault() ? nullptr : State;
-	}
-	auto DActorComponent::PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void
-	{
-		if (IsTemplateObject()) { static_cast<DObject*>(this)->PostEditUndo(); return; }
-		const auto* Owner = GetOwner();
-		const auto* Level = Owner ? Cast<DLevel>(Owner->GetOuter()) : nullptr;
-		// Membership commands settle before completion. Historical property data
-		// must not reactivate an absent component or an unpublished owning Actor.
-		const bool bAbsent = Owner && (!Owner->OwnsComponent(this)
-			|| (Level && Level->GetWorld() && !Level->ContainsActor(Owner)));
-		if (Annotation)
-		{
-			auto State = std::dynamic_pointer_cast<FComponentTransactionAnnotation>(Annotation);
-			if (!State || State->GetComponent() != this) throw std::runtime_error("Component transaction annotation is incompatible.");
-			if (!bAbsent) State->Restore();
-		}
-		else if (!bAbsent) FComponentInstanceLifecycleState::DefaultFor(*this).Restore();
-		static_cast<DObject*>(this)->PostEditUndo();
-	}
 	auto DActorComponent::CaptureLifecycleState() const -> FActorComponentLifecycleState
 	{
 		if (IsBeingDestroyed() || IsBeginningPlay() || IsEndingPlay()) throw std::runtime_error("Component lifecycle capture requires settled state.");

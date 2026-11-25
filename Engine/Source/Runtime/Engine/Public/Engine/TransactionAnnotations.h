@@ -22,7 +22,6 @@ namespace Durin
 	public:
 		FComponentInstanceLifecycleState() = default;
 		ENGINE_API explicit FComponentInstanceLifecycleState(const DActorComponent& Component);
-		ENGINE_API static auto DefaultFor(const DActorComponent& Component) -> FComponentInstanceLifecycleState;
 		ENGINE_API auto IsDefault() const -> bool;
 		ENGINE_API auto Validate() const -> FTransactionCaptureResult;
 		ENGINE_API auto ValidateReferences() const -> FTransactionCaptureResult;
@@ -35,24 +34,6 @@ namespace Durin
 	private:
 		FActorComponentInstanceSourceInfo Target;
 		FActorComponentLifecycleState State;
-	};
-
-	class FComponentTransactionAnnotation final : public ITransactionObjectAnnotation
-	{
-	public:
-		FComponentTransactionAnnotation() = default;
-		explicit FComponentTransactionAnnotation(const DActorComponent& Component) : Data(Component) {}
-		auto IsDefault() const -> bool { return Data.IsDefault(); }
-		// Membership is settled by structural records before native completion.
-		auto Validate() const -> FTransactionCaptureResult override { return Data.ValidateReferences(); }
-		auto Restore() const -> void { Data.Restore(); }
-		auto AddReferencedObjects(FReferenceCollector& Collector) -> void override { Data.AddReferencedObjects(Collector); }
-		auto Serialize(FArchive& Archive) -> void override { Data.Serialize(Archive); }
-		auto GetAllocatedSize() const -> size_t override { return sizeof(*this); }
-		auto GetComponent() const -> DActorComponent* { return Data.GetComponent(); }
-		ENGINE_API auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult override;
-	private:
-		FComponentInstanceLifecycleState Data;
 	};
 
 	struct FActorTransactionAnnotationData

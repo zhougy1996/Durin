@@ -51,7 +51,7 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto PreEditUndo() -> void override;
 		ENGINE_API auto PostEditUndo() -> void override;
-		ENGINE_API auto PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void override;
+		using Super::PostEditUndo;
 
 		ENGINE_API auto GetRelativeTransform() const -> const FTransform&;
 		ENGINE_API auto SetRelativeTransform(const FTransform& InTransform) -> void;

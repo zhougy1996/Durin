@@ -41,15 +41,14 @@ namespace Durin
 		};
 		COREDOBJECT_API auto PrepareObjectReplacement(const FDiffableObject& Source,
 			const FObjectReplacementMap& Map) -> std::expected<FDiffableObject, std::string>;
-		// Live ordinary objects only. Class-default override comparison is owned by
-		// the default graph; pending-kill resurrection and arbitrary archetypes are
-		// not inferred by the transaction observation path.
+		// Observe a live object under its recorded serialization policy.
 		COREDOBJECT_API auto GetDiffableObject(DObject& Object,
 			const FSerializedObjectCapture* CapturePolicy = nullptr) -> std::expected<FDiffableObject, std::string>;
 		// Properties-only observation includes generated references that ordinary
 		// replay excludes. It is never an object transfer/replay payload.
 		COREDOBJECT_API auto GetDiffableObject(DObject& Object, FGetDiffableObjectOptions Options)
 			-> std::expected<FDiffableObject, std::string>;
+		// An identity-only pending-kill observation compares restored data against the native template.
 		COREDOBJECT_API auto GenerateObjectDiff(const FDiffableObject& OldObject, const FDiffableObject& NewObject,
 			const FGenerateObjectDiffOptions& Options = {}) -> std::expected<FTransactionObjectChange, std::string>;
 	}

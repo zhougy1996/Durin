@@ -251,7 +251,9 @@ namespace Durin
 			const auto Policy = Baseline->GetSerializedCapture();
 			auto Live = DiffUtil::GetDiffableObject(*Object, &Policy);
 			if (!Live) return std::unexpected(Live.error());
-			auto Diff = DiffUtil::GenerateObjectDiff(Baseline->Observation, *Live);
+			FDiffableObject Dead{.ObjectInfo = Baseline->Observation.ObjectInfo};
+			Dead.ObjectInfo.bIsPendingKill = true;
+			auto Diff = DiffUtil::GenerateObjectDiff(Dead, *Live);
 			if (!Diff) return std::unexpected(Diff.error());
 			Change = std::move(*Diff);
 		}

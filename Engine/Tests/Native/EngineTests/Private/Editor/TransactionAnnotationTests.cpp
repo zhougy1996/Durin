@@ -183,38 +183,30 @@ TEST(FTransBufferTests, WholeAnnotationKeepsFirstStateThroughRepeatedCapture)
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 2); EXPECT_EQ(Target->SupplementalValue, 7);
 }
 
-TEST(FEngineTransactionAnnotationTests, WholeRecordRestoresNativeRegistration)
+TEST(FEngineTransactionAnnotationTests, StandaloneComponentRecordsAuthoredFieldsWithoutLifecycleCheckpoints)
 {
-	using namespace Durin; using namespace Durin;
-	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
-	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("FocusedNativeActor"); ASSERT_NE(Actor, nullptr);
-	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
-	auto* Member = Root->GetClass()->FindPropertyByName("CreationMethod"); ASSERT_NE(Member, nullptr);
-	FPropertyValueSnapshotPayload Before; ASSERT_TRUE(CapturePropertyValuePayload(Member, Root, 0, Before, true));
-	{
-		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Focused native record"});
-		ASSERT_TRUE(Root->Modify(false));
-		Root->UnregisterComponent();
-	}
-	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
-	ASSERT_TRUE(Buffer->Undo()); EXPECT_TRUE(Root->IsRegistered()); EXPECT_EQ(Root->Registered, 2u);
-	ASSERT_TRUE(Buffer->Redo()); EXPECT_FALSE(Root->IsRegistered()); EXPECT_EQ(Root->Registered, 2u);
-}
-
-TEST(FEngineTransactionAnnotationTests, DefaultComponentAnnotationIsImplicitAndRestoresDefaultNativeState)
-{
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
-	TStrongObjectPtr<DSceneComponent> Component(NewObject<DSceneComponent>(nullptr, "DefaultComponentAnnotation"));
+	TStrongObjectPtr<DTransactionLifecycleScene> Component(NewObject<DTransactionLifecycleScene>(nullptr, "ComponentHistory"));
 	Component->SetFlags(EObjectFlags::Transactional);
-	EXPECT_FALSE(Component->FindOrCreateTransactionAnnotation());
 	{
-		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Default native snapshot"}); ASSERT_TRUE(Component->Modify());
+		Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Change native Tick"});
+		ASSERT_TRUE(Component->Modify());
 		Component->SetComponentTickEnabled(true);
 	}
-	ASSERT_TRUE(Component->FindOrCreateTransactionAnnotation());
-	ASSERT_TRUE(Buffer->Undo()); EXPECT_FALSE(Component->IsComponentTickEnabled()); EXPECT_FALSE(Component->FindOrCreateTransactionAnnotation());
-	ASSERT_TRUE(Buffer->Redo()); EXPECT_TRUE(Component->IsComponentTickEnabled());
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+	Component->TransactionObserver = [](auto&, const FTransactionObjectEvent& Event) { EXPECT_FALSE(Event.Annotation); };
+	const auto Before = Component->GetRelativeLocation();
+	{
+		Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Move component"});
+		ASSERT_TRUE(Component->Modify());
+		Component->SetRelativeLocation({17.0, 0.0, 0.0});
+		Component->SetComponentTickEnabled(false);
+	}
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Component->GetRelativeLocation(), Before); EXPECT_FALSE(Component->IsComponentTickEnabled());
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Component->GetRelativeLocation().x, 17.0);
 }
 
 TEST(FEngineTransactionAnnotationTests, ExplicitAnnotationArchiveRoundTripsNativeStateWithoutDuplicatingCreation)
@@ -439,7 +431,7 @@ TEST(FEngineTransactionAnnotationTests, AttachmentReverseLinksAreSettledBeforeHi
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
 	ASSERT_TRUE(Root->AttachToComponent(First->GetRootComponent()));
 	{
-		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Attachment callback state"}); ASSERT_TRUE(Root->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Attachment callback state"}); ASSERT_TRUE(Actor->Modify()); ASSERT_TRUE(Root->Modify());
 		ASSERT_TRUE(Root->AttachToComponent(Second->GetRootComponent())); Root->UnregisterComponent();
 	}
 	bool Called = false;
@@ -458,7 +450,7 @@ TEST(FEngineTransactionAnnotationTests, IncompatibleActorAnnotationReleasesShare
 	FTransactionEngineWorld Fixture;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("WrongAnnotationSuspension");
 	Actor->PreEditUndo();
-	EXPECT_THROW(Actor->PostEditUndo(std::make_shared<FComponentTransactionAnnotation>(*Actor->GetRootComponent())), std::runtime_error);
+	EXPECT_THROW(Actor->PostEditUndo(std::make_shared<FRecordTestAnnotation>(0, nullptr)), std::runtime_error);
 	const auto Before = Actor->ConstructionCalls;
 	ASSERT_TRUE(Actor->RerunConstructionScripts()); EXPECT_EQ(Actor->ConstructionCalls, Before + 1);
 }

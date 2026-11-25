@@ -1,7 +1,8 @@
 #include "DObject/TransactionSerialization.h"
 #include "Threading/RunnableThread.h"
 #include "CoreGlobals.h"
-#include "DObject/TransactionDiff.h"
+#include "TransactionDiffPrivate.h"
+#include "DObject/DefaultObjectGraph.h"
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -182,8 +183,8 @@ namespace Durin
 	class FSerializedObjectDataWriter final : public FTransactionArchive
 	{
 	public:
-		FSerializedObjectDataWriter(DObject& Object, FSerializedObject& InData, FTransactionSerializationContext& Context, bool FrozenPolicy, bool PropertiesOnly)
-			: FTransactionArchive(Object, false, Context.ExcludedMembers), Data(InData), References(Context.ReferenceSlots), bFrozenPolicy(FrozenPolicy), bPropertiesOnly(PropertiesOnly) {}
+		FSerializedObjectDataWriter(DObject& Object, FSerializedObject& InData, FTransactionSerializationContext& Context, bool FrozenPolicy, bool PropertiesOnly, const FDefaultObjectGraphMap* InGraph)
+			: FTransactionArchive(Object, false, Context.ExcludedMembers), Data(InData), References(Context.ReferenceSlots), bFrozenPolicy(FrozenPolicy), bPropertiesOnly(PropertiesOnly), Graph(InGraph) {}
 
 		auto Tell() const -> uint64 override { return Data.Bytes.size(); }
 		auto SerializeRawBytes(FMutableByteView Bytes) -> void override
@@ -194,13 +195,17 @@ namespace Durin
 		{
 			if (!IsCurrentFieldAvailable()) return;
 			References.push_back({Tell(), true});
-			FTransactionArchive::SerializeWeakObjectReference(Value);
+			auto Key = Value.GetKey();
+			if (Graph)
+				if (const auto* Instance = Graph->FindInstance(Value.Get())) Key = FObjectKey(Instance);
+			Key.SerializeForSnapshot(*this);
 		}
 		auto SerializeObjectReference(DObject*& Value) -> void override
 		{
 			if (!IsCurrentFieldAvailable()) return;
 			References.push_back({Tell(), false});
-			FObjectKey Key(Value); Key.SerializeForSnapshot(*this);
+			const auto* Instance = Graph ? Graph->FindInstance(Value) : nullptr;
+			FObjectKey Key(Instance ? Instance : Value); Key.SerializeForSnapshot(*this);
 			const FPersistentObjectRef Reference(Value);
 			if (!Reference.IsNull() && !std::ranges::contains(Data.HardReferences, Reference)) Data.HardReferences.push_back(Reference);
 		}
@@ -227,6 +232,7 @@ namespace Durin
 		std::vector<FSerializedObjectReferenceSlot>& References;
 		bool bFrozenPolicy;
 		bool bPropertiesOnly;
+		const FDefaultObjectGraphMap* Graph;
 	};
 
 	class FSerializedObjectDataReader final : public FTransactionArchive
@@ -260,10 +266,10 @@ namespace Durin
 	};
 
 	static auto CaptureSerializedObjectImpl(DObject& Object, const FSerializedObjectCapture* CapturePolicy, FDiffableObject* Observation,
-		bool bPropertiesOnly) -> std::expected<FSerializedObjectCapture, std::string>
+		bool bPropertiesOnly, const FDefaultObjectGraphMap* Graph = nullptr, std::span<const FName> ExcludedMembers = {}) -> std::expected<FSerializedObjectCapture, std::string>
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!CanTransactObject(Object) && !(CapturePolicy && CapturePolicy->Info.Target.Get() == &Object && Object.IsGarbage()))
+		if (!Graph && !CanTransactObject(Object) && !(CapturePolicy && CapturePolicy->Info.Target.Get() == &Object && Object.IsGarbage()))
 			return std::unexpected("Transaction capture requires a live object or a transactional published default graph.");
 		if (CapturePolicy && (!CapturePolicy->Data || !CapturePolicy->Context || CapturePolicy->Info.Target.Get() != &Object))
 			return std::unexpected("Transaction capture policy belongs to a different object.");
@@ -281,9 +287,10 @@ namespace Durin
 		State.Info.Identity = CaptureTransactionObjectIdentity(Object); State.Info.Flags = Object.GetObjectFlags();
 		State.Info.bIsPendingKill = Object.IsGarbage();
 		if (CapturePolicy) Context->ExcludedMembers = CapturePolicy->Context->ExcludedMembers;
+		else Context->ExcludedMembers.assign(ExcludedMembers.begin(), ExcludedMembers.end());
 		try
 		{
-			FSerializedObjectDataWriter Writer(Object, *Data, *Context, CapturePolicy != nullptr, bPropertiesOnly);
+			FSerializedObjectDataWriter Writer(Object, *Data, *Context, CapturePolicy != nullptr, bPropertiesOnly, Graph);
 			{
 				auto Scope = Writer.EnterObject(Object);
 				if (!Writer.IsError())
@@ -313,6 +320,33 @@ namespace Durin
 		auto Captured = CaptureSerializedObjectImpl(Object, nullptr, &Observation, Options.ObjectSerializationMode == EGetDiffableObjectMode::SerializeProperties);
 		if (!Captured) return std::unexpected(Captured.error());
 		return Observation;
+	}
+
+	auto DiffUtil::GetArchetypeDiffableObject(const FDiffableObject& Restored) -> std::expected<FDiffableObject, std::string>
+	{
+		auto* Object = Restored.ObjectInfo.Target.Get();
+		if (!Object) return std::unexpected("Resurrection diff target is unavailable.");
+		std::vector<DObject*> Roots;
+		for (auto* Root = Object; Root && !Cast<DPackage>(Root); Root = Root->GetOuter())
+			Roots.push_back(Root);
+		FDefaultObjectGraphMap Graph;
+		const DObject* Template = Object->GetClass()->GetDefaultObject();
+		for (const auto* Root : Roots | std::views::reverse)
+		{
+			if (const auto* Default = Root->GetClass()->GetDefaultObject(); Default && Graph.Build(Default, Root))
+				if (const auto* Match = Graph.FindTemplate(Object)) { Template = Match; break; }
+		}
+
+		FDiffableObject Baseline;
+		if (Template)
+		{
+			// The saving archive takes a mutable object even for read-only observations.
+			auto Capture = CaptureSerializedObjectImpl(*const_cast<DObject*>(Template), nullptr, &Baseline, false, &Graph,
+				Restored.SerializationContext->ExcludedMembers);
+			if (!Capture) return std::unexpected(Capture.error());
+		}
+		else Baseline.SerializedObject = std::make_shared<FSerializedObject>();
+		return Baseline;
 	}
 
 	static auto ValidateSerializedObjectIdentity(DObject& Object, const FSerializedObjectCapture& Capture) -> FTransactionCaptureResult

@@ -191,7 +191,7 @@ to remap encoded identities that GC traversal cannot see. The editor checks for
 remaining old references and discards incompatible entries. Successful fixup
 preserves the command and annotation instances.
 
-Diffing requires the same exact target, class and compatible transfer schema. It
+Ordinary diffing requires the same exact target, class and compatible transfer schema. It
 reports actual changed reflected member names and compares the remaining native
 stream, including unnamed bytes. Reflected lengths may change without inventing
 native changes; overlapping or out-of-bounds ranges fail. Full diff compares Name,
@@ -200,12 +200,11 @@ context. Partial diff excludes metadata and compares shared tagged properties.
 `ShouldSkipProperty` filters reflected results, never native data. Opaque annotation
 changes and editor presence remain distinct from serialized field changes.
 
-This observation API admits live ordinary objects and admitted defaults. It does not resurrect expired ordinary
-identities or infer arbitrary archetypes. Class-default override comparison uses
-the existing default graph and default-delta facilities, with their graph-aware
-reference equivalence, rather than comparing different objects' exact-reference
-bytes. These existing default-comparison facilities do not imply arbitrary
-archetype or Blueprint/SCS/UCS matching in generic transaction observations.
+Resurrection reports the historical identity and compares the live tagged and
+native data with its template in the owning native default graph. References to
+corresponding graph nodes compare equal. If the owning graph cannot be matched, the object uses its published
+class default. An object without a template compares against empty data.
+Template observation is read-only and requires no transactional flag.
 Engine annotations separately establish generated-component logical identity
 with the shared instance-source matcher before comparing properties-only data.
 

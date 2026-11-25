@@ -588,8 +588,7 @@ namespace Durin
 			if (!Object) continue;
 			if (Type == ETransactionObjectEventType::UndoRedo)
 			{
-				// Durin components encode their default lifecycle state as an empty annotation.
-				if (Annotation || (Cast<DActorComponent>(Object) && !std::holds_alternative<std::unique_ptr<FCommandChange>>(Record->Data)))
+				if (Annotation)
 					Object->PostEditUndo(Annotation);
 				else Object->PostEditUndo();
 			}

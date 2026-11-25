@@ -118,11 +118,19 @@ TEST(FTransactionObjectRecordTests, UndoDeletionRestoresLivenessAndReferencesAcr
 	TStrongObjectPtr<DTransactionRecordParticipant> Owner(NewObject<DTransactionRecordParticipant>(nullptr, "DeleteOwner"));
 	auto* Child = NewObject<DTransactionRecordParticipant>(Owner.Get(), "DeleteChild");
 	const FObjectKey Key(Child);
+	const std::array Classes{DTransactionRecordParticipant::StaticClass()};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
 	Child->Value = 17;
 	Owner->Hard = Child;
 	int Events = 0;
 	Child->TransactionObserver = [&](const FTransactionObjectEvent& Event) {
-		if (Event.Type == ETransactionObjectEventType::UndoRedo && Event.Change.bHasPendingKillChange) ++Events;
+		if (Event.Type != ETransactionObjectEventType::UndoRedo || !Event.Change.bHasPendingKillChange) return;
+		++Events;
+		if (!Child->IsGarbage())
+		{
+			EXPECT_EQ(Event.Change.OriginalObject, Key);
+			EXPECT_EQ(Event.Change.ChangedProperties, (std::vector<FName>{"Value"}));
+		}
 	};
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Remove child"});

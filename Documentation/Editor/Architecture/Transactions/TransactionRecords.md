@@ -121,7 +121,7 @@ and history is pruned as a no-op. Event identity remains the original capture;
 transaction and operation IDs come from the live operation. Annotation additional
 changes also close against the last snapshot and preserve their `CreatedBy`.
 Ordinary replay events use the stored finalized delta. Resurrection also compares
-the live object after completion with its retained inverse baseline. Array records
+the live object after completion with its native archetype. Array records
 have no finalized property delta; their replay notification requires a restored
 annotation.
 Actor annotations now supply generated-component additional changes through this
@@ -173,10 +173,8 @@ restored side's annotation through annotation-aware PostEditUndo. Completion ann
 collector-visible through callbacks and are released at operation end. An
 annotation alone retains a record despite equal serialized bytes.
 
-The selected record supplies the completion annotation. An empty annotation normally
-invokes ordinary PostEditUndo. Durin components with a selected serialized record
-receive the annotation overload even when empty so they can restore their implicit
-default lifecycle state. See
+The selected record supplies the completion annotation. An empty annotation invokes ordinary PostEditUndo. Standalone component records
+capture authored fields. Actor reconstruction owns native lifecycle recovery. See
 [native construction](../../../Runtime/World/NativeConstruction.md#transaction-reconstruction).
 
 Each retained payload enumerates its exact hard edges through the enclosing
@@ -247,7 +245,7 @@ Whole-object records rebind their target, load and flip slots and any recording 
 Immutable serialized payloads use copy-on-write when embedded object keys change.
 Weak slots are remapped without adding GC ownership. Commands and ordinary
 annotations expose writable references through `AddReferencedObjects`; the
-buffer retains their instances. Actor/component annotations additionally remap
+buffer retains their instances. Actor annotations additionally remap
 typed reconstruction data, including historical paths of absent generated objects.
 If a record retains a replaced participant or cannot rebind required state, its
 whole transaction is discarded. Cross-package peers keep their edits and are

@@ -96,6 +96,45 @@ TEST(FTransactionTemplateTests, DefaultSubobjectHistoryResolvesRecreatedGraphWit
 	Component->ClearFlags(EObjectFlags::Transactional);
 }
 
+TEST(FTransactionTemplateTests, ResurrectionUsesTheOwningClassDefaultSubobject)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Class = AStaticMeshActor::StaticClass();
+	const std::array Classes{Class};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	auto* Default = static_cast<const AStaticMeshActor*>(Class->GetDefaultObject());
+	ASSERT_NE(Default, nullptr);
+	auto* Template = Default->GetStaticMeshComponent();
+	ASSERT_NE(Template, nullptr);
+	TStrongObjectPtr<AStaticMeshActor> Actor(NewObject<AStaticMeshActor>(nullptr, "ResurrectionMeshActor"));
+	auto* Component = Actor->GetStaticMeshComponent();
+	ASSERT_NE(Component, nullptr);
+	const auto Original = Template->GetRelativeTransform();
+	struct FRestoreTemplate
+	{
+		DStaticMeshComponent* Component;
+		FTransform Transform;
+		~FRestoreTemplate() { Component->SetRelativeTransform(Transform); }
+	} Restore{Template, Original};
+	Template->SetRelativeLocation({37.0, 0.0, 0.0});
+	Component->SetRelativeTransform(Template->GetRelativeTransform());
+	auto ChangesFromTemplate = [](DObject& Target) -> std::expected<FTransactionObjectChange, std::string> {
+		auto Live = DiffUtil::GetDiffableObject(Target);
+		if (!Live) return std::unexpected(Live.error());
+		FDiffableObject Dead{.ObjectInfo = Live->ObjectInfo};
+		Dead.ObjectInfo.bIsPendingKill = true;
+		return DiffUtil::GenerateObjectDiff(Dead, *Live);
+	};
+	auto Owner = ChangesFromTemplate(*Actor); ASSERT_TRUE(Owner) << Owner.error();
+	EXPECT_FALSE(std::ranges::contains(Owner->ChangedProperties, FName("RootComponent")));
+	auto Same = ChangesFromTemplate(*Component); ASSERT_TRUE(Same) << Same.error();
+	EXPECT_FALSE(std::ranges::contains(Same->ChangedProperties, FName("RelativeTransform")));
+	Component->SetRelativeTransform(Original);
+	auto Changed = ChangesFromTemplate(*Component); ASSERT_TRUE(Changed) << Changed.error();
+	EXPECT_TRUE(std::ranges::contains(Changed->ChangedProperties, FName("RelativeTransform")));
+}
+
 namespace
 {
 	class FReinstancedValueCommand final : public Durin::FCommandChange
@@ -475,20 +514,18 @@ TEST_F(FTransactionReinstancingTests, ResetAfterPreparationPublishesEmptyHistory
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
-TEST_F(FTransactionReinstancingTests, ComponentAnnotationRebindsExactTargetWithoutLifecycleCallbacks)
+TEST_F(FTransactionReinstancingTests, ActorLifecycleStateRebindsExactComponentWithoutCallbacks)
 {
 	using namespace Durin;
 	auto* BeforeActor = NewObject<DTransactionConstructionActor>(Current, "Actor");
 	auto* AfterActor = NewObject<DTransactionConstructionActor>(Candidate, "Actor");
 	auto* BeforeRoot = static_cast<DTransactionLifecycleScene*>(BeforeActor->GetRootComponent());
 	auto* AfterRoot = static_cast<DTransactionLifecycleScene*>(AfterActor->GetRootComponent());
-	std::shared_ptr<ITransactionObjectAnnotation> Source = std::make_shared<FComponentTransactionAnnotation>(*BeforeRoot);
+	FComponentInstanceLifecycleState State(*BeforeRoot);
 	FObjectReplacementMap Map; ASSERT_TRUE(Map.Build(std::span(&Pair, 1)));
-	auto Replaced = ReinstanceTransactionAnnotation(Source, Map);
+	auto Replaced = State.FindAndReplaceInstances(Map);
 	ASSERT_TRUE(Replaced) << Replaced.error();
-	const auto* Annotation = dynamic_cast<const FComponentTransactionAnnotation*>(Source.get());
-	ASSERT_NE(Annotation, nullptr);
-	EXPECT_EQ(Annotation->GetComponent(), AfterRoot);
+	EXPECT_EQ(State.GetComponent(), AfterRoot);
 	EXPECT_EQ(AfterRoot->Created, 0u); EXPECT_EQ(AfterRoot->Registered, 0u);
 }
 

@@ -77,10 +77,7 @@ namespace Durin
 		ENGINE_API auto DestroyComponent() -> void;
 
 		ENGINE_API auto BeginDestroy() -> void override;
-		using DObject::PostEditUndo;
 		ENGINE_API virtual auto GetComponentInstanceData() const -> std::shared_ptr<FActorComponentInstanceData>;
-		ENGINE_API auto FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation> override;
-		ENGINE_API auto PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void override;
 
 		auto IsRegistered() const -> bool { return bRegistered; }
 		auto SetCreationMethod(EComponentCreationMethod Method) -> void { CreationMethod = Method; }
