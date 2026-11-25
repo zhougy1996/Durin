@@ -138,6 +138,7 @@ namespace
 			Durin::InitRenderingThread();
 			bStarted = true;
 			RendererLifecycle.Start(Renderer);
+			ASSERT_TRUE(Durin::InitializeDefaultMaterialService());
 			Engine.SetTestRendererModule(&Renderer);
 			Durin::GEngine = &Engine;
 			struct FBeginThumbnailFrame
@@ -184,6 +185,7 @@ namespace
 			Durin::FlushRenderingCommands();
 			Durin::GEngine = nullptr;
 			Durin::FTexturePreview::ReleaseSharedResources();
+			Durin::ShutdownDefaultMaterialService();
 			RendererLifecycle.Shutdown();
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
@@ -271,6 +273,30 @@ TEST_F(FThumbnailVulkanTests, DefaultWaterCaptureCompletesOnPreviewSphere)
 	ASSERT_EQ(Result.State, EAssetThumbnailState::Ready) << Result.Diagnostic;
 	EXPECT_NE(Result.Texture, nullptr);
 	EXPECT_EQ(Pool.GetStats().Generation.Readbacks, 1u);
+
+	Tests::FAssetThumbnailTestPool Capture(Contract);
+	ASSERT_TRUE(Capture.IsAvailable()) << Capture.GetDiagnostic();
+	FByteBuffer Background, SpherePixels;
+	std::string Error;
+	ASSERT_TRUE(Capture.BeginCapture(true));
+	ASSERT_TRUE(Capture.FinishCapture(Background, Error)) << Error;
+	Capture.Reset();
+	auto* Mesh = Capture.GetSphereMesh();
+	auto* Material = LoadObject<DMaterial>(Asset.AssetPath);
+	ASSERT_TRUE(Mesh && Material);
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	FTransform Transform;
+	Transform.Scale3D = FVector3(1.65);
+	ASSERT_TRUE(Capture.SetMaterial(Mesh, Material, Transform));
+	ASSERT_TRUE(Capture.BeginCapture(true));
+	ASSERT_TRUE(Capture.FinishCapture(SpherePixels, Error)) << Error;
+	ASSERT_EQ(SpherePixels.size(), Background.size());
+	ASSERT_EQ(Background.size(), size_t(Contract.Output.Width) * Contract.Output.Height * 4);
+	const size_t Center = (Contract.Output.Height / 2 * Contract.Output.Width + Contract.Output.Width / 2) * 4;
+	auto Pixel = [](const FByteBuffer& Image, size_t Offset) { return std::span(Image).subspan(Offset,4); };
+	EXPECT_EQ(Background[Center+3], std::byte{255});
+	EXPECT_TRUE(std::ranges::equal(Pixel(SpherePixels,0), Pixel(Background,0)));
+	EXPECT_FALSE(std::ranges::equal(Pixel(SpherePixels,Center).first(3), Pixel(Background,Center).first(3)));
 }
 #endif
 

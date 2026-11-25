@@ -13,6 +13,7 @@
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Rendering/StaticMeshSceneProxy.h"
+#include "Rendering/SkyBoxSceneProxy.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Texture/TextureCube.h"
 #include "RendererModule.h"
@@ -345,6 +346,7 @@ TEST(FWaterRenderingPathVulkanTests, SingleLayerWaterSnapshotsAndKeepsNearestDep
 			.StaticProperties = Properties, .CompiledProgram = std::make_shared<const FMaterialProgram>(Compiled.Resource)});
 		return Proxy;
 	};
+	const auto Sky = Material({.ShadingModel = EMaterialShadingModel::Unlit}, {.1f, .35f, .8f});
 	const auto Bed = Material({.bTwoSided = true}, {1, 1, 1});
 	const auto Post = Material({.bTwoSided = true}, {0, 1, 0});
 	const auto Overlay = Material({.BlendMode = EMaterialBlendMode::Translucent,
@@ -388,6 +390,7 @@ TEST(FWaterRenderingPathVulkanTests, SingleLayerWaterSnapshotsAndKeepsNearestDep
 		bool bSwap = false;
 		bool bPost = false;
 		bool bMixedDepth = false;
+		bool bSky = false;
 	};
 	static FRDGCapture* Sink = nullptr;
 	const auto Render = [&](bool bReversed, FVariant Variant, FCapture& Out,
@@ -403,7 +406,13 @@ TEST(FWaterRenderingPathVulkanTests, SingleLayerWaterSnapshotsAndKeepsNearestDep
 			FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
 				std::make_unique<FStaticMeshSceneProxy>(Mesh ? Mesh : Grid.get(), std::vector{Proxy}), Transform);
 		};
-		Add(700, .8, Bed);
+		if (Variant.bSky)
+		{
+			FSkyBoxSceneData Background;
+			Background.MaterialOverride = Sky;
+			ASSERT_TRUE(FSceneInterfaceTestAccess::TryAddSkyBoxProxy(*Scene, std::make_unique<FSkyBoxSceneProxy>(std::move(Background))));
+		}
+		else Add(700, .8, Bed);
 		if (Variant.bOverlay) Add(701, Variant.bMixedDepth ? .36 : Variant.bPost ? .25 : .5, Overlay);
 		if (Variant.bFront)
 			Add(Variant.bSwap ? 703 : 702, .35, FrontWater ? FrontWater : (Variant.bHole ? Hole : Water), 1.0, FrontGrid);
@@ -438,6 +447,13 @@ TEST(FWaterRenderingPathVulkanTests, SingleLayerWaterSnapshotsAndKeepsNearestDep
 	{
 		SCOPED_TRACE(bReversed);
 		FCapture BedOnly, NoWater, Front, Back, HoleAtFront, Swapped, PostOnly, PostAndWater;
+		FCapture SkyOnly, SkyWithOverlay, SkyThroughWater;
+		Render(bReversed, {.bSky = true}, SkyOnly);
+		Render(bReversed, {.bOverlay = true, .bSky = true}, SkyWithOverlay);
+		Render(bReversed, {.bOverlay = true, .bFront = true, .bSky = true}, SkyThroughWater);
+		ASSERT_FALSE(HasFailure());
+		EXPECT_NE(SkyOnly.Pixels, SkyWithOverlay.Pixels);
+		EXPECT_EQ(SkyThroughWater.Pixels, SkyOnly.Pixels);
 		Render(bReversed, {}, BedOnly);
 		Render(bReversed, {.bOverlay = true}, NoWater);
 		Render(bReversed, {.bOverlay = true, .bFront = true, .bBack = true}, Front);

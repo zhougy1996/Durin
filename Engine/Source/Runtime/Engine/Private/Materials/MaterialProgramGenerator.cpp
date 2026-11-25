@@ -146,7 +146,8 @@ namespace Durin
 	static auto GenerateMaterialProgramSlangImpl(const MIR::FModule& IR,
 		const FMaterialRenderLayout& Layout,
 		std::span<const FMaterialParameterCollectionLayout> Collections,
-		std::string& OutSource, std::optional<EMaterialEvaluationStage> StageFilter = {}, const FVertexFactoryType* VertexFactory = nullptr) -> std::expected<void, std::string>
+		std::string& OutSource, std::optional<EMaterialEvaluationStage> StageFilter = {}, const FVertexFactoryType* VertexFactory = nullptr,
+		bool bSkyBackground = false) -> std::expected<void, std::string>
 	{
 		OutSource.clear();
 		if (IR.bAggregateAttributes || std::ranges::any_of(IR.Nodes, [](const auto& Node) {
@@ -331,7 +332,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				});
 			});
 			const bool EmitCustom = !bVertex && !CustomOutputs.empty();
-			const bool EmitSky = !bVertex && !EmitCustom && std::ranges::any_of(IR.Nodes, [](const auto& Node) {
+			const bool EmitSky = bSkyBackground && std::ranges::any_of(IR.Nodes, [](const auto& Node) {
 				return Node.Opcode == EMaterialProgramOpcode::ProceduralSkyRadiance;
 			});
 			if (EmitSky) OutSource += "#define DURIN_MATERIAL_PROCEDURAL_SKY 1\n";
@@ -354,7 +355,14 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				: EmitSky ? "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input, float3 proceduralSkyRadiance = float3(0))\n{\n"
 				: !EmitCustom ? "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)\n{\n"
 				: "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input, out FMaterialCustomOutputs customOutputs)\n{\n";
-            if (!bVertex && PixelNeedsPrimitiveData) OutSource += "    MaterialPrimitiveUniform MaterialPrimitive = TranslateMaterialPrimitive(GetMaterialPrimitiveData(input.sceneInstanceId), MaterialView);\n";
+			if (!bVertex && PixelNeedsPrimitiveData)
+			{
+				if (bSkyBackground)
+					OutSource += "    MaterialPrimitiveUniform MaterialPrimitive = (MaterialPrimitiveUniform)0;\n"
+						"    float4x4 identity = float4x4(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1);\n"
+						"    MaterialPrimitive.LocalToWorld = MaterialPrimitive.WorldToLocal = MaterialPrimitive.NormalToWorld = identity;\n";
+				else OutSource += "    MaterialPrimitiveUniform MaterialPrimitive = TranslateMaterialPrimitive(GetMaterialPrimitiveData(input.sceneInstanceId), MaterialView);\n";
+			}
 			std::vector<std::string> Expressions(IR.Nodes.size());
 			uint32 LocalIndex = 0;
 			if (!bVertex)
@@ -1215,7 +1223,8 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			});
 			auto Request = CommonRequest;
 			if (!GenerateMaterialProgramSlangImpl(Projected, Translation.Layout, Translation.ActiveCollections, Request.Source,
-				Vertex ? EMaterialEvaluationStage::Vertex : EMaterialEvaluationStage::Pixel, Descriptor->VertexFactory ? Descriptor->VertexFactory() : nullptr)) return {};
+				Vertex ? EMaterialEvaluationStage::Vertex : EMaterialEvaluationStage::Pixel, Descriptor->VertexFactory ? Descriptor->VertexFactory() : nullptr,
+				Descriptor->Entry == EMaterialShaderEntry::SkyBackground)) return {};
 			Request.VirtualPath = "/Generated/MaterialStages/" + FXxHash128::HashBuffer(Request.Source).ToString();
 			Request.EntryPoints = {Contract.Shader.EntryPoint}; Request.Frequencies = {Contract.Shader.Frequency};
 			Request.Macros = GetMaterialShaderCompilationOptions(Contract.Shader.ShaderType,

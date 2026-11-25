@@ -200,11 +200,12 @@ TEST(FMaterialShaderStageTests, CanonicalEntryContractUsesStableShaderTypes)
 		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
 		"VertexMain", "SplineVertexMain"};
 	const auto EntryPoints = GetMaterialCompiledEntryPoints();
-	ASSERT_EQ(EntryPoints.size(), 9u);
+	ASSERT_EQ(EntryPoints.size(), 10u);
 	EXPECT_TRUE(std::ranges::equal(std::span(EntryPoints).first(6), Names));
 	EXPECT_EQ(EntryPoints[6], "PostProcessMaterialMain");
 	EXPECT_EQ(EntryPoints[7], "SingleLayerWaterFragmentMain");
-	EXPECT_EQ(EntryPoints.back(), "SingleLayerWaterDepthFragmentMain");
+	EXPECT_EQ(EntryPoints[8], "SingleLayerWaterDepthFragmentMain");
+	EXPECT_EQ(EntryPoints.back(), "SkyBackgroundMain");
 	EXPECT_EQ(GetDefaultMaterialShaderEntries().size(), 6u);
 	const auto Options = MakeMaterialShaderCompileRequest(FMaterialTranslatedProgram{.Status = EMaterialProgramStatus::Ok}, false);
 	ASSERT_EQ(Options.EntryPoints.size(), 6u);
@@ -3149,6 +3150,11 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 		{
 			ASSERT_EQ(Stage.Reflection.ResourceBindings.size(), 1u);
 			EXPECT_EQ(Stage.Reflection.ResourceBindings.front().Name, "HitProxy");
+		}
+		else if (Stage.SourceEntryPoint == "SkyBackgroundMain")
+		{
+			ASSERT_EQ(Stage.Reflection.ResourceBindings.size(), 1u);
+			EXPECT_EQ(Stage.Reflection.ResourceBindings.front().Name, "MaterialSky");
 		}
 		else if (Stage.Frequency == EShaderFrequency::Fragment) EXPECT_TRUE(Stage.Reflection.ResourceBindings.empty()) << Stage.SourceEntryPoint;
 	}

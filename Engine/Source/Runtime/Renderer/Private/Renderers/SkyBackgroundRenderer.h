@@ -15,21 +15,21 @@ namespace Durin
 	struct FSkyBoxSceneData;
 
 	// Owns SkyBox shaders, pipelines, geometry, and draw submission.
-	class FSkyBoxRenderer final
+	class FSkyBackgroundRenderer final
 	{
 	public:
-		FSkyBoxRenderer(
+		FSkyBackgroundRenderer(
 			FDefaultTextureResources& InDefaultTextures, RendererPrivate::FSurfaceMaterialResources& InMaterials
 		);
-		~FSkyBoxRenderer();
+		~FSkyBackgroundRenderer();
 
-		FSkyBoxRenderer(const FSkyBoxRenderer&) = delete;
-		auto operator=(const FSkyBoxRenderer&) -> FSkyBoxRenderer& = delete;
+		FSkyBackgroundRenderer(const FSkyBackgroundRenderer&) = delete;
+		auto operator=(const FSkyBackgroundRenderer&) -> FSkyBackgroundRenderer& = delete;
 
 		auto EnsureResources_RenderThread() -> bool;
 		auto PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
 			FScene* Scene, FPreparedEnvironment& Environment) -> bool;
-		auto Draw_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
+		auto Draw_RenderThread(FRHICommandListImmediate& Commands,
 			const FPreparedEnvironment& Environment, bool bHybridBootstrap = false) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
 

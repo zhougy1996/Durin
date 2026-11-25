@@ -34,7 +34,7 @@ or specified-cube rotation does not require filtering again.
 The visible procedural background evaluates the Unlit material
 `/Engine/Materials/DefaultProceduralSky`. Its Procedural Sky Radiance expression
 receives the selected provider snapshot and normalized view direction. Captured
-Sky evaluates that provider directly and excludes the visible sun disc. SkyBox
+Sky evaluates that provider directly with the same broad solar halo and no direct sun disc. SkyBox
 material overrides affect the visible background only.
 
 Visible sky and capture use `ProceduralSky.slang`. Coordinates are +X forward,
@@ -176,7 +176,9 @@ nonuniform cube orientation, manual refresh, and retirement. Both backends
 report GPU timing diagnostics when timestamp sampling is available.
 
 `DevTool test SkyBoxVulkanIntegrationTests --timeout 600` exercises real GPU
-capture/filter readback alongside HDR cube face/mip and display sampling.
+capture/filter readback alongside HDR cube face/mip and display sampling. On
+macOS, run the same headless fixture with `DURIN_RHI_BACKEND=metal` to select
+Metal explicitly and `DURIN_TEST_KEEP_WORK=1` to retain its SkyParity buffers.
 The former Launch runtime smoke and its per-frame timing hooks have been removed.
 
 Cooked Game establishes the cooked asset domain before asset loading and maps

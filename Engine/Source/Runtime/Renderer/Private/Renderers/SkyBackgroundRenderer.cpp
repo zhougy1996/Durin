@@ -1,4 +1,4 @@
-#include "Renderers/SkyBoxRenderer.h"
+#include "Renderers/SkyBackgroundRenderer.h"
 
 #include "RenderPipelineCreation.h"
 #include "Resources/DefaultTextureResources.h"
@@ -21,42 +21,23 @@ namespace Durin
 {
 	namespace
 	{
-		class FSkyBoxVertexShader : public FGlobalShader
+		class FSkyBackgroundVertexShader : public FGlobalShader
 		{
 		public:
 			DURIN_DECLARE_GLOBAL_SHADER(
-				FSkyBoxVertexShader,
+				FSkyBackgroundVertexShader,
 				FGlobalShader,
-				"/Engine/SkyBox",
+				"/Engine/SkyBackground",
 				EShaderFrequency::Vertex,
 				"VertexMain"
 			);
 		};
 
-		class FSkyBoxFragmentShader : public FGlobalShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FSkyBoxFragmentShader)
-				DURIN_SHADER_PARAMETER_TEXTURE(SkyTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(SkySampler);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Sky);
-			DURIN_END_SHADER_PARAMETERS();
-
-			DURIN_DECLARE_GLOBAL_SHADER(
-				FSkyBoxFragmentShader,
-				FGlobalShader,
-				"/Engine/SkyBox",
-				EShaderFrequency::Fragment,
-				"FragmentMain"
-			);
-		};
-		DURIN_IMPLEMENT_GLOBAL_SHADER(FSkyBoxVertexShader);
-		DURIN_IMPLEMENT_GLOBAL_SHADER(FSkyBoxFragmentShader);
-		const FGlobalShaderSetRegistration GSkyBoxShaderSet(
-			"Renderer", "SkyBox.Default",
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FSkyBackgroundVertexShader);
+		const FGlobalShaderSetRegistration GSkyBackgroundShaderSet(
+			"Renderer", "SkyBackground.Default",
 			EShaderRequestEligibility::GameAndEditor,
-			{&FSkyBoxVertexShader::StaticType(),
-			 &FSkyBoxFragmentShader::StaticType()});
+			{&FSkyBackgroundVertexShader::StaticType()});
 	} // namespace
 
 	struct FSkyMaterialPipeline
@@ -75,24 +56,15 @@ namespace Durin
 		std::vector<TRefCountPtr<FRHIResource>> Resources;
 	};
 
-	struct FSkyBoxRenderer::FState
+	struct FSkyBackgroundRenderer::FState
 	{
-		struct FPayload
-		{
-			TShaderMapRef<FSkyBoxVertexShader> VertexShader;
-			TShaderMapRef<FSkyBoxFragmentShader> FragmentShader;
-			FGraphicsPipelineStateInitializer PipelineInitializer;
-			FGraphicsPipelineStateInitializer HybridBootstrapPipelineInitializer;
-		};
-
+		TShaderMapRef<FSkyBackgroundVertexShader> VertexShader;
 		FVertexDeclarationRHIRef VertexDeclaration;
-		FSamplerRHIRef Sampler;
 		FBufferRHIRef IndexBuffer;
-		std::optional<FPayload> Resources;
 		std::vector<std::shared_ptr<const FSkyMaterialPipeline>> Programs;
 	};
 
-	FSkyBoxRenderer::FSkyBoxRenderer(
+	FSkyBackgroundRenderer::FSkyBackgroundRenderer(
 		FDefaultTextureResources& InDefaultTextures, RendererPrivate::FSurfaceMaterialResources& InMaterials
 	)
 		: DefaultTextures(InDefaultTextures)
@@ -101,58 +73,21 @@ namespace Durin
 	{
 	}
 
-	FSkyBoxRenderer::~FSkyBoxRenderer() = default;
+	FSkyBackgroundRenderer::~FSkyBackgroundRenderer() = default;
 
-	auto FSkyBoxRenderer::EnsureResources_RenderThread() -> bool
+	auto FSkyBackgroundRenderer::EnsureResources_RenderThread() -> bool
 	{
-		using FPayload = FState::FPayload;
-
-		const auto& Map = GetGlobalShaderMap();
-		const auto Vertex = Map.GetShader<FSkyBoxVertexShader>();
-		const auto Fragment = Map.GetShader<FSkyBoxFragmentShader>();
-		State->Resources.reset();
-		FPayload Candidate;
-		Candidate.VertexShader = Vertex;
-		Candidate.FragmentShader = Fragment;
-		FRHIShader* VertexRHI =
-			Candidate.VertexShader.GetRHIShader(false);
-		FRHIShader* FragmentRHI =
-			Candidate.FragmentShader.GetRHIShader(false);
-		if (VertexRHI == nullptr || FragmentRHI == nullptr)
-		{
-			return false;
-		}
-
+		State->VertexShader = GetGlobalShaderMap().GetShader<FSkyBackgroundVertexShader>();
+		if (!State->VertexShader.GetRHIShader(false)) return false;
 		if (!State->VertexDeclaration)
 			State->VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration({});
-
-		FGraphicsPipelineStateInitializer Initializer;
-		Initializer.RenderTargetLayout =
-			RenderTargetLayouts::MakeGraphSceneTargets();
-		Initializer.BoundShaders.VertexShader =
-			VertexRHI;
-		Initializer.BoundShaders.FragmentShader =
-			FragmentRHI;
-		Initializer.VertexDeclaration =
-			State->VertexDeclaration;
-		Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-		Initializer.PipelineLayout =
-			Fragment.GetPipelineLayout();
-		Candidate.PipelineInitializer = Initializer;
-		Initializer.RenderTargetLayout =
-			RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
-		Initializer.DepthStencilState = RHICreateDepthStencilState({
-			.bEnableTest = true,
-			.bEnableWrite = false,
-			.CompareOp = ERHIDepthCompareOp::Equal});
-		Candidate.HybridBootstrapPipelineInitializer = Initializer;
 
 		if (!State->IndexBuffer)
 		{
 			const std::array<uint32, 3> FullscreenIndices = {0, 1, 2};
 			FRHIBufferCreateDesc IndexBufferDesc =
 				FRHIBufferCreateDesc::CreateIndex(
-					"SkyBoxFullscreenIndexBuffer",
+					"SkyBackgroundFullscreenIndexBuffer",
 					sizeof(FullscreenIndices),
 					sizeof(uint32)
 				);
@@ -163,25 +98,10 @@ namespace Durin
 			};
 			State->IndexBuffer = RHICreateBuffer(IndexBufferDesc);
 		}
-		if (!State->Sampler) State->Sampler =
-			RHICreateSampler(FRHISamplerDesc::LinearClamp());
-		if (!State->VertexDeclaration || !State->IndexBuffer || !State->Sampler) return false;
-		const auto& Payload = State->Resources.emplace(std::move(Candidate));
-		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
-		{
-			auto PipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.PipelineInitializer, "SkyBoxPipeline");
-			if (!PipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(PipelineState);
-			if (PipelineState->GetState() == ERHIPipelineState::Failed || PipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-			auto HybridBootstrapPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.HybridBootstrapPipelineInitializer, "SkyBoxHybridBootstrapPipeline");
-			if (!HybridBootstrapPipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(HybridBootstrapPipelineState);
-			if (HybridBootstrapPipelineState->GetState() == ERHIPipelineState::Failed || HybridBootstrapPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-		}
-		return true;
+		return State->VertexDeclaration && State->IndexBuffer;
 	}
 
-	auto FSkyBoxRenderer::PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
+	auto FSkyBackgroundRenderer::PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
 		FScene* Scene, FPreparedEnvironment& Environment) -> bool
 	{
 		using namespace RendererPrivate;
@@ -190,9 +110,17 @@ namespace Durin
 		const auto Proxy = Sky.MaterialOverride ? Sky.MaterialOverride : GetDefaultSkyMaterialProxy_RenderThread(bProcedural);
 		if (!Proxy) return false;
 		const auto& Data = Proxy->QueryMaterial_RenderThread();
+		if (Data.Representation.IsPending())
+		{
+			FRenderPipelinePreparationBatch::MarkResourcePending();
+			return false;
+		}
 		const auto Program = Data.CompiledProgram;
 		if (!Program) return false;
-		auto Found = std::ranges::find_if(State->Programs, [&](const auto& P) { return P->Program == Program; });
+		auto* Vertex = State->VertexShader.GetRHIShader(false);
+		auto Found = std::ranges::find_if(State->Programs, [&](const auto& Pipeline) {
+			return Pipeline->Program == Program && Pipeline->Vertex == Vertex;
+		});
 		if (Found == State->Programs.end())
 		{
 			const auto& Map = Program->GetShaderMap();
@@ -204,9 +132,9 @@ namespace Durin
 			auto Pipeline = std::make_shared<FSkyMaterialPipeline>();
 			Pipeline->Program = Program;
 			Pipeline->Layout = FCompiledSurfaceBindingLayout(Entry->Bindings);
-			auto Desc = FRHIShaderCreateDesc::Create("FSkyBackgroundMaterialShader", Code.Frequency, Code.Code, Code.CodeHash);
+			auto Desc = FRHIShaderCreateDesc::Create(Entry->Shader.ShaderType.c_str(), Code.Frequency, Code.Code, Code.CodeHash);
 			Desc.SetEntryPoint(Code.BinaryEntryPoint.c_str());
-			Pipeline->Vertex = State->Resources->VertexShader.GetRHIShader(false);
+			Pipeline->Vertex = Vertex;
 			Pipeline->Declaration = State->VertexDeclaration;
 			Pipeline->Fragment = GDynamicRHI->RHICreateShader(Desc);
 			FPipelineLayoutDesc Layout;
@@ -218,13 +146,17 @@ namespace Durin
 				if (Item == Set.end() || Item->Type != Parameter.Type) return false;
 				Item->Type = Parameter.RuntimeType;
 			}
-			Pipeline->Forward = State->Resources->PipelineInitializer;
-			Pipeline->Hybrid = State->Resources->HybridBootstrapPipelineInitializer;
-			for (auto* Initializer : {&Pipeline->Forward, &Pipeline->Hybrid})
-			{
-				Initializer->BoundShaders.FragmentShader = Pipeline->Fragment;
-				Initializer->PipelineLayout = Layout;
-			}
+			auto& Forward = Pipeline->Forward;
+			Forward.RenderTargetLayout = RenderTargetLayouts::MakeGraphSceneTargets();
+			Forward.BoundShaders.VertexShader = Pipeline->Vertex;
+			Forward.BoundShaders.FragmentShader = Pipeline->Fragment;
+			Forward.VertexDeclaration = Pipeline->Declaration;
+			Forward.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+			Forward.PipelineLayout = Layout;
+			Pipeline->Hybrid = Forward;
+			Pipeline->Hybrid.RenderTargetLayout = RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
+			Pipeline->Hybrid.DepthStencilState = RHICreateDepthStencilState({
+				.bEnableTest = true, .bEnableWrite = false, .CompareOp = ERHIDepthCompareOp::Equal});
 			if (State->Programs.size() == 8) State->Programs.erase(State->Programs.begin());
 			Found = State->Programs.insert(State->Programs.end(), std::move(Pipeline));
 		}
@@ -291,56 +223,19 @@ namespace Durin
 		return true;
 	}
 
-	auto FSkyBoxRenderer::Draw_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& View,
+	auto FSkyBackgroundRenderer::Draw_RenderThread(FRHICommandListImmediate& CommandList,
 		const FPreparedEnvironment& Environment, bool bHybridBootstrap) -> bool
 	{
-		if (const auto& Draw = Environment.Draw)
-		{
-			SetGraphicsPipelineState(CommandList, bHybridBootstrap ? Draw->Pipeline->Hybrid : Draw->Pipeline->Forward);
-			CommandList.SetShaderParameters(Draw->Pipeline->Fragment, Draw->Bindings);
-			CommandList.BindIndexBuffer(State->IndexBuffer, 0);
-			CommandList.DrawIndexed(3,0,0);
-			return true;
-		}
-		auto* Texture = Environment.Texture;
-		const auto& SkyBox = Environment.SkyBox;
-		const auto& Payload = State->Resources;
-		const auto* Pipeline = Payload ? &(bHybridBootstrap ? Payload->HybridBootstrapPipelineInitializer : Payload->PipelineInitializer) : nullptr;
-		if (Texture == nullptr || !Payload
-			|| !Pipeline
-			|| State->Sampler == nullptr
-			|| !Payload->VertexShader
-			|| !Payload->FragmentShader
-			|| State->IndexBuffer == nullptr)
-		{
-			return false;
-		}
-
-		SkyBoxRendering::FSkyBoxUniform Uniform;
-		if (!SkyBoxRendering::BuildUniform(View, SkyBox, Uniform))
-		{
-			return false;
-		}
-
-		SetGraphicsPipelineState(CommandList, *Pipeline);
+		const auto& Draw = Environment.Draw;
+		if (!Draw) return false;
+		SetGraphicsPipelineState(CommandList, bHybridBootstrap ? Draw->Pipeline->Hybrid : Draw->Pipeline->Forward);
+		CommandList.SetShaderParameters(Draw->Pipeline->Fragment, Draw->Bindings);
 		CommandList.BindIndexBuffer(State->IndexBuffer, 0);
-		FSkyBoxFragmentShader::FParameters Parameters;
-		Parameters.SkyTexture = Texture;
-		Parameters.SkySampler = State->Sampler;
-		Parameters.Sky = CommandList.CreateUniformBufferRange(
-			&Uniform,
-			sizeof(Uniform)
-		);
-		SetShaderParameters(
-			CommandList,
-			Payload->FragmentShader,
-			Parameters
-		);
 		CommandList.DrawIndexed(3, 0, 0);
 		return true;
 	}
 
-	auto FSkyBoxRenderer::ReleaseResources_RenderThread() -> void
+	auto FSkyBackgroundRenderer::ReleaseResources_RenderThread() -> void
 	{
 		*State = {};
 	}

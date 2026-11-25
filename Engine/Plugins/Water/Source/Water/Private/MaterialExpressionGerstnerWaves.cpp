@@ -47,7 +47,9 @@ namespace Durin
 			return Wave.Add({.Opcode = Op::PrimitiveCustomData, .Payload = MIR::FCustomDataRead{Index}});
 		};
 		const auto BaseAmplitude = ReadParameter(0);
-		const auto BaseWavelength = ReadParameter(1);
+		// Ordinary mesh previews have zeroed water parameters. Keep the zero-amplitude
+		// displacement finite when the component has supplied no wavelength.
+		const auto BaseWavelength = Wave.Binary(Op::Maximum, ReadParameter(1), Wave.Constant(.0001f));
 		const auto Speed = ReadParameter(2);
 		const auto Steepness = ReadParameter(3);
 		const auto BaseK = Wave.Binary(Op::Divide, Wave.Constant(6.28318530718f), BaseWavelength);

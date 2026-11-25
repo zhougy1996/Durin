@@ -9,7 +9,7 @@ Completed:
 ## Current Status
 
 Stage 0 selected a fullscreen material draw in the existing scene-color passes.
-The legacy renderer is still active. The inward-facing Unlit sphere prototype
+Stage 3 replaces the legacy visible shader. The inward-facing Unlit sphere prototype
 produces the expected HDR emissive color from inside the sphere, but requires a
 mesh proxy, finite geometry and ordinary mesh depth. The background draw will
 take its sky role from the selected provider, reconstruct each view's direction
@@ -32,13 +32,42 @@ is superseded by this isolated check. The fullscreen cubemap now evaluates the m
 The Win64 Debug Vulkan fixture passed the six-face, HDR, override, transparent
 clear and occlusion probes, including an authored material instance with its own
 texture and intensity. All 16 SkyBox feature tests passed, including level
-reload and transaction replay. Cooked runtime rendering remains open.
+reload and transaction replay. The source-free Game checks below cover both sky assets.
 
 Stage 2 now loads the authored `/Engine/Materials/DefaultProceduralSky` asset
 and evaluates the selected component snapshot in its emissive graph. The Win64
 Debug Vulkan integration passed after loading the saved package. Procedural sun
 and horizon samples matched the Stage 0 images exactly. Captured Sky retains its
-independent analytic capture and excludes the visible sun disc.
+independent analytic capture and excludes direct sun-disc radiance.
+
+Stage 3 removed the legacy visible fragment shader. On Win64 Vulkan the 19
+comparable Stage 0 buffers (including the half-float capture face) matched
+byte for byte in runs 4608 and 21484. The mesh prototype uses the corrected
+fixture described above. Captures and raw timer pairs are under
+`Build/UESkyRenderingAlignment/MaterialSky/{4608,21484}/SkyParity`.
+Incremental cube draw median/p95 was 7.584/8.384 and 7.104/8.288 microseconds.
+Capture update median/p95 was 0.704/0.931 and 1.181/1.189 milliseconds.
+Both runs used the vertex-only global sky shader, verified black emissive output
+without a procedural provider, and collected 32 draw pairs
+and 16 capture samples on the Stage 0 GPU. The default water material previously
+divided by a zero wavelength on ordinary preview spheres. Guarding that
+denominator restored visible sphere pixels over an opaque background. All 16
+Vulkan thumbnail tests passed. Default water backdrop policy is tracked in
+[Asset Thumbnails](../Editor/Architecture/Assets/AssetThumbnails.md).
+
+The Win64 Debug stage-3 working tree based on `fadb58341` passed all 296
+tests across SkyBox, SkyBox Vulkan, WaterSurfaceRendering Vulkan, volumetric
+cloud scenes, MaterialCompiler, MaterialRuntime, MaterialCook, shader Cook and
+the three thumbnail targets. The two depth conventions transmitted sky pixels
+through water while occluding a translucent layer behind the water. Sandbox
+and RoadWeaver Game receipts, RoadWeaverEditor, DurinAssetTool and
+DurinExportTool built successfully. A clean Sandbox Cook exported 11 packages.
+A DurinGame content probe loaded DefaultCubeSky, DefaultProceduralSky and
+GrayboxStage15 with no ShaderBuild module. The staged Sandbox executable
+loaded the default level and exited normally after 12 ticks. The Cook, staged
+export and logs are under `Build/UESkyRenderingAlignment/MaterialSky`.
+Metal visible-background and capture qualification still require a macOS GPU
+runner. The plan remains active for this acceptance gate.
 
 **Consumer inventory.** LevelEditor placement creates or transactionally
 replaces a visible SkyBox and rejects ambiguous placement. The scene accepts
@@ -123,7 +152,7 @@ LUTs, aerial perspective and UE-style general scene capture are outside this pla
   of the retained inputs and reuse the existing view-environment override
   behavior while its callers migrate. Keep opaque geometry, depth and GBuffer
   writes independent of the sky background draw.
-- [ ] Preserve existing `SkyBox` actor and component data. Resolve the stored
+- [x] Preserve existing `SkyBox` actor and component data. Resolve the stored
   texture, tint, intensity and transform into the default material at load and
   edit time. Provide an explicit authored material override and document how it
   interacts with legacy settings. Confirm save/reopen, undo/redo, texture
@@ -146,25 +175,25 @@ LUTs, aerial perspective and UE-style general scene capture are outside this pla
   publication lifetimes. Define whether any authored visual customization also
   affects capture before exposing it. Verify capture and visible output against
   their existing radiance contract, including any intentionally excluded terms.
-- [ ] Verify old level settings, source priority, parameter edits, disabled or
+- [x] Verify old level settings, source priority, parameter edits, disabled or
   removed providers, capture refresh and source-free Cook. Completion requires
   the same reference directions and transforms to agree with the baseline
   radiance in both paths within the tolerance set in Stage 0.
 
 ### Stage 3: Migrate consumers and retire the legacy visible sky shader
 
-- [ ] Migrate all registered view and content consumers. Check preview scenes,
+- [x] Migrate all registered view and content consumers. Check preview scenes,
   TextureCube thumbnails and the thumbnail cache contract. Verify that ordinary
   material thumbnails keep their existing output. Include a `DefaultWater`
   capture over a known opaque background and inspect rendered pixels to verify
   that the sphere differs from the background and stays visible. Track the
   choice of default water thumbnail background independently of the sky migration.
-- [ ] Verify sky color reaches the water snapshot with the expected far depth,
+- [x] Verify sky color reaches the water snapshot with the expected far depth,
   opaque geometry occludes the background, clouds composite in the existing
   order and transparent offscreen views remain transparent when no background
   is requested. Verify cubemap and procedural lighting with their current
   Sky Light source modes.
-- [ ] Remove `FSkyBoxRenderer` and the old visible `SkyBox.slang` shader entry
+- [x] Remove `FSkyBoxRenderer` and the old visible `SkyBox.slang` shader entry
   when all consumers use the material-backed route. Keep reusable procedural
   evaluation and capture filtering. Update the owning rendering, material and
   editor contracts after behavior is established.

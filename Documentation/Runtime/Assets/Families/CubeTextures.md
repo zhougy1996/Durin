@@ -406,10 +406,9 @@ source pixel.
 - The renderer uses a dedicated fullscreen triangle generated from
   Vulkan `VertexIndex`; its pipeline has an empty vertex declaration and binds
   no vertex buffer.
-- The sky pipeline targets the Scene Color pass with blending, culling, depth
-  testing, and depth writes disabled. It draws before static meshes; editor
-  grid, gizmos, lines, and icons are composed later and therefore remain above
-  the sky.
+- The forward background draws before opaque meshes. The hybrid scene-color
+  bootstrap tests for equal far depth with writes disabled. Both draw the
+  material emissive output before water snapshots and cloud composition.
 - The fragment shader transforms a far clip-space position through inverse
   view-projection, subtracts the camera world position, and normalizes the
   result. It then applies the inverse normalized component rotation before cube
@@ -417,7 +416,7 @@ source pixel.
 - The draw uses the view's fitted viewport and scissor, preserving black
   letterbox regions. The same path is independent of Lit/Unlit and
   Solid/Wireframe mesh settings.
-- Ready asset resources are sampled with a renderer-owned linear clamp sampler.
+- The default cubemap material samples through its material texture binding.
   Missing, rebuilding, failed, or deleted resources bind the renderer-owned
   black cube. A scene with no active sky issues no sky draw.
 - sRGB cube formats perform hardware conversion to linear on sampling. The
@@ -439,7 +438,8 @@ in [Texture Cube Workflow](../../../Editor/Guides/TextureCubeWorkflow.md).
 - `Engine/Source/Runtime/Engine/Public/Rendering/SceneInterface.h`
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
 - `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.cpp`
-- `Engine/Shaders/Slang/SkyBox.slang`
+- `Engine/Shaders/Slang/SkyBackground.slang`
+- `Engine/Shaders/Slang/Material/SurfacePasses.slang`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureCubeImportDialog.cpp`
 
 Independent procedural capture and transient environment generations follow

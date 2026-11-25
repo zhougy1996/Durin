@@ -192,12 +192,9 @@ namespace Durin
 				const auto Find = [&](std::string_view Name) {
 					return std::ranges::find_if(Types, [Name](const auto* Type) { return Type->GetName() == Name; });
 				};
-				for (const auto Name : {"FSkyBoxVertexShader", "FSkyBoxFragmentShader"})
-				{
-					const auto Type = Find(Name);
-					EXPECT_NE(Type, Types.end());
-					if (Type != Types.end()) EXPECT_TRUE(Map.HasShader(**Type));
-				}
+				const auto SkyVertex = Find("FSkyBackgroundVertexShader");
+				EXPECT_NE(SkyVertex, Types.end());
+				if (SkyVertex != Types.end()) EXPECT_TRUE(Map.HasShader(**SkyVertex));
 				const auto EditorType = Find("FEditorGridVertexShader");
 				EXPECT_NE(EditorType, Types.end());
 				if (EditorType != Types.end()) EXPECT_FALSE(Map.HasShader(**EditorType));

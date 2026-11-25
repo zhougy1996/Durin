@@ -30,7 +30,7 @@ namespace Durin
 		, DeferredDirectionalLightingRenderer(FullscreenGeometry)
 		, GroundTruthAmbientOcclusionRenderer(FullscreenGeometry)
 		, StaticMeshRenderer(Coordinator, SurfaceMaterials)
-		, SkyBoxRenderer(DefaultTextures, SurfaceMaterials)
+		, SkyBackgroundRenderer(DefaultTextures, SurfaceMaterials)
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
 		, ContactShadowRenderer(FullscreenGeometry)
 		, VolumetricCloudRenderer(Coordinator, FullscreenGeometry)
@@ -176,7 +176,7 @@ namespace Durin
 		GBufferDebugRenderer.ReleaseResources_RenderThread();
 		DeferredDirectionalLightingRenderer.ReleaseResources_RenderThread();
 		GroundTruthAmbientOcclusionRenderer.ReleaseResources_RenderThread();
-		SkyBoxRenderer.ReleaseResources_RenderThread();
+		SkyBackgroundRenderer.ReleaseResources_RenderThread();
 		EditorAssistanceRenderer.ReleaseResources_RenderThread();
 		PostProcessRenderer.ReleaseResources_RenderThread();
 		ContactShadowRenderer.ReleaseResources_RenderThread();

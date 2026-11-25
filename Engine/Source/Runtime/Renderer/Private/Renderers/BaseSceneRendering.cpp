@@ -6,7 +6,7 @@
 #include "Renderers/SceneTextureGroupParameters.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/DirectionalShadowRenderer.h"
-#include "Renderers/SkyBoxRenderer.h"
+#include "Renderers/SkyBackgroundRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
 #include "Resources/DefaultTextureResources.h"
 
@@ -72,7 +72,7 @@ namespace Durin
 		{
 			FDeferredDirectionalLightingRenderer& DeferredDirectionalLightingRenderer;
 			FStaticMeshRenderer& StaticMeshRenderer;
-			FSkyBoxRenderer& SkyBoxRenderer;
+			FSkyBackgroundRenderer& SkyBackgroundRenderer;
 			FSceneRenderTelemetry& Telemetry;
 			FResolvedSceneResources& ResolvedSceneResources;
 			auto RenderBootstrap(FRHICommandListImmediate&, const FSceneGeometryRecordInputs&) -> FSceneColorPassResult;
@@ -91,7 +91,8 @@ namespace Durin
 		const auto Completion = Graph.CreateValue<FSceneColorPassResult>("Scene.BaseValue", "scene-color-result");
 		std::optional<FRDGTextureHandle> Sky;
 		FRHITexture* SkyTexture = nullptr;
-		if (Inputs.Record.Environment)
+		if (Inputs.Record.Environment && !Inputs.Record.Environment->SkyBox.MaterialOverride
+			&& Inputs.Record.Environment->SkyBox.ProceduralSky.ToSunEnabled.w <= 0.5f)
 		{
 			SkyTexture = Inputs.Record.Environment->Texture;
 			if (!SkyTexture && Inputs.Record.Environment->SkyBox.TextureReference)
@@ -212,7 +213,7 @@ namespace Durin
 		bool bBootstrapRendered = true;
 		if (Inputs.Environment)
 		{
-			const bool bSkyRendered = SkyBoxRenderer.Draw_RenderThread(CommandList, View, *Inputs.Environment, true);
+			const bool bSkyRendered = SkyBackgroundRenderer.Draw_RenderThread(CommandList, *Inputs.Environment, true);
 			bBootstrapRendered = bSkyRendered || !Inputs.bRequireEnvironmentTexture;
 		}
 		if (!bBootstrapRendered)
@@ -269,7 +270,7 @@ namespace Durin
 
 		if (Inputs.Environment)
 		{
-			const bool bSkyRendered = SkyBoxRenderer.Draw_RenderThread(CommandList, View, *Inputs.Environment);
+			const bool bSkyRendered = SkyBackgroundRenderer.Draw_RenderThread(CommandList, *Inputs.Environment);
 			if (!bSkyRendered && Inputs.bRequireEnvironmentTexture) return false;
 		}
 

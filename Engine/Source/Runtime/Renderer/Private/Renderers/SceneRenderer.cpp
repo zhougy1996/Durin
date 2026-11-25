@@ -158,7 +158,7 @@ namespace Durin
 			.DirectionalShadowRenderer = Service.DirectionalShadowRenderer,
 			.DeferredRenderer = Service.DeferredDirectionalLightingRenderer,
 			.StaticMeshes = Service.StaticMeshRenderer,
-			.SkyBox = Service.SkyBoxRenderer,
+			.SkyBox = Service.SkyBackgroundRenderer,
 			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
 			.DefaultWhite = GraphResources.DefaultWhite,
 			.DefaultShadowArray = GraphResources.DefaultShadowArray,
