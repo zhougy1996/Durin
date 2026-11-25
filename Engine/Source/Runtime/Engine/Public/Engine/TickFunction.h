@@ -3,24 +3,26 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
+#include "DObject/StructOps.h"
+
+#include "TickFunction.gen.h"
 
 namespace Durin
 {
-	class FArchive;
 	class AActor;
 	class DActorComponent;
 	class DLevel;
 
 	// Defines the serial phase in which one registered Tick function executes.
+	DENUM()
 	enum class ETickingGroup : uint8
 	{
 		PrePhysics,
 		Physics,
-		PostPhysics,
-		Count
+		PostPhysics
 	};
 
-	// Native scheduling checkpoint shared by reregistration and historical recovery.
+	// Runtime component lifecycle state.
 	struct FTickFunctionState
 	{
 		ETickingGroup Group = ETickingGroup::PrePhysics;
@@ -34,7 +36,7 @@ namespace Durin
 	class FTickFunction
 	{
 	public:
-		ENGINE_API FTickFunction();
+		explicit FTickFunction(ETickingGroup& InGroup) : TickGroup(InGroup) {}
 		ENGINE_API virtual ~FTickFunction();
 
 		FTickFunction(const FTickFunction&) = delete;
@@ -45,7 +47,6 @@ namespace Durin
 		ENGINE_API auto CaptureState() const -> FTickFunctionState;
 		ENGINE_API static auto ValidateState(const FTickFunctionState& State, DLevel* Level) -> std::expected<void, std::string>;
 		ENGINE_API auto RestoreState(const FTickFunctionState& State, DLevel* Level) -> std::expected<void, std::string>;
-		ENGINE_API static auto SerializeState(FArchive& Archive, FTickFunctionState& State) -> void;
 
 		// Registers this stable node with one Level. Calls must remain on the game thread.
 		ENGINE_API auto RegisterTickFunction(DLevel* Level) -> void;
@@ -68,7 +69,7 @@ namespace Durin
 
 	private:
 		FTickRegistry* Registry = nullptr;
-		ETickingGroup TickGroup = ETickingGroup::PrePhysics;
+		ETickingGroup& TickGroup;
 		uint64 RegistrationOrder = 0;
 		uint64 QueuedFrame = 0;
 		uint64 ExecutedFrame = 0;
@@ -81,9 +82,16 @@ namespace Durin
 	};
 
 	// Routes a registered primary Tick function to one Actor.
-	class FActorTickFunction final : public FTickFunction
+	DSTRUCT()
+	struct FActorTickFunction final : public FTickFunction
 	{
+		GENERATED_BODY()
 	public:
+		FActorTickFunction() : FTickFunction(TickGroup) {}
+
+		DPROPERTY(Edit, Category = "Tick")
+		ETickingGroup TickGroup = ETickingGroup::PrePhysics;
+
 		auto SetTarget(AActor* InTarget) -> void { Target = InTarget; }
 		auto GetTarget() const -> AActor* { return Target; }
 
@@ -95,10 +103,29 @@ namespace Durin
 		AActor* Target = nullptr;
 	};
 
+	// Reflected value operations copy authored fields while the scheduler keeps the live node.
+	template<>
+	struct TDStructOpsTraits<FActorTickFunction> : TDStructOpsTraitsBase<FActorTickFunction>
+	{
+		static constexpr bool bWithCopyConstruct = true;
+		static constexpr bool bWithCopyAssign = true;
+
+		static auto CopyConstruct(void* Destination, const FActorTickFunction& Source) -> void
+		{
+			std::construct_at(static_cast<FActorTickFunction*>(Destination))->TickGroup = Source.TickGroup;
+		}
+
+		static auto CopyAssign(FActorTickFunction& Destination, const FActorTickFunction& Source) -> void
+		{
+			Destination.TickGroup = Source.TickGroup;
+		}
+	};
+
 	// Routes a registered primary Tick function to one Actor Component.
 	class FActorComponentTickFunction final : public FTickFunction
 	{
 	public:
+		FActorComponentTickFunction() : FTickFunction(ComponentTickGroup) {}
 		auto SetTarget(DActorComponent* InTarget) -> void { Target = InTarget; }
 		auto GetTarget() const -> DActorComponent* { return Target; }
 
@@ -108,6 +135,7 @@ namespace Durin
 		auto GetPrerequisite() const -> FTickFunction* override;
 
 	private:
+		ETickingGroup ComponentTickGroup = ETickingGroup::PrePhysics;
 		DActorComponent* Target = nullptr;
 	};
 
@@ -143,7 +171,7 @@ namespace Durin
 
 		DLevel* Level = nullptr;
 		std::vector<FTickFunction*> RegisteredTicks;
-		std::array<std::vector<FTickFunction*>, static_cast<size_t>(ETickingGroup::Count)> GroupQueues;
+		std::array<std::vector<FTickFunction*>, static_cast<size_t>(ETickingGroup::PostPhysics) + 1> GroupQueues;
 		uint64 NextRegistrationOrder = 1;
 		uint64 Frame = 0;
 		float DeltaSeconds = 0.0f;

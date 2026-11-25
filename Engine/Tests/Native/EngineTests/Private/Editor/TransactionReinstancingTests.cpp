@@ -421,7 +421,7 @@ TEST_F(FTransactionReinstancingTests, ActorAnnotationRebindsTypedSceneCacheInPla
 	ASSERT_EQ(Changes.size(), 1u); EXPECT_EQ(Changes[0].first, AfterRoot);
 	EXPECT_EQ(Changes[0].second.ChangedProperties, std::vector<FName>{"RelativeTransform"});
 	EXPECT_TRUE(Source->Validate());
-	EXPECT_THROW(Annotation->Restore(*BeforeActor), std::runtime_error);
+	EXPECT_THROW(Annotation->CreateSnapshot(*BeforeActor), std::runtime_error);
 }
 
 TEST_F(FTransactionReinstancingTests, ComponentObservationsRebindAbsentGenerationsAndTheirHistoricalReferencePaths)

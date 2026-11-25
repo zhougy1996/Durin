@@ -139,7 +139,7 @@ TEST(FActorMutationTests, EveryConstructibleActorClassRetainsIdentityAcrossUndoR
 		ASSERT_TRUE(F.Transactions->Redo());
 		EXPECT_TRUE(Level->ContainsActor(Actor));
 		EXPECT_EQ(Actor->GetComponentsSnapshot(), Components);
-		EXPECT_TRUE(Actor->GetPrimaryActorTick().IsTickFunctionRegistered());
+		EXPECT_TRUE(Actor->PrimaryActorTick.IsTickFunctionRegistered());
 		for (const auto& Component : Components) EXPECT_TRUE(Component->IsRegistered());
 		AActor* Source = Actor;
 		const auto Copies = F.Editor.GetActorEditor()->DuplicateActors(*Level, {&Source, 1}, {false});
@@ -1866,11 +1866,11 @@ TEST(FActorMutationTests, LevelModifyPrimaryCameraAndActorPublicationShareOneSco
 		ASSERT_TRUE(F.Transactions->Undo());
 		EXPECT_FALSE(Level->ContainsActor(Added));
 		EXPECT_EQ(Level->GetPrimaryCameraActor(), First);
-		EXPECT_FALSE(Added->GetPrimaryActorTick().IsTickFunctionRegistered());
+		EXPECT_FALSE(Added->PrimaryActorTick.IsTickFunctionRegistered());
 		ASSERT_TRUE(F.Transactions->Redo());
 		EXPECT_TRUE(Level->ContainsActor(Added));
 		EXPECT_EQ(Level->GetPrimaryCameraActor(), Second);
-		EXPECT_TRUE(Added->GetPrimaryActorTick().IsTickFunctionRegistered());
+		EXPECT_TRUE(Added->PrimaryActorTick.IsTickFunctionRegistered());
 		EXPECT_EQ(std::ranges::count(Level->GetActors(), TObjectPtr<AActor>(Added)), 1);
 	}
 }
@@ -1889,7 +1889,7 @@ TEST(FActorMutationTests, LevelHistoryPreservesActorsAddedOutsideTheRecording)
 		ASSERT_TRUE(F.Transactions->Undo());
 		EXPECT_FALSE(Level->ContainsActor(Added));
 		EXPECT_TRUE(Level->ContainsActor(External));
-		EXPECT_TRUE(External->GetPrimaryActorTick().IsTickFunctionRegistered());
+		EXPECT_TRUE(External->PrimaryActorTick.IsTickFunctionRegistered());
 		ASSERT_TRUE(F.Transactions->Redo());
 		EXPECT_TRUE(Level->ContainsActor(Added));
 		EXPECT_TRUE(Level->ContainsActor(External));

@@ -13,7 +13,7 @@ namespace Durin
 		explicit FTimerTestActor(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer)
 		{
 			SetActorTickEnabled(true);
-			GetPrimaryActorTick().SetTickGroup(ETickingGroup::PostPhysics);
+			PrimaryActorTick.SetTickGroup(ETickingGroup::PostPhysics);
 		}
 		auto Tick(float DeltaSeconds) -> void override { if (Callback) Callback(DeltaSeconds); }
 		auto BeginPlay() -> void override { Super::BeginPlay(); if (OnBegin) OnBegin(); }

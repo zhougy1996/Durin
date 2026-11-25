@@ -121,8 +121,6 @@ namespace Durin
 			Annotation ? &Annotation->GetRootReconstructionData() : nullptr)) throw std::runtime_error(NativeConstructionError.empty()
 			? "Actor transaction reconstruction failed." : NativeConstructionError);
 		if (Level) Level->ActivateActor(this);
-		if (Annotation) Annotation->Restore(*this, false);
-		else FActorTransactionAnnotation::RestoreDefault(*this);
 		if (RootComponent) RootComponent->UpdateComponentToWorld();
 		NotifyComponentsVisibilityChanged();
 		// Keep reconstruction suppressed while the default completion publishes its
@@ -596,6 +594,12 @@ namespace Durin
 		bNativeConstructionRequested = false;
 		bNativeConstructionRunning = false;
 		return bSucceeded;
+	}
+
+	auto AActor::CanEditChange(const FProperty* Property) const -> bool
+	{
+		static const FName PrimaryTickName("PrimaryActorTick");
+		return Super::CanEditChange(Property) && (Property->NamePrivate != PrimaryTickName || IsTemplateObject());
 	}
 
 	auto AActor::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

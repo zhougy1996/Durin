@@ -200,11 +200,6 @@ Retired components still release old registration/resources but never re-registe
 a failure without throwing from the destructor. Reregistration callbacks request
 GC and must not execute it; borrowed object use finishes before the host collects.
 
-`FTickFunction` owns native scheduling capture, validation, restoration and explicit
-archive transfer through `FTickFunctionState`. This plain checkpoint is shared by
-ordinary reregistration and historical recovery; no transaction Tick executor
-exists in the component cache or annotation.
-
 `FScopedSuspendRerunConstructionScripts` coalesces requests until its outer scope
 ends. Durin scopes one Actor and supports native runtime callers, whereas UE's
 editor helper suspends globally. This adaptation lets each Actor's historical
@@ -217,7 +212,7 @@ construction/callback work; no transaction-only replay/completion booleans remai
 
 ## Transaction Reconstruction
 
-The Actor annotation retains Actor Tick, component instance data and conditional
+The Actor annotation retains component instance data and conditional
 root reconstruction data. Component edits capture authored fields. Reconstruction
 caches retain exact authored components and use
 the owning Actor, construction key and exact class for generated components.
@@ -238,18 +233,14 @@ Replay completes components before their owning Actor. Actor PreEditUndo holds
 the shared construction suspension until component state settles. Scene completion repairs authored attachment reverse links and
 world transforms before restoring registration, so callbacks see that graph
 consistently. Actor completion reconciles authored ownership, performs one native
-reconstruction request, activates the Actor in its owning Level, restores Actor Tick, and publishes the
+reconstruction request, activates the Actor in its owning Level, and publishes the
 full-object completion. Already settled registration/creation/initialization
 states do not run their callbacks again. Restored members of an active Level follow normal registration even if they were manually unregistered before the edit.
 
 `FActorTransactionAnnotation::CreateIfRequired` and `HasInstanceData` omit an
-Actor annotation when its instance/root recovery data and supplemental Tick
-state are default. Default Tick state is disabled in PrePhysics, registered only
-for an Actor admitted to the current World Level. An empty annotation restores
-that baseline through Tick's existing API during historical completion. This
-keeps rejected or unchanged property edits out of history without replaying them
-merely to discard an empty capture. Component/root caches expose HasInstanceData;
-non-default Actor Tick and root recovery data still require annotations.
+Actor annotation when it has no component instance data, root recovery data or generated component observations.
+Class defaults expose the reflected `PrimaryActorTick.TickGroup` property. Ordinary Actor serialization
+and transactions capture its value. Runtime Tick enablement stays live across replay, and Level membership governs registration.
 Previous annotation snapshots retain their external-child capture scope.
 
 Actor annotations also retain `FDiffableComponentInfo` observations for generated

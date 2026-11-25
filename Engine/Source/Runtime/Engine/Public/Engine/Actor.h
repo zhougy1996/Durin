@@ -101,6 +101,7 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto Modify(bool bAlwaysMarkDirty = true) -> bool override;
+		ENGINE_API auto CanEditChange(const FProperty* Property) const -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto PreEditUndo() -> void override;
 		ENGINE_API auto PostEditUndo() -> void override;
@@ -110,10 +111,11 @@ namespace Durin
 		auto IsBeginningPlay() const -> bool { return PlayState == EActorPlayState::BeginningPlay; }
 		auto IsEndingPlay() const -> bool { return PlayState == EActorPlayState::EndingPlay; }
 		auto IsBeingDestroyed() const -> bool { return DestructionState != EActorDestructionState::Alive; }
+		DPROPERTY(Edit, Category = "Tick")
+		FActorTickFunction PrimaryActorTick;
+
 		auto IsActorTickEnabled() const -> bool { return PrimaryActorTick.IsTickFunctionEnabled(); }
 		auto SetActorTickEnabled(bool bEnabled) -> void { PrimaryActorTick.SetTickFunctionEnable(bEnabled); }
-		auto GetPrimaryActorTick() -> FActorTickFunction& { return PrimaryActorTick; }
-		auto GetPrimaryActorTick() const -> const FActorTickFunction& { return PrimaryActorTick; }
 		// Returns every currently live component. Mutation invalidates iterators and references.
 		auto GetComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
 		// Returns an explicit frozen entry set for mutation-capable callback boundaries.
@@ -258,7 +260,6 @@ namespace Durin
 		EActorPlayState PlayState = EActorPlayState::NotBegun;
 		EActorDestructionState DestructionState = EActorDestructionState::Alive;
 		bool bEndPlayRequested = false;
-		FActorTickFunction PrimaryActorTick;
 		uint64 NativeConstructionGeneration = 0;
 		bool bNativeConstructionRunning = false;
 		bool bRunningConstructionScript = false;

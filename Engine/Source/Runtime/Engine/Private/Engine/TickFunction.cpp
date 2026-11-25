@@ -2,7 +2,6 @@
 
 #include "Components/ActorComponent.h"
 #include "CoreGlobals.h"
-#include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
@@ -19,8 +18,6 @@ namespace Durin
 		}
 	}
 
-	FTickFunction::FTickFunction() = default;
-
 	FTickFunction::~FTickFunction()
 	{
 		UnregisterTickFunction();
@@ -31,7 +28,7 @@ namespace Durin
 
 	auto FTickFunction::ValidateState(const FTickFunctionState& State, DLevel* Level) -> std::expected<void, std::string>
 	{
-		if (State.Group >= ETickingGroup::Count) return std::unexpected("Tick group is invalid.");
+		if (State.Group > ETickingGroup::PostPhysics) return std::unexpected("Tick group is invalid.");
 		if (State.bRegistered && (!IsValid(Level) || !Level->GetWorld())) return std::unexpected("Tick registration requires a live World Level.");
 		return {};
 	}
@@ -44,9 +41,6 @@ namespace Durin
 		if (IsTickFunctionRegistered() != State.bRegistered) return std::unexpected("Tick registration did not settle.");
 		return {};
 	}
-	auto FTickFunction::SerializeState(FArchive& Archive, FTickFunctionState& State) -> void
-	{ Archive << State.Group << State.bEnabled << State.bRegistered; }
-
 	auto FTickFunction::RegisterTickFunction(DLevel* Level) -> void
 	{
 		if (!Level) return;
@@ -69,7 +63,7 @@ namespace Durin
 
 	auto FTickFunction::SetTickGroup(ETickingGroup Group) -> bool
 	{
-		if (Group == ETickingGroup::Count) return false;
+		if (Group > ETickingGroup::PostPhysics) return false;
 		if (TickGroup == Group) return true;
 		if (Registry && Registry->IsTicking()) return false;
 		TickGroup = Group;
@@ -130,7 +124,7 @@ namespace Durin
 	auto FActorComponentTickFunction::GetPrerequisite() const -> FTickFunction*
 	{
 		AActor* Owner = Target ? Target->GetOwner() : nullptr;
-		return Owner ? &Owner->GetPrimaryActorTick() : nullptr;
+		return Owner ? &Owner->PrimaryActorTick : nullptr;
 	}
 
 	FTickRegistry::FTickRegistry(DLevel* InLevel)
@@ -162,7 +156,7 @@ namespace Durin
 	auto FTickRegistry::RunTickGroup(ETickingGroup Group) -> bool
 	{
 		CheckGameThreadContract();
-		if (!bTicking || !Level || Group == ETickingGroup::Count) return false;
+		if (!bTicking || !Level || Group > ETickingGroup::PostPhysics) return false;
 		const int32 GroupIndex = static_cast<int32>(Group);
 		if (GroupIndex <= CurrentGroup) return false;
 		CurrentGroup = GroupIndex;
@@ -257,7 +251,7 @@ namespace Durin
 			return;
 		}
 		const int32 GroupIndex = static_cast<int32>(TickFunction.TickGroup);
-		if (GroupIndex <= CurrentGroup) return;
+		if (GroupIndex <= CurrentGroup || TickFunction.TickGroup > ETickingGroup::PostPhysics) return;
 		TickFunction.QueuedFrame = Frame;
 		TickFunction.bCancelled = false;
 		GroupQueues[TickGroupIndex(TickFunction.TickGroup)].push_back(&TickFunction);

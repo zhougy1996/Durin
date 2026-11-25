@@ -209,19 +209,26 @@ TEST(FEngineTransactionAnnotationTests, StandaloneComponentRecordsAuthoredFields
 	EXPECT_EQ(Component->GetRelativeLocation().x, 17.0);
 }
 
-TEST(FEngineTransactionAnnotationTests, AnnotationArchiveRestoresActorTickWithoutRegisteringComponents)
+TEST(FEngineTransactionAnnotationTests, AnnotationArchivePreservesGeneratedInstanceData)
 {
 	using namespace Durin;
 	FTransactionEngineWorld Fixture;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("AnnotationArchiveActor"); ASSERT_NE(Actor, nullptr);
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
+	auto* Generated = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
+	ASSERT_NE(Generated, nullptr);
+	Generated->SetRelativeLocation({9.0, 0.0, 0.0});
 	FActorTransactionAnnotation Original(*Actor);
 	FByteBuffer Bytes; FObjectMemoryWriter Writer(Bytes, EArchivePurpose::Transaction); Original.Serialize(Writer);
 	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 	Actor->SetActorTickEnabled(true); Root->UnregisterComponent();
 	FActorTransactionAnnotation Restored; FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction); Restored.Serialize(Reader);
 	ASSERT_FALSE(Reader.IsError()) << Reader.GetError(); EXPECT_EQ(Reader.GetRemainingPayloadBytes(), 0u);
-	Restored.Restore(*Actor); EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_FALSE(Root->IsRegistered());
+	ASSERT_TRUE(Restored.Validate());
+	Generated->SetRelativeLocation({});
+	Restored.GetComponentInstanceDataCache().ApplyToActor(*Actor, ECacheApplyPhase::PostUserConstructionScript);
+	EXPECT_EQ(Generated->GetRelativeLocation(), FVector3(9.0, 0.0, 0.0));
+	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_FALSE(Root->IsRegistered());
 	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 1u);
 }
 
@@ -239,7 +246,7 @@ TEST(FEngineTransactionAnnotationTests, ActorReplayUsesNormalComponentRegistrati
 	const auto Constructions = Actor->ConstructionCalls;
 	Root->bRequestCollectionOnRegister = true;
 	ASSERT_TRUE(Buffer->Undo());
-	EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Root->IsComponentTickEnabled()); EXPECT_TRUE(Root->IsRegistered());
+	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Root->IsComponentTickEnabled()); EXPECT_TRUE(Root->IsRegistered());
 	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 2u); EXPECT_EQ(Root->Initialized, 1u);
 	EXPECT_EQ(Actor->ConstructionCalls, Constructions + 1);
 	ASSERT_TRUE(Buffer->Redo());
@@ -348,7 +355,7 @@ TEST(FEngineTransactionAnnotationTests, ExpiredAnnotationParticipantRejectsBefor
 	EXPECT_FALSE(Buffer->IsActive());
 }
 
-TEST(FEngineTransactionAnnotationTests, UnexpectedRetirementDuringRegistrationTerminatesUndo)
+TEST(FEngineTransactionAnnotationTests, RegistrationCallbackCanRetireComponentDuringUndo)
 {
 	using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
@@ -356,8 +363,11 @@ TEST(FEngineTransactionAnnotationTests, UnexpectedRetirementDuringRegistrationTe
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Retiring callback"}); ASSERT_TRUE(Actor->Modify()); Root->UnregisterComponent();
-	} Root->bDestroyOnRegister = true;
-	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
+	}
+	Root->bDestroyOnRegister = true;
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_TRUE(Root->IsPendingKill());
+	EXPECT_FALSE(Actor->OwnsComponent(Root));
 }
 
 TEST(FEngineTransactionAnnotationTests, GeneratedSceneOverridesReplayWithoutAnAuthoredPropertyRecord)
@@ -388,23 +398,33 @@ TEST(FEngineTransactionAnnotationTests, GeneratedSceneOverridesReplayWithoutAnAu
 	ASSERT_NE(Scene, nullptr); EXPECT_EQ(Scene->GetRelativeLocation(), *Actor->ConstructionLocation);
 }
 
-TEST(FEngineTransactionAnnotationTests, EmptyActorAnnotationIsOmittedAndDefaultTickRestoresOnUndo)
+TEST(FEngineTransactionAnnotationTests, ActorTickGroupUsesPropertyHistoryAndRuntimeTickDoesNot)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<AActor>("SparseActorAnnotation"); ASSERT_NE(Actor, nullptr);
-	ASSERT_TRUE(Actor->GetPrimaryActorTick().IsTickFunctionRegistered());
+	auto* Member = Actor->GetClass()->FindPropertyByName("PrimaryActorTick");
+	ASSERT_NE(Member, nullptr);
+	EXPECT_FALSE(Actor->CanEditChange(Member));
+	EXPECT_TRUE(Actor->GetClass()->GetDefaultObject()->CanEditChange(Member));
+	ASSERT_TRUE(Actor->PrimaryActorTick.IsTickFunctionRegistered());
 	EXPECT_FALSE(Actor->FindOrCreateTransactionAnnotation());
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Actor tick state"}); ASSERT_TRUE(Actor->Modify());
 		Actor->SetActorTickEnabled(true);
-		Actor->GetPrimaryActorTick().UnregisterTickFunction();
 	}
-	EXPECT_TRUE(Actor->FindOrCreateTransactionAnnotation());
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+	{
+		Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Actor tick group"}); ASSERT_TRUE(Actor->Modify());
+		Actor->PrimaryActorTick.TickGroup = ETickingGroup::PostPhysics;
+	}
+	EXPECT_FALSE(Actor->FindOrCreateTransactionAnnotation());
 	ASSERT_TRUE(Buffer->Undo());
-	EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Actor->GetPrimaryActorTick().IsTickFunctionRegistered());
+	EXPECT_EQ(Actor->PrimaryActorTick.TickGroup, ETickingGroup::PrePhysics);
+	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Actor->PrimaryActorTick.IsTickFunctionRegistered());
 	ASSERT_TRUE(Buffer->Redo());
-	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_FALSE(Actor->GetPrimaryActorTick().IsTickFunctionRegistered());
+	EXPECT_EQ(Actor->PrimaryActorTick.TickGroup, ETickingGroup::PostPhysics);
+	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Actor->PrimaryActorTick.IsTickFunctionRegistered());
 }
 
 TEST(FEngineTransactionAnnotationTests, InnerRegistrationFaultTerminatesUndo)

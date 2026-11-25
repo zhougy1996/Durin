@@ -7,8 +7,6 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "Engine/Actor.h"
-#include "Engine/Level.h"
-#include "Engine/World.h"
 
 namespace Durin
 {
@@ -108,19 +106,10 @@ namespace Durin
 			auto Key = Reference.GetKey(); Key.SerializeForSnapshot(Archive);
 			if (Archive.IsLoading() && !Archive.IsError()) Reference = FPersistentObjectRef::FromKey(Key);
 		}
-		auto GetDefaultActorTickState(const AActor& Actor) -> FTickFunctionState
-		{
-			FTickFunctionState State;
-			auto* Level = Cast<DLevel>(Actor.GetOuter());
-			auto* World = Level ? Level->GetWorld() : nullptr;
-			State.bRegistered = World && World->GetCurrentLevel() == Level && Level->ContainsActor(&Actor);
-			return State;
-		}
-
 	}
 
 	FActorTransactionAnnotation::FActorTransactionAnnotation(const AActor& Actor, const FActorTransactionAnnotation* Previous)
-		: Data{FPersistentObjectRef(const_cast<AActor*>(&Actor)), Actor.GetPrimaryActorTick().CaptureState(),
+		: Data{FPersistentObjectRef(const_cast<AActor*>(&Actor)),
 			FComponentInstanceDataCache(Actor), FActorRootComponentReconstructionData(Actor, Previous ? &Previous->Data.RootData : nullptr)}
 	{
 		for (const auto& Component : Actor.GetComponentsSnapshot())
@@ -144,16 +133,7 @@ namespace Durin
 	}
 	auto FActorTransactionAnnotation::HasInstanceData() const -> bool
 	{
-		auto* Actor = Cast<AActor>(Data.Target.Resolve());
-		if (!Actor) return true;
-		const auto DefaultTick = GetDefaultActorTickState(*Actor);
-		return !DiffableComponentInfos.empty() || Data.ComponentInstanceData.HasInstanceData() || Data.RootData.HasInstanceData()
-			|| Data.Tick.Group != DefaultTick.Group || Data.Tick.bEnabled != DefaultTick.bEnabled
-			|| Data.Tick.bRegistered != DefaultTick.bRegistered;
-	}
-	auto FActorTransactionAnnotation::RestoreDefault(AActor& Actor) -> void
-	{
-		if (auto Result = Actor.GetPrimaryActorTick().RestoreState(GetDefaultActorTickState(Actor), Cast<DLevel>(Actor.GetOuter())); !Result) throw std::runtime_error(Result.error());
+		return !DiffableComponentInfos.empty() || Data.ComponentInstanceData.HasInstanceData() || Data.RootData.HasInstanceData();
 	}
 
 	auto FActorTransactionAnnotation::CreateSnapshot(const DObject& Object) const -> std::shared_ptr<ITransactionObjectAnnotation>
@@ -166,19 +146,10 @@ namespace Durin
 	{
 		auto* Actor = Cast<AActor>(Data.Target.Resolve());
 		if (!Actor || Actor->IsBeingDestroyed()) return std::unexpected("Actor annotation target expired.");
-		if (auto Result = FTickFunction::ValidateState(Data.Tick, Cast<DLevel>(Actor->GetOuter())); !Result) return Result;
 		if (auto Result = Data.ComponentInstanceData.Validate(); !Result) return Result;
 		for (const auto& Info : DiffableComponentInfos)
 			if (auto Result = Info.ComponentSourceInfo.Validate(); !Result) return Result;
 		return Data.RootData.Validate();
-	}
-	auto FActorTransactionAnnotation::Restore(AActor& Actor, bool bApplyRootData) const -> void
-	{
-		if (auto Result = Validate(); !Result) throw std::runtime_error(Result.error());
-		if (Data.Target.Resolve() != &Actor) throw std::runtime_error("Actor annotation target mismatch.");
-		if (auto Result = Actor.GetPrimaryActorTick().RestoreState(Data.Tick, Cast<DLevel>(Actor.GetOuter())); !Result)
-			throw std::runtime_error(Result.error());
-		if (bApplyRootData) if (auto Result = Data.RootData.ApplyToActor(Actor); !Result) throw std::runtime_error(Result.error());
 	}
 	auto FActorTransactionAnnotation::AddReferencedObjects(FReferenceCollector& Collector) -> void
 	{
@@ -200,7 +171,6 @@ namespace Durin
 	{
 		if (Archive.IsLoading()) DiffableComponentInfos.clear();
 		SerializeReference(Archive, Data.Target);
-		FTickFunction::SerializeState(Archive, Data.Tick);
 		Data.ComponentInstanceData.Serialize(Archive);
 		Data.RootData.Serialize(Archive);
 	}
