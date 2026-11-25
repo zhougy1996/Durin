@@ -995,6 +995,44 @@ TEST(FComponentMutationTests, DirtyNotificationCancellationStopsActorAndComponen
 	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
 }
 
+TEST(FComponentMutationTests, RemovalCallbacksCanDirtyOtherPackagesOnlyOutsideBufferReplay)
+{
+	FComponentFixture F;
+	const auto Directory = Testing::CreateTestFixtureDirectory("CallbackDirty");
+	Testing::RegisterMountPointForTests("/CallbackDirty/", Directory.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CallbackDirty/Witness", Path));
+	TStrongObjectPtr<DPackage> Other(NewObject<DPackage>(nullptr, Path.GetPackageName()));
+	Other->InitializeAssetPackage(Path);
+	auto* Witness = NewObject<DLevel>(Other.Get(), "Witness");
+	auto* Light = F.Actor->AddInstanceComponent(FStructuralTestLight::StaticClass(), "Light");
+	ASSERT_NE(Light, nullptr);
+	struct FResetProbes
+	{
+		~FResetProbes() { FStructuralTestLight::UnregisterProbe = {}; FStructuralTestLight::RegisterProbe = {}; }
+	} Reset;
+	int Calls = 0;
+	auto MarkWitness = [&](FStructuralTestLight&) { ++Calls; Witness->MarkPackageDirty(); };
+	FStructuralTestLight::UnregisterProbe = MarkWitness;
+	FStructuralTestLight::RegisterProbe = MarkWitness;
+	Other->ClearDirty();
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DeleteComponent(*F.Actor, Light, {false}));
+	EXPECT_TRUE(Other->IsDirty());
+	Other->ClearDirty();
+	ASSERT_TRUE(F.Transactions->Undo());
+	EXPECT_FALSE(Other->IsDirty());
+	int Completions = 0;
+	const auto Completion = F.Transactions->OnRedo().AddLambda([&](const auto&, bool) { ++Completions; Witness->MarkPackageDirty(); });
+	EXPECT_TRUE(F.Transactions->Redo());
+	EXPECT_FALSE(Other->IsDirty());
+	EXPECT_EQ(Calls, 3);
+
+	EXPECT_FALSE(F.Transactions->Redo());
+	F.Transactions->OnRedo().Remove(Completion);
+	EXPECT_EQ(Completions, 2);
+	EXPECT_TRUE(Other->IsDirty());
+}
+
 TEST(FComponentMutationTests, StructuralEditsRestorePackageContentsAndDirtyState)
 {
 	FComponentFixture F;

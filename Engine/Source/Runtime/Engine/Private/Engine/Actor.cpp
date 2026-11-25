@@ -87,7 +87,6 @@ namespace Durin
 	{
 		if (IsTemplateObject()) { Super::PostEditUndo(); return; }
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FScopedPackageDirtySuppression SuppressDirty;
 		struct FCompletionScope
 		{
 			AActor& Actor;

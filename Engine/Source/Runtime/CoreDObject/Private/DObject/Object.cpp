@@ -547,7 +547,7 @@ namespace Durin
 
 	auto DObject::MarkPackageDirty() -> void
 	{
-		if (IsTemplateObject() || PackageDirtySuppressionDepth > 0) return;
+		if (IsTemplateObject() || GIsTransacting || PackageDirtySuppressionDepth > 0) return;
 		if (DPackage* Package = GetPackage()) Package->MarkDirty();
 	}
 

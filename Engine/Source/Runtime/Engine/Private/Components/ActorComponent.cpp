@@ -32,7 +32,6 @@ namespace Durin
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!IsValid(this) || IsBeingDestroyed() || IsBeginningPlay() || IsEndingPlay())
 			throw std::runtime_error("Cannot remove a component during a lifecycle transition.");
-		FScopedPackageDirtySuppression SuppressDirty;
 		auto CheckLive = [this] {
 			if (!IsValid(this) || IsBeingDestroyed())
 				throw std::runtime_error("Component was retired by a removal callback.");

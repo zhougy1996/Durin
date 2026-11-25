@@ -1279,7 +1279,12 @@ namespace Durin
 		if (ExpectedId && *ExpectedId != ReplayId)
 			return Reject(bUndo ? "The expected transaction is not the Undo head." : "The expected transaction is not the Redo head.");
 
+		GIsTransacting = true;
 		Guard = EHistoryGuard::Mutating;
+		auto FinishReplay = [&] {
+			Guard = EHistoryGuard::None;
+			GIsTransacting = false;
+		};
 
 		try
 		{
@@ -1294,7 +1299,7 @@ namespace Durin
 				if (ExpectedId && bExpired)
 				{
 					Cursor = PreviousCursor;
-					Guard = EHistoryGuard::None;
+					FinishReplay();
 					return Reject("The expected transaction has expired.");
 				}
 				if (!bExpired)
@@ -1307,7 +1312,7 @@ namespace Durin
 					{
 						Cursor = PreviousCursor;
 						if (bOwnOperation) (void)Transaction.EndOperation();
-						Guard = EHistoryGuard::None;
+						FinishReplay();
 						return Reject(Valid.error(), EHistoryGuard::Notifying);
 					}
 					auto Context = Transaction.GetContext();
@@ -1360,11 +1365,11 @@ namespace Durin
 				}
 				if (!bExpired)
 				{
-					Guard = EHistoryGuard::None;
+					FinishReplay();
 					return true;
 				}
 			} while (bUndo ? Cursor > UndoLimit : Cursor < History.size());
-			Guard = EHistoryGuard::None;
+			FinishReplay();
 			return Reject("All remaining transactions have expired.");
 		}
 		catch (const std::exception& Error)

@@ -5,6 +5,7 @@
 namespace Durin
 {
 	ITransaction* GUndo = nullptr;
+	std::atomic_bool GIsTransacting{false};
 	bool GIsEditor = false;
 	bool GIsRequestingExit = false;
 

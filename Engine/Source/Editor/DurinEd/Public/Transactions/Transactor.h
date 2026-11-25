@@ -376,7 +376,7 @@ namespace Durin
 		DURINED_API auto Redo() -> bool override;
 		DURINED_API auto RedoExpected(FTransactionId ExpectedId, std::string* OutError = nullptr) -> bool override;
 		DURINED_API auto Reset(std::string_view Reason = {}) -> void override;
-		auto CanTransact() const -> bool override { return Guard == EHistoryGuard::None && (!GUndo || OwnsRecording()) && (!Pending || !Pending->IsBusy()); }
+		auto CanTransact() const -> bool override { return !GIsTransacting && Guard == EHistoryGuard::None && (!GUndo || OwnsRecording()) && (!Pending || !Pending->IsBusy()); }
 		DURINED_API auto SetPrimaryUndoObject(DObject* Object) -> void override;
 		DURINED_API auto DiscardCustomChangesByModule(std::string_view ModuleName) -> bool override;
 		DURINED_API auto CanUndo(std::string* Reason = nullptr) const -> bool override;
@@ -415,7 +415,7 @@ namespace Durin
 		struct FHistoryGuardScope;
 		auto OwnsRecording() const -> bool { return ActiveCount > 0 && Pending && GUndo == Pending; }
 		auto IsHistoryIdle() const -> bool { return Guard == EHistoryGuard::None && !Pending && !IsActive(); }
-		auto CanAccessReplayHistory() const -> bool { return IsHistoryIdle() && !GUndo; }
+		auto CanAccessReplayHistory() const -> bool { return IsHistoryIdle() && !GUndo && !GIsTransacting; }
 		auto CanInspectReplayHistory() const -> bool
 		{ return CanAccessReplayHistory() || (Guard == EHistoryGuard::Notifying && ActiveCount == 0); }
 		auto AppendCommandRecord(FTransaction::FObjectRecord&& Record) -> void;

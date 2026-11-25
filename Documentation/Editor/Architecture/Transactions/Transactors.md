@@ -312,6 +312,11 @@ The transaction records each affected package's dirty bit and save count on its
 first capture. The outermost commit marks affected packages dirty. The primary
 context alone does not make its package dirty.
 
+During buffer Undo/Redo, `GIsTransacting` suppresses `DObject::MarkPackageDirty()`
+through expiry checks, object callbacks and successful completion notifications.
+Ordinary component removal leaves callback edits free to mark other packages dirty.
+The buffer updates recorded packages directly.
+
 On successful Undo or Redo, the buffer restores the captured dirty bit if the
 save count still matches. Crossing a persistent save keeps the package dirty.
 The dirty bit and count from the start of replay become the baseline for the

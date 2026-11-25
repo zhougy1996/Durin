@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
 #include "Misc/CoreTypes.h"
 
 #include "CoreAPI.h"
@@ -14,6 +15,8 @@ namespace Durin
 	class ITransaction;
 	// Current GameThread recording; its owner clears this before releasing storage.
 	extern CORE_API ITransaction* GUndo;
+	// True while the editor buffer is executing Undo or Redo, including synchronous notifications.
+	extern CORE_API std::atomic_bool GIsTransacting;
 
 	// Don't modify this global variable directly, use the provided functions instead.
 	// RequestEngineExit() and IsEngineExitRequested() are the functions to use.
