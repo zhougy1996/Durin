@@ -85,7 +85,9 @@ namespace Durin
 		if (!Previous) return false;
 		if (Point.InputKey == FSplinePoint::AutoInputKey) Point.InputKey = Previous->InputKey;
 		if (!SplineCurve.IsValidPointKey(PointIndex, Point.InputKey)) return false;
-		if (*Previous == Point || !BeginPointEdit() || !SplineCurve.UpdatePoint(PointIndex, Point)) return false;
+		if (*Previous == Point || bPublishingMutation) return false;
+		if (!Modify(false) && GUndo && HasAnyObjectFlags(EObjectFlags::Transactional)) return false;
+		if (!SplineCurve.UpdatePoint(PointIndex, Point)) return false;
 		if (bUpdateSpline) UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		return true;
 	}

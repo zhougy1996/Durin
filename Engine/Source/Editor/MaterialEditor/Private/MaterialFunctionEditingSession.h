@@ -22,6 +22,7 @@ namespace Durin::MaterialEditor
 		TStrongObjectPtr<DMaterialFunction> Working;
 		TWeakObjectPtr<DTransactor> Transactor;
 		std::pair<uint64, uint64> SourceRevision;
+		uint64 PublishedWorkingRevision = 0;
 		bool bPublishing = false;
 		FStrongObjectPtr PreviewPackage;
 		FStrongObjectPtr PreviewMaterial;

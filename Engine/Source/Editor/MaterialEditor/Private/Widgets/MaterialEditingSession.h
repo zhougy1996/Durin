@@ -47,6 +47,7 @@ namespace Durin::MaterialEditor
 		TObjectPtr<DTransactor> Transactor;
 		uint64 SourceRevision = 0;
 		uint64 RequestedWorkingRevision = 0;
+		uint64 PublishedWorkingRevision = 0;
 		bool bPublishing = false;
 		bool bApplyPending = false;
 	};

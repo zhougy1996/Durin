@@ -624,7 +624,6 @@ namespace Durin::LevelEditor
 	{
 		CheckPreviewOwnership();
 		bool bRestored = true;
-		FScopedPackageDirtySuppression SuppressPreviewRevision;
 		for (auto& Snapshot : Snapshots)
 			if (Snapshot.bOwnsPreview && !TrySetTransform(*Snapshot.Target, Snapshot.Initial)) bRestored = false;
 		CapturePreviewValues();
@@ -705,11 +704,7 @@ namespace Durin::LevelEditor
 			if (!bSelectionValid || Input.bCancel) return CancelDrag();
 			if (!Input.bLeftMouseDown) return FinishDrag(Transactions);
 			if (!CheckPreviewOwnership()) { CancelDrag(); return false; }
-			bool bApplied;
-			{
-				FScopedPackageDirtySuppression SuppressPreviewRevision;
-				bApplied = UpdateDrag(View, Input);
-			}
+			const bool bApplied = UpdateDrag(View, Input);
 			const bool bCaptured = CapturePreviewValues();
 			if (!bApplied || !bCaptured) { CancelDrag(); return false; }
 			return true;

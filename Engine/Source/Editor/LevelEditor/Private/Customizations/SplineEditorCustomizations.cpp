@@ -97,7 +97,11 @@ namespace Durin::LevelEditor
 					FSplinePoint Point = *Existing;
 					if (Edit(Index, Point)) bChanged |= Spline.UpdateSplinePoint(Index, Point, false);
 				}
-				if (bChanged) Spline.UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
+				if (bChanged)
+				{
+					Spline.UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
+					if (!bShouldTransact) Spline.MarkPackageDirty();
+				}
 				return bChanged;
 			});
 		}

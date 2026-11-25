@@ -56,22 +56,6 @@ namespace Durin
 				|| Current->IsEditorOnly() || !Current->NeedsLoadForTargetPlatform(Target)) return false;
 		return true;
 	}
-	namespace
-	{
-		thread_local uint32 PackageDirtySuppressionDepth = 0;
-	}
-
-	FScopedPackageDirtySuppression::FScopedPackageDirtySuppression()
-	{
-		++PackageDirtySuppressionDepth;
-	}
-
-	FScopedPackageDirtySuppression::~FScopedPackageDirtySuppression()
-	{
-		require(PackageDirtySuppressionDepth > 0);
-		--PackageDirtySuppressionDepth;
-	}
-
 	struct FPendingRegistrantInfo
 	{
 		std::string Name;
@@ -547,8 +531,17 @@ namespace Durin
 
 	auto DObject::MarkPackageDirty() -> void
 	{
-		if (IsTemplateObject() || GIsTransacting || PackageDirtySuppressionDepth > 0) return;
-		if (DPackage* Package = GetPackage()) Package->MarkDirty();
+		if (IsTemplateObject() || GIsTransacting) return;
+		auto* Outermost = this;
+		while (!Outermost->HasAnyObjectFlags(EObjectFlags::Transient))
+		{
+			if (auto* Outer = Outermost->GetOuter()) Outermost = Outer;
+			else
+			{
+				if (auto* Package = Cast<DPackage>(Outermost)) Package->MarkDirty();
+				return;
+			}
+		}
 	}
 
 	auto DObject::AddReferencedObjects(FReferenceCollector& Collector) -> void

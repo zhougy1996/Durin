@@ -74,6 +74,7 @@ namespace Durin::MaterialEditor
 		Working->CompileEdits();
 		Working->SetEditCompileMode(Mode);
 		Graph = DMaterialGraph::Create(*Working);
+		PublishedWorkingRevision = Working->GetGraphChanges().GetEditRevision();
 		WorkingPackage->ClearDirty();
 
 		return true;
@@ -81,11 +82,14 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialEditingSession::HasUnappliedChanges() const -> bool
 	{
-		return Working && WorkingPackage && (WorkingPackage->IsDirty()
-			|| (Source && Source->GetGraphChanges().GetEditRevision() == SourceRevision
-				&& (Source->GetRootPosition() != Working->GetRootPosition()
-					|| Source->GetMaterialGraphPresentation() != Working->GetMaterialGraphPresentation()
-					|| HasSemanticChanges())));
+		if (!Working || !WorkingPackage) return false;
+		if (WorkingPackage->IsDirty()) return true;
+		if (!Source) return false;
+		if (Source->GetGraphChanges().GetEditRevision() != SourceRevision)
+			return Working->GetGraphChanges().GetEditRevision() != PublishedWorkingRevision;
+		return Source->GetRootPosition() != Working->GetRootPosition()
+			|| Source->GetMaterialGraphPresentation() != Working->GetMaterialGraphPresentation()
+			|| HasSemanticChanges();
 	}
 
 	auto FMaterialEditingSession::HasSemanticChanges() const -> bool
@@ -218,6 +222,7 @@ namespace Durin::MaterialEditor
 		// Publication listeners can edit the draft while the source is being updated.
 		if (Working->GetGraphChanges().GetEditRevision() == WorkingRevision)
 		{
+			PublishedWorkingRevision = WorkingRevision;
 			WorkingPackage->ClearDirty();
 		}
 		return true;

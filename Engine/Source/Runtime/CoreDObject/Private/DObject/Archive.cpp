@@ -2053,6 +2053,7 @@ namespace Durin
 				Params.Outer = DuplicateOuter;
 				Params.Name = Source == RootObject && !Parameters.DestName.IsNone() ? Parameters.DestName : Source->GetFName();
 				Params.Size = Class->GetStructureSize();
+				if (Source == RootObject) Params.Flags = Parameters.ApplyFlags;
 				Params.Purpose = EObjectConstructionPurpose::Duplication;
 				Duplicate = StaticConstructObject(Params);
 				if (!Duplicate)

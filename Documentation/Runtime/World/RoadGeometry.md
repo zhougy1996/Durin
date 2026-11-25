@@ -117,8 +117,7 @@ removed. Converted placements retain their persistent private road subobjects;
 loading and reconstruction never project or refit their geometry.
 
 Current-schema topology, station and placement validation remains mandatory.
-Unsupported schemas cannot preview as Ready. Transient subtree exclusion and
-GC attachment-cleanup Dirty suppression remain intact. The loader no longer
+Unsupported schemas cannot preview as Ready. Package saves exclude transient subtrees. The loader no longer
 repairs historical generated-component persistence flags. Road integration
 tests open a sandbox copy of the current checked-in level and collect obsolete
 generated components without setting Dirty.

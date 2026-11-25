@@ -419,6 +419,8 @@ namespace Durin
 		// The caller routes PostLoad when the complete set of copies is ready.
 		bool bSkipPostLoad = false;
 		std::unordered_map<DObject*, DObject*>* CreatedObjects = nullptr;
+		// Additional flags applied to the duplicate root before construction.
+		EObjectFlags ApplyFlags = EObjectFlags::NoFlags;
 	};
 	COREDOBJECT_API auto StaticDuplicateObjectEx(const FObjectDuplicationParameters& Parameters) -> std::expected<DObject*, FObjectGraphError>;
 	// Duplicates the source Outer tree; failure retires candidates and clears OutDuplicates.

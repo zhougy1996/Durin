@@ -371,7 +371,6 @@ namespace Durin::MaterialEditor
 			TStrongObjectPtr<DMaterial> PreviewMaterial(NewObject<DMaterial>(
 				DMaterial::StaticClass(), nullptr, NAME_None, EObjectFlags::Transient));
 			PreviewMaterial->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-			FScopedPackageDirtySuppression SuppressPackageRevision;
 			if (!PreviewMaterial->SetMaterialConfiguration({Working.GetDomain(), Properties})
 				|| !PreviewMaterial->SetMaterialExpressions(Expressions, std::move(Root))) return;
 			PreviewMaterial->CompileEdits();
@@ -396,7 +395,6 @@ namespace Durin::MaterialEditor
 				if (Existing && Existing->Value != Value)
 					(void)RootInputPreview->SetParameterValue(Id, std::move(Value));
 			};
-			FScopedPackageDirtySuppression SuppressPackageRevision;
 			for (const auto& Parameter : Working.GetParameterDefinitions()) SetValue(Parameter.Id, Parameter.Value);
 			for (const auto& [Property, Id] : RootInputPreviewParameters)
 			{

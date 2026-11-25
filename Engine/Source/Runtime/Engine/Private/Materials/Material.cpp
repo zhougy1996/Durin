@@ -263,7 +263,6 @@ namespace Durin
 		// Capture all participants before the first expression can send a change event.
 		if (GUndo)
 		{
-			FScopedPackageDirtySuppression Suppress;
 			for (auto* Declaration : *Declarations)
 			{
 				Declaration->SetFlags(EObjectFlags::Transactional);

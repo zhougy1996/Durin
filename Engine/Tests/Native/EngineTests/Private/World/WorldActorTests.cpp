@@ -31,6 +31,7 @@ namespace
 		bool bReconstructOnBeginPlay = false, bOutputStableDuringBeginPlay = false;
 		bool bRequestAgain = false;
 		uint32 ConstructionCalls = 0;
+		Durin::AActor* OtherActorToEdit = nullptr;
 		std::optional<Durin::FVector3> ConstructionLocation;
 
 	protected:
@@ -48,6 +49,7 @@ namespace
 		auto OnConstruction(const Durin::FTransform&) -> void override
 		{
 			++ConstructionCalls;
+			if (OtherActorToEdit) OtherActorToEdit->SetActorLabel("Edited during construction");
 			Acquired.clear();
 			OwnedDuringConstruction.clear();
 			for (const auto& [Key, Class] : Desired)
@@ -206,7 +208,7 @@ TEST(FNativeConstructionTests, InstanceCreationMethodRemainsPersistentAuthoredSt
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevelPackage)
+TEST(FNativeConstructionTests, ReconstructionPreservesOwnerDirtyStateAndAllowsCrossPackageEdits)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "NativeConstructionLevels";
@@ -227,11 +229,26 @@ TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevel
 	ASSERT_NE(Actor, nullptr);
 	Actor->Desired = {{MakeGeneratedKey(1), Durin::DSceneComponent::StaticClass()}};
 	Level->GetPackage()->ClearDirty();
-	const bool bWasDirty = Level->GetPackage()->IsDirty();
+	Durin::FPackagePath OtherPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/NativeConstructionTests/Other", OtherPath));
+	Durin::DLevel* OtherLevel = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OtherPath, OtherLevel));
+	Actor->OtherActorToEdit = OtherLevel->SpawnActor<Durin::AActor>("Witness");
+	ASSERT_NE(Actor->OtherActorToEdit, nullptr);
+	OtherLevel->GetPackage()->ClearDirty();
 	ASSERT_TRUE(Actor->RerunConstructionScripts());
 	ASSERT_TRUE(Actor->RerunConstructionScripts());
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
-	EXPECT_EQ(Level->GetPackage()->IsDirty(), bWasDirty);
+	EXPECT_TRUE(OtherLevel->GetPackage()->IsDirty());
+	auto Transform = Actor->GetActorTransform();
+	Transform.Translation.x += 1.0;
+	ASSERT_TRUE(Actor->SetActorTransform(Transform));
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	Actor->OtherActorToEdit = Actor; // An explicit Modify in the callback can dirty the owner too.
+	ASSERT_TRUE(Actor->RerunConstructionScripts());
+	EXPECT_TRUE(Level->GetPackage()->IsDirty());
+	Actor->OtherActorToEdit = nullptr;
+	Durin::MarkObjectHierarchyAsGarbage(OtherLevel->GetPackage());
 	EXPECT_TRUE(Durin::UnloadPackage(Level->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 

@@ -43,7 +43,6 @@ namespace Durin
 		ENGINE_API explicit DSceneComponent(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto GetComponentInstanceData() const -> std::shared_ptr<FActorComponentInstanceData> override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
-		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto OnComponentPendingKill() -> void override;
 		ENGINE_API auto OnRegister() -> void override;
 		ENGINE_API auto OnUnregister() -> void override;
@@ -54,6 +53,7 @@ namespace Durin
 		using Super::PostEditUndo;
 
 		ENGINE_API auto GetRelativeTransform() const -> const FTransform&;
+		// Runtime transform setters leave package dirtying to the authoring operation.
 		ENGINE_API auto SetRelativeTransform(const FTransform& InTransform) -> void;
 
 		ENGINE_API auto GetWorldTransform() const -> const FTransform&;

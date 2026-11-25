@@ -24,6 +24,7 @@
 #include "MaterialGraphTestSupport.h"
 #include "MaterialResourceTestSupport.h"
 #include "Misc/FileHelper.h"
+#include "Modules/ModuleManager.h"
 #include "Widgets/MaterialEditingSession.h"
 
 TEST(FMaterialGraphPersistenceTests, HiddenRootDefaultResetRetainsLiteralAndHistory)
@@ -805,7 +806,10 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 		ASSERT_TRUE(UnloadPackage(Path));
 	};
 	CheckCopy.operator()<DMaterial>("/Engine/Materials/DefaultMaterial", "MaterialCopy");
+#if DURIN_MATERIAL_WATER_TESTS
+	ASSERT_NE(FModuleManager::Get().LoadModule("Water"), nullptr);
 	CheckCopy.operator()<DMaterial>("/Plugins/Water/Materials/DefaultWater", "WaterCopy");
+#endif
 	CheckCopy.operator()<DMaterial>("/Game/Materials/Metal/M_MetalRust", "MetalCopy");
 	CheckCopy.operator()<DMaterialFunction>("/Engine/Materials/Functions/SampleNormal", "NormalCopy");
 	CheckCopy.operator()<DMaterialFunction>("/Engine/Materials/Functions/SampleORM", "OrmCopy");

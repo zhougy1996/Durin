@@ -2512,6 +2512,7 @@ TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeom
 		std::optional<Durin::UnifiedError::FError> LoadedError;
 		FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate(std::format("/UnifiedSimplePackages/Body{}", Kind), Path));
 		DBodySetup* Body = nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Body));
+		Body->GetPackage()->ClearDirty();
 		if (Kind == 0) ASSERT_TRUE(Body->SetBox({1, 2, 3}, {4, 5, 6}));
 		else if (Kind == 1) ASSERT_TRUE(Body->SetSphere(1, {4, 5, 6}));
 		else if (Kind == 2) ASSERT_TRUE(Body->SetCapsule(1, 3, {4, 5, 6}));
@@ -2520,6 +2521,7 @@ TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeom
 			FSimpleCollisionElement Element; Element.Type = EBodySetupShapeType::Sphere; Element.Dimensions = FVector3(1);
 			Element.Transform.Translation = {4, 5, 6}; ASSERT_TRUE(Body->SetSimpleCollision({Element, Element}));
 		}
+		EXPECT_FALSE(Body->GetPackage()->IsDirty());
 		ASSERT_TRUE(SavePackage(Body->GetPackage())); ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 		const auto Loaded = LoadObject<DBodySetup>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedError);
 		ASSERT_TRUE(Loaded) << (LoadedError ? LoadedError->ToString() : "");

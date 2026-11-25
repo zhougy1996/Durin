@@ -46,6 +46,7 @@ namespace Durin
 		ENGINE_API auto AddSplinePoint(FSplinePoint Point) -> uint32;
 		ENGINE_API auto InsertSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool;
 		ENGINE_API auto DuplicateSplinePoint(uint32 PointIndex) -> std::optional<uint32>;
+		// Supports live previews. The authoring operation marks the package on commit.
 		ENGINE_API auto UpdateSplinePoint(uint32 PointIndex, FSplinePoint Point, bool bUpdateSpline = true) -> bool;
 		ENGINE_API auto RemoveSplinePoint(uint32 PointIndex) -> bool;
 		ENGINE_API auto MoveSplinePoint(uint32 FromIndex, uint32 ToIndex) -> bool;

@@ -21,7 +21,6 @@ namespace Durin::MaterialEditor::MaterialEditing
 		if (Transactions)
 		{
 			if (!bNested && !Recording.IsOutstanding()) return RejectCommand("Unable to start the configuration transaction.");
-			FScopedPackageDirtySuppression Suppress;
 			Material.SetFlags(EObjectFlags::Transactional);
 			if (!Material.Modify(false))
 			{

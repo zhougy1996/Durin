@@ -460,7 +460,6 @@ namespace Durin
 		const FVector3 HalfExtent = Bounds->GetExtent();
 		if (!FCollisionShape::MakeBox(HalfExtent).IsValid()) return nullptr;
 		// This qualified primitive is reconstructed from accepted geometry, not an authored edit.
-		FScopedPackageDirtySuppression SuppressDirty;
 		auto* Setup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
 		if (!Setup || !Setup->SetBox(HalfExtent, Bounds->GetCenter())) return nullptr;
 		BodySetup = Setup;
@@ -478,7 +477,6 @@ namespace Durin
 		const std::optional<FBox> Bounds = GetLOD0VolumetricBounds();
 		if (Bounds && Bounds->bIsValid)
 		{
-			FScopedPackageDirtySuppression SuppressDirty;
 			BodySetup->SetBox(Bounds->GetExtent(), Bounds->GetCenter());
 		}
 	}

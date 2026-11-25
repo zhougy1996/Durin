@@ -555,7 +555,6 @@ namespace Durin
 			AActor& Actor;
 			~FConstructionScope() { Actor.bNativeConstructionRunning = false; Actor.bNativeConstructionRequested = false; }
 		} ConstructionScope{*this};
-		FScopedPackageDirtySuppression SuppressConstructionDirtying;
 		bool bSucceeded = true;
 		bool bStartedReconstruction = false;
 		try

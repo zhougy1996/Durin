@@ -238,7 +238,6 @@ namespace Durin
 		CachedAggregate = Candidate;
 		CachedAggregateRevision = SimpleGeometryRevision;
 		MarkChanged(EBodySetupChange::SimpleGeometry);
-		MarkPackageDirty();
 		return true;
 	}
 

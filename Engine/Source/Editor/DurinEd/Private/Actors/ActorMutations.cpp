@@ -45,8 +45,7 @@ namespace Durin
 		AActor* Raw = nullptr;
 		TStrongObjectPtr<AActor> Prepared;
 		{
-			FScopedPackageDirtySuppression SuppressPreparation;
-			Raw = NewObject<AActor>(Class, &Level, Name, EObjectFlags::Transactional);
+			Raw = NewObject<AActor>(Class, &Level, Name, EObjectFlags::Transactional | EObjectFlags::Transient);
 			Prepared = Raw;
 			auto Reject = [&](std::string Reason) {
 				if (IsValid(Raw)) MarkObjectHierarchyAsGarbage(Raw);
@@ -70,6 +69,7 @@ namespace Durin
 		{
 			Level.SetFlags(EObjectFlags::Transactional);
 			Level.Modify(false);
+			if (IsValid(Raw)) Raw->SetTransient(false);
 			if (Transactions.IsActive() && Level.AddActor(Raw))
 			{
 				if (IsValid(Raw) && Level.ContainsActor(Raw)) return Raw;
@@ -170,7 +170,6 @@ namespace Durin
 				return {};
 			};
 			{
-				FScopedPackageDirtySuppression SuppressPreparation;
 				std::unordered_map<DObject*, DObject*> Duplicates;
 				std::vector<std::string> Labels;
 				std::vector<std::vector<TStrongObjectPtr<DObject>>> PendingPostLoad;
@@ -181,7 +180,8 @@ namespace Durin
 					auto* SourceParent = Source->GetAttachParentActor();
 					const FName ParentName = SourceParent ? SourceParent->GetFName() : NAME_None;
 					auto Result = StaticDuplicateObjectEx({.SourceObject = Source, .DestOuter = &Level,
-						.DestName = Level.MakeUniqueActorName(Source->GetFName()), .bSkipPostLoad = true, .CreatedObjects = &Graph});
+						.DestName = Level.MakeUniqueActorName(Source->GetFName()), .bSkipPostLoad = true,
+						.CreatedObjects = &Graph, .ApplyFlags = EObjectFlags::Transient});
 					if (!Result) continue;
 					auto* Copy = static_cast<AActor*>(*Result);
 					GatherDuplicatePostLoad(Source, Graph, PendingPostLoad.emplace_back());
@@ -237,6 +237,7 @@ namespace Durin
 			std::vector<TObjectPtr<AActor>> Published;
 			for (AActor* Actor : Prepared)
 			{
+				if (IsValid(Actor)) Actor->SetTransient(false);
 				if (Transactions->IsActive() && CanEditActorLevel(&Level) && Level.AddActor(Actor))
 					Published.emplace_back(Actor);
 				else if (IsValid(Actor) && !Level.ContainsActor(Actor))

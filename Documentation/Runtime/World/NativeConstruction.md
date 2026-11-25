@@ -98,10 +98,7 @@ collect only after the whole operation, including failure cleanup, has returned.
 `RerunConstructionScripts` returns success and accepts optional captured cache/root
 inputs; these are explicit Durin extensions to UE's no-argument void entry point.
 
-The construction scope suppresses package dirty and edit-revision mutation.
-The authored setter or transaction that requested reconstruction remains the
-only authoring authority. This suppression is thread-local, nestable, and
-limited to the synchronous derived-state pass.
+Runtime transform and attachment setters update the scene graph. Authored edits mark the package through the editor command or `Modify()`. Reconstruction can therefore repair poses and attachments on a clean level, while explicit edits made by a construction callback can dirty any affected package, including the Actor's own.
 
 ## Component Instance Preservation
 

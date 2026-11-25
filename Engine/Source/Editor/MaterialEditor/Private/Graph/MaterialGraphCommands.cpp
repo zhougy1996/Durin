@@ -130,7 +130,6 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		if (Transactions)
 		{
 			if (!bNested && !Recording.IsOutstanding()) return RejectCommand("Unable to start the graph transaction.");
-			FScopedPackageDirtySuppression Suppress;
 			std::unordered_set<DObject*> Recorded;
 			for (auto* Object : Objects)
 			{

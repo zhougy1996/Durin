@@ -69,15 +69,11 @@ namespace Durin
 				|| (Parent && (!IsValid(Parent) || Parent->IsBeingDestroyed() || Parent->HasBegunPlay()
 					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent->GetOwner() != &Owner || !Owner.OwnsComponent(Parent)))) return nullptr;
 			DObjectForceRegistration(Class);
-			DActorComponent* Component = nullptr;
-			{
-				FScopedPackageDirtySuppression SuppressPreparation;
-				const auto Name = Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName();
-				Component = NewObject<DActorComponent>(Class, &Owner, UniqueName(Owner, FName(Name)), EObjectFlags::Transactional);
-			}
+			const auto Name = Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName();
+			auto* Component = NewObject<DActorComponent>(Class, &Owner, UniqueName(Owner, FName(Name)),
+				EObjectFlags::Transactional | EObjectFlags::Transient);
 			if (!Component) return nullptr;
 			if (IsValid(&Owner) && IsValid(Component)) Owner.RemoveOwnedComponent(Component);
-			Component->SetTransient(true);
 			auto* Scene = Cast<DSceneComponent>(Component);
 			DSceneComponent* Destination = Scene ? (Parent ? Parent : Owner.GetRootComponent()) : nullptr;
 			FTransform Relative = Scene && !Parent ? Scene->GetRelativeTransform() : FTransform{};
@@ -111,18 +107,13 @@ namespace Durin
 			auto* Transactions = Admission;
 			if (!IsValid(Source) || !Owner.IsInstanceComponent(Source)
 				|| Owner.GetRootComponent() == Source) return nullptr;
-			auto Copy = [&] {
-				FScopedPackageDirtySuppression SuppressPreparation;
-				auto Prepared = DuplicateObject(Source, &Owner, UniqueName(Owner, Source->GetFName()));
-				if (Prepared)
-					if (auto* Scene = Cast<DSceneComponent>(*Prepared); Scene && Scene->GetAttachParent())
-						Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
-				return Prepared;
-			}();
+			auto Copy = StaticDuplicateObjectEx({.SourceObject = Source, .DestOuter = &Owner,
+				.DestName = UniqueName(Owner, Source->GetFName()), .ApplyFlags = EObjectFlags::Transient});
 			if (!Copy) return nullptr;
-			auto* Component = *Copy;
+			auto* Component = Cast<DActorComponent>(*Copy);
+			if (auto* Scene = Cast<DSceneComponent>(Component); Scene && Scene->GetAttachParent())
+				Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
 			if (IsValid(&Owner) && IsValid(Component)) Owner.RemoveOwnedComponent(Component);
-			Component->SetTransient(true);
 			// Ordinary duplication runs PostLoad and remaps owned subobjects before publication.
 			auto* SourceScene = Cast<DSceneComponent>(Source);
 			if (auto Revalidated = Admit(Context, nullptr, &Owner, true); !Revalidated)

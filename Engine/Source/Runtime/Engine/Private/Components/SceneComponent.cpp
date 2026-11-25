@@ -135,14 +135,6 @@ namespace Durin
 		Super::PostEditUndo();
 	}
 
-	auto DSceneComponent::BeginDestroy() -> void
-	{
-		// GC retirement must not turn attachment cleanup into an authored edit.
-		// Explicit component removal still dirties through DestroyComponent.
-		FScopedPackageDirtySuppression SuppressRetirementDirtying;
-		Super::BeginDestroy();
-	}
-
 	auto DSceneComponent::OnComponentPendingKill() -> void
 	{
 		const std::vector<TObjectPtr<DSceneComponent>> Children = AttachChildren;
@@ -171,7 +163,6 @@ namespace Durin
 		if (AreTransformsEqual(RelativeTransform, NewRelativeTransform)) return;
 		RelativeTransform = NewRelativeTransform;
 		UpdateComponentToWorld();
-		MarkPackageDirty();
 	}
 
 	auto DSceneComponent::GetWorldTransform() const -> const FTransform&
@@ -199,7 +190,6 @@ namespace Durin
 		if (AreTransformsEqual(RelativeTransform, NewRelativeTransform)) return;
 		RelativeTransform = NewRelativeTransform;
 		UpdateComponentToWorld();
-		MarkPackageDirty();
 	}
 
 	auto DSceneComponent::GetRelativeLocation() const -> const FVector3&
@@ -341,7 +331,6 @@ namespace Durin
 		}
 
 		UpdateComponentToWorld();
-		MarkPackageDirty();
 #if DURIN_WITH_EDITOR
 		if (bActorRoot && PreviousParentActor != Owner->GetAttachParentActor())
 		{
@@ -372,7 +361,6 @@ namespace Durin
 			RelativeTransform = PreviousWorld;
 		}
 		UpdateComponentToWorld();
-		MarkPackageDirty();
 #if DURIN_WITH_EDITOR
 		if (bActorRoot && PreviousParentActor != Owner->GetAttachParentActor())
 		{

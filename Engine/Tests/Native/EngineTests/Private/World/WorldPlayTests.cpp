@@ -292,7 +292,7 @@ TEST(FCameraComponentTests, ViewDistanceIsIndependentAndReclampedAgainstFarClip)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues)
+TEST(FCameraComponentTests, ProjectionEditsDirtyThePackageAndLookAtOnlyChangesThePose)
 {
 	InitializeDObjectSystem();
 	static const bool bMountRegistered = [] {
@@ -344,7 +344,7 @@ TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues
 
 	Package->ClearDirty();
 	Camera->SetLookAt({10.0, 20.0, 30.0}, {11.0, 20.0, 30.0});
-	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(Package->IsDirty());
 	ExpectVectorNear(Camera->GetWorldLocation(), {10.0, 20.0, 30.0});
 	ExpectVectorNear(
 		Durin::Math::RotateVector(Camera->GetWorldRotation(), Durin::FVectorConstants::Forward),

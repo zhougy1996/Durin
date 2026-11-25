@@ -47,6 +47,7 @@ namespace Durin::MaterialEditor
 		Working->ClearFlags(EObjectFlags::Standalone | EObjectFlags::Public);
 		Working->SetFlags(EObjectFlags::Transient | EObjectFlags::Transactional);
 		Graph = DMaterialGraph::Create(*Working);
+		PublishedWorkingRevision = Working->GetGraphChanges().GetEditRevision();
 		WorkingPackage->ClearDirty();
 
 		return true;
@@ -54,9 +55,12 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialFunctionEditingSession::IsDirty() const -> bool
 	{
-		return WorkingPackage && (WorkingPackage->IsDirty()
-			|| (Source && Working && SourceRevision == std::pair{Source->GetFunctionRevision(), Source->GetGraphChanges().GetEditRevision()}
-				&& (Source->GetFunctionPresentation() != Working->GetFunctionPresentation() || !HaveSameExpressions(*Source, *Working))));
+		if (!WorkingPackage) return false;
+		if (WorkingPackage->IsDirty()) return true;
+		if (!Source || !Working) return false;
+		if (SourceRevision != std::pair{Source->GetFunctionRevision(), Source->GetGraphChanges().GetEditRevision()})
+			return Working->GetGraphChanges().GetEditRevision() != PublishedWorkingRevision;
+		return Source->GetFunctionPresentation() != Working->GetFunctionPresentation() || !HaveSameExpressions(*Source, *Working);
 	}
 
 	auto FMaterialFunctionEditingSession::Publish(std::string& Error, bool bForce) -> bool
@@ -84,10 +88,11 @@ namespace Durin::MaterialEditor
 		if (bLayoutOnly) (void)Original->SetFunctionPresentation(Presentation);
 		else if (!Original->SetFunctionExpressions(Expressions))
 		{ Error = "The function changes could not be applied to the source."; return false; }
-		Original->MarkPackageDirty();
+		Original->GetPackage()->MarkDirty();
 		// Notification listeners may edit the draft; those newer edits remain unpublished.
 		if (Working->GetGraphChanges().GetEditRevision() == WorkingRevision)
 		{
+			PublishedWorkingRevision = WorkingRevision;
 			WorkingPackage->ClearDirty();
 		}
 		RefreshSourceRevision();

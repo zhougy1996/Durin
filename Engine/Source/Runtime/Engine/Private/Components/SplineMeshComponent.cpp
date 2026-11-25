@@ -210,14 +210,12 @@ namespace Durin
 		{
 			if (BodySetup)
 			{
-				const FScopedPackageDirtySuppression SuppressDirty;
 				const FScopedBodySetupUpdate Update(*BodySetup);
 				BodySetup->SetSimpleCollision({});
 				BodySetup->InvalidatePhysicsData();
 			}
 			return;
 		}
-		const FScopedPackageDirtySuppression SuppressDirty;
 		if (!BodySetup || BodySetup->GetOuter() != this)
 			BodySetup = NewObject<DBodySetup>(this, "SplineMeshBodySetup", EObjectFlags::Transient);
 		const FScopedBodySetupUpdate Update(*BodySetup);

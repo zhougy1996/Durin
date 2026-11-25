@@ -40,7 +40,6 @@ namespace
 		{
 			if (Setter) return Setter(Value);
 			Transform = Value;
-			if (Package) Package->MarkPackageDirty();
 			return bValid;
 		}
 		auto GetPackage() const -> Durin::DPackage* override { return Package.Get(); }

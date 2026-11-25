@@ -115,7 +115,6 @@ namespace Durin
 		if (IsBeingDestroyed() || IsPendingKill()) return false;
 		if (bExecutingConstruction) throw std::runtime_error("ExecuteConstruction cannot be nested on the same Actor.");
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FScopedPackageDirtySuppression SuppressDirty;
 		bExecutingConstruction = true;
 		const auto* PreviousData = ConstructionInstanceData;
 		ConstructionInstanceData = InstanceData;

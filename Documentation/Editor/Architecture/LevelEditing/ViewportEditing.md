@@ -227,14 +227,13 @@ parent-relative rotation, affected package, label, and capability mask. A
 target set supplies the current collection and transaction label.
 
 The gizmo snapshots valid targets and their packages at drag start.
-Preview and restoration use package-dirty suppression. Completion uses one
-`StoreUndo(Change)` call; the transactor owns recording and package transitions.
-Suppressed preview revisions let it distinguish the gesture from unrelated writes.
+Targets apply preview and restoration transforms without marking packages dirty.
+On release the gizmo records one `StoreUndo(Change)`. The transactor marks the affected packages.
 The document controller owns save admission for both commands and direct calls:
 saving and save-producing rename require an idle transactor and no active gesture
 or unfinished restore.
 Cancel, target invalidation, mode exit and net-zero completion restore starting
-transforms without a history entry. Dirty suppression preserves unrelated writes during the gesture. Target capability masks prevent unsupported operations before mutation.
+transforms without a history entry. Unrelated edits during the gesture retain their dirty state. Target capability masks prevent unsupported operations before mutation.
 
 Each target also retains its last preview value. An outside transform write
 ends ownership of that target; cancellation and release preserve its live value

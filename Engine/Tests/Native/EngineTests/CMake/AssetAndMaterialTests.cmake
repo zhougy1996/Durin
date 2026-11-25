@@ -567,8 +567,9 @@ durin_add_native_test(MaterialEditingPersistenceTests
 		StaticMeshEditor
 		TextureEditor
 		MeshBuilder
+		$<TARGET_NAME_IF_EXISTS:Water>
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
-	COMPILE_DEFINITIONS MATERIALEDITOR_EXPORTS
+	COMPILE_DEFINITIONS MATERIALEDITOR_EXPORTS DURIN_MATERIAL_WATER_TESTS=$<TARGET_EXISTS:Water>
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	ENVIRONMENTS authored-shaders

@@ -250,7 +250,7 @@ the declared participants separately from collector-only dependencies.
 Open the owning scope before a synchronous domain edit. `StoreUndo` appends to
 the active recording, including a nested recording, and rejects idle or foreign
 buffers. The scope owner controls finalization. Viewport transform drags and
-interactive material parameter edits suppress package dirtying during live
+interactive material parameter edits preserve the authored package’s dirty state during live
 preview and open or join a scope when the user commits. This leaves the global
 recorder available to other edits between input events.
 
@@ -314,7 +314,7 @@ context alone does not make its package dirty.
 
 During buffer Undo/Redo, `GIsTransacting` suppresses `DObject::MarkPackageDirty()`
 through expiry checks, object callbacks and successful completion notifications.
-Ordinary component removal leaves callback edits free to mark other packages dirty.
+Outside replay, a transient object or transient Outer cannot dirty its package through this entry point. Ordinary component removal leaves callback edits free to mark other packages dirty.
 The buffer updates recorded packages directly.
 
 On successful Undo or Redo, the buffer restores the captured dirty bit if the

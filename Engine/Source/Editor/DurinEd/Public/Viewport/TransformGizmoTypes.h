@@ -45,6 +45,7 @@ namespace Durin::LevelEditor
 		// Explicit edited objects; native-only targets may declare an empty list.
 		virtual auto GetModifiedObjects() const -> std::vector<DObject*> = 0;
 		virtual auto GetTransform() const -> FTransform = 0;
+		// Apply a live preview or restoration. The gizmo owns package dirtying on commit.
 		virtual auto SetTransform(const FTransform& Transform) -> bool = 0;
 		virtual auto GetParentRotation() const -> FQuat { return FQuatConstants::Identity; }
 		virtual auto GetPackage() const -> DPackage* { return nullptr; }

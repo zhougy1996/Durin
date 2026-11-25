@@ -384,7 +384,6 @@ namespace Durin
 	auto LoadSerializedObject(DObject& Object, const FSerializedObjectCapture& Capture) -> void
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FScopedPackageDirtySuppression SuppressDirty;
 		if (auto Result = ValidateSerializedObjectIdentity(Object, Capture); !Result) throw std::runtime_error(Result.error());
 		auto Excluded = Capture.Context->ExcludedMembers;
 		FSerializedObjectDataReader Reader(Object, Capture, Excluded);

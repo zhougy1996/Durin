@@ -132,7 +132,6 @@ namespace Durin::MaterialEditor
 		if (Transactions)
 		{
 			if (!bNested && !Recording.IsOutstanding()) return FailWithError(OutError, "Unable to start the layout transaction.");
-			FScopedPackageDirtySuppression Suppress;
 			auto Record = [](DObject& Object) {
 				Object.SetFlags(EObjectFlags::Transactional);
 				return Object.Modify(false);

@@ -31,6 +31,12 @@ TEST(FActorComponentTests, TransientRemnantDoesNotDirtyLevelDuringGarbageCollect
 	*CreationMethod->ContainerPtrToValuePtr<EComponentCreationMethod>(Remnant) = EComponentCreationMethod::Generated;
 	Remnant->PostLoad();
 	EXPECT_TRUE(Remnant->HasAnyObjectFlags(EObjectFlags::Transient));
+	auto* PreviewChild = NewObject<DObject>(Remnant, "PreviewChild");
+	ASSERT_NE(PreviewChild, nullptr);
+	ASSERT_FALSE(PreviewChild->HasAnyObjectFlags(EObjectFlags::Transient));
+	Level->GetPackage()->ClearDirty();
+	PreviewChild->MarkPackageDirty();
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	ASSERT_TRUE(Remnant->AttachToComponent(Actor->GetRootComponent(), EAttachmentTransformRule::KeepWorld));
 	// An unowned transient attachment must not dirty the level during collection.
 	EXPECT_FALSE(Actor->OwnsComponent(Remnant));

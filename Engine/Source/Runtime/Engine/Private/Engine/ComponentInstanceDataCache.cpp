@@ -169,7 +169,6 @@ namespace Durin
 				return std::unexpected("Actor attachment recovery participant cannot resolve safely.");
 		}
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FScopedPackageDirtySuppression SuppressDirty;
 		if (!Actor.SetRootComponent(SceneRoot)) return std::unexpected("Actor transaction root could not be reconciled.");
 		if (bCachedGeneratedRoot)
 		{
