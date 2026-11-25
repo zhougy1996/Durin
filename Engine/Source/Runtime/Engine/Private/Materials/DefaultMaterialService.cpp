@@ -16,6 +16,7 @@ namespace Durin
 		struct FDefaultMaterialServiceState
 		{
 			DMaterial* Material = nullptr;
+			DMaterial* CubeSky = nullptr;
 			FMaterialRenderProxyRef Proxy;
 			bool bInitialized = false;
 			bool bAcceptingBindings = false;
@@ -23,6 +24,7 @@ namespace Durin
 
 		FDefaultMaterialServiceState GDefaultMaterialService;
 		FMaterialRenderProxyRef GDefaultMaterialProxy_RenderThread;
+		FMaterialRenderProxyRef GCubeSkyProxy_RenderThread;
 		constexpr std::array<std::string_view, 2> GBuiltInCookRoots{
 			DefaultMaterialPackagePath, "/Engine/Materials/DefaultCubeSky"};
 
@@ -31,11 +33,12 @@ namespace Durin
 			if (GIsGameThreadIdInitialized) CheckGameThread();
 		}
 
-		auto PublishDefaultMaterialProxy(FMaterialRenderProxyRef Proxy) -> void
+		auto PublishDefaultMaterialProxy(FMaterialRenderProxyRef Proxy, FMaterialRenderProxyRef Sky = {}) -> void
 		{
 			if (IsRenderingThreadRunning())
-				EnqueueRenderCommand("PublishDefaultMaterialProxy", [Proxy = std::move(Proxy)](FRHICommandListImmediate&) {
+				EnqueueRenderCommand("PublishDefaultMaterialProxy", [Proxy = std::move(Proxy), Sky = std::move(Sky)](FRHICommandListImmediate&) {
 					GDefaultMaterialProxy_RenderThread = Proxy;
+					GCubeSkyProxy_RenderThread = Sky;
 				});
 		}
 	}
@@ -106,7 +109,21 @@ namespace Durin
 		AddToRoot(Material);
 		GDefaultMaterialService.Material = Material;
 		GDefaultMaterialService.Proxy = std::move(Proxy);
-		PublishDefaultMaterialProxy(GDefaultMaterialService.Proxy);
+		FSoftObjectPath SkyPath;
+		FMaterialRenderProxyRef SkyProxy;
+		if (FSoftObjectPath::TryCreate("/Engine/Materials/DefaultCubeSky.DefaultCubeSky", SkyPath))
+		{
+			if (auto* Sky = LoadObject<DMaterial>(SkyPath))
+			{
+				Sky->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+				if (!Sky->GetAcceptedCompiledProgram())
+					DURIN_ERROR_CATEGORY("Material", "Default cube sky shader compilation failed: {}", Sky->GetMaterialCookDiagnostic());
+				AddToRoot(Sky);
+				GDefaultMaterialService.CubeSky = Sky;
+				SkyProxy = Sky->GetRenderProxy();
+			}
+		}
+		PublishDefaultMaterialProxy(GDefaultMaterialService.Proxy, std::move(SkyProxy));
 		GDefaultMaterialService.bAcceptingBindings = true;
 		return true;
 	}
@@ -118,6 +135,11 @@ namespace Durin
 		GDefaultMaterialService.bAcceptingBindings = false;
 		PublishDefaultMaterialProxy({});
 		GDefaultMaterialService.Proxy = {};
+		if (GDefaultMaterialService.CubeSky)
+		{
+			RemoveFromRoot(GDefaultMaterialService.CubeSky);
+			GDefaultMaterialService.CubeSky = nullptr;
+		}
 		if (GDefaultMaterialService.Material != nullptr)
 		{
 			RemoveFromRoot(GDefaultMaterialService.Material);
@@ -132,6 +154,12 @@ namespace Durin
 		return GDefaultMaterialService.bAcceptingBindings
 			? GDefaultMaterialService.Proxy
 			: FMaterialRenderProxyRef{};
+	}
+
+	auto GetDefaultCubeSkyProxy_RenderThread() -> FMaterialRenderProxyRef
+	{
+		CheckRenderingThread();
+		return GCubeSkyProxy_RenderThread;
 	}
 
 	auto GetDefaultMaterialRenderProxy_RenderThread() -> FMaterialRenderProxy*

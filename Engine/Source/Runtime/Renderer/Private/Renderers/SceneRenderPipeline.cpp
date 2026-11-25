@@ -263,9 +263,10 @@ namespace Durin
 			}
 			// Sky resources include a static index upload, so initialize them before
 			// entering the Scene Color render pass.
-			const bool bSkyBoxResourcesReady = !Context.Logical.PreparedView->Environment
-				|| SkyBoxRenderer.EnsureResources_RenderThread();
-			if (Options.Environment && !bSkyBoxResourcesReady)
+			auto& Environment = Context.Logical.PreparedView->Environment;
+			const bool bSkyBoxResourcesReady = !Environment || (SkyBoxRenderer.EnsureResources_RenderThread()
+				&& SkyBoxRenderer.PrepareMaterial_RenderThread(CommandList, Context.Logical.PreparedView->View, Scene, *Environment));
+			if (!bSkyBoxResourcesReady)
 			{
 				return ERenderViewResult::RendererResourcesUnavailable;
 			}

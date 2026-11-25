@@ -14,6 +14,7 @@
 namespace Durin::RendererPrivate
 {
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceFragmentShader);
+	DURIN_IMPLEMENT_MATERIAL_SHADER(FSkyBackgroundMaterialShader);
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSingleLayerWaterFragmentShader);
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSingleLayerWaterDepthFragmentShader);
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader);
@@ -267,12 +268,13 @@ namespace Durin::RendererPrivate
         const FRHIUniformBufferRange& Lighting, const FRHIUniformBufferRange& HitProxy,
         const FRHIUniformBufferRange& View, const FRHIUniformBufferRange& Primitive,
         std::span<const FRHIUniformBufferRange> Collections,
-        FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights, const FGPUSceneShaderParameters& GPUScene) -> bool
+        FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights, const FGPUSceneShaderParameters& GPUScene, const FRHIUniformBufferRange& Sky) -> bool
     {
         OutBindings = {};
         if (!Shader || !Layout.IsValid() || !Material.bCompiledLayout
             || Material.CompiledTextures.size() != Material.CompiledSamplers.size()) return false;
         FSurfaceParameterProviders::FParameters Values;
+        Values.MaterialSky = Sky;
         Values.Material = MaterialBuffer; Values.MaterialView = View; Values.MaterialPrimitive = Primitive;
         Values.Lighting = Lighting; Values.HitProxy = HitProxy; Values.LocalLights = LocalLights;
         Values.GPUScenePrimitiveSceneData = GPUScene.GPUScenePrimitiveSceneData;

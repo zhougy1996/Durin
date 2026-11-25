@@ -41,5 +41,11 @@ package. Dropping another TextureCube replaces the existing Sky Box texture.
 A level with multiple visible Sky Box actors is invalid and must be reduced to
 one before placement can continue.
 
+Assign an opaque Unlit surface material or material instance to **Material Override**
+to author the visible background. Its emissive output supplies linear HDR color.
+The component rotation still orients the sky. The override supplies its own
+textures, tint and intensity. Clearing it restores the stored TextureCube, tint
+and intensity. Sky Light capture follows the Sky Light source setting.
+
 Face orientation, panorama projection, build, and rendering contracts are
 defined by [Cube Textures](../../Runtime/Assets/Families/CubeTextures.md).

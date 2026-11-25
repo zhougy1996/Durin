@@ -2,7 +2,7 @@
 
 Summary: Move visible SkyBox and Procedural Sky to material-backed backgrounds while preserving scene-owned Sky Light capture and existing levels.
 
-Last reviewed: 2026-11-24
+Last reviewed: 2026-11-25
 Status: Active
 Completed:
 
@@ -28,8 +28,11 @@ the saved asset, binds the HDR texture and compares its center pixel to the
 legacy draw. This test removes the scene sky and supplies matching view,
 projection and combined matrices so the background cannot satisfy the check.
 The original Stage 0 mesh-interior image included the scene background and
-is superseded by this isolated check. Production draw integration, component
-override and cooked runtime rendering remain open.
+is superseded by this isolated check. The fullscreen cubemap now evaluates the material in both scene-color passes.
+The Win64 Debug Vulkan fixture passed the six-face, HDR, override, transparent
+clear and occlusion probes, including an authored material instance with its own
+texture and intensity. All 16 SkyBox feature tests passed, including level
+reload and transaction replay. Cooked runtime rendering remains open.
 
 **Consumer inventory.** LevelEditor placement creates or transactionally
 replaces a visible SkyBox and rejects ambiguous placement. The scene accepts
@@ -108,7 +111,7 @@ LUTs, aerial perspective and UE-style general scene capture are outside this pla
 
 ### Stage 1: Render cubemap SkyBox with an Unlit material
 
-- [ ] Ship a default HDR cubemap sky material with direction sampling, rotation,
+- [x] Ship a default HDR cubemap sky material with direction sampling, rotation,
   tint and intensity. Route it through the chosen sky draw using the material
   compiler, resource binding and pass preparation. Keep scene or view ownership
   of the retained inputs and reuse the existing view-environment override
@@ -119,7 +122,7 @@ LUTs, aerial perspective and UE-style general scene capture are outside this pla
   edit time. Provide an explicit authored material override and document how it
   interacts with legacy settings. Confirm save/reopen, undo/redo, texture
   replacement, shader readiness and source-free Cook on representative assets.
-- [ ] Verify stage 0 parity for cubemap scenes, missing textures, preview
+- [x] Verify stage 0 parity for cubemap scenes, missing textures, preview
   overrides and HDR output. Keep the old background route available for
   Procedural Sky until Stage 2 passes.
 

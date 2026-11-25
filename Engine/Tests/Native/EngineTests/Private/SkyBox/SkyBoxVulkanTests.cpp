@@ -18,7 +18,8 @@
 #include "SkyBoxTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Load.h"
-#include "Asset/Load.h"
+#include "Materials/DefaultMaterialService.h"
+#include "Materials/MaterialInstance.h"
 #include "Client/SceneViewport.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Misc/FileHelper.h"
@@ -167,6 +168,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	});
 	Durin::FModuleTestHarness RendererLifecycle("SkyBoxRendererTest");
 	RendererLifecycle.Start(Renderer);
+	ASSERT_TRUE(Durin::InitializeDefaultMaterialService());
 	Durin::FSceneViewStateOwner ViewStateOwner = Renderer.CreateViewState();
 	ASSERT_TRUE(ViewStateOwner);
 	const Durin::FSceneViewStateId ViewStateId = ViewStateOwner.GetId();
@@ -661,8 +663,10 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			EXPECT_LT(int(Result->MeshPrototype[Center]), 8);
 			FSoftObjectPath MaterialPath;
 			ASSERT_TRUE(FSoftObjectPath::TryCreate("/Engine/Materials/DefaultCubeSky.DefaultCubeSky", MaterialPath));
-			auto* CubeMaterial = LoadObject<DMaterial>(MaterialPath);
-			ASSERT_NE(CubeMaterial, nullptr);
+			auto* CubeParent = LoadObject<DMaterial>(MaterialPath);
+			ASSERT_NE(CubeParent, nullptr);
+			auto* CubeMaterial = NewObject<DMaterialInstance>(nullptr, "SkyPrototypeInstance");
+			ASSERT_TRUE(CubeMaterial->SetParent(CubeParent));
 			ASSERT_TRUE(CubeMaterial->SetTextureParameterValue("SkyTexture", HdrCubeResult.Asset));
 			ASSERT_TRUE(CubeMaterial->SetVectorParameterValue("SkyTint", FVector3(HdrTint)));
 			ASSERT_TRUE(CubeMaterial->SetScalarParameterValue("SkyIntensity", HdrIntensity));
@@ -679,6 +683,16 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			Sphere->ReleaseResources();
 			ASSERT_TRUE(MaterialDrawn);
 			ExpectRgbNear(MaterialPixels, 17, 8, 8, HdrSourceColors[0], 12);
+			FSkyBoxSceneData CustomSky;
+			CustomSky.Intensity = 0.0f;
+			CustomSky.MaterialOverride = CubeMaterial->GetRenderProxy();
+			const auto Token = PublishSkyBox(Scene, CustomSky);
+			ASSERT_TRUE(Token);
+			FByteBuffer Background;
+			const bool BackgroundDrawn = Render(Perspective, Background);
+			FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, Token);
+			ASSERT_TRUE(BackgroundDrawn);
+			ExpectRgbNear(Background, 17, 8, 8, HdrSourceColors[0], 12);
 		};
 		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
 		PrototypeDome();
@@ -809,6 +823,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	);
 	Durin::FlushRenderingCommands();
 	ValidateDynamicSkyLighting(Renderer, CaptureDirectory);
+	Durin::ShutdownDefaultMaterialService();
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();

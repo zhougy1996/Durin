@@ -6,6 +6,9 @@
 
 namespace Durin
 {
+	namespace RendererPrivate { class FSurfaceMaterialResources; }
+	class FScene;
+	struct FPreparedEnvironment;
 	class FDefaultTextureResources;
 	class FRHICommandListImmediate;
 	struct FSceneView;
@@ -16,7 +19,7 @@ namespace Durin
 	{
 	public:
 		FSkyBoxRenderer(
-			FDefaultTextureResources& InDefaultTextures
+			FDefaultTextureResources& InDefaultTextures, RendererPrivate::FSurfaceMaterialResources& InMaterials
 		);
 		~FSkyBoxRenderer();
 
@@ -24,25 +27,17 @@ namespace Durin
 		auto operator=(const FSkyBoxRenderer&) -> FSkyBoxRenderer& = delete;
 
 		auto EnsureResources_RenderThread() -> bool;
-		auto Draw_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			const FSceneView& View,
-			const FSkyBoxSceneData& SkyBox,
-			bool bHybridBootstrap = false
-		) -> void;
-		auto DrawTexture_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			const FSceneView& View,
-			FRHITexture* Texture,
-			const FSkyBoxSceneData& SkyBox,
-			bool bHybridBootstrap = false
-		) -> bool;
+		auto PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
+			FScene* Scene, FPreparedEnvironment& Environment) -> bool;
+		auto Draw_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
+			const FPreparedEnvironment& Environment, bool bHybridBootstrap = false) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
 		struct FState;
 
 		FDefaultTextureResources& DefaultTextures;
+		RendererPrivate::FSurfaceMaterialResources& Materials;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

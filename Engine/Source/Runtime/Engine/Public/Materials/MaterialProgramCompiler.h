@@ -30,7 +30,7 @@ namespace Durin
 	inline constexpr uint32 CurrentMaterialPassContractVersion = 28;
 	inline constexpr uint32 MaterialProgramMaxShaderEntries = 64;
 	// Classification only. Persisted requests use Shader type/entry identities.
-	enum class EMaterialShaderEntry : uint8 { Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex, PostProcess, SingleLayerWater, SingleLayerWaterDepth };
+	enum class EMaterialShaderEntry : uint8 { Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex, PostProcess, SingleLayerWater, SingleLayerWaterDepth, SkyBackground };
 	using FMaterialShaderEntrySet = std::vector<std::string>;
 	struct FMaterialShaderEntryDescriptor
 	{

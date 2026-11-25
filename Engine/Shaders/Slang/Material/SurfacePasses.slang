@@ -3,6 +3,7 @@
 // file without instantiation so its exact bytes participate in dependency identity.
 #if !DURIN_GENERATED_MATERIAL
 #define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage)
+#include "SkyParameters.inl"
 #include "HitProxyParameters.inl"
 #include "SingleLayerWaterParameters.inl"
 #undef DURIN_MATERIAL_PARAMETER
@@ -13,6 +14,35 @@
 
 #endif
 #if DURIN_MATERIAL_PIXEL_STAGE
+
+#if DURIN_MATERIAL_SHADING_MODEL == 1
+import ProceduralSky;
+
+struct MaterialSkyUniform
+{
+    float4x4 ClipToSkyDirection;
+    float4 TintIntensity;
+    FProceduralSkyUniform ProceduralSky;
+    float4 DepthParams;
+};
+#define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage) Type Name;
+#include "SkyParameters.inl"
+#undef DURIN_MATERIAL_PARAMETER
+
+[shader("fragment")]
+float4 SkyBackgroundMain(float4 position : SV_Position, float2 clipPosition : TEXCOORD0, out float depth : SV_Depth) : SV_Target0
+{
+    depth = MaterialSky.DepthParams.x;
+    float3 direction = normalize(mul(MaterialSky.ClipToSkyDirection, float4(clipPosition, 1, 1)).xyz);
+    VSOutput input = (VSOutput)0;
+    input.pos = position;
+    input.worldPosition = direction;
+    input.worldNormal = direction;
+    input.uv0 = clipPosition * 0.5 + 0.5;
+    input.color = float4(1);
+    return float4(EvaluateGeneratedMaterial(input).emissive, 1);
+}
+#endif
 
 struct FResolvedGeneratedSurfaceShading
 {

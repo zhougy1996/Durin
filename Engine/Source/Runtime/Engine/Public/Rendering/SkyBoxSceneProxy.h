@@ -4,6 +4,7 @@
 
 #include "EngineAPI.h"
 #include "RHIResources.h"
+#include "Materials/MaterialRenderProxy.h"
 #include "Rendering/ProceduralSkySceneProxy.h"
 
 namespace Durin
@@ -16,6 +17,7 @@ namespace Durin
 		FVector3f Tint{1.0f, 1.0f, 1.0f};
 		float Intensity = 1.0f;
 		FProceduralSkyUniform ProceduralSky;
+		FMaterialRenderProxyRef MaterialOverride;
 	};
 
 	class FSkyBoxSceneProxy final

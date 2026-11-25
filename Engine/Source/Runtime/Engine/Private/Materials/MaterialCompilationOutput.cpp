@@ -14,7 +14,7 @@ namespace Durin
 		-> std::vector<EMaterialProperty>
 	{
 		using P = EMaterialProperty;
-		if (Entry == EMaterialShaderEntry::PostProcess) return {P::MP_EmissiveColor};
+		if (Entry == EMaterialShaderEntry::SkyBackground || Entry == EMaterialShaderEntry::PostProcess) return {P::MP_EmissiveColor};
 		if (Entry == EMaterialShaderEntry::LocalVertex || Entry == EMaterialShaderEntry::SplineVertex) return {P::MP_WorldPositionOffset};
 		if (Entry == EMaterialShaderEntry::Shadow || Entry == EMaterialShaderEntry::HitProxy
 			|| Entry == EMaterialShaderEntry::SingleLayerWaterDepth)

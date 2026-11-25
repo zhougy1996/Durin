@@ -30,7 +30,7 @@ namespace Durin
 		, DeferredDirectionalLightingRenderer(FullscreenGeometry)
 		, GroundTruthAmbientOcclusionRenderer(FullscreenGeometry)
 		, StaticMeshRenderer(Coordinator, SurfaceMaterials)
-		, SkyBoxRenderer(DefaultTextures)
+		, SkyBoxRenderer(DefaultTextures, SurfaceMaterials)
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
 		, ContactShadowRenderer(FullscreenGeometry)
 		, VolumetricCloudRenderer(Coordinator, FullscreenGeometry)

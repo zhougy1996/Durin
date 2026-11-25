@@ -364,12 +364,14 @@ source pixel.
 
 ## Sky Component and Scene Snapshot
 
-- `DSkyBoxComponent` owns a reflected `TObjectPtr<DTextureCube>`, linear Tint,
+- `DSkyBoxComponent` owns a reflected `TObjectPtr<DTextureCube>`, an optional material override, linear Tint,
   nonnegative Intensity, a serialized stable scene GUID, and a runtime instance
   ID. The reflected
   pointer participates in package dependency tracking, serialization, and GC.
 - Translation and scale remain ordinary authored transform data but do not
-  enter the sky snapshot. Only the component's world rotation is published.
+  enter the sky snapshot. The background receives the component's world rotation. DefaultCubeSky receives
+  the stored cube, linear tint and intensity through per-view bindings. An authored
+  opaque Unlit override uses its own material parameter bindings.
 - Registration, visibility, rotation, texture, Tint, and Intensity changes use
   the shared create, destroy, and dirty render-state hooks. Those hooks call
   only component-level `FSceneInterface::AddSkyBox(this)` and

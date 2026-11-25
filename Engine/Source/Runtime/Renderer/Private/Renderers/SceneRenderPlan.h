@@ -21,10 +21,12 @@
 namespace Durin
 {
 	// Represents one complete optional sky/environment input.
+	struct FPreparedSkyMaterial;
 	struct FPreparedEnvironment
 	{
 		FSkyBoxSceneData SkyBox;
 		FRHITexture* Texture = nullptr;
+		std::shared_ptr<const FPreparedSkyMaterial> Draw;
 	};
 
 	// Owns selected lights without per-submission GPU allocation state.

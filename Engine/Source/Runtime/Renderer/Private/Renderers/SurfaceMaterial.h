@@ -27,6 +27,7 @@ namespace Durin
 			Forward,
 			GBuffer,
 			PostProcess,
+			Background,
 		};
 
 		class FSurfaceParameterProviders
@@ -41,6 +42,7 @@ namespace Durin
 #include "Material/SplineParameters.inl"
 #include "Material/HitProxyParameters.inl"
 #include "Material/SceneTexturesParameters.inl"
+#include "Material/SkyParameters.inl"
 #include "Material/SingleLayerWaterParameters.inl"
 			DURIN_END_SHADER_PARAMETERS();
             static auto GetParametersMetadata() -> const FShaderParametersMetadata*
@@ -101,6 +103,25 @@ namespace Durin
 			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceFragmentShader, FCompiledSurfaceMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
 				"FragmentMain");
+		};
+
+		class FSkyBackgroundMaterialShader final : public FCompiledSurfaceMaterialShader
+		{
+		public:
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::SkyBackground, .GeometryUsage = 255, .PassUsage = 1, .BlendModes = 1}; }
+			static auto ShouldCompileMaterialPermutation(const FMaterialShaderPermutationParameters& P) -> bool
+			{ return P.Properties.ShadingModel == EMaterialShadingModel::Unlit; }
+
+			DURIN_BEGIN_SHADER_PARAMETERS(FSkyBackgroundMaterialShader)
+				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
+#include "Material/ViewParameters.inl"
+#include "Material/PrimitiveParameters.inl"
+#include "Material/SkyParameters.inl"
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_MATERIAL_SHADER(FSkyBackgroundMaterialShader, FCompiledSurfaceMaterialShader,
+				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "SkyBackgroundMain");
 		};
 
 		class FSingleLayerWaterFragmentShader final : public FCompiledSurfaceMaterialShader
@@ -228,7 +249,8 @@ namespace Durin
 			const FRHIUniformBufferRange& View,
 			const FRHIUniformBufferRange& Primitive,
 			std::span<const FRHIUniformBufferRange> Collections,
-			FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights = {}, const FGPUSceneShaderParameters& GPUScene = {}) -> bool;
+			FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights = {}, const FGPUSceneShaderParameters& GPUScene = {},
+			const FRHIUniformBufferRange& Sky = {}) -> bool;
 		RENDERER_API auto PrepareCompiledSurfaceMaterial(
 			FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
 			const FResolvedSurfaceMaterial& Material,

@@ -5,6 +5,7 @@
 #include "Rendering/SkyBoxSceneProxy.h"
 #include "Rendering/SceneInterface.h"
 #include "Texture/TextureCube.h"
+#include "Materials/MaterialInterface.h"
 
 namespace Durin
 {
@@ -47,7 +48,7 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit)) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
-		if (Name == FName("TextureCube") || Name == FName("Tint") || Name == FName("Intensity"))
+		if (Name == FName("TextureCube") || Name == FName("Tint") || Name == FName("Intensity") || Name == FName("MaterialOverride"))
 			MarkRenderStateDirty();
 	}
 
@@ -61,6 +62,14 @@ namespace Durin
 	{
 		if (TextureCube.Get() == InTextureCube) return;
 		TextureCube = InTextureCube;
+		MarkPackageDirty();
+		MarkRenderStateDirty();
+	}
+
+	auto DSkyBoxComponent::SetMaterialOverride(DMaterialInterface* Material) -> void
+	{
+		if (MaterialOverride.Get() == Material) return;
+		MaterialOverride = Material;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
 	}
@@ -99,6 +108,7 @@ namespace Durin
 		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden()) return nullptr;
 		FSkyBoxSceneData Data;
 		Data.Rotation = GetWorldRotation();
+		if (IsValid(MaterialOverride.Get())) Data.MaterialOverride = MaterialOverride->GetRenderProxy();
 		Data.Tint = FVector3f(Tint.R, Tint.G, Tint.B);
 		Data.Intensity = FMath::Max(0.0f, Intensity);
 		if (DTextureCube* Cube = GetTextureCube())

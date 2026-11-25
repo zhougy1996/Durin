@@ -21,6 +21,7 @@ namespace Durin
 namespace Durin
 {
 	class DTextureCube;
+	class DMaterialInterface;
 	class FSkyBoxSceneProxy;
 
 	// Publishes a persistent cube-texture reference and rotation-only sky snapshot.
@@ -38,6 +39,8 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 		ENGINE_API auto GetTextureCube() const -> DTextureCube*;
+		ENGINE_API auto SetMaterialOverride(DMaterialInterface* Material) -> void;
+		auto GetMaterialOverride() const -> DMaterialInterface* { return MaterialOverride.Get(); }
 		auto GetTint() const -> const FLinearColor& { return Tint; }
 		auto GetIntensity() const -> float { return Intensity; }
 		ENGINE_API auto SetTextureCube(DTextureCube* InTextureCube) -> void;
@@ -55,6 +58,9 @@ namespace Durin
 
 		DPROPERTY(Category = "Source", Edit)
 		TObjectPtr<DTextureCube> TextureCube;
+
+		DPROPERTY(Category = "Appearance", Edit)
+		TObjectPtr<DMaterialInterface> MaterialOverride;
 
 		DPROPERTY(Category = "Appearance", Edit, MetaData="HideAlpha")
 		FLinearColor Tint{1.0f, 1.0f, 1.0f, 1.0f};

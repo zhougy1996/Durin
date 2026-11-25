@@ -212,7 +212,7 @@ namespace Durin
 		bool bBootstrapRendered = true;
 		if (Inputs.Environment)
 		{
-			const bool bSkyRendered = SkyBoxRenderer.DrawTexture_RenderThread(CommandList, View, Inputs.Environment->Texture, Inputs.Environment->SkyBox, true);
+			const bool bSkyRendered = SkyBoxRenderer.Draw_RenderThread(CommandList, View, *Inputs.Environment, true);
 			bBootstrapRendered = bSkyRendered || !Inputs.bRequireEnvironmentTexture;
 		}
 		if (!bBootstrapRendered)
@@ -269,7 +269,7 @@ namespace Durin
 
 		if (Inputs.Environment)
 		{
-			const bool bSkyRendered = SkyBoxRenderer.DrawTexture_RenderThread(CommandList, View, Inputs.Environment->Texture, Inputs.Environment->SkyBox);
+			const bool bSkyRendered = SkyBoxRenderer.Draw_RenderThread(CommandList, View, *Inputs.Environment);
 			if (!bSkyRendered && Inputs.bRequireEnvironmentTexture) return false;
 		}
 

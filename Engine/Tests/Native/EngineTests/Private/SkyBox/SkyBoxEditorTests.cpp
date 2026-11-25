@@ -13,6 +13,7 @@
 #include "Editor/EditorActorSubsystemTestSupport.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Texture/TextureCube.h"
+#include "Materials/Material.h"
 
 TEST(FSkyBoxEditorWorkflowTests, TextureAssignmentComposesWithOtherComponentFieldsThroughGenericHistory)
 {
@@ -33,15 +34,18 @@ TEST(FSkyBoxEditorWorkflowTests, TextureAssignmentComposesWithOtherComponentFiel
 	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
 	EXPECT_EQ(Component->GetTextureCube(), Before.Get());
 	FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
+	TStrongObjectPtr<DMaterial> Override(NewObject<DMaterial>(nullptr, "SkyOverride"));
 	{
 		Durin::FScopedTransaction Scope("test", "Texture and intensity", nullptr);
 		ASSERT_TRUE(Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(), *Level, After.Get(), "Sky", {false}));
 		Component->SetIntensity(3.0f);
+		Component->SetMaterialOverride(Override.Get());
 	}
 	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 1u);
 	EXPECT_FALSE(Transactions->GetTransaction(0)->IsOwnedByModule("LevelEditor"));
 	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Component->GetTextureCube(), Before.Get()); EXPECT_FLOAT_EQ(Component->GetIntensity(), 1.0f);
-	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Component->GetTextureCube(), After.Get()); EXPECT_FLOAT_EQ(Component->GetIntensity(), 3.0f);
+	EXPECT_EQ(Component->GetMaterialOverride(), nullptr);
+	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Component->GetMaterialOverride(), Override.Get()); EXPECT_EQ(Component->GetTextureCube(), After.Get()); EXPECT_FLOAT_EQ(Component->GetIntensity(), 3.0f);
 }
 
 TEST(FSkyBoxEditorWorkflowTests, RedoRestoresActorWithEmptyTextureAfterAssetRetirement)
@@ -180,6 +184,12 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	EXPECT_EQ(Component->GetTextureCube(), CubeResult.Asset);
 	Component->SetTint({0.25f, 0.5f, 0.75f, 1.0f});
 	Component->SetIntensity(2.5f);
+	Durin::FPackagePath MaterialPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/AuthoredSkyMaterial", MaterialPath));
+	Durin::DMaterial* Override = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(MaterialPath, Override));
+	ASSERT_TRUE(Durin::SavePackage(Override->GetPackage()));
+	Component->SetMaterialOverride(Override);
 	Durin::FTransform Transform = Actor->GetActorTransform();
 	Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(35.0, Durin::FVectorConstants::Up);
 	ASSERT_TRUE(Actor->SetActorTransform(Transform));
@@ -201,6 +211,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
 	ASSERT_NE(LoadedComponent, nullptr);
 	ASSERT_NE(LoadedComponent->GetTextureCube(), nullptr);
+	ASSERT_NE(LoadedComponent->GetMaterialOverride(), nullptr);
+	EXPECT_EQ(LoadedComponent->GetMaterialOverride(), Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath)));
 	EXPECT_EQ(LoadedComponent->GetTint(), (Durin::FLinearColor(0.25f, 0.5f, 0.75f, 1.0f)));
 	EXPECT_FLOAT_EQ(LoadedComponent->GetIntensity(), 2.5f);
 	EXPECT_EQ(LoadedComponent->GetWorldRotation(), Transform.Rotation);
@@ -238,7 +250,9 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 		LevelPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CubePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(LevelPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(MaterialPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(CubePath));
 	Durin::ShutdownRenderingThread();
 }

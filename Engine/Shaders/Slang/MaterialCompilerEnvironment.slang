@@ -8,6 +8,7 @@ import Material.MeshUniforms;
 import Material.GBufferDecode;
 import Material.SingleLayerWaterLighting;
 import SceneData;
+import ProceduralSky;
 import Material.SpecularAntialiasing;
 import Lighting.DirectionalShadow;
 import Lighting.ViewLightingUniform;
