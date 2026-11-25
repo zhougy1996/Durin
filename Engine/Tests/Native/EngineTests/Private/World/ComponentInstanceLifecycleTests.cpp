@@ -55,7 +55,6 @@ TEST(FComponentInstanceLifecycleTests, OrdinaryReregistrationPreservesPlayInitia
 	Fixture.World->BeginPlay({});
 	ASSERT_EQ(Fixture.World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	ASSERT_TRUE(Root->SetComponentTickGroup(ETickingGroup::PostPhysics)); Root->SetComponentTickEnabled(true);
-	const auto Before = Root->CaptureLifecycleState();
 	int TimerCalls = 0;
 	const auto Timer = Fixture.World->GetTimerManager().SetTimerForObjectNextTick(Root, [&](DObject&) { ++TimerCalls; });
 	{
@@ -65,29 +64,15 @@ TEST(FComponentInstanceLifecycleTests, OrdinaryReregistrationPreservesPlayInitia
 		EXPECT_FALSE(Root->IsRegistered());
 		ASSERT_TRUE(Outer.ReRegister()); ASSERT_TRUE(Outer.ReRegister());
 	}
-	EXPECT_EQ(Root->CaptureLifecycleState(), Before);
+	EXPECT_TRUE(Root->IsComponentTickEnabled());
+	EXPECT_TRUE(Root->GetPrimaryComponentTick().IsTickFunctionRegistered());
+	EXPECT_EQ(Root->GetPrimaryComponentTick().GetTickGroup(), ETickingGroup::PostPhysics);
 	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 2u); EXPECT_EQ(Root->Unregistered, 1u);
 	EXPECT_EQ(Root->Initialized, 1u); EXPECT_EQ(Root->Uninitialized, 0u); EXPECT_EQ(Root->Begun, 1u); EXPECT_EQ(Root->Ended, 0u);
 	EXPECT_TRUE(Fixture.World->GetTimerManager().IsTimerActive(Timer));
 	Fixture.World->Tick({.DeltaSeconds = 0.1f}); EXPECT_EQ(TimerCalls, 1);
 	Root->ReregisterComponent(); EXPECT_EQ(Root->Registered, 3u); EXPECT_EQ(Root->Initialized, 1u); EXPECT_EQ(Root->Begun, 1u);
 	Fixture.World->EndPlay(); EXPECT_EQ(Root->Ended, 1u);
-}
-
-TEST(FComponentInstanceLifecycleTests, SharedLifecycleRestoresUnregisteredInitializedStateWithoutCreationDuplication)
-{
-	using namespace Durin;
-	FTransactionEngineWorld Fixture;
-	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("UnregisteredInitialized");
-	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
-	Root->UnregisterComponent(); ASSERT_TRUE(Root->HasBeenInitialized());
-	const auto Target = Root->CaptureLifecycleState();
-	ASSERT_TRUE(Root->ApplyLifecycleState({}));
-	EXPECT_FALSE(Root->HasBeenCreated()); EXPECT_FALSE(Root->HasBeenInitialized());
-	ASSERT_TRUE(Root->ApplyLifecycleState(Target)); EXPECT_EQ(Root->CaptureLifecycleState(), Target);
-	EXPECT_EQ(Root->Created, 2u); EXPECT_EQ(Root->Initialized, 2u);
-	const auto Registered = Root->Registered;
-	ASSERT_TRUE(Root->ApplyLifecycleState(Target)); EXPECT_EQ(Root->Registered, Registered);
 }
 
 TEST(FComponentInstanceLifecycleTests, ReregisterScopeDoesNotResurrectRetiredComponentBeforeSafePoint)

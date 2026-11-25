@@ -37,13 +37,6 @@ namespace Durin
 		Destroying
 	};
 
-	struct FActorComponentLifecycleState
-	{
-		FTickFunctionState Tick;
-		bool bCreated = false, bRegistered = false, bInitialized = false, bPlaying = false;
-		auto operator==(const FActorComponentLifecycleState&) const -> bool = default;
-	};
-
 	// Defines actor-owned lifecycle, registration, play, and optional tick behavior.
 	DCLASS(ScriptType)
 	class DActorComponent : public DObject
@@ -62,9 +55,6 @@ namespace Durin
 			return Cast<T>(GetOuter());
 		}
 
-		ENGINE_API auto CaptureLifecycleState() const -> FActorComponentLifecycleState;
-		ENGINE_API auto ValidateLifecycleState(const FActorComponentLifecycleState& State) const -> std::expected<void, std::string>;
-		ENGINE_API auto ApplyLifecycleState(const FActorComponentLifecycleState& State) -> std::expected<void, std::string>;
 		ENGINE_API auto ReregisterComponent() -> void;
 		auto HasBeenCreated() const -> bool { return bHasBeenCreated; }
 		auto HasBeenInitialized() const -> bool { return bHasBeenInitialized; }
@@ -115,6 +105,7 @@ namespace Durin
 		ENGINE_API virtual auto OnOwnerVisibilityChanged() -> void;
 
 	private:
+		auto DeactivateForRemoval() -> void;
 		auto RegisterComponentInternal(bool bInitialize) -> void;
 
 		// Call OnRegister()

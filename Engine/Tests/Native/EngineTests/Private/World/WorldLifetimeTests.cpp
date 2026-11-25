@@ -771,11 +771,12 @@ TEST(FWorldTests, SceneReplacementPreservesPlayingComponentLifecycleAndBoundTime
 	auto* Component = Actor->GetLightComponent();
 	World->BeginPlay({});
 	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
-	const auto Before = Component->CaptureLifecycleState();
 	int Calls = 0;
 	const auto Timer = World->GetTimerManager().SetTimerForObjectNextTick(Component, [&](Durin::DObject&) { ++Calls; });
 	World->SetRenderScene(&Second);
-	EXPECT_EQ(Component->CaptureLifecycleState(), Before);
+	EXPECT_TRUE(Component->IsRegistered());
+	EXPECT_TRUE(Component->HasBeenInitialized());
+	EXPECT_TRUE(Component->HasBegunPlay());
 	EXPECT_EQ(First.RemoveLightCount, 1u); EXPECT_EQ(Second.AddLightCount, 1u);
 	EXPECT_TRUE(First.Lights.empty()); EXPECT_EQ(Second.Lights.size(), 1u);
 	EXPECT_TRUE(World->GetTimerManager().IsTimerActive(Timer));

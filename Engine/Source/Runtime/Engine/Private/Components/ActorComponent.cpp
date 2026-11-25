@@ -27,48 +27,23 @@ namespace Durin
 	}
 	auto DActorComponent::GetComponentInstanceData() const -> std::shared_ptr<FActorComponentInstanceData> { return {}; }
 
-	auto DActorComponent::CaptureLifecycleState() const -> FActorComponentLifecycleState
+	auto DActorComponent::DeactivateForRemoval() -> void
 	{
-		if (IsBeingDestroyed() || IsBeginningPlay() || IsEndingPlay()) throw std::runtime_error("Component lifecycle capture requires settled state.");
-		return {PrimaryComponentTick.CaptureState(), bool(bHasBeenCreated), bool(bRegistered), bool(bHasBeenInitialized), HasBegunPlay()};
-	}
-	auto DActorComponent::ValidateLifecycleState(const FActorComponentLifecycleState& State) const -> std::expected<void, std::string>
-	{
-		if (!IsValid(this) || IsBeingDestroyed() || IsBeginningPlay() || IsEndingPlay()) return std::unexpected("Component lifecycle is unavailable or unsettled.");
-		if ((State.bRegistered || State.bInitialized || State.bPlaying) && !State.bCreated) return std::unexpected("Component lifecycle requires creation before activation.");
-		if (State.bRegistered && GetOwner() && !GetOwner()->OwnsComponent(this)) return std::unexpected("Registered component must belong to its owner's live set.");
-		if (State.bPlaying && (!GetOwner() || !GetOwner()->HasBegunPlay())) return std::unexpected("Component cannot begin play without its playing owner.");
-		return FTickFunction::ValidateState(State.Tick, GetOwner() ? Cast<DLevel>(GetOwner()->GetOuter()) : nullptr);
-	}
-	auto DActorComponent::ApplyLifecycleState(const FActorComponentLifecycleState& State) -> std::expected<void, std::string>
-	{
-		if (auto Valid = ValidateLifecycleState(State); !Valid) return Valid;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!IsValid(this) || IsBeingDestroyed() || IsBeginningPlay() || IsEndingPlay())
+			throw std::runtime_error("Cannot remove a component during a lifecycle transition.");
 		FScopedPackageDirtySuppression SuppressDirty;
-		try
-		{
-			auto CheckLive = [&] {
-				if (!IsValid(this) || IsBeingDestroyed() || (State.bRegistered && GetOwner() && !GetOwner()->OwnsComponent(this)))
-					throw std::runtime_error("Component was retired or detached by a lifecycle callback.");
-			};
-			if (!State.bPlaying && HasBegunPlay()) { RouteEndPlay(); CheckLive(); }
-			if (!State.bInitialized && bHasBeenInitialized) { UninitializeComponent(); CheckLive(); }
-			if (!State.bRegistered && IsRegistered()) { UnregisterComponent(); CheckLive(); }
-			if (!State.bCreated && bHasBeenCreated) { OnComponentDestroyed(); CheckLive(); }
-			if (State.bCreated && !bHasBeenCreated) { OnComponentCreated(); CheckLive(); }
-			const bool bNeedsRegistration = State.bRegistered || (State.bInitialized && !bHasBeenInitialized)
-				|| (State.bPlaying && !HasBegunPlay());
-			if (bNeedsRegistration && !IsRegistered()) { RegisterComponentInternal(State.bInitialized); CheckLive(); }
-			if (State.bInitialized && !bHasBeenInitialized) { InitializeComponent(); CheckLive(); }
-			if (State.bPlaying && !HasBegunPlay()) { DispatchBeginPlay(); CheckLive(); }
-			if (!State.bRegistered && IsRegistered()) { UnregisterComponent(); CheckLive(); }
-			if (auto Result = PrimaryComponentTick.RestoreState(State.Tick, GetOwner() ? Cast<DLevel>(GetOwner()->GetOuter()) : nullptr); !Result) return Result;
-			if (CaptureLifecycleState() != State) return std::unexpected("Component lifecycle restoration did not settle.");
-			return {};
-		}
-		catch (const std::exception& Error) { return std::unexpected(Error.what()); }
-		catch (...) { return std::unexpected("Component lifecycle callback threw."); }
+		auto CheckLive = [this] {
+			if (!IsValid(this) || IsBeingDestroyed())
+				throw std::runtime_error("Component was retired by a removal callback.");
+		};
+		if (HasBegunPlay()) { RouteEndPlay(); CheckLive(); }
+		if (bHasBeenInitialized) { UninitializeComponent(); CheckLive(); }
+		UnregisterComponent();
+		CheckLive();
+		if (bHasBeenCreated) { OnComponentDestroyed(); CheckLive(); }
 	}
+
 	auto DActorComponent::ReregisterComponent() -> void
 	{
 		FComponentReregisterContext Context(this);

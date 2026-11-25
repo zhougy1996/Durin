@@ -187,7 +187,7 @@ needed EndPlay, uninitialization and creation/destruction notifications through
 the component owner. Unregistration alone does not clear play-bound timers;
 EndPlay and terminal teardown still clear them.
 
-Structural removal uses `ApplyLifecycleState({})` to settle the component before detaching it from its owner.
+Reversible removal preserves component identity, Tick enablement and Tick group. Undo restores membership and uses normal Level activation to register the same component again.
 
 `FComponentReregisterContext` temporarily unregisters a component and restores
 registration when its scope ends. Ordinary World render-scene replacement and

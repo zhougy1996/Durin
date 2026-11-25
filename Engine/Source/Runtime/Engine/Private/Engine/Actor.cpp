@@ -102,7 +102,7 @@ namespace Durin
 		{
 			if (!Component || Component->GetCreationMethod() != EComponentCreationMethod::Instance
 				|| std::ranges::contains(InstanceComponents, Component)) continue;
-			if (auto Result = Component->ApplyLifecycleState({}); !Result) throw std::runtime_error(Result.error());
+			Component->DeactivateForRemoval();
 			Component->SetOwnedByActor(false);
 		}
 		ResetOwnedComponents();
@@ -322,7 +322,7 @@ namespace Durin
 				if (SceneComponent->GetAttachParent()) SceneComponent->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
 				if (RootComponent == SceneComponent) SetRootComponent(nullptr);
 			}
-			if (auto Result = Component->ApplyLifecycleState({}); !Result) throw std::runtime_error(Result.error());
+			Component->DeactivateForRemoval();
 			RemoveOwnedComponent(Component);
 		}
 		ValidateComponentOwnership();

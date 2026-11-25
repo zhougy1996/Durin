@@ -617,6 +617,8 @@ TEST(FComponentMutationTests, DeletionPreservesIdentityForEarlierPropertyHistory
 {
 	FComponentFixture F;
 	auto* Light = static_cast<FStructuralTestLight*>(F.Actor->AddInstanceComponent(FStructuralTestLight::StaticClass(), "Light"));
+	ASSERT_TRUE(Light->SetComponentTickGroup(ETickingGroup::PostPhysics));
+	Light->SetComponentTickEnabled(true);
 	Light->SetRelativeLocation({4.0, 0.0, 0.0});
 	auto* Child = static_cast<DSceneComponent*>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Child"));
 	Child->SetRelativeLocation({2.0, 0.0, 0.0});
@@ -630,12 +632,18 @@ TEST(FComponentMutationTests, DeletionPreservesIdentityForEarlierPropertyHistory
 	const auto Before = Child->GetWorldLocation();
 	ASSERT_TRUE(F.Editor.GetActorEditor()->DeleteComponent(*F.Actor, Light, {false}));
 	EXPECT_FALSE(Light->IsRegistered());
+	EXPECT_FALSE(Light->GetPrimaryComponentTick().IsTickFunctionRegistered());
+	EXPECT_TRUE(Light->IsComponentTickEnabled());
+	EXPECT_EQ(Light->GetPrimaryComponentTick().GetTickGroup(), ETickingGroup::PostPhysics);
 	EXPECT_EQ(Child->GetAttachParent(), nullptr);
 	EXPECT_EQ(Child->GetWorldLocation(), Before);
 	EXPECT_FALSE(F.Scene.Lights.contains(Light));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(F.Actor->GetInstanceComponents(), Instances);
+	EXPECT_TRUE(Light->GetPrimaryComponentTick().IsTickFunctionRegistered());
+	EXPECT_TRUE(Light->IsComponentTickEnabled());
+	EXPECT_EQ(Light->GetPrimaryComponentTick().GetTickGroup(), ETickingGroup::PostPhysics);
 	EXPECT_EQ(Child->GetAttachParent(), Light);
 	EXPECT_EQ(Child->GetWorldLocation(), Before);
 	ASSERT_TRUE(F.Scene.Lights.contains(Light));
@@ -647,6 +655,9 @@ TEST(FComponentMutationTests, DeletionPreservesIdentityForEarlierPropertyHistory
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_FALSE(F.Scene.Lights.contains(Light));
 	EXPECT_FALSE(F.Actor->OwnsComponent(Light));
+	EXPECT_FALSE(Light->GetPrimaryComponentTick().IsTickFunctionRegistered());
+	EXPECT_TRUE(Light->IsComponentTickEnabled());
+	EXPECT_EQ(Light->GetPrimaryComponentTick().GetTickGroup(), ETickingGroup::PostPhysics);
 }
 
 TEST(FComponentMutationTests, DuplicationRebuildsSplineCacheAndPreservesDetachedTransform)
