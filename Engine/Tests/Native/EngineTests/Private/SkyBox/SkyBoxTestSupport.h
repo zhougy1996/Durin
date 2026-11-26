@@ -96,15 +96,6 @@ namespace
 		return Root;
 	}
 
-	auto ReconstructSampleDirection(const Durin::SkyBoxRendering::FSkyBoxUniform& Uniform, const Durin::FVector2& ClipPosition)
-		-> Durin::FVector3
-	{
-		const auto& Rows = Uniform.DomeProjection;
-		const glm::dmat3 Projection = glm::transpose(glm::dmat3{
-			Durin::FVector3(Rows[0]), Durin::FVector3(Rows[1]), Durin::FVector3(Rows[2])});
-		return glm::normalize(glm::inverse(Projection) * Durin::FVector3(ClipPosition, 1.0));
-	}
-
 	auto MakePrincipalAxisView(
 		const Durin::FVector3& Direction,
 		const Durin::FVector3& Location,

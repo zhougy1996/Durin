@@ -22,7 +22,6 @@ namespace Durin::SkyBoxRendering
 		// Homogeneous clip X, Y and W rows. The last row also carries far depth.
 		std::array<FVector4f, 3> DomeProjection{};
 		FVector4f TintIntensity{1.0f};
-		FProceduralSkyUniform ProceduralSky;
 	};
 
 	// Builds the shader snapshot without retaining scene objects or camera

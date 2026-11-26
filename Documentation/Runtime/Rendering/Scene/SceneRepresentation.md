@@ -4,7 +4,7 @@ Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, 
 
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-26
 
 Durin represents renderable world residents with Engine-created SceneProxy
 values and Renderer-owned scene entries. Components call only the public
@@ -19,14 +19,13 @@ seam are Renderer-private.
 | --- | --- | --- |
 | Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy` and `FSplineMeshSceneProxy` | `FPrimitiveSceneInfo` in one authoritative generic primitive list |
 | Light | `FLightSceneProxy`, specialized by directional, point, and spot proxies | `FLightSceneInfo` with authoritative typed family views |
-| SkyBox | `FSkyBoxSceneProxy` | Sole retained proxy |
 | Volumetric cloud | `FVolumetricCloudSceneProxy` | `FVolumetricCloudSceneInfo` |
 
 The public virtual interface carries only component pointers and returns
 `void`. Renderer-private `FScene` validates the registered component and owning
 Scene synchronously on the game thread, invokes the component's private proxy
 builder through friendship, and passes only detached copied state to its own
-private admission helpers. For Light, SkyBox, and VolumetricCloud the component
+private admission helpers. For Light and VolumetricCloud the component
 retains only `Proxy.get()` as an opaque removal token after successful command
 admission. Primitive retains its stable Scene ID and a non-owning proxy pointer
 as its publication token. The
@@ -46,8 +45,7 @@ release clears candidate membership before its owning map. Light typed views
 retain their existing ownership rules. StaticMesh render data remains a non-owning borrow
 bounded by the component render-state and asset-release fence protocol.
 SplineMesh retains copied normalized deformation values and bounds while
-borrowing the source StaticMesh render data under the same retirement fence;
-material proxies and SkyBox texture references remain counted references.
+borrowing the source StaticMesh render data under the same retirement fence. Material proxies retain counted references.
 
 ## Proxy and SceneInfo Responsibilities
 
@@ -80,23 +78,22 @@ visibility, transform, authored-property, and retirement publication; the
 renderer never calls a component getter. Bounded per-view selection and the
 shared GPU contract are defined by [Forward Lighting](../Features/ForwardLighting.md).
 
-`FSkyBoxSceneProxy` directly owns the retained texture reference, rotation,
-tint, and intensity. A scene retains at most one SkyBox proxy and rejects a
-second publication until the current one is removed.
+Authored sky meshes publish through the primitive list. A surface material
+marked `Is Sky` routes its mesh section to the sky pass.
 
 ## Ordering and Typed Access
 
 Ordinary scene mutation has one game-thread producer and uses FIFO
 render-command order. Light and VolumetricCloud registries key membership by
-the exact proxy pointer; the SkyBox registry retains its sole proxy directly.
+the exact proxy pointer.
 Rebuild submits Remove for the old token
 before Add for the newly constructed proxy, so immediate Add/Remove and repeated
 dirty rebuilds need no tombstone or universal publication revision. Work that
 has an independently ordered boundary retains a feature-specific generation;
 the cloud proxy carries a unique immutable history key for temporal invalidation.
 
-Renderer-private `FScene` composes `FLightSceneRegistry`, `FSkyBoxSceneRegistry`, and
-`FVolumetricCloudSceneRegistry`; they own the family-specific membership,
+Renderer-private `FScene` composes
+`FLightSceneRegistry` and `FVolumetricCloudSceneRegistry`. They own the family-specific membership,
 indexes, and candidate policy. Primitive membership remains directly
 owned and keyed by Scene ID while its registry extraction is deferred. A
 Primitive proxy rebuild submits Remove-old and Add-new; duplicate membership is
@@ -131,10 +128,10 @@ content, not a primitive family: it has no Scene ID, transform, bounds,
 visibility record, typed SceneInfo list, reflected owner, or persistent scene
 selection state.
 
-Renderer resolves the reference on the rendering thread and gives a valid
-explicit environment precedence over the active scene SkyBox for that one
-view. It then uses the shared SkyBox path before geometry. Empty options retain
-ordinary scene-SkyBox behavior. A required override whose target is null, not a
+Renderer resolves the reference on the rendering thread. A valid override
+draws a camera-centered skydome for that view and skips authored sky mesh
+sections. Without an override, the view uses the scene's procedural sky when
+present and draws its authored sky sections. A required override whose target is null, not a
 cube, or cannot be rendered fails the view submission rather than selecting a
 fallback texture. This path supports value-only editor captures without
 changing the scene representation.

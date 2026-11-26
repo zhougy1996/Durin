@@ -223,6 +223,8 @@ namespace Durin
 		if (!ResolvePreparedMaterialBinding(Data, Binding, "SkyBackground")
 			|| !Materials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::Background)
 			|| !Materials.Resolve_RenderThread(Binding, ESurfaceMaterialPass::Background, {}, nullptr, nullptr, Material)) return false;
+		SkyBoxRendering::FSkyBoxUniform Uniform;
+		if (!SkyBoxRendering::BuildUniform(View, Sky, Uniform)) return false;
 		FByteBuffer Payload(Binding.CompiledUniformPayload.begin(), Binding.CompiledUniformPayload.end());
 		if (!bProcedural)
 		{
@@ -233,15 +235,13 @@ namespace Durin
 			const auto* Slots = GetDefaultCubeSkyBindings_RenderThread(Binding.LayoutIdentity);
 			if (!Slots) return false;
 			Material.CompiledTextures.at(Slots->TextureIndex) = Texture;
-			const FVector4f Tint(Sky.Tint, 1.0f);
+			const FVector4f Tint(FVector3f(Uniform.TintIntensity), 1.0f);
 			std::memcpy(Payload.data() + Slots->TintOffset, &Tint, sizeof(Tint));
-			std::memcpy(Payload.data() + Slots->IntensityOffset, &Sky.Intensity, sizeof(Sky.Intensity));
+			std::memcpy(Payload.data() + Slots->IntensityOffset, &Uniform.TintIntensity.w, sizeof(Uniform.TintIntensity.w));
 		}
-		SkyBoxRendering::FSkyBoxUniform Uniform;
-		if (!SkyBoxRendering::BuildUniform(View, Sky, Uniform)) return false;
 		Draw->Projection = Uniform.DomeProjection;
 		const auto MaterialBuffer = Payload.empty() ? FRHIUniformBufferRange{} : Commands.CreateUniformBufferRange(Payload.data(),Payload.size());
-		const auto SkyBuffer = Commands.CreateUniformBufferRange(&Uniform.ProceduralSky, sizeof(Uniform.ProceduralSky));
+		const auto SkyBuffer = Commands.CreateUniformBufferRange(&Sky.ProceduralSky, sizeof(Sky.ProceduralSky));
 		const auto ViewBuffer = PrepareMeshViewUniform(Commands, View, false);
 		std::vector<FRHIUniformBufferRange> Collections;
 		for (const auto& Required : Program->ActiveCollections)

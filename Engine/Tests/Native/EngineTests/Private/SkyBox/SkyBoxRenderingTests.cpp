@@ -1,7 +1,18 @@
 #include "SkyBoxTestSupport.h"
+#include "Math/Operations.h"
+#include "SceneViewProjection.h"
 
 namespace
 {
+	auto ReconstructSampleDirection(const Durin::SkyBoxRendering::FSkyBoxUniform& Uniform, const Durin::FVector2& ClipPosition)
+		-> Durin::FVector3
+	{
+		const auto& Rows = Uniform.DomeProjection;
+		const glm::dmat3 Projection = glm::transpose(glm::dmat3{
+			Durin::FVector3(Rows[0]), Durin::FVector3(Rows[1]), Durin::FVector3(Rows[2])});
+		return glm::normalize(glm::inverse(Projection) * Durin::FVector3(ClipPosition, 1.0));
+	}
+
 	class FSkyBoxAssetCompilingEnvironment final : public testing::Environment
 	{
 	public:
@@ -20,8 +31,6 @@ namespace
 	[[maybe_unused]] testing::Environment* GSkyBoxAssetCompilingEnvironment =
 		testing::AddGlobalTestEnvironment(new FSkyBoxAssetCompilingEnvironment);
 }
-#include "Math/Operations.h"
-#include "SceneViewProjection.h"
 
 TEST(FSkyBoxRenderingTests, ReconstructsTranslationInvariantDirectionAndInverseComponentRotation)
 {
