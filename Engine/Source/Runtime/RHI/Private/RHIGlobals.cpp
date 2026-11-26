@@ -279,11 +279,11 @@ namespace Durin
 			"Stop and join the rendering thread before entering RHI lifecycle operations.");
 		check(GDynamicRHI);
 		auto& Cache = GDynamicRHI->PipelineStateCache;
-		if (Cache) Cache->Shutdown();
 		RHIReleaseResourcesDelegate.Broadcast();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 		FRHICommandListImmediate::Get().ImmediateFlush(
 			EImmediateFlushType::FlushRHIThread);
+		if (Cache) Cache->Shutdown();
 		if (RHIThreadOwner)
 		{
 			RHIThreadOwner->Stop();

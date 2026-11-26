@@ -27,7 +27,7 @@ to a stable type.
 
 Detailed parameter-validation errors and validators live in
 `Backend/RHIValidation.h`. Required-success native creation failures terminate through
-`Backend/RHICreation.h`. Internal PSO dispatch waits and typed native accessors
+`Backend/RHICreation.h`. Internal PSO replay waits and typed native accessors
 live in `Backend/RHIPipelineStateCacheBackend.h`; ordinary callers use typed cache
 identities and read-only state observations. Recording and execution report validation diagnostics inside
 RHI. Ordinary consumers use resource descriptions and commands, or the boolean
@@ -103,19 +103,19 @@ or mutating description arrays. Content equality and hashing remain the owning
 
 Public pipeline acquisition exposes typed state objects, not per-caller creation
 requests. `GetAndOrCreate*PipelineState` must acquire a valid identity;
-the recording command list receives its compilation dependency during acquisition.
+a pending compilation records a wait in the command stream at acquisition.
 `Precache*PipelineState` allows an empty result and compilation failure. Required
 compilation failure is fatal before draw/dispatch replay. Public identities expose
 state, immutable layout metadata, and typed native access. Their internal
-compile state, typed native storage, and dispatch waits belong to
+compile state, typed native storage, and replay waits belong to
 the Backend seam. Equal live keys share one compilation. The consumer reads the
-published PSO outcome before replay. Read-only state observations retain no native resources.
+published PSO outcome when replay reaches that wait. Read-only state observations retain no native resources.
 
 Dropping a reference never cancels compilation. Cache shutdown closes acquisition,
 settles queued work, and joins active compilation and drain capture retirement.
 PSO owners release their references before backend teardown. Only CPU metadata
 may outlive the device. Active compilation publishes its native result and terminal outcome
-after the native call returns. Dispatch waits on the shared outcome.
+after the native call returns. Command replay waits on the shared outcome.
 
 An enum value, resource flag, shader frequency, or feature level is vocabulary,
 not proof that a backend implements the feature. Runtime support requires a

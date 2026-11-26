@@ -83,7 +83,7 @@ namespace Durin
 			FName Name = {}) -> FGraphicsPipelineStateRef;
 		RHI_API auto GetAndOrCreateComputePipelineState(FRHICommandListBase& CommandList, const FComputePipelineStateInitializer& Initializer,
 			FName Name = {}) -> FComputePipelineStateRef;
-		// Draw acquisition must succeed; native compilation is joined before replay.
+		// Draw acquisition must succeed; replay joins pending compilation at the acquisition command.
 		// Precache may return empty and its shared compilation may fail.
 		// Precache and draw use the same identity. Dropping a precache reference
 		// does not cancel creation retained by another owner or recorded command.

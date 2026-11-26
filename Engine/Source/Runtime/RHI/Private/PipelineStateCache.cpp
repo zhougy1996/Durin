@@ -216,13 +216,13 @@ namespace Durin
 		auto GetAndOrCreateGraphicsPipelineState(FRHICommandListBase& CommandList, const FGraphicsPipelineStateInitializer& Initializer, FName Name) -> FGraphicsPipelineStateRef
 		{
 			auto Pipeline = AcquireRequired(Initializer, Name);
-			CommandList.AddPipelineDependency(Pipeline);
+			CommandList.RecordPipelineWait(Pipeline);
 			return Pipeline;
 		}
 		auto GetAndOrCreateComputePipelineState(FRHICommandListBase& CommandList, const FComputePipelineStateInitializer& Initializer, FName Name) -> FComputePipelineStateRef
 		{
 			auto Pipeline = AcquireRequired(Initializer, Name);
-			CommandList.AddPipelineDependency(Pipeline);
+			CommandList.RecordPipelineWait(Pipeline);
 			return Pipeline;
 		}
 	}

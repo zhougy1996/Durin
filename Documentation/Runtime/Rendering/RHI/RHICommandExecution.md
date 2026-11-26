@@ -198,24 +198,14 @@ producer's work. The RHI thread is the sole runtime owner of command-context
 replay, Vulkan command-pool/buffer mutation, graphics and present queue
 submission, frame state, and ordered backend deletion.
 
-Ordinary dispatches can replay a ready ordered prefix before later PSO dependencies
-complete. Replay pauses only at recorded closed scopes, never inside a GPU
-submission, render pass, timing/diagnostic interval, buffer lock, or split
-transition. Immediate GPU-submission ends preserve such boundaries in storage.
-The partial work keeps its queue serial, capacity charge, and storage owners;
-later entries cannot overtake it, and its fence remains pending. Ready adjacent
-scopes replay together without another queue round trip. Required PSO failure is fatal. Dependency
-cancellation discards the remaining suffix and publishes the group's canceled
-outcome; it cannot undo the already executed prefix. Frame/resource
-event submissions retain an aggregate dependency gate and execute their events
-only after all dependencies succeed. The FIFO consumer executes each accepted entry once.
-PSO waits occur inside that execution, outside the queue lock. Drain retains
-capacity and storage until execution and capture retirement finish. Closing admission wakes blocked producers without consuming their work.
-
-Binding a cached graphics or compute PSO retains its compilation dependency and
-promotes unfinished work to Highest priority. This demand path reuses the same
-cache identity as precaching; it does not restart compilation, wait on the
-recording thread, or apply a per-frame creation quota.
+Required graphics and compute acquisition promotes pending compilation to Highest
+priority and records a wait at that position in the command stream. Ready PSOs
+need no wait command. Inline and threaded replay execute preceding commands,
+including commands inside an open GPU submission or render pass, before waiting
+on the shared compilation outcome. Required compilation failure is fatal.
+The FIFO consumer retains the serial, capacity and command storage until replay
+finishes. Later submissions and the current submission's trailing events remain
+ordered behind the wait.
 
 Ordered events execute in this sequence:
 
@@ -339,7 +329,7 @@ execution boundary are `noexcept`. Unexpected C++ exceptions reach the existing
 process terminate policy; they cannot become ordinary task/asset failures.
 A known nullable PSO result publishes Failed for accepted optional async work.
 Empty precache acquisition has no compilation to poll. Required drawing failure
-is fatal before replay. Compilation stores one native pipeline alternative and
+is fatal at acquisition or when replay reaches the required PSO. Compilation stores one native pipeline alternative and
 one authoritative outcome; typed accessors replace the generic result snapshot.
 Failed pipeline identities are shared while retained and Renderer resource slots
 suppress another attempt until the relevant content/generation changes.
@@ -509,8 +499,8 @@ Final render shutdown also drains cleanup queued behind the fence.
 stopped. A queued fence retains its completion state independently of the fence
 object and of the task scheduler.
 
-`RHIExit()` closes pipeline compilation, releases upper-layer owners and flushes
-recorded commands on the current executor. In threaded mode, stopping the FIFO
+`RHIExit()` broadcasts resource release and flushes recorded commands on the current
+executor while PSO compilation remains available. It then closes the cache and joins compilation. In threaded mode, stopping the FIFO
 closes admission, wakes blocked producers and joins the consumer after accepted
 work releases its captures. The executor then switches to inline mode.
 With both rendering threads stopped, the game thread destroys the pipeline cache,

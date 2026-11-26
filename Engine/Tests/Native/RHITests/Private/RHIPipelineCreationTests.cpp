@@ -46,7 +46,7 @@ namespace Durin
 		}
 	};
 
-	TEST_F(FRHIPipelineCreationTests, DispatchWaitObservesReadyOrFailedNativeOutcome)
+	TEST_F(FRHIPipelineCreationTests, CompilationWaitObservesReadyOrFailedNativeOutcome)
 	{
 		for (const auto Expected : {ERHIPipelineState::Ready, ERHIPipelineState::Failed})
 		{
@@ -65,19 +65,19 @@ namespace Durin
 			EXPECT_EQ(Request, Peer);
 			EXPECT_EQ(Request.GetStateObservation(), Peer.GetStateObservation());
 			auto Waiting = std::async(std::launch::async, [&] {
-				return FRHIPipelineStateCacheBackend::WaitForDispatch(Peer);
+				return Peer.Wait();
 			});
 			Release.set_value();
 			EXPECT_EQ(Waiting.get(), Expected);
 			EXPECT_EQ(FRHIPipelineStateCacheBackend::GetComputePipeline(Peer) != nullptr,
 				Expected == ERHIPipelineState::Ready);
 			// Joining after publication must return the same result immediately.
-			EXPECT_EQ(FRHIPipelineStateCacheBackend::WaitForDispatch(Request), Expected);
+			EXPECT_EQ(Request.Wait(), Expected);
 			Owner.Shutdown();
 		}
 	}
 
-	TEST_F(FRHIPipelineCreationTests, ConcurrentDispatchWaitAndPublicationCannotLoseCompletion)
+	TEST_F(FRHIPipelineCreationTests, ConcurrentCompilationWaitAndPublicationCannotLoseCompletion)
 	{
 		for (int Iteration = 0; Iteration < 32; ++Iteration)
 		{
@@ -93,7 +93,7 @@ namespace Durin
 			auto Request = Owner.RequestCompute(Initializer, "wake race");
 			auto Waiter = std::async(std::launch::async, [&] {
 				Gate.wait();
-				return FRHIPipelineStateCacheBackend::WaitForDispatch(Request);
+				return Request.Wait();
 			});
 			Start.set_value();
 			EXPECT_EQ(Waiter.get(), ERHIPipelineState::Ready);
@@ -696,7 +696,7 @@ namespace Durin
 			Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, 4});
 			auto Queued = Owner.RequestCompute(Initializer, "never started");
 			auto QueuedWait = std::async(std::launch::async, [&] {
-				return FRHIPipelineStateCacheBackend::WaitForDispatch(Queued);
+				return Queued.Wait();
 			});
 			auto ConcurrentStop = std::async(std::launch::async, [&] { Owner.Shutdown(); });
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);

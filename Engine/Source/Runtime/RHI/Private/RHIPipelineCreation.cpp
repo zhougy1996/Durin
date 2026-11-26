@@ -1,4 +1,5 @@
 #include "RHIPipelineCreation.h"
+#include "Profiling/Profiling.h"
 #include "Threading/Task.h"
 #include "Backend/RHICreation.h"
 #include "PipelineCompileQueue.h"
@@ -131,6 +132,20 @@ namespace Durin
 	}
 	auto FPipelineCompilation::GetPriority() const -> EPSOPrecachePriority
 	{ return State ? State->Priority.load() : EPSOPrecachePriority::NotSet; }
+	auto FRHIPipelineStateCacheBackend::WaitForRequiredPipeline(const FPipelineCompilation& Request) -> void
+	{
+		auto State = Request.GetState();
+		if (State == ERHIPipelineState::Pending)
+		{
+			if (GInPipelineCreator || IsInWorkerThread())
+				RHITerminateOnFailure("RHI replay", "DependencyWaitUnsupported");
+			DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.PipelineWait");
+			State = Request.WaitForPublication();
+		}
+		if (State != ERHIPipelineState::Ready)
+			RHITerminateOnFailure("PSO", "Required pipeline compilation failed");
+	}
+
 	auto FPipelineCompilation::CanWait() const -> bool
 	{
 		return GetState() != ERHIPipelineState::Pending

@@ -238,7 +238,7 @@ namespace Durin
 			const FGraphicsPipelineStateInitializer&, FName) -> FGraphicsPipelineStateRef;
 		friend auto PipelineStateCache::GetAndOrCreateComputePipelineState(FRHICommandListBase&,
 			const FComputePipelineStateInitializer&, FName) -> FComputePipelineStateRef;
-		auto AddPipelineDependency(const std::shared_ptr<FPipelineState>& Pipeline) -> void;
+		auto RecordPipelineWait(const std::shared_ptr<FPipelineState>& Pipeline) -> void;
 		auto DetachStorage() -> std::unique_ptr<FRHICommandStorage>;
 		auto IsFinished() const -> bool;
 		auto MarkAdmitted() -> void;
@@ -335,7 +335,6 @@ namespace Durin
 		RHI_API ~FRHICommandListImmediate() override;
 		RHI_API auto QueueCommandList(FRHICommandList&& CommandList) -> void;
 		// Preserve a closed submission boundary for dependency-gated replay.
-		RHI_API auto EndGPUSubmission() -> void;
 		// Hands recorded work to the RHI executor without a completion wait or GPU flush.
 		// Bounded queue admission can apply backpressure; inline mode replays locally.
 		RHI_API auto DispatchToRHIThread() -> uint64;

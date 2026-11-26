@@ -158,8 +158,8 @@ Descriptor-set layouts and render passes are interned until device teardown,
 without artificial live-object count limits. Accounting is logical CPU metadata,
 not an allocator/driver memory measurement.
 
-`RHIExit` closes the PSO cache and joins compilation before broadcasting
-resource release. After replay is flushed and the RHI thread is joined, it
+`RHIExit` broadcasts resource release and flushes accepted draws before closing
+the PSO cache and joining compilation. After the RHI thread is joined, it
 destroys the cache and drains deferred resource deletion in inline mode before
 backend shutdown. Release explicit native PSO references before device teardown.
 
@@ -181,7 +181,7 @@ There is no public rejection enum or `expected` acquisition protocol.
 Identities expose Pending/Ready/Failed/Canceled, immutable layout metadata, and
 type-specific nullable `GetRHIPipeline()` results. `Wait()` returns the observed
 domain state: Pending means the caller cannot safely wait; the other states are
-terminal. Dispatch waits, typed native accessors, executor wait preflight, and
+terminal. Replay waits, typed native accessors, and
 `FPipelineCompilation` belong to the Backend implementation seam. Public state
 objects hide compilation storage behind an incomplete type.
 `GetStateObservation()` returns read-only outcome metadata without atomic storage,
@@ -229,8 +229,7 @@ synchronous wait in the factory. Accepted native PSOs
 publish cached handles before compilation completes. Scene preparation collects
 these handles explicitly at each resource phase, including ready cache hits,
 and the caller-owned view request observes native completion without revisiting
-resolved phases. Normal drawing records the handles and their completion
-dependencies; the RHI executor gates replay at closed command scopes.
+resolved phases. Normal drawing records required PSO waits at acquisition.
 Resource-phase batches collect shared dependencies without joining compilation.
 CPU preparation and admission errors remain owned by their slots. View
 observations have no artificial handle-count admission limit.
@@ -246,18 +245,10 @@ compatibility. Shader preparation itself is not made asynchronous by this helper
 Recorded command lists retain typed cache identities and their internal creation
 dependencies. Pending identities expose immutable layout metadata, never
 unfinished native handles.
-Submission deduplicates shared compilation dependencies without a PSO-count cap.
-The dedicated FIFO consumer checks the next safe replay segment outside the queue lock.
-When a dependency is pending, it waits directly on that PSO's atomic outcome,
-then checks the segment again. If another dependency cancels during that wait,
-the consumer observes cancellation when the selected PSO settles. Earlier
-complete scopes can replay first. Ordered
-frame and resource submissions gate the whole group. A failed required compilation is fatal. A canceled dependency
-skips the whole batch and terminates its CPU fence as Canceled,
-while later independent batches can proceed. Inline submission waits before
-replay only on permitted callers. Ordinary Submit and QueueCommandList are
-required-success operations; invalid input and submission after queue closure are
-internal errors, not a public retry protocol.
+Inline and threaded replay wait at the acquisition command. Earlier commands
+execute in stream order, including inside an open pass. A required PSO that
+cannot supply its native pipeline is fatal. Optional precompile requests can
+still be canceled when the cache closes.
 Neither creator work nor its dependencies may depend on replay. Compute stage
 and binding validation remains active; a pipeline becoming Ready does not make
 missing bindings valid.

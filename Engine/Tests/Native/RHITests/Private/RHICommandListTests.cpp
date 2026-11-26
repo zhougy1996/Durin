@@ -178,7 +178,7 @@ namespace Durin
 			{ return {}; }
 		};
 
-		class FPipelineCacheTestRHI final : public FIndirectTestRHI
+		class FPipelineCacheTestRHI : public FIndirectTestRHI
 		{
 		public:
 			FPipelineCacheTestRHI() { InitializePipelineStateCache(*RHIGetCapabilities(), CreatePipelineCompileBackend()); }
@@ -1823,7 +1823,7 @@ namespace Durin
 		EXPECT_DEATH(PipelineStateCache::GetAndOrCreateComputePipelineState(Commands, Initializer), "Required pipeline compilation failed");
 	}
 
-	TEST(FRHICommandListTests, RequiredAcquisitionAttachesPendingCompilationAndFailsBeforeReplay)
+	TEST(FRHICommandListTests, FailedRequiredAcquisitionStopsReplayAtWaitCommand)
 	{
 		for (const bool Threaded : {false, true})
 		{
@@ -1912,115 +1912,16 @@ namespace Durin
 				}
 	}
 
-	TEST(FRHICommandListTests, PendingPipelineAllowsClosedPrefixAndRetainsSerialAndStorage)
+	TEST(FRHICommandListTests, ReplayWaitsAtAcquisitionInsideSubmissionAndPreservesFifo)
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
 		for (const bool bOrderedEvent : {false, true})
-			for (const int Outcome : {0, 2})
-			{
-				SCOPED_TRACE(Outcome);
-				SCOPED_TRACE(bOrderedEvent);
-				FThreadEvent Entered, Release, PrefixReplayed, LaterReplayed;
-				FRHICapabilities Capabilities;
-				Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
-				FRHIPipelineCompileBackend Backend;
-				Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
-				Backend.CreateCompute = [&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
-					Entered.Trigger();
-					Release.Wait();
-					return MakeRefCount<FRHIComputePipelineState>();
-				};
-				FPipelineCacheTestRHI RHI(Capabilities, std::move(Backend));
-				auto& Cache = *RHI.RHIGetPipelineStateCache();
-				FScopedDynamicRHI Active(RHI);
-				auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-				FComputePipelineStateInitializer Initializer;
-				Initializer.ComputeShader = Shader;
-				auto Cached = Cache.GetCompute(Initializer, "prefix-dependency");
-				ASSERT_TRUE(Cached);
-				EXPECT_TRUE(Entered.WaitFor(5.0));
-				FRHIThread Thread;
-				ASSERT_TRUE(Thread.Start());
-				FRecordingCommandContext Context;
-				FRHICommandListExecutor Executor(Context, Thread);
-				auto& Commands = Executor.GetImmediateCommandList();
-				std::vector<int> Order;
-				auto Owner = std::make_shared<int>(1);
-				std::weak_ptr<int> Lifetime = Owner;
-				Commands.BeginGPUSubmission({});
-				Commands.EnqueueLambda([&, Owner] { Order.push_back(*Owner); PrefixReplayed.Trigger(); }, sizeof(int));
-				Commands.EndGPUSubmission();
-				Owner.reset();
-				Commands.BeginGPUSubmission({});
-				FRHICommandList Dependent;
-				Dependent.SwitchPipeline(ERHIPipeline::Compute);
-				Dependent.SetComputePipelineState(PipelineStateCache::GetAndOrCreateComputePipelineState(Dependent, Initializer));
-				EXPECT_EQ(Cached->GetPriority(), EPSOPrecachePriority::Highest);
-				Dependent.EnqueueLambda([&] { Order.push_back(2); });
-				Dependent.FinishRecording();
-				Commands.QueueCommandList(std::move(Dependent));
-				Commands.EndGPUSubmission();
-				const auto Serial = Executor.Submit({}, bOrderedEvent ? ERHISubmitFlags::SubmitToGPU : ERHISubmitFlags::None);
-				auto Fence = Executor.CreateFence(Serial);
-				Commands.EnqueueLambda([&] { Order.push_back(3); LaterReplayed.Trigger(); });
-				Executor.Submit({}, ERHISubmitFlags::None);
-				auto Last = Executor.CreateFence();
-				EXPECT_EQ(PrefixReplayed.WaitFor(bOrderedEvent ? 0.05 : 5.0), !bOrderedEvent);
-				EXPECT_FALSE(Fence.IsComplete());
-				EXPECT_FALSE(LaterReplayed.IsTriggered());
-				EXPECT_FALSE(Lifetime.expired());
-				EXPECT_LT(Executor.GetCompletedSerial(), Serial);
-				if (Outcome == 2)
-				{
-					auto QueuedInitializer = Initializer;
-					QueuedInitializer.PipelineLayout.PushConstantRanges = {{EShaderStageFlags::Compute, 0, 8}};
-					auto Queued = Cache.GetCompute(QueuedInitializer, "queued close witness");
-					EXPECT_TRUE(Queued);
-					auto Closing = std::async(std::launch::async, [&] { Cache.Shutdown(); });
-					if (Queued)
-					{
-						const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-						while (Queued->GetState() == ERHIPipelineState::Pending
-							&& std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
-						EXPECT_EQ(Queued->GetState(), ERHIPipelineState::Canceled);
-					}
-					// Active compilation keeps its shared completion pending during close.
-					EXPECT_FALSE(Fence.IsComplete());
-					Release.Trigger();
-					Last.Wait();
-					Closing.get();
-				}
-				else
-				{
-					Release.Trigger();
-					Last.Wait();
-				}
-				EXPECT_EQ(Fence.GetState(), Outcome == 0 ? ERHICommandBatchState::Succeeded : Outcome == 1 ? ERHICommandBatchState::Canceled :
-																											 ERHICommandBatchState::Canceled);
-				EXPECT_EQ(Order, Outcome == 0 ? std::vector<int>({1, 2, 3}) : bOrderedEvent ? std::vector<int>({3}) :
-																							  std::vector<int>({1, 3}));
-				EXPECT_EQ(std::ranges::count(Context.Operations, "BeginSubmission"), Outcome == 0 ? 2 : bOrderedEvent ? 0 :
-																														1);
-				EXPECT_EQ(std::ranges::count(Context.Operations, "SubmitToGPU"), bOrderedEvent && Outcome == 0 ? 1 : 0);
-				EXPECT_TRUE(Lifetime.expired());
-				Cache.Shutdown();
-				Thread.Stop();
-		}
-	}
-
-	TEST(FRHICommandListTests, PendingPipelineBatchesKeepFifoAndExposeCanceledFences)
-	{
-		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
-		GIsGameThreadIdInitialized = true;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
-		for (int Outcome : {0, 1})
 		{
-			SCOPED_TRACE(Outcome);
-			FThreadEvent Entered, Release;
+			SCOPED_TRACE(bOrderedEvent);
+			FThreadEvent Entered, Release, PrefixReplayed, LaterReplayed;
 			FRHICapabilities Capabilities;
 			Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
 			FRHIPipelineCompileBackend Backend;
@@ -2028,81 +1929,60 @@ namespace Durin
 			Backend.CreateCompute = [&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
 				Entered.Trigger();
 				Release.Wait();
-
 				return MakeRefCount<FRHIComputePipelineState>();
 			};
 			FPipelineCacheTestRHI RHI(Capabilities, std::move(Backend));
 			auto& Cache = *RHI.RHIGetPipelineStateCache();
 			FScopedDynamicRHI Active(RHI);
+			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			auto Cached = Cache.GetCompute(Initializer, "prefix-dependency");
+			ASSERT_TRUE(Cached);
+			EXPECT_TRUE(Entered.WaitFor(5.0));
 			FRHIThread Thread;
 			ASSERT_TRUE(Thread.Start());
 			FRecordingCommandContext Context;
 			FRHICommandListExecutor Executor(Context, Thread);
-			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-			FComputePipelineStateInitializer Initializer;
-			Initializer.ComputeShader = Shader;
-			Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, 4});
-			auto Cached = Cache.GetCompute(Initializer, "dependency");
-			ASSERT_TRUE(Cached);
-			auto Pipeline = Cached;
-			EXPECT_TRUE(Entered.WaitFor(5.0));
-			EXPECT_EQ(Pipeline->GetPipelineLayout()->PushConstantRanges.size(), 1u);
-			{
-				FRHICommandListExecutor InlineExecutor(Context);
-				InlineExecutor.GetImmediateCommandList().EnqueueLambda([&] {
-					EXPECT_EQ(Pipeline->Wait(), ERHIPipelineState::Pending);
-				}, 0);
-				InlineExecutor.Submit({}, ERHISubmitFlags::None);
-			}
 			auto& Commands = Executor.GetImmediateCommandList();
-			Commands.SwitchPipeline(ERHIPipeline::Compute);
-			Commands.SetComputePipelineState(PipelineStateCache::GetAndOrCreateComputePipelineState(Commands, Initializer));
-			Commands.Dispatch(1, 1, 1);
 			std::vector<int> Order;
-			Commands.EnqueueLambda([&] { Order.push_back(1); });
-			const auto First = Executor.Submit({}, ERHISubmitFlags::None);
-			auto FirstFence = Executor.CreateFence();
-			Commands.SwitchPipeline(ERHIPipeline::None);
-			Commands.EnqueueLambda([&] { Order.push_back(2); });
-			const auto Second = Executor.Submit({}, ERHISubmitFlags::None);
-			auto SecondFence = Executor.CreateFence();
-			EXPECT_TRUE(bool(First));
-			EXPECT_EQ(Second, First + 1);
-			EXPECT_EQ(FirstFence.GetState(), ERHICommandBatchState::Pending);
-			EXPECT_FALSE(SecondFence.IsComplete());
-			if (Outcome == 1)
-			{
-				auto QueuedInitializer = Initializer;
-				QueuedInitializer.PipelineLayout.PushConstantRanges = {{EShaderStageFlags::Compute, 0, 8}};
-				auto Queued = Cache.GetCompute(QueuedInitializer, "queued close witness");
-				EXPECT_TRUE(Queued);
-				auto Closing = std::async(std::launch::async, [&] { Cache.Shutdown(); });
-				if (Queued)
-				{
-					const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-					while (Queued->GetState() == ERHIPipelineState::Pending
-						&& std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
-					EXPECT_EQ(Queued->GetState(), ERHIPipelineState::Canceled);
-				}
-				EXPECT_FALSE(FirstFence.IsComplete());
-				Release.Trigger();
-				EXPECT_EQ(FirstFence.Wait(), ERHICommandBatchState::Canceled);
-				EXPECT_EQ(FirstFence.GetState(), ERHICommandBatchState::Canceled);
-				EXPECT_TRUE(SecondFence.Wait() == ERHICommandBatchState::Succeeded);
-				EXPECT_EQ(Order, std::vector<int>({2}));
-				Closing.get();
-			}
-			else
-			{
-				Release.Trigger();
-				EXPECT_TRUE(SecondFence.Wait() == ERHICommandBatchState::Succeeded);
-				EXPECT_EQ(FirstFence.IsComplete(), Outcome == 0);
-				EXPECT_EQ(FirstFence.GetState(), Outcome == 0 ? ERHICommandBatchState::Succeeded : ERHICommandBatchState::Canceled);
-				EXPECT_EQ(Order, Outcome == 0 ? std::vector<int>({1, 2}) : std::vector<int>({2}));
-			}
-			Cache.Shutdown();
+			auto Owner = std::make_shared<int>(1);
+			std::weak_ptr<int> Lifetime = Owner;
+			Commands.BeginGPUSubmission({});
+			Commands.EnqueueLambda([&, Owner] {
+				EXPECT_EQ(Cached->Wait(), ERHIPipelineState::Pending);
+				Order.push_back(*Owner);
+				PrefixReplayed.Trigger();
+			}, sizeof(int));
+			Owner.reset();
+			Commands.SwitchPipeline(ERHIPipeline::Compute);
+			auto Required = PipelineStateCache::GetAndOrCreateComputePipelineState(Commands, Initializer);
+			EXPECT_EQ(Cached->GetPriority(), EPSOPrecachePriority::Highest);
+			Commands.EnqueueLambda([&] {
+				EXPECT_EQ(Required->GetState(), ERHIPipelineState::Ready);
+				Order.push_back(2);
+			});
+			Commands.SetComputePipelineState(Required);
+			Commands.Dispatch(1, 1, 1);
+			Commands.EndGPUSubmission();
+			const auto Serial = Executor.Submit({}, bOrderedEvent ? ERHISubmitFlags::SubmitToGPU : ERHISubmitFlags::None);
+			auto Fence = Executor.CreateFence(Serial);
+			Commands.EnqueueLambda([&] { Order.push_back(3); LaterReplayed.Trigger(); });
+			Executor.Submit({}, ERHISubmitFlags::None);
+			auto Last = Executor.CreateFence();
+			EXPECT_TRUE(PrefixReplayed.WaitFor(5.0));
+			EXPECT_FALSE(Fence.IsComplete());
+			EXPECT_FALSE(LaterReplayed.IsTriggered());
+			EXPECT_FALSE(Lifetime.expired());
+			EXPECT_LT(Executor.GetCompletedSerial(), Serial);
+			Release.Trigger();
+			EXPECT_EQ(Last.Wait(), ERHICommandBatchState::Succeeded);
+			EXPECT_EQ(Fence.GetState(), ERHICommandBatchState::Succeeded);
+			EXPECT_EQ(Order, std::vector<int>({1, 2, 3}));
+			EXPECT_EQ(std::ranges::count(Context.Operations, "Dispatch"), 1);
+			EXPECT_EQ(std::ranges::count(Context.Operations, "SubmitToGPU"), bOrderedEvent ? 1 : 0);
+			EXPECT_TRUE(Lifetime.expired());
 			Thread.Stop();
-			Executor.SetInlineMode();
 		}
 	}
 
@@ -2134,63 +2014,78 @@ namespace Durin
 		EXPECT_EQ(Outcome.GetState(), ERHIPipelineState::Ready);
 	}
 
-	TEST(FRHICommandListTests, InlineCanceledPipelineSkipsCommandsWithoutFailingExecutor)
+	TEST(FRHICommandListTests, CapturedFenceSurvivesSerialHistoryRollover)
 	{
-		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
-		GIsGameThreadIdInitialized = true;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
-		FRHICapabilities Capabilities;
-		Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
-		FRHIPipelineCompileBackend Backend;
-		Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
-		std::promise<void> Entered, Release;
-		auto Gate = Release.get_future().share();
-		Backend.CreateCompute = [&Entered, Gate](const auto&, const auto&) -> FComputePipelineStateRHIRef {
-			Entered.set_value();
-			Gate.wait();
-			return MakeRefCount<FRHIComputePipelineState>();
-		};
-		FPipelineCacheTestRHI RHI(Capabilities, std::move(Backend));
-		auto& Cache = *RHI.RHIGetPipelineStateCache();
-		FScopedDynamicRHI Active(RHI);
-		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-		FComputePipelineStateInitializer Initializer;
-		Initializer.ComputeShader = Shader;
-		auto First = Cache.GetCompute(Initializer, "gated");
-		Entered.get_future().wait();
-		Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, 4});
-		auto Queued = Cache.GetCompute(Initializer, "queued");
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
-		Commands.SwitchPipeline(ERHIPipeline::Compute);
-		Commands.SetComputePipelineState(PipelineStateCache::GetAndOrCreateComputePipelineState(Commands, Initializer));
-		auto Closing = std::async(std::launch::async, [&] { Cache.Shutdown(); });
-		EXPECT_EQ(Queued->Wait(), ERHIPipelineState::Canceled);
-		Release.set_value();
-		Closing.get();
-		Commands.SwitchPipeline(ERHIPipeline::None);
-		bool Replayed = false;
-		Commands.EnqueueLambda([&] { Replayed = true; });
+		Commands.EnqueueLambda([] {});
 		Executor.Submit({}, ERHISubmitFlags::None);
-		auto FailedFence = Executor.CreateFence();
-		EXPECT_EQ(FailedFence.Wait(), ERHICommandBatchState::Canceled);
-		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Canceled);
-		EXPECT_FALSE(Replayed);
-		Commands.EnqueueLambda([&] { Replayed = true; });
-		Executor.Submit({}, ERHISubmitFlags::None);
-		EXPECT_TRUE(Executor.CreateFence().Wait() == ERHICommandBatchState::Succeeded);
-		EXPECT_TRUE(Replayed);
-		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Canceled);
-		EXPECT_EQ(Executor.CreateFence(FailedFence.GetTargetSerial()).GetState(), ERHICommandBatchState::Canceled);
+		auto Fence = Executor.CreateFence();
 		for (uint32 Index = 0; Index < 4096; ++Index)
 		{
 			Commands.EnqueueLambda([] {});
 			Executor.Submit({}, ERHISubmitFlags::None);
 		}
-		EXPECT_EQ(Executor.CreateFence(FailedFence.GetTargetSerial()).GetState(), ERHICommandBatchState::Expired);
-		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Canceled);
+		EXPECT_EQ(Executor.CreateFence(Fence.GetTargetSerial()).GetState(), ERHICommandBatchState::Expired);
+		EXPECT_EQ(Fence.GetState(), ERHICommandBatchState::Succeeded);
+	}
+
+	TEST(FRHICommandListTests, ExitCompletesSubmittedDrawBeforeDeviceShutdown)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
+		struct FExitTestRHI final : FPipelineCacheTestRHI
+		{
+			FRecordingCommandContext Context;
+			std::function<void()> ObserveShutdown;
+			auto RHIGetDefaultContext() -> IRHICommandContext* override { return &Context; }
+			auto Shutdown() -> void override
+			{
+				ObserveShutdown();
+				FPipelineCacheTestRHI::Shutdown();
+			}
+		};
+
+		FThreadEvent Entered, Release;
+		auto* Backend = new FExitTestRHI;
+		Backend->BeforeCreate = [&] {
+			Entered.Trigger();
+			EXPECT_TRUE(Release.WaitFor(5.0));
+		};
+		ASSERT_TRUE(RHIInitWithBackendForTests(Backend, true, false, FRHIInitializationContext::Headless()));
+		auto& Commands = FRHICommandListImmediate::Get();
+		{
+			auto Vertex = MakeRefCount<FTestShader>(EShaderFrequency::Vertex, 1);
+			auto Fragment = MakeRefCount<FTestShader>(EShaderFrequency::Fragment, 2);
+			auto Declaration = MakeRefCount<FTestVertexDeclaration>();
+			FGraphicsPipelineStateInitializer Graphics;
+			Graphics.BoundShaders = {Vertex, Fragment};
+			Graphics.VertexDeclaration = Declaration;
+			Graphics.RenderTargetLayout.NumColorRenderTargets = 1;
+			Graphics.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
+			FRHIRenderPassInfo Pass;
+			Pass.RenderTargetLayout = Graphics.RenderTargetLayout;
+			Commands.BeginRenderPass(Pass, "ExitDraw");
+			SetGraphicsPipelineState(Commands, Graphics);
+			Commands.Draw(FRHIDrawArguments{.VertexCount = 3});
+			Commands.EndRenderPass();
+		}
+		auto Fence = GCommandListExecutor.CreateFence(GCommandListExecutor.Submit({}, ERHISubmitFlags::None));
+		EXPECT_TRUE(Entered.WaitFor(5.0));
+		EXPECT_EQ(Fence.GetState(), ERHICommandBatchState::Pending);
+		auto Handle = GetRHIReleaseResourcesDelegate().AddLambda([&] { Release.Trigger(); });
+		bool ShutdownObserved = false;
+		Backend->ObserveShutdown = [&] {
+			EXPECT_EQ(Fence.GetState(), ERHICommandBatchState::Succeeded);
+			EXPECT_EQ(std::ranges::count(Backend->Context.Operations, "Draw3"), 1);
+			ShutdownObserved = true;
+		};
+		RHIExit();
+		GetRHIReleaseResourcesDelegate().Remove(Handle);
+		EXPECT_TRUE(ShutdownObserved);
 	}
 
 	TEST(FRHICommandListTests, FallibleOperationTerminatesOnThreadFailure)

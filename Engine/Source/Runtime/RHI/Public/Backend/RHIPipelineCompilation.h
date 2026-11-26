@@ -22,7 +22,7 @@ namespace Durin
 		RHI_API auto GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc>;
 		RHI_API auto BoostPriority(EPSOPrecachePriority Priority) const -> void;
 		RHI_API auto GetPriority() const -> EPSOPrecachePriority;
-		// Pending waits reject replay and Core workers; asynchronous callers use completion edges.
+		// Public waits reject replay and Core workers. Required PSOs join inside their replay command.
 		// Returns Pending when the current execution context cannot safely wait.
 		RHI_API auto Wait() const -> ERHIPipelineState;
 	private:
