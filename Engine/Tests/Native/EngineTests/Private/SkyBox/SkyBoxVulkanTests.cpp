@@ -75,6 +75,7 @@ namespace
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
 		do
 		{
+			PumpGameThreadDeferredWork();
 			EnqueueRenderCommand("PrepareSkyValidationView", [&](FRHICommandListImmediate& Commands) {
 				FSkyValidationFrame Frame(Commands);
 				const auto DrawsBefore = Commands.GetNumRecordedDrawCommands();
@@ -168,6 +169,11 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FModuleTestHarness RendererLifecycle("SkyBoxRendererTest");
 	RendererLifecycle.Start(Renderer);
 	ASSERT_TRUE(Durin::InitializeDefaultMaterialService());
+	Durin::FPackagePath CubeMaterialPath, ProceduralMaterialPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Materials/DefaultCubeSky", CubeMaterialPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Materials/DefaultProceduralSky", ProceduralMaterialPath));
+	EXPECT_EQ(Durin::FindResidentPackage(CubeMaterialPath), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(ProceduralMaterialPath), nullptr);
 	Durin::FSceneViewStateOwner ViewStateOwner = Renderer.CreateViewState();
 	ASSERT_TRUE(ViewStateOwner);
 	const Durin::FSceneViewStateId ViewStateId = ViewStateOwner.GetId();
@@ -842,7 +848,10 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		) {}
 	);
 	Durin::FlushRenderingCommands();
+	EXPECT_NE(Durin::FindResidentPackage(CubeMaterialPath), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(ProceduralMaterialPath), nullptr);
 	ValidateDynamicSkyLighting(Renderer, CaptureDirectory);
+	EXPECT_NE(Durin::FindResidentPackage(ProceduralMaterialPath), nullptr);
 	Durin::ShutdownDefaultMaterialService();
 	Durin::CollectGarbage(Durin::EObjectFlags::NoFlags);
 	RendererLifecycle.Shutdown();
@@ -889,6 +898,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer, const s
     bool Ready=false;
     uint64 Revision=0;
     uint64 PublishedRequest=0;
+    uint64 SelectedSkyRevision=0;
     FByteBuffer Before,After;
     const auto Pump=[&](bool Read, bool TickWorlds = true) {
         EnqueueRenderCommand("BeginSkyTick",[](FRHICommandListImmediate& Cmd) { ++GRenderFrameCounterRenderThread; GDynamicRHI->RHIBeginFrame_RenderThread(Cmd); });
@@ -899,6 +909,8 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer, const s
         }
         EnqueueRenderCommand("EndSkyTick",[&](FRHICommandListImmediate& Cmd) {
             Renderer.BeginFrame_RenderThread(Cmd);
+            const auto SelectedSky = Scene.GetProceduralSky_RenderThread();
+            SelectedSkyRevision = SelectedSky ? SelectedSky->Revision : 0;
             Ready=bool(Scene.SkyLighting->Published);
             if (Ready)
             {
@@ -913,6 +925,15 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer, const s
             GDynamicRHI->RHIEndFrame_RenderThread(Cmd);
         });
         FlushRenderingCommands();
+    };
+    const auto WaitForSelectedSkyCapture = [&] {
+        for (int Poll = 0; Poll < 100; ++Poll)
+        {
+            Pump(false);
+            if (Ready && SelectedSkyRevision && Revision == SelectedSkyRevision) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        return false;
     };
     for(int i=0;i<150 && !Ready;++i) { Pump(false, false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
     EXPECT_TRUE(Ready) << "Registration must drive first lighting without World Tick, views, or refresh-interval waits";
@@ -960,9 +981,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer, const s
         EXPECT_NE(Before,After);
         Sky->SetExposure(0);
         Sky->SetRadianceColors({0,0,0},{0,0,0},{0,0,0},{16,8,4});
-        const uint64 HotspotRevision=Revision;
-        for(int i=0;i<100 && Revision==HotspotRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
-        EXPECT_GT(Revision,HotspotRevision);
+        ASSERT_TRUE(WaitForSelectedSkyCapture());
         EnqueueRenderCommand("ValidateSkyHotspot",[&](FRHICommandListImmediate& Cmd) {
             GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
             const auto& G=*Scene.SkyLighting->Published;
@@ -1025,9 +1044,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer, const s
         EnqueueRenderCommand("ReleaseVisibleSkyTarget", [&](FRHICommandListImmediate&) { VisibleColor={}; });
         FlushRenderingCommands();
         Sky->SetRadianceColors({2,4,8},{2,4,8},{2,4,8},{0,0,0});
-        const uint64 PreviousRevision=Revision;
-        for(int i=0;i<100 && Revision==PreviousRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
-        EXPECT_GT(Revision,PreviousRevision);
+        ASSERT_TRUE(WaitForSelectedSkyCapture());
         EnqueueRenderCommand("ValidateSkyEnergy",[&](FRHICommandListImmediate& Cmd) {
             GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
             EXPECT_TRUE(OtherScene.SkyLighting->Published);

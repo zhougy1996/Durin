@@ -1191,8 +1191,13 @@ ready, before world or scene-proxy creation. It synchronously loads the exact
 base `DMaterial` at `/Engine/Materials/DefaultMaterial`, roots that asset, and
 retains one counted proxy for level, preview, and thumbnail consumers. Engine
 destruction detaches world, scene, viewport, preview, and thumbnail consumers,
-then shuts the service down before Engine and rendering shutdown. Loading is
-never lazy and never occurs on the render thread.
+then shuts the service down before Engine and rendering shutdown.
+
+Authored sky meshes use their material slots. For a view that needs the built-in
+skydome, the renderer requests either DefaultCubeSky or DefaultProceduralSky.
+The game thread loads and prepares the requested material once per service
+lifetime. View preparation reports pending until its proxy and bindings reach
+the render thread.
 
 The authored default is opaque, lit, one-sided, automatic-depth-write black
 with BaseColor `(0, 0, 0)`, Normal `(0, 0, 1)`, Metallic `0`,

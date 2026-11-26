@@ -140,7 +140,7 @@ namespace Durin
 		using namespace RendererPrivate;
 		const auto& Sky = Environment.SkyBox;
 		const bool bProcedural = Sky.ProceduralSky.ToSunEnabled.w > 0.5f;
-		const auto Proxy = GetDefaultSkyMaterialProxy_RenderThread(bProcedural);
+		const auto Proxy = RequestSkyMaterialProxy_RenderThread(bProcedural);
 		if (!Proxy) return false;
 		const auto& Data = Proxy->QueryMaterial_RenderThread();
 		if (Data.Representation.IsPending())

@@ -16,7 +16,10 @@ on their authored mesh sections at the far depth for the view.
 
 Per-view cubemaps and the procedural environment use a camera-centered,
 indexed skydome with spherical UV0. Forward and hybrid views draw the dome
-before water and clouds. Sky Light captures the analytic provider independently.
+before water and clouds. The first view that needs either skydome material
+requests that material on the game thread. Authored sky meshes resolve their
+material slots normally. Both skydome materials remain built-in Cook roots.
+Sky Light captures the analytic provider independently.
 
 Win64 Vulkan readback verified that an authored sky triangle covered only its
 projected area in both forward and hybrid views. With reversed Z, the Graybox

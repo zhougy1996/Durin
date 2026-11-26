@@ -23,7 +23,7 @@ namespace Durin
 	auto RefreshDefaultCubeSkyBindings_GameThread(const DMaterialInterface& Material, const FMaterialProgram* Program) -> void;
 	ENGINE_API auto GetDefaultCubeSkyBindings_RenderThread(const FMaterialRenderLayoutIdentity& Layout)
 		-> const FDefaultCubeSkyBindings*;
-	ENGINE_API auto GetDefaultSkyMaterialProxy_RenderThread(bool bProcedural) -> FMaterialRenderProxyRef;
+	ENGINE_API auto RequestSkyMaterialProxy_RenderThread(bool bProcedural) -> FMaterialRenderProxyRef;
 	ENGINE_API auto GetDefaultCubeSkyMaterial() -> DMaterialInterface*;
 	ENGINE_API auto GetDefaultMaterial() -> DMaterialInterface*;
 	inline constexpr std::string_view DefaultMaterialPackagePath =
@@ -32,7 +32,7 @@ namespace Durin
 		"/Engine/Materials/DefaultMaterial.DefaultMaterial";
 
 	// Engine-owned lifetime boundary for the authored default material. The
-	// service never performs lazy loads; an empty proxy means initialization
+	// neutral fallback is prepared at startup; an empty fallback proxy means initialization
 	// failed or shutdown has begun and callers must select ErrorMaterial.
 	ENGINE_API auto InitializeDefaultMaterialService() -> bool;
 	ENGINE_API auto ShutdownDefaultMaterialService() -> void;
