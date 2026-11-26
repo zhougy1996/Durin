@@ -31,7 +31,8 @@ and its collector edges.
 `DObject::PreEditChangeProperty(FPropertyEditProposal&)` returns
 `std::expected<void, FObjectValidationError>` for synchronous validation and
 normalization. The proposal contains the complete mutable detached snapshot root,
-a resolved draft leaf, and the member, path, phase, kind, and origin of the edit.
+the edited member, the edit phase, and the leaf when it resolves. The post-change
+event carries the path, change kind, and origin.
 Failure rejects the candidate before live storage changes. Errors own the
 object/property identity, reason, and any module-owned typed cause.
 `FPropertyEditExtension::PreEdit` uses the same typed result. Lower layers retain
@@ -128,10 +129,11 @@ already returned to callers.
 
 ## Generic Mutation
 
-The generic path reads and writes the stable reflected snapshot root. It
-captures live state, restores the candidate into an internal detached draft,
-invokes the pre hook, captures the normalized draft, writes live storage once,
-and recaptures the actual value. A failed write or recapture attempts rollback
+Typed setters pass their prepared draft directly to the shared write path.
+Snapshot application and cancellation initialize a draft from the supplied
+value or the original value. The write path captures the live snapshot root,
+invokes the pre hook, compares the normalized draft with live state, and
+publishes and recaptures a changed value. A failed write or recapture attempts rollback
 and emits no post event. Same-target nested edits from a hook are rejected.
 
 Generic mutation returns `std::expected<void, FPropertyMutationError>`.
@@ -196,12 +198,12 @@ The lifecycle is:
 Begin(target)
   pin the exact live target generation with TStrongObjectPtr
   capture original value
-  begin one scoped transactor entry with before == after
+  open the requested transaction scope
 
 Apply(proposal)
   validate/normalize a detached draft
-  atomically apply and recapture the actual value
-  replace the pending record's after payload
+  if the normalized value differs, modify the owner before writing
+  apply and recapture the actual value
   notify Interactive when it changed
 
 Commit()
@@ -306,14 +308,19 @@ NonTransactional property metadata continues to exclude that property from
 history, including when ordinary recorded admission is selected. Local preview
 snapshots, validation and cancellation restoration remain available without history.
 
-The session opens one scope and calls `Modify(false)` before the first write,
-preserving the package's initial dirty state during capture.
+Activation opens the requested scope. The session and property handle compare
+the validated, normalized proposal with the live value before publication.
+For a changed value they call `Modify()` before writing, so interactive
+notifications can observe a dirty package. Edits excluded from an active
+recording mark the package directly. Rejection and same-value proposals leave
+the package alone. Returning to the original value or canceling restores the
+value while preserving any dirty bit set during the gesture.
 Recorded sessions enroll ordinary targets with the Transactional object flag.
-Template targets follow runtime eligibility. The first whole-object baseline
-includes edits made by change reactions. Repeated Modify calls reuse it.
+Template targets follow runtime eligibility. The first accepted write captures the whole object before publication. Later
+writes to the same object in that transaction reuse its original snapshot.
 Commit ends the scope after the Committed notification and records the applied
 value. An unchanged nested commit ends its action without canceling an enclosing
-recording. Cancellation discards the shared native recording; preview restoration
+recording. Cancellation discards a recording owned by the session; preview restoration
 remains the edit session's separate responsibility.
 
 `FTransaction::FObjectRecord` reconstructs the target from its exact object identity,

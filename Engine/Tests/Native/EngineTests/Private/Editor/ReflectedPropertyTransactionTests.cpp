@@ -265,6 +265,85 @@ TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRev
 	EXPECT_FALSE(Package->IsDirty());
 }
 
+TEST(FReflectedPropertyEditSessionTests, DirtyStartsAtValidatedWriteAndSurvivesGestureRestoration)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	auto* Package = MakeReflectedRevisionTestPackage();
+	auto* Object = NewObject<DReflectedTransactionTestObject>(Package, "GestureTarget");
+	auto* Property = DReflectedTransactionTestObject::FindProperty("Value");
+	const auto Target = FPropertyEditTarget::ForMember(Object, Property);
+	FTestTransactorOwner Transactions;
+	Object->Value = 7;
+
+	for (bool bCancel : {false, true})
+	{
+		Package->ClearDirty();
+		FPropertyEdit Edit;
+		ASSERT_TRUE(Edit.Begin(Target, "Drag value", *Transactions.Get()));
+		ASSERT_TRUE(Edit.SetValue(int32{7}));
+		EXPECT_FALSE(Package->IsDirty());
+		ASSERT_TRUE(Edit.SetValue(int32{19}));
+		EXPECT_TRUE(Package->IsDirty());
+		if (bCancel) { ASSERT_TRUE(Edit.Cancel()); }
+		else
+		{
+			ASSERT_TRUE(Edit.SetValue(int32{7}));
+			ASSERT_TRUE(Edit.Commit());
+		}
+		EXPECT_EQ(Object->Value, 7);
+		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_FALSE(Transactions.Get()->CanUndo());
+	}
+
+	Package->ClearDirty();
+	FReflectedPropertyHandle Handle(Target);
+	Object->PreChange = [](FPropertyEditProposal&) -> std::expected<void, FObjectValidationError> {
+		return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::PropertyRejected,
+			.PropertyReason = EPropertyEditRejection::Rejected});
+	};
+	EXPECT_EQ(Handle.SetValue(19), FPropertyAccess::Fail);
+	EXPECT_FALSE(Package->IsDirty());
+	Object->PreChange = [Property](FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
+		*Property->ContainerPtrToValuePtr<int32>(Proposal.DraftLeafContainer, Proposal.DraftLeafArrayIndex) = 7;
+		return {};
+	};
+	ASSERT_EQ(Handle.SetValue(19), FPropertyAccess::Success);
+	EXPECT_FALSE(Package->IsDirty());
+	Object->PreChange = {};
+	std::optional<int32> ValueAtFirstDirty;
+	const auto Listener = OnAssetPackagesChanged().AddLambda([&] {
+		if (Package->IsDirty() && !ValueAtFirstDirty) ValueAtFirstDirty = Object->Value;
+	});
+	const auto Result = Handle.SetValue(19, EPropertyValueSetFlags::InteractiveChange);
+	OnAssetPackagesChanged().Remove(Listener);
+	ASSERT_EQ(Result, FPropertyAccess::Success);
+	EXPECT_EQ(ValueAtFirstDirty, 7);
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_EQ(Object->Value, 19);
+}
+
+TEST(FReflectedPropertyEditSessionTests, ClosingRecordingDuringModifyStopsTheWrite)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	auto* Package = MakeReflectedRevisionTestPackage();
+	auto* Object = NewObject<DReflectedTransactionTestObject>(Package, "RetiredRecordingTarget");
+	Object->Value = 7;
+	FTestTransactorOwner Transactions;
+	FReflectedPropertyHandle Handle(*Object, "Value");
+	Package->ClearDirty();
+	const auto Listener = OnAssetPackagesChanged().AddLambda([&] {
+		if (Package->IsDirty() && Transactions.Get()->IsActive()) Transactions.Get()->Cancel();
+	});
+	const auto Result = Handle.SetValue(19);
+	OnAssetPackagesChanged().Remove(Listener);
+	EXPECT_EQ(Result, FPropertyAccess::Fail);
+	EXPECT_EQ(Object->Value, 7);
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(Transactions.Get()->CanUndo());
+}
+
 TEST(FReflectedPropertyEditSessionTests, RecordedEditEnrollsOrdinaryTargetAndRestoresInitialPackageDirtyState)
 {
 	for (const bool bInitiallyDirty : {false, true})

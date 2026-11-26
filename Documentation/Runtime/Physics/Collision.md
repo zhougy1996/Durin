@@ -258,6 +258,11 @@ migration routes.
 The qualified `/Engine/Models/Box` asset
 continues to derive its authored Box setup from verified LOD 0 bounds.
 
+`SetComplexCollisionMesh`, `SetLODForCollision`, and `SetBodySetup` update collision
+state without directly marking the package dirty. An editor command that calls
+one of them records the owning mesh with `Mesh->Modify()` before writing. This
+also captures the old BodySetup reference when replacing or clearing it.
+
 `DStaticMesh::SetComplexCollisionMesh` optionally replaces complex triangle input.
 The editor-only reference selects the proxy's own geometry in one hop; its own
 proxy reference is ignored and self-reference is rejected. Simple primitives and

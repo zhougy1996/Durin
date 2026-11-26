@@ -2187,6 +2187,24 @@ TEST(FPhysicsWorldTests, QualifiedBoxUsesGeometryNotificationsAndRenderPublicati
 	EXPECT_EQ(Component->GetPhysicsActorHandle(), Body);
 	EXPECT_TRUE(World->GetPhysicsScene().ContainsBody(Body));
 	EXPECT_EQ(Mesh->GetBodySetup()->GetRevision(), BodyRevision);
+
+	auto* Package = Mesh->GetPackage();
+	Package->ClearDirty();
+	Mesh->SetLODForCollision(1);
+	auto* Proxy = DStaticMesh::CreateDebugTriangle();
+	ASSERT_NE(Proxy, nullptr);
+	ASSERT_TRUE(Mesh->SetComplexCollisionMesh(Proxy));
+	auto* Replacement = NewObject<DBodySetup>(Mesh, "ReplacementCollision");
+	ASSERT_TRUE(Replacement->SetSphere(1.0));
+	ASSERT_TRUE(Mesh->SetBodySetup(Replacement));
+	EXPECT_EQ(Mesh->GetBodySetup(), Replacement);
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_TRUE(Component->GetPhysicsActorHandle().IsValid());
+
+	Mesh->Modify();
+	ASSERT_TRUE(Mesh->SetComplexCollisionMesh(nullptr));
+	EXPECT_TRUE(Package->IsDirty());
+	MarkObjectHierarchyAsGarbage(Proxy);
 	MarkObjectHierarchyAsGarbage(World);
 	MarkObjectHierarchyAsGarbage(Mesh->GetPackage());
 	CollectGarbage(Durin::EObjectFlags::Standalone);

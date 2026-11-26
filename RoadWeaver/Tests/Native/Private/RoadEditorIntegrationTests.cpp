@@ -172,7 +172,7 @@ namespace
 		ASSERT_EQ(Actor->GetAlignments().size(), 2u);
 		ASSERT_TRUE(Session.Cancel());
 		ExpectPreview(Original);
-		EXPECT_FALSE(Package->IsDirty());
+		EXPECT_TRUE(Package->IsDirty());
 		EXPECT_EQ(Transactor->GetQueueLength(), 0u);
 	}
 

@@ -239,7 +239,6 @@ namespace Durin
 		if (ComplexCollisionMesh == Mesh) return true;
 		ComplexCollisionMesh = Mesh;
 		NotifyCollisionSourceChanged(true);
-		MarkPackageDirty();
 		return true;
 #else
 		return false;
@@ -253,7 +252,6 @@ namespace Durin
 		if (LODForCollision == LODIndex) return;
 		LODForCollision = LODIndex;
 		NotifyCollisionSourceChanged(true);
-		MarkPackageDirty();
 	}
 
 	auto DStaticMesh::RefreshComplexCollisionSource() -> void
@@ -335,7 +333,6 @@ namespace Durin
 			ScheduleCollisionData(true);
 		}
 		else RefreshCollisionBodies();
-		MarkPackageDirty();
 		return true;
 	}
 

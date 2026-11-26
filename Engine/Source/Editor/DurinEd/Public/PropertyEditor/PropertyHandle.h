@@ -9,7 +9,7 @@
 #include "PropertyEditor/PropertyEditing.h"
 #include "Transactions/Transaction.h"
 
-namespace Durin { class DEditorEngine; class FPropertyView; }
+namespace Durin { class DEditorEngine; class FPropertyView; class FPropertyValueDraft; }
 
 namespace Durin::PropertyEditor
 {
@@ -73,6 +73,10 @@ namespace Durin::PropertyEditor
 		friend class ::Durin::FPropertyView;
 		friend class FReflectedPropertyHandle;
 		friend class FPropertyControlFrame;
+		auto WriteValidatedValue(const FPropertyEditTarget& WriteTarget, FPropertyValueDraft& Draft,
+			EPropertyChangePhase Phase, FPropertyValueSnapshotPayload& AppliedValue) -> std::expected<void, FPropertyMutationError>;
+		auto NotifyCommitted(bool bChanged) -> void;
+		auto ApplyDraft(FPropertyValueDraft& Draft, std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase) -> bool;
 		auto ApplyInternal(const FPropertyValueSnapshotPayload& ProposedValue,
 			std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase = EPropertyChangePhase::Interactive) -> bool;
 		auto Reset(bool bCancelRecording = true) -> void;
@@ -89,6 +93,7 @@ namespace Durin::PropertyEditor
 		std::optional<FScopedTransaction> TransactionScope;
 		bool bActive = false;
 		bool bCommitting = false;
+		FTransactionId RecordingId = 0;
 		bool bOwnsRecording = false;
 	};
 

@@ -79,10 +79,7 @@ namespace Durin
 	{
 		const FProperty* MemberProperty = nullptr;
 		const FProperty* LeafProperty = nullptr;
-		std::span<const FPropertyPathSegment> Path;
 		EPropertyChangePhase Phase = EPropertyChangePhase::Interactive;
-		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
-		EPropertyChangeOrigin Origin = EPropertyChangeOrigin::Edit;
 		const FProperty* DraftRootProperty = nullptr;
 		void* DraftRootContainer = nullptr;
 		uint32 DraftRootArrayIndex = 0;

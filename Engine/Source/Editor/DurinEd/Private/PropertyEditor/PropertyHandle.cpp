@@ -89,12 +89,13 @@ namespace Durin::PropertyEditor
 		FPropertyValueSnapshotPayload Proposed;
 		if (const auto Captured = Draft.Capture(Proposed); !Captured)
 			return Reject(OutError, FormatPropertyValueDraftError(Captured.error()));
-		if (Proposed == CurrentValue && !bFinishInteractive)
+		if (Proposed == CurrentValue)
 		{
 			if (OutChanged) *OutChanged = false;
+			if (bFinishInteractive && Phase == EPropertyChangePhase::Committed) NotifyCommitted(false);
 			return true;
 		}
-		return ApplyInternal(Proposed, OutError, OutChanged, Phase);
+		return ApplyDraft(Draft, OutError, OutChanged, Phase);
 	}
 
 	auto FPropertyEdit::SetValue(const FPropertyControlValue& Value, std::string* OutError) -> bool
@@ -247,7 +248,6 @@ namespace Durin::PropertyEditor
 		bool bChanged = false;
 		if (Edit.WriteValue(Value, &LastError, &bChanged, Phase, bInteractiveChangeInProgress) && Edit.IsActive())
 		{
-			if (Edit.HasChanges()) Edit.Target.Object->MarkPackageDirty();
 			Edit.Reset(false);
 			if (bChanged || Phase == EPropertyChangePhase::Committed)
 				bInteractiveChangeInProgress = Phase == EPropertyChangePhase::Interactive;

@@ -89,7 +89,6 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsAndNormalizesDetached
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object->Value, 7);
 	EXPECT_EQ(Object->LastProposalPhase, Durin::EPropertyChangePhase::Interactive);
-	EXPECT_EQ(Object->LastProposalOrigin, Durin::EPropertyChangeOrigin::Edit);
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object->Value, 10);
 }

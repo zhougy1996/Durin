@@ -22,7 +22,7 @@ namespace Durin
 	class FPropertyValueDraft
 	{
 	public:
-		explicit FPropertyValueDraft(const FPropertyEditTarget& Target)
+		explicit FPropertyValueDraft(const FPropertyEditTarget& Target, const FPropertyValueSnapshotPayload* InitialValue = nullptr)
 			: Property(Target.SnapshotProperty), ArrayIndex(Target.SnapshotArrayIndex)
 		{
 			Context.Root = Property ? Property->NamePrivate.ToString() : std::string{};
@@ -40,10 +40,14 @@ namespace Durin
 			if (!IsValid()) return;
 
 			FPropertyValueSnapshotPayload Current;
-			if (const auto Result = CapturePropertyValuePayload(Property, Target.SnapshotContainer, ArrayIndex, Current); !Result)
+			if (!InitialValue)
 			{
-				InitializationError = SnapshotFailure(EPropertyValueDraftError::Capture, Result.error()).error();
-				return;
+				if (const auto Result = CapturePropertyValuePayload(Property, Target.SnapshotContainer, ArrayIndex, Current); !Result)
+				{
+					InitializationError = SnapshotFailure(EPropertyValueDraftError::Capture, Result.error()).error();
+					return;
+				}
+				InitialValue = &Current;
 			}
 			if (const auto Result = Storage.DefaultConstruct(Property, ArrayIndex); !Result)
 			{
@@ -52,7 +56,7 @@ namespace Durin
 				return;
 			}
 			Memory = Storage.GetContainer();
-			if (const auto Result = Restore(Current); !Result)
+			if (const auto Result = Restore(*InitialValue); !Result)
 				InitializationError = Result.error();
 		}
 

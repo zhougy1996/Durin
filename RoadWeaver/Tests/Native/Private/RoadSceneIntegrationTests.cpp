@@ -205,11 +205,6 @@ TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayNotifies)
 	EXPECT_EQ(DefinitionError->SectionIndex, 0u);
 	EXPECT_EQ(Notifications, 0);
 	EXPECT_EQ(Asset->GetRoads()[0].LaneSections[0].StartDistanceMeters, 0);
-	for (auto Origin : {EPropertyChangeOrigin::Undo, EPropertyChangeOrigin::Redo})
-	{
-		Proposal.Origin = Origin;
-		EXPECT_FALSE(Asset->PreEditChangeProperty(Proposal));
-	}
 	*Candidate = Asset->GetDefinition();
 	ASSERT_TRUE(Asset->PreEditChangeProperty(Proposal));
 	Asset->PostEditChangeProperty({.MemberProperty = Property, .Origin = EPropertyChangeOrigin::Undo});

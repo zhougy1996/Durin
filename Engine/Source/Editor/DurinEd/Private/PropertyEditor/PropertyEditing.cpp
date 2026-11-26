@@ -9,6 +9,7 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
+#include "DObject/TransactionObjectReference.h"
 #include "Logging/LogMacros.h"
 #include "Misc/AssertionMacros.h"
 #include "Tools/EditorScriptCall.h"
@@ -103,112 +104,6 @@ namespace Durin
 			const FPropertyEditTarget* Target;
 		};
 
-		auto ApplyGenericMutation(
-			const FPropertyEditTarget& Target,
-			const FPropertyValueSnapshotPayload& ProposedValue,
-			EPropertyChangePhase Phase,
-			EPropertyChangeOrigin Origin,
-			FPropertyValueSnapshotPayload* OutAppliedValue
-		) -> std::expected<void, FPropertyMutationError>
-		{
-			auto Reject = [&](EPropertyMutationError Code) { return RejectMutation(Target, Phase, Origin, Code); };
-			auto RejectDraft = [&](const FPropertyValueDraftError& Cause) {
-				auto Result = Reject(EPropertyMutationError::Draft);
-				Result.error().DraftCause = Cause;
-				return Result;
-			};
-			if (std::ranges::any_of(GActiveGenericMutations, [&](const auto* Active) { return Active->IsSameMutationTarget(Target); }))
-				return Reject(EPropertyMutationError::RecursiveEdit);
-			FGenericMutationScope Scope(Target);
-
-			FPropertyValueSnapshotPayload Before;
-			if (const auto Capture = CaptureTargetValue(Target, Before); !Capture)
-			{
-				auto Result = Reject(EPropertyMutationError::CaptureBefore);
-				Result.error().SnapshotCause = Capture.error();
-				return Result;
-			}
-			FPropertyValueDraft Draft(Target);
-			if (const auto Result = Draft.Restore(ProposedValue); !Result)
-				return RejectDraft(Result.error());
-
-			FResolvedPropertyValue DraftLeaf;
-			const auto LeafResult = Draft.Resolve(Target, DraftLeaf.Property, DraftLeaf.Container, DraftLeaf.ArrayIndex);
-			const bool bResolvedLeaf = static_cast<bool>(LeafResult);
-			if (!bResolvedLeaf && Target.Kind != EPropertyChangeKind::MapKeyRename
-				&& Target.Kind != EPropertyChangeKind::MapRemove)
-				return RejectDraft(LeafResult.error());
-
-			std::vector<FPropertyPathSegment> EventPath = MakeEventPath(Target);
-			FPropertyEditProposal Proposal{
-				Target.MemberProperty,
-				Target.LeafProperty,
-				EventPath,
-				Phase,
-				Target.Kind,
-				Origin,
-				Draft.GetRootProperty(),
-				Draft.GetRootContainer(),
-				Draft.GetRootArrayIndex(),
-				bResolvedLeaf ? DraftLeaf.Container : nullptr,
-				bResolvedLeaf ? DraftLeaf.ArrayIndex : 0
-			};
-			for (const FPropertyEditExtension& Extension : SnapshotPropertyEditExtensions())
-			{
-				if (!Extension.PreEdit) continue;
-				if (const auto Validation = Extension.PreEdit(*Target.Object, Proposal); !Validation)
-				{
-					auto Result = Reject(EPropertyMutationError::ExtensionValidation);
-					Result.error().ValidationCause = Validation.error();
-					return Result;
-				}
-			}
-			if (const auto Validation = Target.Object->PreEditChangeProperty(Proposal); !Validation)
-			{
-				auto Result = Reject(EPropertyMutationError::ObjectValidation);
-				Result.error().ValidationCause = Validation.error();
-				return Result;
-			}
-
-			FPropertyValueSnapshotPayload Normalized;
-			if (const auto Result = Draft.Capture(Normalized); !Result)
-				return RejectDraft(Result.error());
-			auto Recover = [&](EPropertyMutationError Code, const FPropertySnapshotError& Cause) {
-				auto Result = Reject(Code);
-				Result.error().SnapshotCause = Cause;
-				const auto Rollback = RestoreTargetValue(Target, Before);
-				if (!Rollback) Result.error().RollbackCause = Rollback.error();
-				if (OutAppliedValue)
-				{
-					if (Rollback) *OutAppliedValue = Before;
-					else if (const auto Capture = CaptureTargetValue(Target, *OutAppliedValue); !Capture)
-						Result.error().RecoveryCaptureCause = Capture.error();
-				}
-				return Result;
-			};
-			// Proposal hooks can retire a document, target or endpoint. Check live authority
-			// at the publication boundary, after all synchronous normalization callbacks.
-			if (Phase != EPropertyChangePhase::Cancelled && Origin == EPropertyChangeOrigin::Edit)
-				if (auto* Script = FScopedEditorScriptCall::Current(); Script
-					&& Script->ResolveEditAccess(*Target.Object) != EEditorScriptTargetAccess::Writable)
-				{
-					Script->Reject("Property target is no longer writable.");
-					auto Result = Reject(EPropertyMutationError::ObjectValidation);
-					Result.error().ValidationCause = FObjectValidationError{
-						.Code = EObjectValidationError::PropertyRejected, .PropertyReason = EPropertyEditRejection::Rejected,
-						.Message = "Script property publication lost target admission."};
-					return Result;
-				}
-			if (const auto Publication = RestoreTargetValue(Target, Normalized); !Publication)
-				return Recover(EPropertyMutationError::Publication, Publication.error());
-
-			FPropertyValueSnapshotPayload Applied;
-			if (const auto Capture = CaptureTargetValue(Target, Applied); !Capture)
-				return Recover(EPropertyMutationError::CaptureAfter, Capture.error());
-			if (OutAppliedValue) *OutAppliedValue = std::move(Applied);
-			return {};
-		}
-
 		auto RejectPath(const FPropertyEditTarget& Target, EPropertyEditPathError Code,
 			uint64 Index = 0, uint64 Actual = 0, uint64 Expected = 0,
 			std::optional<EContainerOpResult> ContainerCause = {},
@@ -248,21 +143,6 @@ namespace Durin
 		}
 
 		// Identifies the container mutation applied while resolving an edit path.
-		enum class EMutationOperation : uint8
-		{
-			Apply,
-			NotifyOnly,
-		};
-
-		// Retains actual storage even on failure.
-		struct FMutationExecutionResult
-		{
-			FPropertyValueSnapshotPayload AppliedValue;
-			FPropertyMutationError Error;
-			explicit operator bool() const { return Error.Code == EPropertyMutationError::None; }
-			bool bChanged = false;
-		};
-
 		auto NotifyMutation(
 			const FPropertyEditTarget& Target,
 			EPropertyChangePhase Phase,
@@ -278,39 +158,6 @@ namespace Durin
 				if (Extension.PostEdit) Extension.PostEdit(*Owner, Event, bValueChanged);
 		}
 
-		auto ExecuteMutation(
-			const FPropertyEditTarget& Target,
-			const FPropertyValueSnapshotPayload* Value,
-			const FPropertyValueSnapshotPayload* PreviousValue,
-			EMutationOperation Operation,
-			EPropertyChangePhase Phase,
-			EPropertyChangeOrigin Origin,
-			bool bValueChanged = true
-		) -> FMutationExecutionResult
-		{
-			FMutationExecutionResult Result;
-			if (Operation == EMutationOperation::NotifyOnly)
-			{
-				NotifyMutation(Target, Phase, Origin, bValueChanged);
-				return Result;
-			}
-			if (!Value)
-			{
-				Result.Error = RejectMutation(Target, Phase, Origin, EPropertyMutationError::MissingValue).error();
-				return Result;
-			}
-
-			if (const auto Mutation = ApplyGenericMutation(
-				Target, *Value, Phase, Origin, &Result.AppliedValue); !Mutation)
-			{
-				Result.Error = Mutation.error();
-				return Result;
-			}
-
-			Result.bChanged = !PreviousValue || !(Result.AppliedValue == *PreviousValue);
-			if (Phase != EPropertyChangePhase::Interactive || Result.bChanged) NotifyMutation(Target, Phase, Origin);
-			return Result;
-		}
 	}
 
 	auto FormatPropertyValueDraftError(const FPropertyValueDraftError& Error) -> std::string
@@ -704,13 +551,12 @@ namespace Durin
 			}
 			if (!Target.Object->IsTemplateObject())
 				Target.Object->SetFlags(EObjectFlags::Transactional);
-			const bool bCaptured = Target.Object->Modify(false);
-			if ((bOpenScope && !TransactionScope) || !TargetObject.Get()) return FailPropertyEdit(OutError, "The editor closed during property capture.");
-			if (!bCaptured || !Owner->IsActive())
+			if (!GUndo || !CanTransactObject(*Target.Object) || !Target.Object->HasAnyObjectFlags(EObjectFlags::Transactional))
 			{
 				Reset(bOwnsRecording);
 				return FailPropertyEdit(OutError, "The target cannot participate in transaction history.");
 			}
+			RecordingId = GUndo->GetContext().TransactionId;
 		}
 		bActive = true;
 		return true;
@@ -727,6 +573,128 @@ namespace Durin
 		return ApplyInternal(ProposedValue, OutError, nullptr);
 	}
 
+	auto PropertyEditor::FPropertyEdit::WriteValidatedValue(const FPropertyEditTarget& WriteTarget,
+		FPropertyValueDraft& Draft, EPropertyChangePhase Phase,
+		FPropertyValueSnapshotPayload& AppliedValue) -> std::expected<void, FPropertyMutationError>
+	{
+		const auto Origin = EPropertyChangeOrigin::Edit;
+		auto Reject = [&](EPropertyMutationError Code) { return RejectMutation(WriteTarget, Phase, Origin, Code); };
+		auto RejectDraft = [&](const FPropertyValueDraftError& Cause) {
+			auto Result = Reject(EPropertyMutationError::Draft);
+			Result.error().DraftCause = Cause;
+			return Result;
+		};
+		if (std::ranges::any_of(GActiveGenericMutations, [&](const auto* Active) { return Active->IsSameMutationTarget(WriteTarget); }))
+			return Reject(EPropertyMutationError::RecursiveEdit);
+		FGenericMutationScope Scope(WriteTarget);
+
+		FPropertyValueSnapshotPayload Before;
+		if (const auto Capture = CaptureTargetValue(WriteTarget, Before); !Capture)
+		{
+			auto Result = Reject(EPropertyMutationError::CaptureBefore);
+			Result.error().SnapshotCause = Capture.error();
+			return Result;
+		}
+		if (!Draft.IsValid()) return RejectDraft(Draft.GetError());
+
+		FResolvedPropertyValue DraftLeaf;
+		const auto LeafResult = Draft.Resolve(WriteTarget, DraftLeaf.Property, DraftLeaf.Container, DraftLeaf.ArrayIndex);
+		const bool bResolvedLeaf = static_cast<bool>(LeafResult);
+		if (!bResolvedLeaf && WriteTarget.Kind != EPropertyChangeKind::MapKeyRename
+			&& WriteTarget.Kind != EPropertyChangeKind::MapRemove)
+			return RejectDraft(LeafResult.error());
+
+		FPropertyEditProposal Proposal{
+			WriteTarget.MemberProperty,
+			WriteTarget.LeafProperty,
+			Phase,
+			Draft.GetRootProperty(),
+			Draft.GetRootContainer(),
+			Draft.GetRootArrayIndex(),
+			bResolvedLeaf ? DraftLeaf.Container : nullptr,
+			bResolvedLeaf ? DraftLeaf.ArrayIndex : 0
+		};
+		for (const FPropertyEditExtension& Extension : SnapshotPropertyEditExtensions())
+		{
+			if (!Extension.PreEdit) continue;
+			if (const auto Validation = Extension.PreEdit(*WriteTarget.Object, Proposal); !Validation)
+			{
+				auto Result = Reject(EPropertyMutationError::ExtensionValidation);
+				Result.error().ValidationCause = Validation.error();
+				return Result;
+			}
+		}
+		if (const auto Validation = WriteTarget.Object->PreEditChangeProperty(Proposal); !Validation)
+		{
+			auto Result = Reject(EPropertyMutationError::ObjectValidation);
+			Result.error().ValidationCause = Validation.error();
+			return Result;
+		}
+
+		FPropertyValueSnapshotPayload Normalized;
+		if (const auto Result = Draft.Capture(Normalized); !Result)
+			return RejectDraft(Result.error());
+		auto Recover = [&](EPropertyMutationError Code, const FPropertySnapshotError& Cause) {
+			auto Result = Reject(Code);
+			Result.error().SnapshotCause = Cause;
+			const auto Rollback = RestoreTargetValue(WriteTarget, Before);
+			if (!Rollback) Result.error().RollbackCause = Rollback.error();
+			if (Rollback) AppliedValue = Before;
+			else if (const auto Capture = CaptureTargetValue(WriteTarget, AppliedValue); !Capture)
+				Result.error().RecoveryCaptureCause = Capture.error();
+			return Result;
+		};
+		// Proposal hooks can retire a document, target or endpoint. Check live authority
+		// at the publication boundary, after all synchronous normalization callbacks.
+		if (Phase != EPropertyChangePhase::Cancelled)
+			if (auto* Script = FScopedEditorScriptCall::Current(); Script
+				&& Script->ResolveEditAccess(*WriteTarget.Object) != EEditorScriptTargetAccess::Writable)
+			{
+				Script->Reject("Property target is no longer writable.");
+				auto Result = Reject(EPropertyMutationError::ObjectValidation);
+				Result.error().ValidationCause = FObjectValidationError{
+					.Code = EObjectValidationError::PropertyRejected, .PropertyReason = EPropertyEditRejection::Rejected,
+					.Message = "Script property publication lost target admission."};
+				return Result;
+			}
+		if (Normalized == Before)
+		{
+			AppliedValue = std::move(Before);
+			return {};
+		}
+		if (Phase != EPropertyChangePhase::Cancelled)
+		{
+			const auto CanWrite = [&] {
+				return IsActive() && TargetObject.Get() == WriteTarget.Object && IsValid(WriteTarget.Object)
+					&& (!RecordingId || (GUndo && GUndo->GetContext().TransactionId == RecordingId
+						&& GEditor && GEditor->GetTransactor() && GEditor->GetTransactor()->CanTransact()));
+			};
+			bool bAdmitted = CanWrite();
+			if (bAdmitted)
+			{
+				if (RecordingId) bAdmitted = WriteTarget.Object->Modify();
+				else if (GUndo) WriteTarget.Object->MarkPackageDirty(); // Excluded from the active recording.
+				else (void)WriteTarget.Object->Modify();
+			}
+			if (!bAdmitted || !CanWrite())
+			{
+				auto Result = Reject(EPropertyMutationError::ObjectValidation);
+				Result.error().ValidationCause = FObjectValidationError{
+					.Code = EObjectValidationError::PropertyRejected, .PropertyReason = EPropertyEditRejection::Rejected,
+					.Message = "The property edit or its recording is no longer available."};
+				return Result;
+			}
+		}
+		if (const auto Publication = RestoreTargetValue(WriteTarget, Normalized); !Publication)
+			return Recover(EPropertyMutationError::Publication, Publication.error());
+
+		FPropertyValueSnapshotPayload Applied;
+		if (const auto Capture = CaptureTargetValue(WriteTarget, Applied); !Capture)
+			return Recover(EPropertyMutationError::CaptureAfter, Capture.error());
+		AppliedValue = std::move(Applied);
+		return {};
+	}
+
 	auto PropertyEditor::FPropertyEdit::ApplyInternal(
 		const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase) -> bool
 	{
@@ -734,25 +702,42 @@ namespace Durin
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
 		if (ProposedValue == CurrentValue)
 		{
-			if (Phase == EPropertyChangePhase::Committed) NotifyMutation(Target, Phase, EPropertyChangeOrigin::Edit, false);
+			if (Phase == EPropertyChangePhase::Committed) NotifyCommitted(false);
 			return true;
 		}
-		FMutationExecutionResult Result = ExecuteMutation(
-			Target, &ProposedValue, &CurrentValue, EMutationOperation::Apply,
-			Phase, EPropertyChangeOrigin::Edit);
-		if (!Result)
+		FPropertyValueDraft Draft(Target, &ProposedValue);
+		return ApplyDraft(Draft, OutError, OutChanged, Phase);
+	}
+
+	auto PropertyEditor::FPropertyEdit::ApplyDraft(FPropertyValueDraft& Draft,
+		std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase) -> bool
+	{
+		if (OutChanged) *OutChanged = false;
+		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
+		const auto Owner = TargetObject;
+		const auto WriteTarget = Target;
+		FPropertyValueSnapshotPayload Applied;
+		if (const auto Result = WriteValidatedValue(WriteTarget, Draft, Phase, Applied); !Result)
 		{
-			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);
-			return FailPropertyEdit(OutError, FormatPropertyMutationError(Result.Error));
+			if (Applied.IsValid()) CurrentValue = std::move(Applied);
+			return FailPropertyEdit(OutError, FormatPropertyMutationError(Result.error()));
 		}
-		CurrentValue = std::move(Result.AppliedValue);
-		if (OutChanged) *OutChanged = Result.bChanged;
+		const bool bChanged = !(Applied == CurrentValue);
+		if (Phase != EPropertyChangePhase::Interactive || bChanged)
+			NotifyMutation(WriteTarget, Phase, EPropertyChangeOrigin::Edit);
+		CurrentValue = std::move(Applied);
+		if (OutChanged) *OutChanged = bChanged;
 		return true;
 	}
 
 	auto PropertyEditor::FPropertyEdit::MatchesTarget(const FPropertyEditTarget& Other) const -> bool
 	{
 		return bActive && Target.MatchesContinuousEdit(Other);
+	}
+
+	auto PropertyEditor::FPropertyEdit::NotifyCommitted(bool bChanged) -> void
+	{
+		NotifyMutation(Target, EPropertyChangePhase::Committed, EPropertyChangeOrigin::Edit, bChanged);
 	}
 
 	auto PropertyEditor::FPropertyEdit::Commit(std::string* OutError) -> bool
@@ -772,15 +757,9 @@ namespace Durin
 		}
 		const bool bChanged = HasChanges();
 		bCommitting = true;
-		const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
-			EPropertyChangePhase::Committed, EPropertyChangeOrigin::Edit, bChanged);
+		NotifyCommitted(bChanged);
 		bCommitting = false;
-		if (!Mutation)
-		{
-			return FailPropertyEdit(OutError, FormatPropertyMutationError(Mutation.Error));
-		}
 		if (!bActive) return FailPropertyEdit(OutError, "The property edit closed during publication.");
-		if (bChanged) Target.Object->MarkPackageDirty();
 		Reset(false);
 		return true;
 	}
@@ -790,9 +769,7 @@ namespace Durin
 		if (!bActive || HasChanges())
 			return FailPropertyEdit(OutError, "Unchanged cancellation requires an active unchanged edit.");
 		if (IsValid(Target.Object))
-			if (const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
-				EPropertyChangePhase::Cancelled, EPropertyChangeOrigin::Edit); !Mutation)
-				return FailPropertyEdit(OutError, FormatPropertyMutationError(Mutation.Error));
+			NotifyMutation(Target, EPropertyChangePhase::Cancelled, EPropertyChangeOrigin::Edit);
 		Reset(false);
 		return true;
 	}
@@ -803,16 +780,11 @@ namespace Durin
 		if (TransactionScope && TransactionScope->IsRecordingCurrent() && !GEditor->GetTransactor()->CanTransact())
 			return FailPropertyEdit(OutError, "The editor transactor is busy.");
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
-		const bool bChanged = HasChanges();
-		FMutationExecutionResult Result = ExecuteMutation(
-			Target, bChanged ? &GetOriginalValue() : nullptr, nullptr,
-			bChanged ? EMutationOperation::Apply : EMutationOperation::NotifyOnly,
-			EPropertyChangePhase::Cancelled, EPropertyChangeOrigin::Edit);
-		if (!Result)
+		if (HasChanges())
 		{
-			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);
-			return FailPropertyEdit(OutError, FormatPropertyMutationError(Result.Error));
+			if (!ApplyInternal(GetOriginalValue(), OutError, nullptr, EPropertyChangePhase::Cancelled)) return false;
 		}
+		else NotifyMutation(Target, EPropertyChangePhase::Cancelled, EPropertyChangeOrigin::Edit);
 		Reset();
 		return true;
 	}
@@ -824,6 +796,7 @@ namespace Durin
 		if (bCancelRecording && bOwnsRecording && TransactionScope) TransactionScope->Cancel();
 		TransactionScope.reset();
 		bOwnsRecording = false;
+		RecordingId = 0;
 		Target = {};
 		TargetObject.Reset();
 		OriginalValue = {};

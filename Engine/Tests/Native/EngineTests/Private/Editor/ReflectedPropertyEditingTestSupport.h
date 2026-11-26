@@ -91,9 +91,6 @@ namespace
 		{
 			++PreChangeCount;
 			LastProposalPhase = Proposal.Phase;
-			LastProposalOrigin = Proposal.Origin;
-			LastProposalKind = Proposal.Kind;
-			bLastProposalHadLeaf = Proposal.DraftLeafContainer != nullptr;
 			return PreChange ? PreChange(Proposal) : std::expected<void, Durin::FObjectValidationError>{};
 		}
 
@@ -134,9 +131,6 @@ namespace
 		std::function<std::expected<void, Durin::FObjectValidationError>(Durin::FPropertyEditProposal&)> PreChange;
 		uint32 PreChangeCount = 0;
 		Durin::EPropertyChangePhase LastProposalPhase = Durin::EPropertyChangePhase::Interactive;
-		Durin::EPropertyChangeOrigin LastProposalOrigin = Durin::EPropertyChangeOrigin::Edit;
-		Durin::EPropertyChangeKind LastProposalKind = Durin::EPropertyChangeKind::ValueSet;
-		bool bLastProposalHadLeaf = false;
 	};
 
 	class DReflectedTransactionTestObject final : public DEditObserver
