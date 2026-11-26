@@ -35,8 +35,7 @@ the edited member, the edit phase, and the leaf when it resolves. The post-chang
 event carries the path, change kind, and origin.
 Failure rejects the candidate before live storage changes. Errors own the
 object/property identity, reason, and any module-owned typed cause.
-`FPropertyEditExtension::PreEdit` uses the same typed result. Lower layers retain
-causes; the edit-session boundary formats them into its public result message.
+`FPropertyEditExtension::PreEdit` uses the same typed result. The write path formats the original failure for the caller.
 
 Map removal and key rename may have no leaf in the candidate; in that case the
 leaf container is null and the full draft root remains available.
@@ -133,15 +132,10 @@ Typed setters pass their prepared draft directly to the shared write path.
 Snapshot application and cancellation initialize a draft from the supplied
 value or the original value. The write path captures the live snapshot root,
 invokes the pre hook, compares the normalized draft with live state, and
-publishes and recaptures a changed value. A failed write or recapture attempts rollback
-and emits no post event. Same-target nested edits from a hook are rejected.
-
-Generic mutation returns `std::expected<void, FPropertyMutationError>`.
-Execution retains the changed flag and actual/recovered snapshots. Errors own
-edit identity and typed draft, snapshot, or validation causes, preserving the
-primary failure separately from rollback and recovery-capture failures.
-Lower layers retain typed errors; history and edit-session boundaries format
-messages for callers. Control flow never depends on diagnostic text.
+publishes and recaptures a changed value. A failed publication or readback returns the original diagnostic and leaves live
+storage as it stands. A session invalidates its cached current value so an explicit
+cancel can still restore the gesture's original snapshot. A rejected proposal leaves
+the cached value intact. Same-target nested edits from a hook are rejected.
 
 Canonical values reside in reflected object storage. Object hooks and registered
 property-edit extensions supply validation and reactions; custom widgets submit
@@ -163,7 +157,11 @@ Python dependency; the Python adapter owns conversion and exception mapping.
 reflected integers, floats, real vectors and linear colors. Callers compare
 the result with `FPropertyAccess::Success`. The reflected handle resolves a
 member or nested path on the current object generation. `SetValue` completes
-one edit. The view and its frame-settled controls retain an `FPropertyEdit` for
+a standalone write synchronously. It seeds the draft and compares values using a payload of serialized data and object keys.
+Only the target is pinned by the handle during the call. A cross-frame session also
+retains hard references from the original value for cancellation. A rejected
+standalone write returns `Fail` without a `Cancelled` notification. The view
+and its frame-settled controls retain an `FPropertyEdit` for
 interactive writes. Both paths validate detached drafts and use the active
 editor's history. Editor shutdown restores unfinished previews and releases
 their scopes before another editor can record.

@@ -293,12 +293,13 @@ namespace
 	auto RemoveMap(void* Container, const void* Key) -> bool { return static_cast<FStringIntMap*>(Container)->erase(*static_cast<const std::string*>(Key)) != 0; }
 
 
-	auto MakeArrayProperty(Durin::FNumericProperty& Inner) -> std::unique_ptr<Durin::FArrayProperty>
+	auto MakeArrayProperty(Durin::FNumericProperty& Inner,
+		const Durin::FArrayOps* Ops = Durin::ResolveArrayOps<std::vector<int32>>()) -> std::unique_ptr<Durin::FArrayProperty>
 	{
 		auto Property = std::make_unique<Durin::FArrayProperty>(
 			Durin::FFieldVariant(), Durin::FName("Values"), Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::Edit,
 			1, static_cast<uint16>(offsetof(FArrayValueContainer, Values)), static_cast<uint16>(sizeof(std::vector<int32>)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, Durin::ResolveArrayOps<std::vector<int32>>()
+			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, Ops
 		);
 		Property->SetInner(&Inner);
 		SetTestValueLifecycle<std::vector<int32>>(*Property);

@@ -1,6 +1,7 @@
 #include "PropertyEditor/PropertyHandle.h"
 
 #include "CoreGlobals.h"
+#include "Editor/EditorEngine.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
@@ -65,11 +66,11 @@ namespace Durin::PropertyEditor
 	}
 
 	template<typename TValue>
-	auto FPropertyEdit::WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase, bool bFinishInteractive) -> bool
+	static auto PrepareTypedValue(const FPropertyEditTarget& Target, const TValue& Value,
+		FPropertyValueDraft& Draft, FPropertyValueSnapshotPayload& Proposed, std::string* OutError) -> bool
 	{
-		if (!IsActive() || !IsEditablePath(Target) || !MatchesValueType<TValue>(Target.LeafProperty))
+		if (!IsEditablePath(Target) || !MatchesValueType<TValue>(Target.LeafProperty))
 			return Reject(OutError, "The property edit cannot write this value.");
-		FPropertyValueDraft Draft(Target);
 		if (!Draft.IsValid()) return Reject(OutError, FormatPropertyValueDraftError(Draft.GetError()));
 
 		FResolvedPropertyValue Leaf;
@@ -86,16 +87,25 @@ namespace Durin::PropertyEditor
 			Draft.GetRootProperty(), Draft.GetRootContainer(), Draft.GetRootArrayIndex()); !Validated)
 			return Reject(OutError, ToString(Validated.error()));
 
-		FPropertyValueSnapshotPayload Proposed;
 		if (const auto Captured = Draft.Capture(Proposed); !Captured)
 			return Reject(OutError, FormatPropertyValueDraftError(Captured.error()));
+		return true;
+	}
+
+	template<typename TValue>
+	auto FPropertyEdit::WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged) -> bool
+	{
+		if (!IsActive())
+			return Reject(OutError, "The property edit cannot write this value.");
+		FPropertyValueDraft Draft(Target);
+		FPropertyValueSnapshotPayload Proposed;
+		if (!PrepareTypedValue(Target, Value, Draft, Proposed, OutError)) return false;
 		if (Proposed == CurrentValue)
 		{
 			if (OutChanged) *OutChanged = false;
-			if (bFinishInteractive && Phase == EPropertyChangePhase::Committed) NotifyCommitted(false);
 			return true;
 		}
-		return ApplyDraft(Draft, OutError, OutChanged, Phase);
+		return ApplyDraft(Draft, OutError, OutChanged, EPropertyChangePhase::Interactive);
 	}
 
 	auto FPropertyEdit::SetValue(const FPropertyControlValue& Value, std::string* OutError) -> bool
@@ -187,12 +197,6 @@ namespace Durin::PropertyEditor
 		return Owner && Property && Owner->CanEditChange(Property);
 	}
 
-	auto FReflectedPropertyHandle::BeginEdit(FPropertyEdit& Edit, bool bShouldTransact, std::string* OutError) const -> bool
-	{
-		if (!IsEditable()) return Reject(OutError, "The property is unavailable or read-only.");
-		return Edit.Begin(ResolveTarget(), {}, bShouldTransact && !GUndo, OutError);
-	}
-
 	auto FReflectedPropertyHandle::ResolveTarget() const -> FPropertyEditTarget
 	{
 		if (PathTarget) return *PathTarget;
@@ -239,25 +243,66 @@ namespace Durin::PropertyEditor
 	template<typename TValue>
 	auto FReflectedPropertyHandle::SetValueWithFlags(const TValue& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
 	{
-		FPropertyEdit Edit;
-		const bool bShouldTransact = (Flags & EPropertyValueSetFlags::NotTransactable) == 0;
 		LastError.clear();
-		if (!BeginEdit(Edit, bShouldTransact, &LastError)) return FPropertyAccess::Fail;
-		const auto Phase = (Flags & EPropertyValueSetFlags::InteractiveChange)
-			? EPropertyChangePhase::Interactive : EPropertyChangePhase::Committed;
+		auto Fail = [&](std::string_view Message) { LastError = Message; return FPropertyAccess::Fail; };
+		if (!IsEditable()) return Fail("The property is unavailable or read-only.");
+		const auto Target = ResolveTarget();
+		if (!Target.Object || !Target.SnapshotProperty) return Fail("The property edit target is unavailable.");
+		const TStrongObjectPtr<DObject> Owner(Target.Object);
+		if (!Owner || (GEditor && GEditor->IsShutdownRequested()))
+			return Fail("The property edit target is unavailable.");
+
+		std::optional<FScopedTransaction> Scope;
+		FTransactionId RecordingId = 0;
+		if (!Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional))
+		{
+			const bool bOpenScope = !(Flags & EPropertyValueSetFlags::NotTransactable) && !GUndo;
+			const auto Transactor = ResolveEditorTransactor(bOpenScope);
+			if (!Transactor) return Fail(Transactor.error());
+			if (*Transactor)
+			{
+				auto Recording = BeginPropertyRecording(Target, std::format("Edit {}", Target.MemberProperty->NamePrivate),
+					**Transactor, bOpenScope, Scope);
+				if (!Recording)
+				{
+					if (Scope) Scope->Cancel();
+					return Fail(Recording.error());
+				}
+				RecordingId = *Recording;
+			}
+		}
+
+		if (!Owner.IsValid()) return Fail("The property edit target is unavailable.");
+		FPropertyValueSnapshotPayload Before;
+		if (const auto Capture = CapturePropertyValuePayload(Target.SnapshotProperty, Target.SnapshotContainer,
+			Target.SnapshotArrayIndex, Before); !Capture)
+			return Fail(ToString(Capture.error()));
+		FPropertyValueDraft Draft(Target, &Before);
+		FPropertyValueSnapshotPayload Proposed;
+		const bool bInteractive = (Flags & EPropertyValueSetFlags::InteractiveChange) != 0;
+		const auto Phase = bInteractive ? EPropertyChangePhase::Interactive : EPropertyChangePhase::Committed;
+		const auto RejectWrite = [&] {
+			if ((bInteractive || bInteractiveChangeInProgress) && Owner.IsValid())
+				NotifyMutation(Target, EPropertyChangePhase::Cancelled);
+			return FPropertyAccess::Fail;
+		};
+		if (!PrepareTypedValue(Target, Value, Draft, Proposed, &LastError)) return RejectWrite();
+		const bool bProposedChange = Proposed != Before;
 		bool bChanged = false;
-		if (Edit.WriteValue(Value, &LastError, &bChanged, Phase, bInteractiveChangeInProgress) && Edit.IsActive())
+		if (bProposedChange)
 		{
-			Edit.Reset(false);
-			if (bChanged || Phase == EPropertyChangePhase::Committed)
-				bInteractiveChangeInProgress = Phase == EPropertyChangePhase::Interactive;
-			return FPropertyAccess::Success;
+			auto Result = WriteValidatedValue(Target, Draft, Phase, Before, RecordingId);
+			if (!Result)
+			{
+				LastError = std::move(Result.error());
+				return RejectWrite();
+			}
+			bChanged = *Result;
 		}
-		if (Edit.IsActive())
-		{
-			if (Edit.HasChanges()) Edit.Cancel();
-			else Edit.CancelUnchanged();
-		}
-		return FPropertyAccess::Fail;
+		if (bInteractive ? bChanged : bProposedChange || bInteractiveChangeInProgress)
+			NotifyMutation(Target, Phase, bProposedChange);
+		Scope.reset();
+		if (bChanged || !bInteractive) bInteractiveChangeInProgress = bInteractive;
+		return FPropertyAccess::Success;
 	}
 }

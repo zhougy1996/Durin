@@ -1,5 +1,6 @@
 #include "ReflectedPropertyEditingTestSupport.h"
 #include "PropertyEditor/PropertyHandle.h"
+#include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
 TEST(FReflectedPropertyEditSessionTests, PostEditUndoDefaultsToFullObjectChange)
@@ -302,7 +303,10 @@ TEST(FReflectedPropertyEditSessionTests, DirtyStartsAtValidatedWriteAndSurvivesG
 		return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::PropertyRejected,
 			.PropertyReason = EPropertyEditRejection::Rejected});
 	};
+	Object->Changes.clear();
 	EXPECT_EQ(Handle.SetValue(19), FPropertyAccess::Fail);
+	EXPECT_EQ(Handle.GetLastError(), "The object rejected the reflected property proposal.");
+	EXPECT_TRUE(Object->Changes.empty());
 	EXPECT_FALSE(Package->IsDirty());
 	Object->PreChange = [Property](FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
 		*Property->ContainerPtrToValuePtr<int32>(Proposal.DraftLeafContainer, Proposal.DraftLeafArrayIndex) = 7;
@@ -323,6 +327,29 @@ TEST(FReflectedPropertyEditSessionTests, DirtyStartsAtValidatedWriteAndSurvivesG
 	EXPECT_EQ(Object->Value, 19);
 }
 
+TEST(FReflectedPropertyEditSessionTests, StandaloneWriteAllowsCollectionOfReplacedReferenceDuringNotification)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	InitializeDObjectSystem();
+	using FNode = DMaterialExpressionMakeMaterialAttributes;
+	TStrongObjectPtr<FNode> Owner(NewObject<FNode>(nullptr, "PropertyWriteOwner"));
+	TWeakObjectPtr<FNode> Previous(NewObject<FNode>(nullptr, "PreviousInput"));
+	Owner->BaseColor.Expression = Previous.Get();
+	FReflectedPropertyHandle Handle(*Owner, "BaseColor");
+	bool bNotified = false;
+	const auto Observer = RegisterPropertyEditExtension({.PostEdit = [&](DObject& Object, const FPropertyChangedEvent&, bool) {
+		if (&Object != Owner.Get()) return;
+		bNotified = true;
+		CollectGarbage(EObjectFlags::Standalone);
+		EXPECT_FALSE(Previous.IsValid());
+	}});
+	const auto Result = Handle.SetValue(FMaterialExpressionInput{}, EPropertyValueSetFlags::NotTransactable);
+	UnregisterPropertyEditExtension(Observer);
+	EXPECT_EQ(Result, FPropertyAccess::Success) << Handle.GetLastError();
+	EXPECT_TRUE(bNotified);
+}
+
 TEST(FReflectedPropertyEditSessionTests, ClosingRecordingDuringModifyStopsTheWrite)
 {
 	using namespace Durin;
@@ -339,6 +366,7 @@ TEST(FReflectedPropertyEditSessionTests, ClosingRecordingDuringModifyStopsTheWri
 	const auto Result = Handle.SetValue(19);
 	OnAssetPackagesChanged().Remove(Listener);
 	EXPECT_EQ(Result, FPropertyAccess::Fail);
+	EXPECT_TRUE(Object->Changes.empty());
 	EXPECT_EQ(Object->Value, 7);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(Transactions.Get()->CanUndo());

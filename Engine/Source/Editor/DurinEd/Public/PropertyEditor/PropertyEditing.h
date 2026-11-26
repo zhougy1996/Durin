@@ -96,27 +96,6 @@ namespace Durin
 
 	DURINED_API auto FormatPropertyValueDraftError(const FPropertyValueDraftError& Error) -> std::string;
 
-	enum class EPropertyMutationError : uint8
-	{
-		None, RecursiveEdit, MissingValue, CaptureBefore, Draft, ExtensionValidation,
-		ObjectValidation, Publication, CaptureAfter
-	};
-	struct FPropertyMutationError
-	{
-		EPropertyMutationError Code = EPropertyMutationError::None;
-		FObjectKey Owner;
-		std::string Member;
-		EPropertyChangePhase Phase = EPropertyChangePhase::Interactive;
-		EPropertyChangeOrigin Origin = EPropertyChangeOrigin::Edit;
-		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
-		std::optional<FPropertyValueDraftError> DraftCause;
-		std::optional<FPropertySnapshotError> SnapshotCause;
-		std::optional<FObjectValidationError> ValidationCause;
-		std::optional<FPropertySnapshotError> RollbackCause;
-		std::optional<FPropertySnapshotError> RecoveryCaptureCause;
-	};
-	DURINED_API auto FormatPropertyMutationError(const FPropertyMutationError& Error) -> std::string;
-
 	// Describes a reflected edit using a stable snapshot root and logical path.
 	struct FPropertyEditTarget
 	{

@@ -124,6 +124,43 @@ TEST(FReflectedPropertyEditSessionTests, RelativeTransformHookNormalizesAndRefre
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FReflectedPropertyEditSessionTests, FailedPublicationLeavesPartialWriteUntilGestureCancel)
+{
+	using namespace Durin;
+	using FValues = std::vector<int32>;
+	FArrayOps Ops = *ResolveArrayOps<FValues>();
+	static void* FailingDestination = nullptr;
+	Ops.Commit = [](void* Destination, void* Detached) {
+		if (Destination == FailingDestination)
+		{
+			FailingDestination = nullptr;
+			static_cast<FValues*>(Destination)->front() = 17;
+			return EContainerOpResult::BackendRejected;
+		}
+		return ResolveArrayOps<FValues>()->Commit(Destination, Detached);
+	};
+	auto Inner = MakeValueProperty();
+	auto Array = MakeArrayProperty(*Inner, &Ops);
+	FArrayValueContainer Container{{7}};
+	FManagedEditObserver Object;
+	auto Target = FPropertyEditTarget::ForMember(Object.Get(), Array.get());
+	Target.SnapshotContainer = &Container;
+	PropertyEditor::FPropertyEdit Edit;
+	ASSERT_TRUE(Edit.Begin(Target.ForArrayElement(Inner.get(), 0), "Array edit", false));
+
+	std::string Error;
+	FailingDestination = &Container.Values;
+	const bool bApplied = Edit.SetValue(int32{19}, &Error);
+	FailingDestination = nullptr;
+	EXPECT_FALSE(bApplied);
+	EXPECT_NE(Error.find("Commit"), std::string::npos) << Error;
+	EXPECT_EQ(Container.Values, FValues{17});
+	EXPECT_TRUE(Object.Changes.empty());
+	EXPECT_FALSE(Edit.GetCurrentValue().IsValid());
+	ASSERT_TRUE(Edit.Cancel(&Error)) << Error;
+	EXPECT_EQ(Container.Values, FValues{7});
+}
+
 TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshotAndExactPathDuringEdit)
 {
 	auto Inner = MakeValueProperty();

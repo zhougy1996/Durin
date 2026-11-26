@@ -71,10 +71,7 @@ namespace Durin::PropertyEditor
 			DTransactor* Transactor, std::string* OutError, bool bOpenScope = true) -> bool;
 		friend class ::Durin::DEditorEngine;
 		friend class ::Durin::FPropertyView;
-		friend class FReflectedPropertyHandle;
 		friend class FPropertyControlFrame;
-		auto WriteValidatedValue(const FPropertyEditTarget& WriteTarget, FPropertyValueDraft& Draft,
-			EPropertyChangePhase Phase, FPropertyValueSnapshotPayload& AppliedValue) -> std::expected<void, FPropertyMutationError>;
 		auto NotifyCommitted(bool bChanged) -> void;
 		auto ApplyDraft(FPropertyValueDraft& Draft, std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase) -> bool;
 		auto ApplyInternal(const FPropertyValueSnapshotPayload& ProposedValue,
@@ -83,8 +80,7 @@ namespace Durin::PropertyEditor
 
 		auto WriteControlValue(const FPropertyControlValue& Value, std::string* OutError, bool* OutChanged) -> bool;
 		template<typename TValue>
-		auto WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged = nullptr,
-			EPropertyChangePhase Phase = EPropertyChangePhase::Interactive, bool bFinishInteractive = false) -> bool;
+		auto WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged) -> bool;
 		FPropertyEditTarget Target;
 		TStrongObjectPtr<DObject> TargetObject;
 		FPropertyValueSnapshot OriginalValue;
@@ -145,7 +141,6 @@ namespace Durin::PropertyEditor
 
 	private:
 		friend class FPropertyControlFrame;
-		auto BeginEdit(FPropertyEdit& Edit, bool bShouldTransact, std::string* OutError = nullptr) const -> bool;
 		auto ResolveTarget() const -> FPropertyEditTarget;
 		auto ResolveMember(DObject*& OutOwner) const -> const FProperty*;
 		template<typename TValue>
