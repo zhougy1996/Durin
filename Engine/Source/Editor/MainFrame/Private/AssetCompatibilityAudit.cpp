@@ -280,7 +280,7 @@ namespace Durin
 		TerminalOptions.Priority = ETaskPriority::Normal;
 		TerminalOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(WorkerTask);
 		const std::weak_ptr<FPublicationLifetime> WeakLifetime = PublicationLifetime;
-		TerminalTask = Tasks::FTask(Tasks::LaunchGameThreadDeferred("AssetCompatibility.PublishTerminal",
+		TerminalTask = Tasks::FTask(Tasks::LaunchTask("AssetCompatibility.PublishTerminal",
 			[WeakLifetime, Serial, Outcome = WorkerTask] {
 				const std::shared_ptr<FPublicationLifetime> Lifetime = WeakLifetime.lock();
 				if (!Lifetime || !Lifetime->Model) return;
@@ -306,7 +306,7 @@ namespace Durin
 						: Outcome.GetDiagnostic();
 				}
 				Model.InvalidatePresentation();
-			}, WorkerTask, TerminalOptions));
+			}, WorkerTask, Tasks::ETaskThread::GameThread, TerminalOptions));
 
 		return true;
 	}

@@ -86,11 +86,11 @@ namespace Durin
 			Signal.Trigger();
 			Release.Wait();
 		});
-		auto Publication = Tasks::LaunchGameThreadDeferred("PreadmittedPublication", [&] {
+		auto Publication = Tasks::LaunchTask("PreadmittedPublication", [&] {
 				EXPECT_FALSE(IsTaskSchedulerRunning());
 				EXPECT_FALSE(Retired.load());
 				Release.Trigger();
-			}, Signal);
+			}, Signal, Tasks::ETaskThread::GameThread);
 		Started.Wait(); Producer = {};
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		EXPECT_TRUE(Retired.load());
@@ -277,10 +277,10 @@ namespace Durin
 		});
 		ASSERT_TRUE(Started.WaitFor(1));
 		uint32 Runs = 0;
-		auto Deferred = Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, [&]() {
+		auto Deferred = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&]() {
 			const auto& Token = TestCancellation;
 			EXPECT_TRUE(Token.IsCanceled()); ++Runs;
-		});
+		}, Tasks::ETaskThread::GameThread);
 		auto Dependent = Tasks::LaunchTask("CooperativeShutdownDependent", [&]() {
 			const auto& Token = TestCancellation;
 			EXPECT_TRUE(Token.IsCanceled()); ++Runs;

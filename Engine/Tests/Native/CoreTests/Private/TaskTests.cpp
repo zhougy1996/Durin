@@ -1304,7 +1304,7 @@ namespace Durin
 		auto Blocker = Tasks::LaunchTask("DeferredNestedBlocker", [&] { Started.Trigger(); Release.Wait(); });
 		ASSERT_TRUE(Started.WaitFor(2));
 		auto Parent = Tasks::LaunchTask("DeferredNestedParent", [] {
-			auto Child = Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, [] {});
+			auto Child = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, Tasks::ETaskThread::GameThread);
 			Tasks::AddNested(Child);
 		});
 		EXPECT_EQ(Parent.WaitDetailed().WaitStatus, ETaskWaitStatus::UnsupportedThread);
@@ -1508,7 +1508,7 @@ namespace Durin
 			Tasks::FTaskEvent Signal("ShutdownSignal");
 			int Calls = 0;
 			std::atomic<bool> Retired = false;
-			auto Handoff = Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, [&] { ++Calls; }, Signal);
+			auto Handoff = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] { ++Calls; }, Signal, Tasks::ETaskThread::GameThread);
 			struct FOwner { std::atomic<bool>& Flag; ~FOwner() { Flag = true; } };
 			auto Producer = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION,
 				[Signal, Owner = std::shared_ptr<FOwner>(new FOwner{Retired})]() mutable {
@@ -1531,7 +1531,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		Tasks::FTaskEvent Source("CaptureRetirementSignal");
-		auto Handoff = Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, [Source](){}, Source);
+		auto Handoff = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [Source](){}, Source, Tasks::ETaskThread::GameThread);
 		int ReleasedCaptures = 0;
 		auto Capture = std::shared_ptr<int>(new int(0), [Source, &ReleasedCaptures](int* Value) mutable {
 			delete Value;
@@ -1540,11 +1540,11 @@ namespace Durin
 			// publishing. Completing another accepted task may dispatch a continuation.
 			Source.Trigger();
 		});
-		auto Queued = Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION,
+		auto Queued = Tasks::LaunchTask(DURIN_SOURCE_LOCATION,
 			[Capture = std::move(Capture)] {
 				(void)Capture;
 
-			});
+			}, Tasks::ETaskThread::GameThread);
 
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 
@@ -1759,9 +1759,9 @@ namespace Durin
 		Tasks::TTask<int> Inner;
 		auto Outer = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&, Root](){
 			EXPECT_FALSE(ParentCancellation.IsCanceled());
-			Inner = Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, [&] {
+			Inner = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] {
 				EXPECT_FALSE(ChildCancellation.IsCanceled()); ++Called; return 12;
-			});
+			}, Tasks::ETaskThread::GameThread);
 			Tasks::AddNested(Inner);
 			Spawned.Trigger();
 		}, Root);
@@ -1921,8 +1921,8 @@ namespace Durin
 		Tasks::FTaskEvent Ready("SharedLargeResult", false);
 		auto Input = Tasks::LaunchTask("LargeResult", [] { return FLargeValue{}; }, Ready);
 		auto Inspect = [Input] { return &Input.GetResult(); };
-		auto Observer = Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, Inspect,
-			Tasks::Prerequisites(Input, Input));
+		auto Observer = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, Inspect,
+			Tasks::Prerequisites(Input, Input), Tasks::ETaskThread::GameThread);
 		EXPECT_EQ(sizeof(Inspect), Observer.GetDiagnostics().EstimatedPayloadBytes);
 		EXPECT_LT(Observer.GetDiagnostics().EstimatedPayloadBytes, sizeof(FLargeValue));
 		Ready.Trigger();
@@ -1954,9 +1954,9 @@ namespace Durin
 				EXPECT_FALSE(IsInGameThread()); ++WorkerCalls;
 			}));
 		for (uint32 Index = 0; Index < 1100; ++Index)
-			Deferred.push_back(Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, [&] {
+			Deferred.push_back(Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] {
 				EXPECT_TRUE(IsInGameThread()); ++DeferredCalls;
-			}));
+			}, Tasks::ETaskThread::GameThread));
 		const auto Peak = GetTaskSchedulerDiagnostics();
 		EXPECT_GT(Peak.CurrentTrackedTaskCount, 16384u);
 		EXPECT_EQ(1100u, GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth);

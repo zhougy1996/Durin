@@ -748,7 +748,7 @@ namespace Durin
 		Tasks::FTaskEvent Pending("IndependentUnknownGate"), KnownSignal("IndependentKnownSignal", false);
 		auto Ordinary = Tasks::LaunchTask("UnmarkedWorker", [] {}, KnownSignal);
 		auto Io = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [] {}, KnownSignal);
-		auto Deferred = Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, [] {}, KnownSignal);
+		auto Deferred = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, KnownSignal, Tasks::ETaskThread::GameThread);
 		for (const auto& Input : Tasks::Prerequisites(Pending, KnownSignal, Ordinary, Io, Deferred))
 		{
 			FTaskLaunchOptions Options;
@@ -770,7 +770,7 @@ namespace Durin
 			EXPECT_DEATH({
 				auto Invalid = Tasks::LaunchIndependentTask("ForbiddenChildParent", [&] {
 					if (BlockingIO) (void)Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [] {});
-					else (void)Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, [] {});
+					else (void)Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, Tasks::ETaskThread::GameThread);
 				});
 				Invalid.Wait();
 			}, "Task construction failed");

@@ -34,8 +34,8 @@ namespace Durin
 				{
 					auto Ticket = std::make_shared<int>(0);
 					PendingPublication = Ticket;
-					(void)Tasks::LaunchGameThreadDeferred("AssetRegistry.QueryEvents",
-						[this, Ticket = std::move(Ticket)]() mutable { Ticket.reset(); Synchronize(); });
+					(void)Tasks::LaunchTask("AssetRegistry.QueryEvents",
+						[this, Ticket = std::move(Ticket)]() mutable { Ticket.reset(); Synchronize(); }, Tasks::ETaskThread::GameThread);
 				}
 			}
 			FDelegateHandle PackagesChanged, CatalogChanged, MountsChanged;

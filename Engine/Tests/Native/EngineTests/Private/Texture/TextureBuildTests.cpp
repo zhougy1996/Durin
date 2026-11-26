@@ -1236,7 +1236,7 @@ TEST(FTexture2DTests, BlockOnAnyAsyncBuildAppliesSelectedResultWithoutCancelingO
 		const auto RequestId = Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).RequestId;
 		Durin::Tasks::FTaskEvent Gate("TextureBlockingWaitIsolation");
 		auto CallbackRan = std::make_shared<std::atomic_bool>(false);
-		auto Unrelated = Durin::Tasks::LaunchGameThreadDeferred("TextureBlockingWaitIsolation", [CallbackRan] { *CallbackRan = true; }, Gate);
+		auto Unrelated = Durin::Tasks::LaunchTask("TextureBlockingWaitIsolation", [CallbackRan] { *CallbackRan = true; }, Gate, Durin::Tasks::ETaskThread::GameThread);
 		Gate.Trigger();
 		if (Entry == 0) Texture->BlockOnAnyAsyncBuild();
 		else if (Entry == 1) (void)Texture->Modify(false);
