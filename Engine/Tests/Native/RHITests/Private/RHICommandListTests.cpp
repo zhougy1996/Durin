@@ -3629,7 +3629,7 @@ namespace Durin
 		EXPECT_EQ(Executor.GetStats().FramePressureWaitCount, 0u);
 		EXPECT_GE(GetBufferUploadStats().LiveBytes, 64u);
 		Release.Trigger();
-		EXPECT_EQ(Thread.Flush(), ERHIThreadWaitResult::Completed);
+		Thread.Flush();
 		EXPECT_EQ(Executor.GetFrameNumber(), 2u);
 		EXPECT_EQ(Context.ObservedBufferData, FByteBuffer(16, std::byte{11}));
 		EXPECT_EQ(Executor.GetStats().PendingFrameCount, 0u);

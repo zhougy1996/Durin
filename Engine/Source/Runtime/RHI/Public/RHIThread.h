@@ -24,8 +24,6 @@ namespace Durin
 		Draining,
 	};
 
-	enum class ERHIThreadWaitResult : uint8 { Completed, Canceled };
-
 	struct FRHIThreadQueueLimits
 	{
 		uint32 MaxEntries = 8;
@@ -90,10 +88,11 @@ namespace Durin
 		// Returns the queue serial, or zero if closed without moving Work.
 		// Invalid work, self-enqueue, and serial overflow are programming errors.
 		RHI_API auto Enqueue(FRHIThreadWork& Work) -> uint64;
-		RHI_API auto EnqueueSynchronous(FRHIThreadWork& Work)
-			-> bool;
-		RHI_API auto WaitForSerial(uint64 Serial) const -> ERHIThreadWaitResult;
-		RHI_API auto Flush() const -> ERHIThreadWaitResult;
+		// Returns false on admission rejection. Success includes execution and capture retirement.
+		RHI_API auto EnqueueSynchronous(FRHIThreadWork& Work) -> bool;
+		// Serial must be zero or an accepted submission from this queue.
+		RHI_API auto WaitForSerial(uint64 Serial) const -> void;
+		RHI_API auto Flush() const -> void;
 		RHI_API auto CaptureLastSubmittedSerial() const -> uint64;
 
 		RHI_API auto GetStats() const -> FRHIThreadStats;

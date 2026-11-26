@@ -333,34 +333,29 @@ namespace Durin
 	auto FRHIThread::EnqueueSynchronous(FRHIThreadWork& Work) -> bool
 	{
 		const uint64 Serial = Enqueue(Work);
-		return Serial != 0 && WaitForSerial(Serial) == ERHIThreadWaitResult::Completed;
+		if (Serial == 0) return false;
+		WaitForSerial(Serial);
+		return true;
 	}
 
-	auto FRHIThread::WaitForSerial(uint64 Serial) const -> ERHIThreadWaitResult
+	auto FRHIThread::WaitForSerial(uint64 Serial) const -> void
 	{
 		if (IsInRHIThread())
 		{
 			RHITerminateOnFailure("RHI queue", "SelfWait");
 		}
-		if (Serial == 0)
-		{
-			return ERHIThreadWaitResult::Completed;
-		}
+		if (Serial == 0) return;
 		std::unique_lock Lock(State->Mutex);
+		if (Serial > State->LastSubmittedSerial)
+			RHITerminateOnFailure("RHI queue", "Wait for unsubmitted serial");
 		State->CompletionCV.wait(Lock, [this, Serial]() {
-			return State->CompletedSerial >= Serial
-				|| State->AdmissionState == ERHIThreadAdmissionState::Stopped;
+			return State->CompletedSerial >= Serial;
 		});
-		if (State->CompletedSerial >= Serial)
-		{
-			return ERHIThreadWaitResult::Completed;
-		}
-		return ERHIThreadWaitResult::Canceled;
 	}
 
-	auto FRHIThread::Flush() const -> ERHIThreadWaitResult
+	auto FRHIThread::Flush() const -> void
 	{
-		return WaitForSerial(CaptureLastSubmittedSerial());
+		WaitForSerial(CaptureLastSubmittedSerial());
 	}
 
 	auto FRHIThread::CaptureLastSubmittedSerial() const -> uint64

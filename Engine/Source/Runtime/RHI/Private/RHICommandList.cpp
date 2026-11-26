@@ -2973,8 +2973,7 @@ namespace Durin
 		if (IsExecutingRHICommands()) RHITerminateOnFailure("RHI wait", "SelfWait");
 		if (State->RHIThread)
 		{
-			if (State->RHIThread->WaitForSerial(Serial) != ERHIThreadWaitResult::Completed)
-				RHITerminateOnFailure("RHI wait", "Accepted work did not complete");
+			State->RHIThread->WaitForSerial(Serial);
 		}
 		else
 		{

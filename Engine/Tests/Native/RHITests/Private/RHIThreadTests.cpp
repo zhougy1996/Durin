@@ -206,8 +206,7 @@ namespace Durin
 		EXPECT_FALSE(Thread.GetStats().CompletedSerial >= SecondSubmission);
 
 		ReleaseFirst.Trigger();
-		EXPECT_EQ(ERHIThreadWaitResult::Completed,
-			Thread.WaitForSerial(SecondSubmission));
+		Thread.WaitForSerial(SecondSubmission);
 		std::lock_guard Lock(OrderMutex);
 		EXPECT_EQ((std::vector<int>{1, 2}), Order);
 	}
@@ -248,7 +247,7 @@ namespace Durin
 		Release.Trigger();
 		Producer.join();
 		EXPECT_TRUE(Accepted.load());
-		EXPECT_EQ(Thread.Flush(), ERHIThreadWaitResult::Completed);
+		Thread.Flush();
 		EXPECT_EQ(Thread.GetStats().OutstandingFrameCount, 0u);
 		EXPECT_EQ(Thread.GetStats().PeakOutstandingFrameCount, 3u);
 		EXPECT_GT(Thread.GetStats().FramePressureWaitNanoseconds, 0u);
@@ -301,7 +300,7 @@ namespace Durin
 		ReleaseFirst.Trigger();
 		Producer.join();
 		EXPECT_TRUE(bSecondAccepted.load(std::memory_order::acquire));
-		EXPECT_EQ(ERHIThreadWaitResult::Completed, Thread.Flush());
+		Thread.Flush();
 		const FRHIThreadStats Stats = Thread.GetStats();
 		EXPECT_GT(Stats.BackpressureWaitNanoseconds, 0u);
 		EXPECT_EQ(Stats.PeakOutstandingEntryCount, 1u);
@@ -358,7 +357,7 @@ namespace Durin
 			ReleaseFirst.Trigger();
 			Producer.join();
 			EXPECT_TRUE(bSecondAccepted.load(std::memory_order::acquire));
-			EXPECT_EQ(ERHIThreadWaitResult::Completed, Thread.Flush());
+			Thread.Flush();
 			const FRHIThreadStats Stats = Thread.GetStats();
 			EXPECT_GT(Stats.BackpressureWaitNanoseconds, 0u);
 			EXPECT_EQ(Stats.PeakOutstandingEntryCount, 1u);
@@ -499,10 +498,11 @@ namespace Durin
 		EXPECT_EQ(Thread.GetStats().OutstandingBatchCount, 1u);
 		EXPECT_FALSE(Lifetime.expired());
 		Release.Trigger();
-		EXPECT_EQ(Thread.WaitForSerial(Accepted), ERHIThreadWaitResult::Completed);
+		Thread.WaitForSerial(Accepted);
+		EXPECT_EQ(Thread.GetStats().CompletedSerial, Accepted);
+		EXPECT_TRUE(Lifetime.expired());
 		Thread.Stop();
 		EXPECT_EQ(Calls, 1u);
-		EXPECT_TRUE(Lifetime.expired());
 		EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 0u);
 		EXPECT_EQ(Thread.GetStats().OutstandingBatchCount, 0u);
 	}
@@ -552,10 +552,10 @@ namespace Durin
 		Thread.Stop();
 		EXPECT_FALSE(Thread.Start());
 		EXPECT_EQ(Thread.GetStats().CompletedSerial, Serial);
-		EXPECT_EQ(Thread.WaitForSerial(Serial), ERHIThreadWaitResult::Completed);
+		Thread.WaitForSerial(Serial);
 	}
 
-	TEST(FRHIThreadTests, ClosedQueuePreservesUnacceptedWorkAndWaitReturnsCanceled)
+	TEST(FRHIThreadTests, ClosedQueuePreservesUnacceptedWorkAndRejectsUnsubmittedSerial)
 	{
 		FRHIThread Thread;
 		ASSERT_TRUE(Thread.Start());
@@ -565,7 +565,7 @@ namespace Durin
 		EXPECT_EQ(Thread.Enqueue(Work), 0u);
 		EXPECT_TRUE(Work.Execute);
 		EXPECT_FALSE(Thread.EnqueueSynchronous(Work));
-		EXPECT_EQ(Thread.WaitForSerial(1), ERHIThreadWaitResult::Canceled);
-		EXPECT_EQ(Thread.WaitForSerial(0), ERHIThreadWaitResult::Completed);
+		EXPECT_DEATH(Thread.WaitForSerial(1), "Wait for unsubmitted serial");
+		Thread.WaitForSerial(0);
 	}
 } // namespace Durin
