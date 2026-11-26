@@ -42,6 +42,8 @@ namespace Durin::RendererPrivate
 		HitProxy,
 		SingleLayerWater,
 		SingleLayerWaterDepth,
+		Sky,
+		HybridSky,
 	};
 
 	// Identifies a mesh pass independently of its instance-selection algorithm.

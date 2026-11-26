@@ -4,6 +4,9 @@
 #include "Editor/EditorEngine.h"
 
 #include "Actors/SkyBoxActor.h"
+#include "Asset/Load.h"
+#include "Preview/PreviewMeshPaths.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Components/SkyBoxComponent.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
@@ -54,7 +57,14 @@ namespace Durin::LevelEditor
 		{
 			auto Configure = [Cube](AActor& Actor) {
 				if (!IsValid(Cube)) throw std::runtime_error("The dropped TextureCube retired during creation.");
-				static_cast<ASkyBoxActor&>(Actor).GetSkyBoxComponent()->SetTextureCube(Cube);
+				auto* Component = static_cast<ASkyBoxActor&>(Actor).GetSkyBoxComponent();
+				Component->SetTextureCube(Cube);
+				FSoftObjectPath SpherePath;
+				auto* Sphere = FSoftObjectPath::TryCreate(PreviewMeshPaths::SphereAssetPath, SpherePath)
+					? LoadObject<DStaticMesh>(SpherePath) : nullptr;
+				if (!Sphere) throw std::runtime_error("The built-in sky sphere is unavailable.");
+				Component->SetRelativeScale3D(FVector3(1000.0));
+				Component->SetStaticMesh(Sphere);
 			};
 			std::string Error;
 			auto* Actor = Editor.SpawnActor(Level, ASkyBoxActor::StaticClass(), Name, {}, Context, Configure,

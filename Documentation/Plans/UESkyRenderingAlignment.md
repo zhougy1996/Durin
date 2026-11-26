@@ -2,14 +2,36 @@
 
 Summary: Move visible SkyBox and Procedural Sky to material-backed backgrounds while preserving scene-owned Sky Light capture and existing levels.
 
-Last reviewed: 2026-11-25
+Last reviewed: 2026-11-26
 Status: Active
 Completed:
 
 ## Current Status
 
-Stage 4 replaces the Stage 0 fullscreen geometry with one camera-centered
-skydome for all visible sky materials. Each view supplies its own projection
+The Win64 Vulkan editor uses reversed Z. The sky mesh pass pins viewport depth
+to the clear value. Preserving equal depth bounds restored the GrayboxStage15
+sky in the working tree based on `bace3af42`. With its then-current MI_PureSky
+material, the center sample changed from RGB (0, 0, 0) to (214, 216, 220),
+matching a direct render of the same HDR cubemap and view. The Vulkan sky
+suite also exercises reversed-Z lit rendering with its analytical HDR cube.
+
+The Stage 4 component follow-up uses authored mesh geometry for Surface materials
+marked `Is Sky`. Cubemap drops create a static mesh with a dynamic material
+instance. The scene-wide cube proxy has been removed. GrayboxStage15 uses a
+regular static mesh actor with the built-in sphere and DefaultCubeSky. Its
+SkyTexture defaults to `/Engine/Renderer/DefaultSkyCube`. The former instance's
+only override referenced that same texture. The level reloaded with the parent
+material in slot 0 after removal of the instance. A fresh Win64
+Vulkan material thumbnail had center RGBA (127, 140, 176, 255) and a transparent
+corner at 256 × 256 pixels. Per-view
+cubemaps and the procedural environment still use a camera-centered sphere. On
+Win64 Vulkan, a marked triangle covered only its projected area and submitted
+one draw in both forward and hybrid views. The component-generated cube
+material passed the HDR readback on the built-in sphere (working tree based
+on `3523c8609`).
+
+Stage 4 replaced the Stage 0 fullscreen geometry with a camera-centered
+skydome for environment backgrounds. Each view supplies its own projection
 and override. The indexed sphere provides spherical UV0 and interpolated sky
 direction. Forward and hybrid render the same dome at far depth before water
 and clouds. Sky Light continues to capture the analytic provider independently.
@@ -222,3 +244,7 @@ LUTs, aerial perspective and UE-style general scene capture are outside this pla
   camera-centered sphere with spherical UV0 and per-view far depth. Retire
   the fullscreen vertex shader and its screen-space material coordinates.
 - [x] Validate material UVs, HDR, depth and water composition on Win64 Vulkan.
+- [x] Route authored sky material sections through ordinary static mesh components
+  and give cubemap placement a mesh-backed default.
+- [x] Remove meshless scene publication and migrate GrayboxStage15 to a regular
+  static mesh actor with a persistent cube material instance.

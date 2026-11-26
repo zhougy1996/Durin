@@ -19,7 +19,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DStaticMeshComponent(const FObjectInitializer& ObjectInitializer);
-		ENGINE_API auto SetStaticMesh(DStaticMesh* InStaticMesh) -> void;
+		ENGINE_API virtual auto SetStaticMesh(DStaticMesh* InStaticMesh) -> void;
 		ENGINE_API auto GetStaticMesh() const -> DStaticMesh*;
 		ENGINE_API auto SetRenderInstances(std::span<const FStaticMeshRenderInstance> Instances) -> bool;
 		ENGINE_API auto SetInstanceCustomData(uint32 InstanceId, uint32 First, std::span<const float> Values) -> bool;

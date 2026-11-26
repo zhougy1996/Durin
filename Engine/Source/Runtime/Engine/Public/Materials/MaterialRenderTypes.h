@@ -152,6 +152,7 @@ namespace Durin
 	{
 		FMeshMaterialShaderMapIdentity ShaderMap;
 		bool bTwoSided = false;
+		bool bIsSky = false;
 		EMaterialDepthWritePolicy DepthWritePolicy = EMaterialDepthWritePolicy::Automatic;
 
 		auto operator==(const FMaterialPlanningPassIdentity&) const -> bool = default;

@@ -23,6 +23,7 @@ namespace Durin::RendererPrivate
 		RENDERER_API auto Dispatch() -> bool;
 		auto GetParentCommandList() const -> FRHICommandList& { return Parent; }
 		auto GetPrereqs() const -> const std::vector<Tasks::FTask>& { return Prerequisites; }
+		float MinDepth = 0.0f, MaxDepth = 1.0f;
 		uint32 Width = 8;
 		uint32 MinDrawsPerCommandList = 64;
 		std::vector<Tasks::FTask> Prerequisites;

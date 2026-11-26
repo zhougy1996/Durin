@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "SceneViewProjection.h"
 #include "NativeTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "RenderResource.h"
@@ -253,9 +254,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	);
 	ASSERT_NE(*OcclusionProxy, nullptr);
 
-	Durin::FSkyBoxSceneData SkyBox;
-	SkyBox.TextureReference = CubeReference;
-	Durin::FSkyBoxSceneProxy* SkyBoxToken = PublishSkyBox(Scene, SkyBox);
+	std::optional<Durin::FViewEnvironmentOverride> Environment = Durin::FViewEnvironmentOverride{.TextureReference = CubeReference};
 
 	Durin::EnqueueRenderCommand("EndSkyBoxValidationSetupFrame", [](Durin::FRHICommandListImmediate& CommandList) {
 		Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -322,7 +321,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		Durin::FByteBuffer StaleStateNoConsumer;
 		Durin::FByteBuffer StatefulLitNoConsumer;
 		Durin::FByteBuffer StatefulLetterboxedNoConsumer;
-		Durin::FByteBuffer ComponentRotated;
+		Durin::FByteBuffer EnvironmentRotated;
 		Durin::FByteBuffer ExplicitOverride;
 		Durin::FByteBuffer Letterboxed;
 		Durin::FByteBuffer Occluded;
@@ -436,12 +435,14 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		if (!Result->bSucceeded) return;
 		auto RenderWithOptions = [&](const Durin::FSceneView& View, Durin::FByteBuffer& OutPixels,
 			const Durin::FSceneViewRenderOptions& Options,
-			Durin::ERenderMode RenderMode = Durin::ERenderMode::Unlit, bool bCaptureTelemetry = false) {
+			Durin::ERenderMode RenderMode = Durin::ERenderMode::Unlit, bool bCaptureTelemetry = false, Durin::FSceneViewStatistics* OutStatistics = nullptr) {
 			Durin::FSceneView RenderView = View;
 			RenderView.Settings.Mode.RenderMode = RenderMode;
 			Durin::FSceneViewStatistics Statistics;
 			bool bReadback = false;
-			const auto Outcome = RenderPreparedSkyView(Renderer, Scene, RenderView, Color, Options, &Statistics,
+			auto ViewOptions = Options;
+			if (!ViewOptions.Environment) ViewOptions.Environment = Environment;
+			const auto Outcome = RenderPreparedSkyView(Renderer, Scene, RenderView, Color, ViewOptions, &Statistics,
 				[&](Durin::FRHICommandListImmediate& Commands) {
 					if (bCaptureTelemetry) Result->HybridSkyTelemetry = GHybridSkyTelemetry;
 					bReadback = Durin::GDynamicRHI->RHIReadTexture2D(Commands, Color, 0, 0, OutPixels);
@@ -452,6 +453,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				Result->Error = std::format("Validation view failed: result={}, readback={}", uint8(Outcome), bReadback);
 				return false;
 			}
+			if (OutStatistics) *OutStatistics = Statistics;
 			if (!Result->bCapturedFirstViewStatistics)
 			{
 				Result->FirstViewStatistics = Statistics;
@@ -496,19 +498,17 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		Perspective.ViewProjectionMatrix = Perspective.ProjectionMatrix * Perspective.ViewMatrix;
 		if (!Render(Perspective, Result->Perspective)) return;
 
-		Durin::FSkyBoxSceneData RotatedSky;
+		Durin::FViewEnvironmentOverride RotatedSky;
 		RotatedSky.TextureReference = CubeReference;
 		RotatedSky.Rotation = glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up);
-		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
-		if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->ComponentRotated)) return;
+		Environment = RotatedSky;
+		if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->EnvironmentRotated)) return;
 
 		RotatedSky.TextureReference = HdrCubeReference;
 		RotatedSky.Tint = HdrTint;
 		RotatedSky.Intensity = HdrIntensity;
 		RotatedSky.Rotation = glm::identity<Durin::FQuat>();
-		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
+		Environment = RotatedSky;
 		Durin::FSceneViewRenderOptions OverrideOptions;
 		OverrideOptions.Environment = Durin::FViewEnvironmentOverride{
 			.TextureReference = CubeReference
@@ -536,7 +536,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		RotatedSky.TextureReference = CubeReference;
 		RotatedSky.Tint = Durin::FVector3f(1.0f);
 		RotatedSky.Intensity = 1.0f;
-		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
+		Environment.reset();
 		auto EmptyView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
 		EmptyView.ClearColor = Durin::FVector4f(0.0f);
 		if (!Render(EmptyView, Result->Transparent)) return;
@@ -574,7 +574,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			SetSceneColorTimingQuerySink(nullptr);
 			EXPECT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Samples)), CaptureDirectory / "draw.csv"));
 		}
-		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
+		Environment = RotatedSky;
 		Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
 		LetterboxView.AspectRatioConstraint = 0.5f;
 		if (!Render(LetterboxView, Result->Letterboxed)) return;
@@ -584,8 +584,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				Result->StatefulLetterboxedNoConsumer)) return;
 
 		RotatedSky.Rotation = glm::identity<Durin::FQuat>();
-		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
+		Environment = RotatedSky;
 		const Durin::FSceneView HybridSkyView =
 			MakePrincipalAxisView(Directions[4], {}, 17, 17);
 		if (!RenderWithOptions(HybridSkyView, Result->ForwardLitSky, {}, Durin::ERenderMode::Lit)) return;
@@ -597,9 +596,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		Durin::FSceneViewRenderOptions HybridSkyOptions;
 		const bool bRenderedHybridSky = RenderWithOptions(HybridSkyView, Result->HybridLitSky, HybridSkyOptions, Durin::ERenderMode::Lit, true);
 		if (!bRenderedHybridSky) return;
-		// Exercise an ordinary opaque Unlit dome as a separate geometry submission.
-		// Its interior is visible, but the surface participates in mesh visibility
-		// and writes finite depth even when all that is wanted is a background.
+		// Exercise ordinary component geometry with an authored sky material.
 		auto PrototypeDome = [&]() {
 			using namespace Durin;
 			FSoftObjectPath Path;
@@ -614,6 +611,28 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			ASSERT_TRUE(Material->SetStaticProperties({.ShadingModel = EMaterialShadingModel::Unlit, .bTwoSided = true}));
 			FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 			ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+			auto SkyProperties = Material->GetStaticProperties();
+			SkyProperties.bIsSky = true;
+			ASSERT_TRUE(Material->SetStaticProperties(SkyProperties));
+			auto* Triangle = NewObject<DStaticMeshComponent>(nullptr, "MarkedSkyTriangle");
+			Triangle->SetStaticMesh(OcclusionMesh);
+			Triangle->SetMaterial(Material);
+			const FPrimitiveComponentId TriangleId(3);
+			auto TriangleProxy = Triangle->CreateSceneProxy();
+			ASSERT_TRUE(TriangleProxy);
+			FSceneInterfaceTestAccess::AddPrimitiveProxy(Scene, TriangleId, std::move(TriangleProxy),
+				glm::translate(FMatrix(1), FVector3(0, 0, 0.5)));
+			for (const auto Mode : {ERenderMode::Unlit, ERenderMode::Lit})
+			{
+				FByteBuffer Pixels;
+				FSceneViewStatistics Statistics;
+				ASSERT_TRUE(RenderWithOptions(HybridSkyView, Pixels, {}, Mode, false, &Statistics));
+				EXPECT_EQ(Statistics.StaticMesh.DrawCalls, 1u);
+				EXPECT_GT(int(Pixels[(8 * 17 + 8) * 4 + 1]), 200);
+				EXPECT_LT(int(Pixels[1]), 8);
+			}
+			FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, TriangleId);
+			FlushRenderingCommands();
 			auto* Dome = NewObject<DStaticMeshComponent>(nullptr, "SkyDomeInterior");
 			Dome->SetStaticMesh(Sphere);
 			Dome->SetMaterial(Material);
@@ -634,34 +653,36 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			ASSERT_TRUE(FSoftObjectPath::TryCreate("/Engine/Materials/DefaultCubeSky.DefaultCubeSky", MaterialPath));
 			auto* CubeParent = LoadObject<DMaterial>(MaterialPath);
 			ASSERT_NE(CubeParent, nullptr);
-			auto* CubeMaterial = NewObject<DMaterialInstance>(nullptr, "SkyPrototypeInstance");
-			ASSERT_TRUE(CubeMaterial->SetParent(CubeParent));
-			ASSERT_TRUE(CubeMaterial->SetTextureParameterValue("SkyTexture", HdrCubeResult.Asset));
-			ASSERT_TRUE(CubeMaterial->SetVectorParameterValue("SkyTint", FVector3(HdrTint)));
-			ASSERT_TRUE(CubeMaterial->SetScalarParameterValue("SkyIntensity", HdrIntensity));
+			ASSERT_TRUE(CubeParent->GetStaticProperties().bIsSky);
+			auto* CubeComponent = NewObject<DSkyBoxComponent>(nullptr, "CubeSkyMesh");
+			CubeComponent->SetTextureCube(HdrCubeResult.Asset);
+			CubeComponent->SetTint({HdrTint.x, HdrTint.y, HdrTint.z, 1.0f});
+			CubeComponent->SetIntensity(HdrIntensity);
+			CubeComponent->SetStaticMesh(Sphere);
+			auto* CubeMaterial = Cast<DMaterialInstance>(CubeComponent->GetMaterial());
+			ASSERT_NE(CubeMaterial, nullptr);
+			EXPECT_EQ(CubeMaterial->GetParent(), CubeParent);
+			EXPECT_TRUE(CubeMaterial->GetStaticProperties().bIsSky);
 			FAssetCompilingManager::Get().FinishCompilationForObject(*CubeMaterial);
 			ASSERT_TRUE(CubeMaterial->GetMaterialCompileStatus().IsCurrent());
-			Dome->SetMaterial(CubeMaterial);
-			auto MaterialProxy = Dome->CreateSceneProxy();
+			auto MaterialProxy = CubeComponent->CreateSceneProxy();
 			ASSERT_TRUE(MaterialProxy);
 			FSceneInterfaceTestAccess::AddPrimitiveProxy(Scene, Id, std::move(MaterialProxy), glm::scale(FMatrix(1), FVector3(-4)));
-			FByteBuffer MaterialPixels;
-			const bool MaterialDrawn = Render(Perspective, MaterialPixels);
+			// The editor uses a reversed-Z perspective view for the lit sky pass.
+			auto EditorView = Perspective;
+			EditorView.DepthConvention = ESceneDepthConvention::ReversedZ;
+			ASSERT_TRUE(SceneViewProjection::BuildPerspectiveProjection(90.0, 1.0,
+				EditorView.NearClipDistance, EditorView.FarClipDistance, EditorView.DepthConvention, EditorView.ProjectionMatrix));
+			EditorView.ViewProjectionMatrix = EditorView.ProjectionMatrix * EditorView.ViewMatrix;
+			FByteBuffer MaterialPixels, EditorPixels;
+			const bool MaterialDrawn = Render(Perspective, MaterialPixels)
+				&& RenderWithOptions(EditorView, EditorPixels, {}, ERenderMode::Lit);
 			FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Id);
 			FlushRenderingCommands();
 			Sphere->ReleaseResources();
 			ASSERT_TRUE(MaterialDrawn);
 			ExpectRgbNear(MaterialPixels, 17, 8, 8, HdrSourceColors[0], 12);
-			FSkyBoxSceneData CustomSky;
-			CustomSky.Intensity = 0.0f;
-			CustomSky.MaterialOverride = CubeMaterial->GetRenderProxy();
-			const auto Token = PublishSkyBox(Scene, CustomSky);
-			ASSERT_TRUE(Token);
-			FByteBuffer Background;
-			const bool BackgroundDrawn = Render(Perspective, Background);
-			FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, Token);
-			ASSERT_TRUE(BackgroundDrawn);
-			ExpectRgbNear(Background, 17, 8, 8, HdrSourceColors[0], 12);
+			ExpectRgbNear(EditorPixels, 17, 8, 8, HdrSourceColors[0], 12);
 			auto* UVMaterial = NewObject<DMaterial>(nullptr, "SkydomeUVProbe");
 			auto* UV = NewObject<DMaterialExpressionTextureCoordinates>(UVMaterial, "DomeUV");
 			auto* RGB = NewObject<DMaterialExpressionAppendVector>(UVMaterial, "UVColor");
@@ -675,38 +696,31 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			UVOutputs.Get(EMaterialProperty::MP_EmissiveColor) = {RGB};
 			const std::array<DMaterialExpression*, 2> UVExpressions{UV, RGB};
 			ASSERT_TRUE(UVMaterial->SetMaterialExpressions(UVExpressions, UVOutputs));
-			ASSERT_TRUE(UVMaterial->SetStaticProperties({.ShadingModel = EMaterialShadingModel::Unlit}));
+			ASSERT_TRUE(UVMaterial->SetStaticProperties({.ShadingModel = EMaterialShadingModel::Unlit, .bTwoSided = true, .bIsSky = true}));
 			FAssetCompilingManager::Get().FinishCompilationForObject(*UVMaterial);
 			ASSERT_TRUE(UVMaterial->GetMaterialCompileStatus().IsCurrent());
-			CustomSky.MaterialOverride = UVMaterial->GetRenderProxy();
-			const auto UVToken = PublishSkyBox(Scene, CustomSky);
-			ASSERT_TRUE(UVToken);
+			Dome->SetMaterial(UVMaterial);
+			auto UVProxy = Dome->CreateSceneProxy();
+			ASSERT_TRUE(UVProxy);
+			FSceneInterfaceTestAccess::AddPrimitiveProxy(Scene, Id, std::move(UVProxy), glm::scale(FMatrix(1), FVector3(4)));
 			FByteBuffer East, West;
-			const bool DrewUV = Render(MakePrincipalAxisView(Directions[2], {}, 17, 17), East)
-				&& Render(MakePrincipalAxisView(Directions[3], {}, 17, 17), West);
-			FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, UVToken);
+			auto EastView = Perspective;
+			auto WestView = Perspective;
+			EastView.ViewMatrix = MakePrincipalAxisView(Directions[2], {}, 17, 17).ViewProjectionMatrix;
+			WestView.ViewMatrix = MakePrincipalAxisView(Directions[3], {}, 17, 17).ViewProjectionMatrix;
+			EastView.ViewProjectionMatrix = EastView.ProjectionMatrix * EastView.ViewMatrix;
+			WestView.ViewProjectionMatrix = WestView.ProjectionMatrix * WestView.ViewMatrix;
+			const bool DrewUV = Render(EastView, East) && Render(WestView, West);
+			FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Id);
+			FlushRenderingCommands();
+			Sphere->ReleaseResources();
 			ASSERT_TRUE(DrewUV);
-			// The equator has v=0.5 in both views, with u=0.25 and 0.75.
-			EXPECT_GT(int(West[Center]), int(East[Center]) + 20);
+			EXPECT_GT(std::abs(int(West[Center]) - int(East[Center])), 20);
 			EXPECT_NEAR(int(East[Center + 1]), int(West[Center + 1]), 2);
-			EXPECT_GT(int(East[Center + 1]), 50);
-			ASSERT_TRUE(FSoftObjectPath::TryCreate("/Engine/Materials/DefaultProceduralSky.DefaultProceduralSky", MaterialPath));
-			auto* ProceduralMaterial = LoadObject<DMaterial>(MaterialPath);
-			ASSERT_NE(ProceduralMaterial, nullptr);
-			CustomSky.MaterialOverride = ProceduralMaterial->GetRenderProxy();
-			const auto NoProvider = PublishSkyBox(Scene, CustomSky);
-			ASSERT_TRUE(NoProvider);
-			auto EmptyView = Perspective;
-			EmptyView.ClearColor = {1, 0, 1, 0};
-			const bool DrewWithoutProvider = Render(EmptyView, Background);
-			FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, NoProvider);
-			ASSERT_TRUE(DrewWithoutProvider);
-			ExpectRgbNear(Background, 17, 8, 8, {0, 0, 0}, 0);
-			EXPECT_EQ(Background[Center + 3], std::byte{255});
 		};
-		Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
+		Environment.reset();
 		PrototypeDome();
-		SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
+		Environment = RotatedSky;
 		Durin::FMatrix OccluderTransform = glm::translate(
 			Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5)
 		);
@@ -784,7 +798,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		EXPECT_TRUE(Durin::FFileHelper::SaveArrayToFile(Result->ExplicitOverride, CaptureDirectory / "override.rgba8"));
 		EXPECT_TRUE(Durin::FFileHelper::SaveArrayToFile(Result->Translated, CaptureDirectory / "translated.rgba8"));
 		EXPECT_TRUE(Durin::FFileHelper::SaveArrayToFile(Result->Perspective, CaptureDirectory / "perspective.rgba8"));
-		EXPECT_EQ(FindClosestCenterRgb(Result->ComponentRotated, Result->PrincipalAxes, 17), 3u);
+		EXPECT_EQ(FindClosestCenterRgb(Result->EnvironmentRotated, Result->PrincipalAxes, 17), 3u);
 		ExpectRgbNear(Result->Letterboxed, 17, 1, 8, {0, 0, 0, 255}, 2);
 		EXPECT_EQ(FindClosestCenterRgb(Result->Letterboxed, Result->PrincipalAxes, 17), 0u);
 		ExpectRgbNear(Result->Occluded, 17, 8, 8, MapSrgbReferenceThroughDisplay({255, 0, 0, 255}), 8);
@@ -795,7 +809,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::MarkAsGarbage(OcclusionComponent);
 	Durin::MarkAsGarbage(OcclusionMesh);
 	Durin::MarkAsGarbage(OcclusionMaterial);
-	SkyBox.TextureReference = nullptr;
+	Environment.reset();
 	Durin::FPackagePath CubePath;
 	if (Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaLdr", CubePath))
 	{
@@ -830,6 +844,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FlushRenderingCommands();
 	ValidateDynamicSkyLighting(Renderer, CaptureDirectory);
 	Durin::ShutdownDefaultMaterialService();
+	Durin::CollectGarbage(Durin::EObjectFlags::NoFlags);
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();

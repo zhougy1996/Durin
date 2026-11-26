@@ -105,8 +105,6 @@ namespace
 		auto RemovePrimitive(DPrimitiveComponent*) -> void override {}
 		auto AddLight(DLightComponent*) -> void override {}
 		auto RemoveLight(DLightComponent*) -> void override {}
-		auto AddSkyBox(DSkyBoxComponent*) -> void override {}
-		auto RemoveSkyBox(DSkyBoxComponent*) -> void override {}
 		auto AddProceduralSky(DProceduralSkyComponent*) -> void override {}
 		auto RemoveProceduralSky(DProceduralSkyComponent*) -> void override {}
 		auto AddSkyLight(DSkyLightComponent*) -> void override {}

@@ -12,7 +12,6 @@ namespace Durin
 	class FDefaultTextureResources;
 	class FRHICommandListImmediate;
 	struct FSceneView;
-	struct FSkyBoxSceneData;
 
 	// Owns SkyBox shaders, pipelines, geometry, and draw submission.
 	class FSkydomeMeshPass final
@@ -28,9 +27,9 @@ namespace Durin
 
 		auto EnsureResources_RenderThread() -> bool;
 		auto PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
-			FScene* Scene, FPreparedEnvironment& Environment) -> bool;
+			FScene* Scene, FPreparedEnvironment& Environment, bool bHybrid) -> bool;
 		auto Draw_RenderThread(FRHICommandListImmediate& Commands,
-			const FPreparedEnvironment& Environment, bool bHybridBootstrap = false) -> bool;
+			const FPreparedEnvironment& Environment) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:

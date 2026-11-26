@@ -731,8 +731,10 @@ namespace Durin
 							Candidate->Material.PlanningPassIdentity.ShaderMap.BlendMode;
 						Candidate->Pass = BlendMode == EMaterialBlendMode::Masked ? EMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EMeshBasePass::Translucent :
 																														   EMeshBasePass::Opaque;
-						if (!FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, Mode == ERenderPreparationMode::ShadowDepth
-							? EMeshPipelinePass::ShadowDepth : EMeshPipelinePass::Forward).IsMeshRelevant(Candidate->Material.PlanningPassIdentity))
+						const auto& MaterialIdentity = Candidate->Material.PlanningPassIdentity;
+						const auto ReceiverPass = MaterialIdentity.bIsSky ? EMeshPipelinePass::Sky : EMeshPipelinePass::Forward;
+						const auto Pass = Mode == ERenderPreparationMode::ShadowDepth ? EMeshPipelinePass::ShadowDepth : ReceiverPass;
+						if (!FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, Pass).IsMeshRelevant(MaterialIdentity))
 							continue;
 
 						if (!std::isfinite(Candidate->PipelineKey.Material.ShaderMap.OpacityMaskThreshold)) continue;

@@ -12,7 +12,7 @@
 #include "Renderers/VolumetricCloudRenderer.h"
 
 #include "IRendererModule.h"
-#include "Rendering/SkyBoxSceneProxy.h"
+#include "SkyBoxRendering.h"
 #include "Renderers/ForwardLighting.h"
 #include "SceneView.h"
 #include "RDG/RDGParameters.h"
@@ -24,7 +24,7 @@ namespace Durin
 	struct FPreparedSkyMaterial;
 	struct FPreparedEnvironment
 	{
-		FSkyBoxSceneData SkyBox;
+		FViewSkyParameters SkyBox;
 		FRHITexture* Texture = nullptr;
 		std::shared_ptr<const FPreparedSkyMaterial> Draw;
 	};

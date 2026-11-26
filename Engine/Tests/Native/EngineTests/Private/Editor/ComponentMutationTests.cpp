@@ -76,8 +76,6 @@ namespace
 		auto RemovePrimitive(DPrimitiveComponent* Value) -> void override { Primitives.erase(Value); }
 		auto AddLight(DLightComponent* Value) -> void override { Lights[Value] = Value->GetWorldLocation(); }
 		auto RemoveLight(DLightComponent* Value) -> void override { Lights.erase(Value); }
-		auto AddSkyBox(DSkyBoxComponent*) -> void override {}
-		auto RemoveSkyBox(DSkyBoxComponent*) -> void override {}
 		auto AddProceduralSky(DProceduralSkyComponent*) -> void override {}
 		auto RemoveProceduralSky(DProceduralSkyComponent*) -> void override {}
 		auto AddSkyLight(DSkyLightComponent*) -> void override {}

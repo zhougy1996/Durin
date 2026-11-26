@@ -10,7 +10,7 @@ namespace Durin::SkyBoxRendering
 
 	}
 
-	auto BuildUniform(const FSceneView& View, const FSkyBoxSceneData& SkyBox, FSkyBoxUniform& OutUniform) -> bool
+	auto BuildUniform(const FSceneView& View, const FViewSkyParameters& SkyBox, FSkyBoxUniform& OutUniform) -> bool
 	{
 		FMatrix ClipToWorld;
 		FQuat NormalizedRotation;

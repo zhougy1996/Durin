@@ -178,6 +178,7 @@ namespace
 			Durin::GEngine = nullptr;
 			Durin::FTexturePreview::ReleaseSharedResources();
 			Durin::ShutdownDefaultMaterialService();
+			Durin::CollectGarbage(Durin::EObjectFlags::NoFlags);
 			RendererLifecycle.Shutdown();
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();

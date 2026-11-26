@@ -169,13 +169,6 @@ namespace Durin
 					PreparedView.Environment.emplace();
 					PreparedView.Environment->SkyBox.ProceduralSky = MakeProceduralSkyUniform(Sky->Parameters);
 				}
-			const FSkyBoxSceneProxy* SkyBox =
-				Scene->GetSkyBoxProxy_RenderThread();
-			if (!PreparedView.Environment && SkyBox != nullptr)
-			{
-				PreparedView.Environment = FPreparedEnvironment{
-					.SkyBox = SkyBox->GetData()};
-			}
 			const bool MeasureLights = Context.Logical.Qualification.bMeasureLocalLights;
 			const auto GatherStart = MeasureLights ? FTime::Nanoseconds() : 0;
 			PreparedView.Lighting.Lights = GatherAndSortLights_RenderThread(

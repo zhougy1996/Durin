@@ -265,7 +265,7 @@ namespace Durin
 			// entering the Scene Color render pass.
 			auto& Environment = Context.Logical.PreparedView->Environment;
 			const bool bSkyBoxResourcesReady = !Environment || (SkydomeMeshPass.EnsureResources_RenderThread()
-				&& SkydomeMeshPass.PrepareMaterial_RenderThread(CommandList, Context.Logical.PreparedView->View, Scene, *Environment));
+				&& SkydomeMeshPass.PrepareMaterial_RenderThread(CommandList, Context.Logical.PreparedView->View, Scene, *Environment, Context.Features.RequiresProductionDeferred()));
 			if (!bSkyBoxResourcesReady)
 			{
 				return ERenderViewResult::RendererResourcesUnavailable;

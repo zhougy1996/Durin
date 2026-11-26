@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "SceneInfo.h"
-#include "Rendering/SkyBoxSceneProxy.h"
 
 namespace Durin
 {
@@ -36,20 +35,6 @@ namespace Durin
 		std::vector<FLightSceneInfo*> Directional;
 		std::vector<FLightSceneInfo*> Point;
 		std::vector<FLightSceneInfo*> Spot;
-	};
-
-	// Owns the scene's sole sky-box publication.
-	class FSkyBoxSceneRegistry final
-	{
-	public:
-		auto Add(std::shared_ptr<FSkyBoxSceneProxy> InProxy) -> void;
-		auto Remove(FSkyBoxSceneProxy* Proxy) -> void;
-		auto Clear() -> void;
-		auto Get() const -> const FSkyBoxSceneProxy* { return Proxy.get(); }
-		auto Num() const -> size_t { return Proxy ? 1 : 0; }
-
-	private:
-		std::shared_ptr<FSkyBoxSceneProxy> Proxy;
 	};
 
 	// Owns global cloud candidates and resolves the active eligible publication.

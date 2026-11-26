@@ -807,6 +807,10 @@ namespace Durin::MaterialEditor
 					bChanged = true;
 				}
 			}
+			if (Configuration.Domain == EMaterialDomain::Surface && Properties.ShadingModel == EMaterialShadingModel::Unlit && Properties.BlendMode == EMaterialBlendMode::Opaque)
+				bChanged |= DetailsStyle::EditRow("Is Sky", [&] { return ImGui::Checkbox("##Value", &Properties.bIsSky); });
+			else
+				Properties.bIsSky = false;
 			bChanged |= DetailsStyle::EditRow("Two sided", [&] { return ImGui::Checkbox("##Value", &Properties.bTwoSided); });
 			bChanged |= DetailsStyle::EditRow("Depth write", [&] { return ImGui::Combo("##Value", &Depth, "Automatic\0Enabled\0Disabled\0"); });
 			Properties.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Depth);

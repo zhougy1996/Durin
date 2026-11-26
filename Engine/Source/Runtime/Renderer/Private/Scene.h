@@ -8,7 +8,6 @@
 
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Rendering/LightSceneProxy.h"
-#include "Rendering/SkyBoxSceneProxy.h"
 #include "Rendering/SkyLightSceneProxy.h"
 #include "Rendering/ProceduralSkySceneProxy.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
@@ -24,7 +23,6 @@ namespace Durin
 	class FLightSceneInfo;
 	class FVolumetricCloudSceneInfo;
 	class FLightSceneRegistry;
-	class FSkyBoxSceneRegistry;
 	class FVolumetricCloudSceneRegistry;
 	class FSplineMeshSceneProxy;
 	class FStaticMeshSceneProxy;
@@ -45,8 +43,6 @@ namespace Durin
 		RENDERER_API auto RemovePrimitive(DPrimitiveComponent* Primitive) -> void override;
 		RENDERER_API auto AddLight(DLightComponent* Light) -> void override;
 		RENDERER_API auto RemoveLight(DLightComponent* Light) -> void override;
-		RENDERER_API auto AddSkyBox(DSkyBoxComponent* SkyBox) -> void override;
-		RENDERER_API auto RemoveSkyBox(DSkyBoxComponent* SkyBox) -> void override;
 		RENDERER_API auto AddProceduralSky(DProceduralSkyComponent* Sky) -> void override;
 		RENDERER_API auto RemoveProceduralSky(DProceduralSkyComponent* Sky) -> void override;
 		RENDERER_API auto GetProceduralSky_RenderThread() const -> std::shared_ptr<const FProceduralSkySceneProxy>;
@@ -84,9 +80,6 @@ namespace Durin
 			FPrimitiveComponentId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData
 		) -> void override;
-		RENDERER_API auto GetSkyBox_RenderThread(
-			FSkyBoxSceneData& OutSkyBox) const -> bool;
-		RENDERER_API auto GetSkyBoxCount_RenderThread() const -> size_t;
 		RENDERER_API auto GetActiveVolumetricCloud_RenderThread(
 			FVolumetricCloudSceneSnapshot& OutCloud
 		) const -> bool;
@@ -102,8 +95,6 @@ namespace Durin
 		RENDERER_API auto GetDirectionalLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
 		RENDERER_API auto GetPointLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
 		RENDERER_API auto GetSpotLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
-		RENDERER_API auto GetSkyBoxProxy_RenderThread() const
-			-> const FSkyBoxSceneProxy*;
 		RENDERER_API auto GetActiveVolumetricCloudSceneInfo_RenderThread() const
 			-> const FVolumetricCloudSceneInfo*;
 
@@ -128,8 +119,6 @@ namespace Durin
 		RENDERER_API auto RemovePrimitiveProxy(FPrimitiveComponentId PrimitiveId) -> void;
 		RENDERER_API auto TryAddLightProxy(std::unique_ptr<FLightSceneProxy> Proxy) -> bool;
 		RENDERER_API auto TryRemoveLightProxy(FLightSceneProxy* Proxy) -> bool;
-		RENDERER_API auto TryAddSkyBoxProxy(std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> bool;
-		RENDERER_API auto TryRemoveSkyBoxProxy(FSkyBoxSceneProxy* Proxy) -> bool;
 		RENDERER_API auto TryAddVolumetricCloudProxy(
 			std::unique_ptr<FVolumetricCloudSceneProxy> Proxy
 		) -> bool;
@@ -149,12 +138,10 @@ namespace Durin
 		std::unordered_map<FPrimitiveComponentId, std::unique_ptr<FPrimitiveSceneInfo>, FPrimitiveComponentIdHash> PrimitiveInfosById;
 		std::vector<FPrimitiveSceneInfo*> PrimitiveSceneInfos;
 		std::unique_ptr<FLightSceneRegistry> Lights;
-		std::unique_ptr<FSkyBoxSceneRegistry> SkyBoxes;
 		std::unique_ptr<FVolumetricCloudSceneRegistry> VolumetricClouds;
 		std::unordered_map<const FSkyLightSceneProxy*, std::shared_ptr<const FSkyLightSceneProxy>> SkyLights;
 		std::unordered_map<const FProceduralSkySceneProxy*, std::shared_ptr<const FProceduralSkySceneProxy>> ProceduralSkies;
 		std::unordered_map<FGuid, std::shared_ptr<const FMaterialParameterCollectionSnapshot>> MaterialParameterCollections;
-		FSkyBoxSceneProxy* PublishedSkyBoxProxy = nullptr;
 		std::atomic<ELifecycleState> LifecycleState{ELifecycleState::Active};
 
 		friend class FPrimitiveSceneInfo;

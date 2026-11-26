@@ -66,6 +66,15 @@ TEST(FRendererSceneContractTests, MeshPassProcessorsSelectPassShaders)
 	EXPECT_NE(Shadow.GetFragmentShader(EMaterialBlendMode::Masked).Type,
 		FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::Forward).GetFragmentShader(EMaterialBlendMode::Masked).Type);
 	EXPECT_EQ(FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::GBuffer).GetVertexFactoryPass(), MaterialMeshPassGBuffer);
+	FMaterialPlanningPassIdentity SkyMaterial;
+	SkyMaterial.ShaderMap.ShadingModel = EMaterialShadingModel::Unlit;
+	SkyMaterial.bIsSky = true;
+	for (const auto Pass : FPassProcessorManager::GetRegisteredPasses(EShadingPath::Deferred))
+	{
+		const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, Pass);
+		EXPECT_EQ(Processor.IsMeshRelevant(SkyMaterial),
+			Pass == EMeshPipelinePass::Sky || Pass == EMeshPipelinePass::HybridSky || Pass == EMeshPipelinePass::HitProxy);
+	}
 	const auto& Water = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::SingleLayerWater);
 	EXPECT_FALSE(Water.IsMeshRelevant({}));
 	FMaterialPlanningPassIdentity WaterMaterial;
@@ -185,7 +194,8 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
             const bool Water = Shading == EMaterialShadingModel::SingleLayerWater;
             const bool Deferred = !Translucent && Shading == EMaterialShadingModel::DefaultLit && GBuffer;
             bool Relevant = Main;
-            if (Pass == EMeshPipelinePass::ShadowDepth) Relevant = Shadow && !Translucent;
+            if (Pass == EMeshPipelinePass::Sky || Pass == EMeshPipelinePass::HybridSky) Relevant = false;
+            else if (Pass == EMeshPipelinePass::ShadowDepth) Relevant = Shadow && !Translucent;
             else if (Pass == EMeshPipelinePass::GBuffer) Relevant = Main && Deferred;
             else if (Pass == EMeshPipelinePass::HybridRetainedForward) Relevant = Main && !Translucent && !Deferred && !Water;
             else if (Pass == EMeshPipelinePass::SortedTranslucency) Relevant = Main && Translucent;

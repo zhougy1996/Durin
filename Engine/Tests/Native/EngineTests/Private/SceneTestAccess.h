@@ -64,23 +64,11 @@ namespace Durin
 			return Scene.TryRemoveLightProxy(Proxy);
 		}
 
-		static auto TryAddSkyBoxProxy(FScene& Scene, std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> bool
-		{
-			return Scene.TryAddSkyBoxProxy(std::move(Proxy));
-		}
-
 		static auto AddSkyLightProxy(FScene& Scene, std::shared_ptr<const FSkyLightSceneProxy> Proxy) -> void
 		{
 			EnqueueRenderCommand("AddTestSkyLight", [&Scene, Proxy = std::move(Proxy)](FRHICommandListImmediate&) {
 				Scene.SkyLights.emplace(Proxy.get(), Proxy);
 			});
-		}
-
-		static auto TryRemoveSkyBoxProxy(
-			FScene& Scene, FSkyBoxSceneProxy* Proxy
-		) -> bool
-		{
-			return Scene.TryRemoveSkyBoxProxy(Proxy);
 		}
 
 		static auto TryAddVolumetricCloudProxy(FScene& Scene, std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> bool

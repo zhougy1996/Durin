@@ -1,11 +1,9 @@
 #include "Components/SkyBoxComponent.h"
 
 #include "DObject/Property.h"
-#include "Engine/Actor.h"
-#include "Rendering/SkyBoxSceneProxy.h"
-#include "Rendering/SceneInterface.h"
 #include "Texture/TextureCube.h"
-#include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstance.h"
+#include "Materials/DefaultMaterialService.h"
 
 namespace Durin
 {
@@ -14,21 +12,52 @@ namespace Durin
 	{
 	}
 
+	auto DSkyBoxComponent::SetStaticMesh(DStaticMesh* InStaticMesh) -> void
+	{
+		if (GetStaticMesh() == InStaticMesh) return;
+		if (InStaticMesh) UpdateCubeMaterial();
+		Super::SetStaticMesh(InStaticMesh);
+	}
+
+	auto DSkyBoxComponent::GetDefaultMaterial(uint32 SlotIndex) const -> DMaterialInterface*
+	{
+		if (SlotIndex == 0)
+		{
+			if (IsValid(MaterialOverride.Get())) return MaterialOverride.Get();
+			if (CubeMaterial) return CubeMaterial.Get();
+		}
+		return Super::GetDefaultMaterial(SlotIndex);
+	}
+
+	auto DSkyBoxComponent::UpdateCubeMaterial() -> void
+	{
+		if (MaterialOverride) return;
+		if (!CubeMaterial)
+		{
+			auto* Parent = GetDefaultCubeSkyMaterial();
+			if (!Parent) return;
+			CubeMaterial = DMaterialInstance::CreateDynamic(Parent, this);
+		}
+		if (!CubeMaterial) return;
+		CubeMaterial->SetTextureParameterValue(FDefaultCubeSkyBindings::TextureName, GetTextureCube());
+		CubeMaterial->SetVectorParameterValue(FDefaultCubeSkyBindings::TintName, FVector3(Tint.R, Tint.G, Tint.B));
+		CubeMaterial->SetScalarParameterValue(FDefaultCubeSkyBindings::IntensityName, Intensity);
+	}
+
+	auto DSkyBoxComponent::RefreshAppearance(bool bRefreshMeshBinding) -> void
+	{
+		if (GetStaticMesh())
+		{
+			const bool bHadCubeMaterial = CubeMaterial != nullptr;
+			UpdateCubeMaterial();
+			if (bRefreshMeshBinding || (!bHadCubeMaterial && CubeMaterial)) MarkRenderStateDirty();
+		}
+	}
+
 	auto DSkyBoxComponent::OnRegister() -> void
 	{
+		if (GetStaticMesh()) UpdateCubeMaterial();
 		Super::OnRegister();
-		CreateRenderState();
-	}
-
-	auto DSkyBoxComponent::OnUnregister() -> void
-	{
-		DestroyRenderState();
-		Super::OnUnregister();
-	}
-
-	auto DSkyBoxComponent::OnOwnerVisibilityChanged() -> void
-	{
-		MarkRenderStateDirty();
 	}
 
 	auto DSkyBoxComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
@@ -48,8 +77,9 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
-		if (Name == FName("TextureCube") || Name == FName("Tint") || Name == FName("Intensity") || Name == FName("MaterialOverride"))
-			MarkRenderStateDirty();
+		if (Name == FName("TextureCube") || Name == FName("Tint") || Name == FName("Intensity")
+			|| Name == FName("MaterialOverride") || Name == FName("StaticMesh"))
+			RefreshAppearance(Name == FName("MaterialOverride") || Name == FName("StaticMesh"));
 	}
 
 	auto DSkyBoxComponent::GetTextureCube() const -> DTextureCube*
@@ -63,7 +93,7 @@ namespace Durin
 		if (TextureCube.Get() == InTextureCube) return;
 		TextureCube = InTextureCube;
 		MarkPackageDirty();
-		MarkRenderStateDirty();
+		RefreshAppearance();
 	}
 
 	auto DSkyBoxComponent::SetMaterialOverride(DMaterialInterface* Material) -> void
@@ -71,7 +101,7 @@ namespace Durin
 		if (MaterialOverride.Get() == Material) return;
 		MaterialOverride = Material;
 		MarkPackageDirty();
-		MarkRenderStateDirty();
+		RefreshAppearance(true);
 	}
 
 	auto DSkyBoxComponent::SetTint(const FLinearColor& InTint) -> void
@@ -79,7 +109,7 @@ namespace Durin
 		if (Tint == InTint) return;
 		Tint = InTint;
 		MarkPackageDirty();
-		MarkRenderStateDirty();
+		RefreshAppearance();
 	}
 
 	auto DSkyBoxComponent::SetIntensity(float InIntensity) -> void
@@ -88,44 +118,6 @@ namespace Durin
 		if (Intensity == NewIntensity) return;
 		Intensity = NewIntensity;
 		MarkPackageDirty();
-		MarkRenderStateDirty();
-	}
-
-	auto DSkyBoxComponent::OnUpdateTransform() -> void
-	{
-		Super::OnUpdateTransform();
-		MarkRenderStateDirty();
-	}
-
-	auto DSkyBoxComponent::CreateRenderState() -> void
-	{
-		if (!IsRegistered()) return;
-		if (FSceneInterface* Scene = GetRenderScene()) Scene->AddSkyBox(this);
-	}
-
-	auto DSkyBoxComponent::CreateSceneProxy() -> std::unique_ptr<FSkyBoxSceneProxy>
-	{
-		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden()) return nullptr;
-		FSkyBoxSceneData Data;
-		Data.Rotation = GetWorldRotation();
-		if (IsValid(MaterialOverride.Get())) Data.MaterialOverride = MaterialOverride->GetRenderProxy();
-		Data.Tint = FVector3f(Tint.R, Tint.G, Tint.B);
-		Data.Intensity = FMath::Max(0.0f, Intensity);
-		if (DTextureCube* Cube = GetTextureCube())
-			Data.TextureReference = Cube->GetTextureReferenceRHI();
-		return std::make_unique<FSkyBoxSceneProxy>(std::move(Data));
-	}
-
-	auto DSkyBoxComponent::DestroyRenderState() -> void
-	{
-		if (!IsRegistered()) return;
-		if (FSceneInterface* Scene = GetRenderScene()) Scene->RemoveSkyBox(this);
-	}
-
-	auto DSkyBoxComponent::MarkRenderStateDirty() -> void
-	{
-		if (!IsRegistered()) return;
-		DestroyRenderState();
-		CreateRenderState();
+		RefreshAppearance();
 	}
 } // namespace Durin

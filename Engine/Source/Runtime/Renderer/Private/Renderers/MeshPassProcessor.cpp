@@ -415,6 +415,8 @@ namespace Durin::RendererPrivate
 			Cache.Vertex.Parameters.clear(); Cache.Fragment.Parameters.clear();
 			Cache.DepthBias.reset();
 		}
+		if (!SceneArgs.VertexPushConstants.empty())
+			Commands.PushConstants(EShaderStageFlags::Vertex, 0, static_cast<uint32>(SceneArgs.VertexPushConstants.size()), SceneArgs.VertexPushConstants.data());
 		VertexBindings.SetOnCommandList(Commands, Cache.Vertex);
 		if (VertexPass) VertexPass.SetOnCommandList(Commands, Cache.Vertex, SceneArgs.PrimitiveIdsBuffer, SceneArgs.InstanceDataByteOffset);
 		if (FragmentBindings) FragmentBindings.SetOnCommandList(Commands, Cache.Fragment);
@@ -447,10 +449,8 @@ namespace Durin::RendererPrivate
 		++Cache.DrawCalls;
 		if (PSOPrecacheValidation::IsEnabled()) {
 			const auto Index = FPassProcessorManager::GetPSOCollectorIndex(EShadingPath::Deferred, Pipeline->GetInitializer().Pass);
-			const auto Initializer = Pipeline->GetInitializer().Description.MakeInitializer(Pipeline->GetInitializer().VertexShader->GetRHIShader(false),
-				Pipeline->GetInitializer().FragmentShader, Pipeline->GetInitializer().VertexDeclaration, Pipeline->GetInitializer().ShaderMap.GetPipelineLayout());
 			const auto Factory = FindMeshVertexFactory(Pipeline->GetInitializer().FactoryKey);
-			PSOPrecacheValidation::RecordUse(Initializer, Index, Factory ? &Factory->GetType() : nullptr);
+			PSOPrecacheValidation::RecordUse(*Initializer, Index, Factory ? &Factory->GetType() : nullptr);
 		}
 		return true;
 	}
@@ -724,7 +724,7 @@ namespace Durin::RendererPrivate
 
 	namespace
 	{
-		constexpr size_t MeshPassSlotCount = static_cast<size_t>(EMeshPipelinePass::SingleLayerWaterDepth) + 1;
+		constexpr size_t MeshPassSlotCount = static_cast<size_t>(EMeshPipelinePass::HybridSky) + 1;
 		struct FPassProcessorEntry
 		{
 			int32 PSOCollectorIndex = -1;
@@ -868,6 +868,8 @@ namespace Durin::RendererPrivate
 	auto FMeshPassProcessor::IsMeshRelevant(const FMaterialPlanningPassIdentity& Material,
 		const FPrimitiveRenderParticipation& Participation, bool bSupportsGBuffer) const -> bool
 	{
+		const bool bSkyPass = GetPass() == EMeshPipelinePass::Sky || GetPass() == EMeshPipelinePass::HybridSky;
+		if (GetPass() != EMeshPipelinePass::HitProxy && Material.bIsSky != bSkyPass) return false;
 		const auto Purpose = GetPass() == EMeshPipelinePass::ShadowDepth ? EMeshCollectionPurpose::Shadow : EMeshCollectionPurpose::Receiver;
 		return Participation.IsRelevant(Purpose) && IsMaterialRelevant(Material, bSupportsGBuffer);
 	}
@@ -905,7 +907,7 @@ namespace Durin::RendererPrivate
 			.ShaderMap = {.RenderLayout = Map.Layout.Identity, .ProgramIdentity = Map.ShaderMapId,
 				.BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel,
 				.OpacityMaskThreshold = Properties.OpacityMaskThreshold},
-			.bTwoSided = Properties.bTwoSided, .DepthWritePolicy = Properties.DepthWritePolicy};
+			.bTwoSided = Properties.bTwoSided, .bIsSky = Properties.bIsSky, .DepthWritePolicy = Properties.DepthWritePolicy};
 		const auto* Type = VertexFactoryData.VertexFactoryType;
 		const auto Factory = Type ? FindMeshVertexFactory(Type->GetStableKey()) : nullptr;
 		if (!Factory || &Factory->GetType() != Type || !IsEnabled(Config) || !SupportsVertexFactory(*Factory)

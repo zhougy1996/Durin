@@ -34,18 +34,22 @@ duplicating, or deleting the asset never mutates those source files.
 
 ## Use A Sky Box
 
-Create a `Sky Box Actor` and assign a compatible TextureCube to its component.
-Tint, nonnegative intensity, and rotation use ordinary reflected property
-editing. Preview edits update the scene; committed edits dirty the level
-package. Dropping another TextureCube replaces the existing Sky Box texture.
-A level with multiple visible Sky Box actors is invalid and must be reduced to
-one before placement can continue.
+For a custom sky, use an ordinary Static Mesh Component. In the Material Editor,
+choose the Surface domain, Opaque blend and Unlit shading, enable **Is Sky**,
+and connect the sky color to Emissive. Assign the material or an instance to
+the mesh slot. For a dome viewed from inside, use inward-facing geometry or
+enable **Two Sided**.
 
-Assign an opaque Unlit surface material or material instance to **Material Override**
-to author the visible background. Its emissive output supplies linear HDR color.
-The component rotation still orients the sky. The override supplies its own
-textures, tint and intensity. Clearing it restores the stored TextureCube, tint
-and intensity. Sky Light capture follows the Sky Light source setting.
+For a cubemap, drop the TextureCube into the level. The editor creates a Sky
+Box Actor with the built-in sphere and cube material. Adjust its mesh, scale,
+tint and intensity in Details. Dropping another cube updates the existing Sky
+Box. Placement requires at most one visible Sky Box Actor.
+
+To supply your own sky material on that component, assign it to **Material
+Override**. It supplies its own parameters. Clearing it restores the stored
+cubemap, tint and intensity when slot zero has no other material override.
+A Sky Box needs an assigned mesh to appear in the level.
+Sky Light capture follows the Sky Light source setting.
 
 Face orientation, panorama projection, build, and rendering contracts are
 defined by [Cube Textures](../../Runtime/Assets/Families/CubeTextures.md).

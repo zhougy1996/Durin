@@ -96,6 +96,8 @@ namespace Durin
 		}();
 		static auto GetPassKey(const FPreparedStaticMeshDraw& Draw, bool Shadow = false, bool Hybrid = false) -> FMeshPassKey
 		{
+			if (!Shadow && Draw.Command->Material.PlanningPassIdentity.bIsSky)
+				return {Hybrid ? EMeshPipelinePass::HybridSky : EMeshPipelinePass::Sky};
 			return {Shadow ? EMeshPipelinePass::ShadowDepth : !Hybrid ? EMeshPipelinePass::Forward
 				: Draw.Command->Material.PlanningPassIdentity.ShaderMap.BlendMode == EMaterialBlendMode::Translucent
 					? EMeshPipelinePass::SortedTranslucency : EMeshPipelinePass::HybridRetainedForward};
@@ -183,6 +185,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		bool bReady = true;
 		for (auto& Record : ResolvedView.Draws) {
+			Record.Pipelines.erase({EMeshPipelinePass::HybridSky});
 			Record.Pipelines.erase({EMeshPipelinePass::HybridRetainedForward});
 			Record.Pipelines.erase({EMeshPipelinePass::SortedTranslucency});
 			Record.Pipelines.erase({EMeshPipelinePass::SingleLayerWaterDepth});
@@ -983,7 +986,16 @@ namespace Durin
 		check(IsInRenderingThread()); check(CommandList.IsInsideRenderPass());
 		const auto& Pass = std::as_const(ResolvedView).GetMeshDrawCommandPass(PassKey);
 		const auto Range = Pass.GetBasePassRange(Bucket);
+		if (!Range.NumCommands) return;
 		FParallelCommandListSet ParallelCommandLists(View, CommandList);
+		if (PassKey.Pass == EMeshPipelinePass::HybridSky)
+		{
+			// Only fill pixels at clear depth, regardless of the authored mesh's distance.
+			const float FarDepth = View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f;
+			ParallelCommandLists.MinDepth = ParallelCommandLists.MaxDepth = FarDepth;
+			CommandList.SetViewport(float(View.ViewportX), float(View.ViewportY), FarDepth,
+				float(View.ViewportX + View.ViewportWidth), float(View.ViewportY + View.ViewportHeight), FarDepth);
+		}
 		const auto Result = Pass.DispatchDraw(&ParallelCommandLists, CommandList, Range.FirstCommand, Range.NumCommands);
 		ResolvedView.Observations.AttemptedDraws += Result.Attempted;
 		ResolvedView.Observations.SuccessfulDraws += Result.Successful;

@@ -6,6 +6,7 @@
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialShaderMap.h"
 #include "RenderingThread.h"
 #include "Threading/RunnableThread.h"
 
@@ -27,6 +28,30 @@ namespace Durin
 		FMaterialRenderProxyRef GDefaultMaterialProxy_RenderThread;
 		FMaterialRenderProxyRef GCubeSkyProxy_RenderThread;
 		FMaterialRenderProxyRef GProceduralSkyProxy_RenderThread;
+		std::optional<FDefaultCubeSkyBindings> GCubeSkyBindings_RenderThread;
+		FMaterialRenderLayoutIdentity GCubeSkyLayout_RenderThread;
+
+		auto ResolveCubeSkyBindings(const DMaterialInterface& Material, const FMaterialRenderLayout& Layout)
+			-> std::optional<FDefaultCubeSkyBindings>
+		{
+			auto Find = [&](const char* Name, EMaterialRenderValueType Type) -> const FMaterialRenderField*
+			{
+				const auto* Parameter = Material.FindParameterDefinition(FName(Name));
+				if (Parameter)
+				{
+					const auto Field = std::ranges::find(Layout.Fields, Parameter->Id, &FMaterialRenderField::ParameterId);
+					if (Field != Layout.Fields.end() && Field->Type == Type) return &*Field;
+				}
+				DURIN_ERROR_CATEGORY("Material", "DefaultCubeSky requires active parameter '{}' with render type {}.", Name, static_cast<int>(Type));
+				return nullptr;
+			};
+			const auto* Texture = Find(FDefaultCubeSkyBindings::TextureName, EMaterialRenderValueType::TextureCube);
+			const auto* Tint = Find(FDefaultCubeSkyBindings::TintName, EMaterialRenderValueType::Vector4);
+			const auto* Intensity = Find(FDefaultCubeSkyBindings::IntensityName, EMaterialRenderValueType::Scalar);
+			if (!Texture || !Tint || !Intensity) return std::nullopt;
+			return FDefaultCubeSkyBindings{Texture->CompactIndex, Tint->Offset, Intensity->Offset};
+		}
+
 		constexpr std::array<std::string_view, 3> GBuiltInCookRoots{
 			DefaultMaterialPackagePath, "/Engine/Materials/DefaultCubeSky", "/Engine/Materials/DefaultProceduralSky"};
 
@@ -45,6 +70,24 @@ namespace Durin
 					GProceduralSkyProxy_RenderThread = Procedural;
 				});
 		}
+	}
+
+	auto RefreshDefaultCubeSkyBindings_GameThread(const DMaterialInterface& Material, const FMaterialProgram* Program) -> void
+	{
+		if (&Material != GDefaultMaterialService.CubeSky) return;
+		const auto* Layout = Program ? &Program->GetShaderMap().Layout : nullptr;
+		auto Bindings = Layout ? ResolveCubeSkyBindings(Material, *Layout) : std::nullopt;
+		EnqueueRenderCommand("PublishDefaultCubeSkyBindings",
+			[Bindings, Identity = Layout ? Layout->Identity : FMaterialRenderLayoutIdentity{}](FRHICommandListImmediate&) {
+				GCubeSkyBindings_RenderThread = Bindings;
+				GCubeSkyLayout_RenderThread = Identity;
+			});
+	}
+
+	auto GetDefaultCubeSkyBindings_RenderThread(const FMaterialRenderLayoutIdentity& Layout) -> const FDefaultCubeSkyBindings*
+	{
+		CheckRenderingThread();
+		return GCubeSkyBindings_RenderThread && Layout == GCubeSkyLayout_RenderThread ? &*GCubeSkyBindings_RenderThread : nullptr;
 	}
 
 	auto InitializeDefaultMaterialService() -> bool
@@ -126,6 +169,8 @@ namespace Durin
 			return Sky->GetRenderProxy();
 		};
 		auto Cube = LoadSky("/Engine/Materials/DefaultCubeSky.DefaultCubeSky", GDefaultMaterialService.CubeSky);
+		if (Cube && IsRenderingThreadRunning())
+			RefreshDefaultCubeSkyBindings_GameThread(*GDefaultMaterialService.CubeSky, GDefaultMaterialService.CubeSky->GetAcceptedCompiledProgram().get());
 		auto Procedural = LoadSky("/Engine/Materials/DefaultProceduralSky.DefaultProceduralSky", GDefaultMaterialService.ProceduralSky);
 		PublishDefaultMaterialProxy(GDefaultMaterialService.Proxy, std::move(Cube), std::move(Procedural));
 		GDefaultMaterialService.bAcceptingBindings = true;
@@ -176,6 +221,12 @@ namespace Durin
 		CheckRenderingThread();
 		return GDefaultMaterialProxy_RenderThread.GetReference();
 	}
+	auto GetDefaultCubeSkyMaterial() -> DMaterialInterface*
+	{
+		CheckDefaultMaterialGameThread();
+		return GDefaultMaterialService.bAcceptingBindings ? GDefaultMaterialService.CubeSky : nullptr;
+	}
+
 	auto GetDefaultMaterial() -> DMaterialInterface*
 	{
 		CheckDefaultMaterialGameThread();

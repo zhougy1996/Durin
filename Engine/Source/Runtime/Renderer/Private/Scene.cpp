@@ -6,7 +6,6 @@
 
 #include "Components/LightComponent.h"
 #include "Components/PrimitiveComponent.h"
-#include "Components/SkyBoxComponent.h"
 #include "Components/ProceduralSkyComponent.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Engine/Actor.h"
@@ -54,7 +53,6 @@ namespace Durin
 
 	FScene::FScene(FSceneRenderingService* InRenderer, IRendererModule* InModule, ERHIFeatureLevel FeatureLevel)
 		: FSceneInterface(FeatureLevel), Renderer(InRenderer), Lights(std::make_unique<FLightSceneRegistry>())
-		, SkyBoxes(std::make_unique<FSkyBoxSceneRegistry>())
 		, VolumetricClouds(std::make_unique<FVolumetricCloudSceneRegistry>())
 	{
 		RendererModule = InModule;
@@ -226,29 +224,6 @@ namespace Durin
 		return Selected;
 	}
 
-	auto FScene::AddSkyBox(DSkyBoxComponent* SkyBox) -> void
-	{
-		RequireComponentBoundary(SkyBox, "AddSkyBox");
-		requiref(SkyBox->GetRenderScene() == this, "AddSkyBox requires the component to target this scene.");
-		requiref(SkyBox->SceneProxy == nullptr, "AddSkyBox cannot publish a component twice.");
-		auto Proxy = SkyBox->CreateSceneProxy();
-		if (Proxy == nullptr) return;
-		FSkyBoxSceneProxy* Token = Proxy.get();
-		const bool bAccepted = TryAddSkyBoxProxy(std::move(Proxy));
-		requiref(bAccepted, "AddSkyBox was rejected after its render state was constructed.");
-		SkyBox->SceneProxy = Token;
-	}
-
-	auto FScene::RemoveSkyBox(DSkyBoxComponent* SkyBox) -> void
-	{
-		RequireComponentBoundary(SkyBox, "RemoveSkyBox");
-		requiref(SkyBox->GetRenderScene() == this, "RemoveSkyBox requires the component to target this scene.");
-		if (SkyBox->SceneProxy == nullptr) return;
-		const bool bAccepted = TryRemoveSkyBoxProxy(SkyBox->SceneProxy);
-		requiref(bAccepted, "RemoveSkyBox was rejected for a published render state.");
-		SkyBox->SceneProxy = nullptr;
-	}
-
 	auto FScene::AddVolumetricCloud(DVolumetricCloudComponent* Cloud) -> void
 	{
 		RequireComponentBoundary(Cloud, "AddVolumetricCloud");
@@ -318,7 +293,6 @@ namespace Durin
 		requiref(IsInGameThread(), "FScene::Release must execute on the game thread.");
 		ELifecycleState Expected = ELifecycleState::Active;
 		requiref(LifecycleState.compare_exchange_strong(Expected, ELifecycleState::Releasing, std::memory_order_acq_rel), "FScene::Release is a single-use operation.");
-		PublishedSkyBoxProxy = nullptr;
 		EnqueueRenderCommand("ReleaseScene", [this](FRHICommandListImmediate& Commands) {
 			++HitProxyRevision;
 			CheckRenderingThread();
@@ -791,7 +765,7 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		return PrimitiveInfosById.empty() && PrimitiveSceneInfos.empty()
-			   && Lights->Num() == 0 && SkyBoxes->Num() == 0
+			   && Lights->Num() == 0
 			   && VolumetricClouds->Num() == 0 && SkyLights.empty()
 			   && ProceduralSkies.empty() && MaterialParameterCollections.empty();
 	}
@@ -810,7 +784,6 @@ namespace Durin
 		CachedDrawLists.reset();
 		GPUScene.reset();
 		Lights->Clear();
-		SkyBoxes->Clear();
 		VolumetricClouds->Clear();
 		SkyLights.clear();
 		if (Renderer) Renderer->PendingSkyScenes.erase(this);
@@ -915,74 +888,6 @@ namespace Durin
 		-> const std::vector<FLightSceneInfo*>&
 	{
 		return Lights->GetSpot();
-	}
-
-	auto FSkyBoxSceneRegistry::Add(
-		std::shared_ptr<FSkyBoxSceneProxy> InProxy) -> void
-	{
-		check(InProxy != nullptr && Proxy == nullptr);
-		Proxy = std::move(InProxy);
-	}
-
-	auto FSkyBoxSceneRegistry::Remove(FSkyBoxSceneProxy* Proxy) -> void
-	{
-		if (Proxy == nullptr) return;
-		checkf(this->Proxy && this->Proxy.get() == Proxy,
-			"Attempted to remove an unknown sky-box scene proxy.");
-		if (!this->Proxy || this->Proxy.get() != Proxy) return;
-		this->Proxy.reset();
-	}
-
-	auto FSkyBoxSceneRegistry::Clear() -> void
-	{
-		Proxy.reset();
-	}
-
-	auto FScene::TryAddSkyBoxProxy(std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> bool
-	{
-		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
-			|| Proxy == nullptr || PublishedSkyBoxProxy != nullptr) return false;
-		FSkyBoxSceneProxy* Token = Proxy.get();
-		std::shared_ptr<FSkyBoxSceneProxy> SharedProxy(std::move(Proxy));
-		EnqueueRenderCommand("AddSkyBox", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
-			CheckRenderingThread();
-			SkyBoxes->Add(SharedProxy);
-		});
-		PublishedSkyBoxProxy = Token;
-		return true;
-	}
-
-	auto FScene::TryRemoveSkyBoxProxy(FSkyBoxSceneProxy* Proxy) -> bool
-	{
-		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
-			|| Proxy == nullptr || Proxy != PublishedSkyBoxProxy) return false;
-		EnqueueRenderCommand("RemoveSkyBox", [this, Proxy](FRHICommandListImmediate&) {
-			CheckRenderingThread();
-			SkyBoxes->Remove(Proxy);
-		});
-		PublishedSkyBoxProxy = nullptr;
-		return true;
-	}
-
-	auto FScene::GetSkyBoxProxy_RenderThread() const
-		-> const FSkyBoxSceneProxy*
-	{
-		CheckRenderingThread();
-		return SkyBoxes->Get();
-	}
-
-	auto FScene::GetSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool
-	{
-		const FSkyBoxSceneProxy* Proxy = GetSkyBoxProxy_RenderThread();
-		if (Proxy == nullptr) return false;
-		OutSkyBox = Proxy->GetData();
-		return true;
-	}
-
-	auto FScene::GetSkyBoxCount_RenderThread() const -> size_t
-	{
-		CheckRenderingThread();
-		return SkyBoxes->Num();
 	}
 
 	auto FVolumetricCloudSceneRegistry::Add(

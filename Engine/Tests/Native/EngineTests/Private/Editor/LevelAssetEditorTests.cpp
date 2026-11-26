@@ -86,8 +86,6 @@ namespace
 		auto RemovePrimitive(DPrimitiveComponent* Primitive) -> void override {}
 		auto AddLight(DLightComponent* Light) -> void override {}
 		auto RemoveLight(DLightComponent* Light) -> void override {}
-		auto AddSkyBox(DSkyBoxComponent* SkyBox) -> void override {}
-		auto RemoveSkyBox(DSkyBoxComponent* SkyBox) -> void override {}
 		auto AddProceduralSky(DProceduralSkyComponent* Sky) -> void override {}
 		auto RemoveProceduralSky(DProceduralSkyComponent* Sky) -> void override {}
 		auto AddSkyLight(DSkyLightComponent* SkyLight) -> void override {}

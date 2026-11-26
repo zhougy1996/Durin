@@ -6,6 +6,7 @@
 #include "SkyBoxRendering.h"
 #include "Scene.h"
 #include "Renderers/MaterialBindingResolution.h"
+#include "Renderers/MeshPassProcessor.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneViewPreparation.h"
 #include "Renderers/SurfaceMaterial.h"
@@ -51,7 +52,7 @@ namespace Durin
 		std::shared_ptr<const FMaterialProgram> Program;
 		FShaderRHIRef Vertex, Fragment;
 		FVertexDeclarationRHIRef Declaration;
-		FGraphicsPipelineStateInitializer Forward, Hybrid;
+		std::unique_ptr<RendererPrivate::FMeshPassPipeline> Forward, Hybrid;
 		RendererPrivate::FCompiledSurfaceBindingLayout Layout;
 	};
 
@@ -59,7 +60,8 @@ namespace Durin
 	{
 		std::shared_ptr<const FSkyMaterialPipeline> Pipeline;
 		std::array<FVector4f, 3> Projection;
-		std::vector<FRHIShaderParameterResource> Bindings;
+		RendererPrivate::FMeshDrawCommand Command;
+		FBufferRHIRef VertexBuffer, IndexBuffer;
 		std::vector<TRefCountPtr<FRHIResource>> Resources;
 	};
 
@@ -133,12 +135,12 @@ namespace Durin
 	}
 
 	auto FSkydomeMeshPass::PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
-		FScene* Scene, FPreparedEnvironment& Environment) -> bool
+		FScene* Scene, FPreparedEnvironment& Environment, bool bHybrid) -> bool
 	{
 		using namespace RendererPrivate;
 		const auto& Sky = Environment.SkyBox;
 		const bool bProcedural = Sky.ProceduralSky.ToSunEnabled.w > 0.5f;
-		const auto Proxy = Sky.MaterialOverride ? Sky.MaterialOverride : GetDefaultSkyMaterialProxy_RenderThread(bProcedural);
+		const auto Proxy = GetDefaultSkyMaterialProxy_RenderThread(bProcedural);
 		if (!Proxy) return false;
 		const auto& Data = Proxy->QueryMaterial_RenderThread();
 		if (Data.Representation.IsPending())
@@ -177,7 +179,7 @@ namespace Durin
 				if (Item == Set.end() || Item->Type != Parameter.Type) return false;
 				Item->Type = Parameter.RuntimeType;
 			}
-			auto& Forward = Pipeline->Forward;
+			FGraphicsPipelineStateInitializer Forward;
 			Forward.RenderTargetLayout = RenderTargetLayouts::MakeGraphSceneTargets();
 			Forward.BoundShaders.VertexShader = Pipeline->Vertex;
 			Forward.BoundShaders.FragmentShader = Pipeline->Fragment;
@@ -185,10 +187,22 @@ namespace Durin
 			Forward.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 			Layout.PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, sizeof(FPreparedSkyMaterial::Projection)});
 			Forward.PipelineLayout = Layout;
-			Pipeline->Hybrid = Forward;
-			Pipeline->Hybrid.RenderTargetLayout = RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
-			Pipeline->Hybrid.DepthStencilState = RHICreateDepthStencilState({
+			auto Hybrid = Forward;
+			Hybrid.RenderTargetLayout = RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
+			Hybrid.DepthStencilState = RHICreateDepthStencilState({
 				.bEnableTest = true, .bEnableWrite = false, .CompareOp = ERHIDepthCompareOp::Equal});
+			auto MakeMeshPipeline = [&](FGraphicsPipelineStateInitializer Initializer)
+			{
+				FMeshPassPipelineInitializer Mesh;
+				Mesh.Pass = EMeshPipelinePass::Sky;
+				Mesh.FragmentShader = Pipeline->Fragment;
+				Mesh.FragmentLayout = &Pipeline->Layout;
+				Mesh.VertexDeclaration = Pipeline->Declaration;
+				Mesh.PipelineInitializer = std::move(Initializer);
+				return std::make_unique<FMeshPassPipeline>(std::move(Mesh));
+			};
+			Pipeline->Forward = MakeMeshPipeline(std::move(Forward));
+			Pipeline->Hybrid = MakeMeshPipeline(std::move(Hybrid));
 			if (State->Programs.size() == 8) State->Programs.erase(State->Programs.begin());
 			Found = State->Programs.insert(State->Programs.end(), std::move(Pipeline));
 		}
@@ -196,9 +210,9 @@ namespace Durin
 		Draw->Pipeline = *Found;
 		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
-			for (auto* Initializer : {&Draw->Pipeline->Forward,&Draw->Pipeline->Hybrid})
+			for (const auto* Variant : {Draw->Pipeline->Forward.get(), Draw->Pipeline->Hybrid.get()})
 			{
-				auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(*Initializer,"SkyBackgroundMaterial");
+				auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(*Variant->GetInitializer().PipelineInitializer, "SkyBackgroundMaterial");
 				if (!Request) return false;
 				FRenderPipelinePreparationBatch::Add(Request);
 				if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return false;
@@ -210,28 +224,18 @@ namespace Durin
 			|| !Materials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::Background)
 			|| !Materials.Resolve_RenderThread(Binding, ESurfaceMaterialPass::Background, {}, nullptr, nullptr, Material)) return false;
 		FByteBuffer Payload(Binding.CompiledUniformPayload.begin(), Binding.CompiledUniformPayload.end());
-		if (!bProcedural && !Sky.MaterialOverride)
+		if (!bProcedural)
 		{
 			auto* Texture = Environment.Texture;
 			if (!Texture && Sky.TextureReference) Texture = Sky.TextureReference->GetReferencedTexture_RenderThread();
 			if (!Texture) Texture = DefaultTextures.GetCube_RenderThread();
 			if (!Texture) return false;
-			// Persistent parameter IDs from the DefaultCubeSky graph survive display-name edits and layout repacking.
-			for (const auto& Field : Binding.CompiledLayout->Fields)
-			{
-				if (Field.ParameterId == FGuid{0x534b5942,2,1,1}) Material.CompiledTextures.at(Field.CompactIndex) = Texture;
-				else if (Field.ParameterId == FGuid{0x534b5942,2,1,2})
-				{
-					const FVector4f Tint(Sky.Tint, 1.0f);
-					if (Field.Offset + sizeof(Tint) > Payload.size()) return false;
-					std::memcpy(Payload.data()+Field.Offset, &Tint, sizeof(Tint));
-				}
-				else if (Field.ParameterId == FGuid{0x534b5942,2,1,3})
-				{
-					if (Field.Offset + sizeof(float) > Payload.size()) return false;
-					std::memcpy(Payload.data()+Field.Offset, &Sky.Intensity, sizeof(float));
-				}
-			}
+			const auto* Slots = GetDefaultCubeSkyBindings_RenderThread(Binding.LayoutIdentity);
+			if (!Slots) return false;
+			Material.CompiledTextures.at(Slots->TextureIndex) = Texture;
+			const FVector4f Tint(Sky.Tint, 1.0f);
+			std::memcpy(Payload.data() + Slots->TintOffset, &Tint, sizeof(Tint));
+			std::memcpy(Payload.data() + Slots->IntensityOffset, &Sky.Intensity, sizeof(Sky.Intensity));
 		}
 		SkyBoxRendering::FSkyBoxUniform Uniform;
 		if (!SkyBoxRendering::BuildUniform(View, Sky, Uniform)) return false;
@@ -250,24 +254,32 @@ namespace Durin
 		FMeshDrawShaderBindings Bindings;
 		if (!PrepareCompiledSurfaceMaterial(Draw->Pipeline->Fragment, Draw->Pipeline->Layout, Material, MaterialBuffer,
 			{}, {}, ViewBuffer, {}, Collections, Bindings, {}, {}, SkyBuffer)) return false;
-		Draw->Bindings = std::move(Bindings.Parameters);
-		for (const auto& Item : Draw->Bindings) if (Item.Resource) Draw->Resources.emplace_back(Item.Resource);
+		Draw->VertexBuffer = State->VertexBuffer;
+		Draw->IndexBuffer = State->IndexBuffer;
+		auto& Mesh = Draw->Command;
+		Mesh.Pipeline = bHybrid ? Draw->Pipeline->Hybrid.get() : Draw->Pipeline->Forward.get();
+		Mesh.VertexStreams.push_back({0, Draw->VertexBuffer.GetReference(), 0, sizeof(FSkydomeVertex)});
+		Mesh.IndexBuffer = Draw->IndexBuffer;
+		Mesh.DrawParameters = FRHIDrawIndexedArguments{.IndexCount = State->IndexCount};
+		Mesh.VertexBindings.Shader = Mesh.PassBindings.Vertex.Shader = Vertex;
+		Mesh.PassBindings.Fragment.Shader = Draw->Pipeline->Fragment;
+		Mesh.FragmentBindings = std::move(Bindings);
+		for (const auto& Item : Mesh.FragmentBindings.Parameters)
+			if (Item.Resource) Draw->Resources.emplace_back(Item.Resource);
+		Mesh.bFinalized = true;
 		Environment.Draw = std::move(Draw);
 		return true;
 	}
 
 	auto FSkydomeMeshPass::Draw_RenderThread(FRHICommandListImmediate& CommandList,
-		const FPreparedEnvironment& Environment, bool bHybridBootstrap) -> bool
+		const FPreparedEnvironment& Environment) -> bool
 	{
 		const auto& Draw = Environment.Draw;
 		if (!Draw) return false;
-		SetGraphicsPipelineState(CommandList, bHybridBootstrap ? Draw->Pipeline->Hybrid : Draw->Pipeline->Forward);
-		CommandList.SetShaderParameters(Draw->Pipeline->Fragment, Draw->Bindings);
-		CommandList.BindVertexBuffer(0, State->VertexBuffer, 0);
-		CommandList.PushConstants(EShaderStageFlags::Vertex, 0, sizeof(Draw->Projection), Draw->Projection.data());
-		CommandList.BindIndexBuffer(State->IndexBuffer, 0);
-		CommandList.DrawIndexed(State->IndexCount, 0, 0);
-		return true;
+		const auto& Mesh = Draw->Command;
+		const auto Projection = std::as_bytes(std::span(Draw->Projection));
+		return Mesh.SubmitVisible(CommandList, Mesh.PassBindings.Vertex, Mesh.PassBindings.Fragment,
+			Mesh.DepthBias, nullptr, {.VertexPushConstants = Projection});
 	}
 
 	auto FSkydomeMeshPass::ReleaseResources_RenderThread() -> void

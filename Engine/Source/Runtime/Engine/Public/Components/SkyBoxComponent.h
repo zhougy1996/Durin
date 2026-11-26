@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Components/SceneComponent.h"
+#include "Components/StaticMeshComponent.h"
 
 #ifdef _DHT_PARSER
 namespace Durin
@@ -20,21 +20,21 @@ namespace Durin
 
 namespace Durin
 {
+	class DMaterialInstance;
 	class DTextureCube;
 	class DMaterialInterface;
-	class FSkyBoxSceneProxy;
 
-	// Publishes a persistent cube-texture reference and rotation-only sky snapshot.
+	// Binds cubemap appearance to the default material of a static mesh.
 	DCLASS()
-	class DSkyBoxComponent : public DSceneComponent
+	class DSkyBoxComponent : public DStaticMeshComponent
 	{
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DSkyBoxComponent(const FObjectInitializer& ObjectInitializer);
 
+		ENGINE_API auto SetStaticMesh(DStaticMesh* InStaticMesh) -> void override;
+		ENGINE_API auto GetDefaultMaterial(uint32 SlotIndex) const -> DMaterialInterface* override;
 		ENGINE_API auto OnRegister() -> void override;
-		ENGINE_API auto OnUnregister() -> void override;
-		ENGINE_API auto OnOwnerVisibilityChanged() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
@@ -47,14 +47,11 @@ namespace Durin
 		ENGINE_API auto SetTint(const FLinearColor& InTint) -> void;
 		ENGINE_API auto SetIntensity(float InIntensity) -> void;
 
-	protected:
-		ENGINE_API auto OnUpdateTransform() -> void override;
-
 	private:
-		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FSkyBoxSceneProxy>;
-		auto CreateRenderState() -> void;
-		auto DestroyRenderState() -> void;
-		auto MarkRenderStateDirty() -> void;
+		auto RefreshAppearance(bool bRefreshMeshBinding = false) -> void;
+		auto UpdateCubeMaterial() -> void;
+		DPROPERTY(Transient, NonTransactional)
+		TObjectPtr<DMaterialInstance> CubeMaterial;
 
 		DPROPERTY(Category = "Source", Edit)
 		TObjectPtr<DTextureCube> TextureCube;
@@ -67,10 +64,5 @@ namespace Durin
 
 		DPROPERTY(Category = "Appearance", Edit)
 		float Intensity = 1.0f;
-
-		// Non-owning token used only to retire the exact published proxy.
-		FSkyBoxSceneProxy* SceneProxy = nullptr;
-
-		friend class FScene;
 	};
 }

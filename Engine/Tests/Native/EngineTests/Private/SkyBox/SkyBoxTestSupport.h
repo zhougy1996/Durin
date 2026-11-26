@@ -19,7 +19,6 @@
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "Rendering/SkyBoxSceneProxy.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
@@ -43,24 +42,6 @@
 
 namespace
 {
-	auto PublishSkyBox(
-		Durin::FScene& Scene,
-		Durin::FSkyBoxSceneData Data) -> Durin::FSkyBoxSceneProxy*
-	{
-		auto Proxy = std::make_unique<Durin::FSkyBoxSceneProxy>(
-			std::move(Data));
-		Durin::FSkyBoxSceneProxy* Token = Proxy.get();
-		return Durin::FSceneInterfaceTestAccess::TryAddSkyBoxProxy(Scene, std::move(Proxy)) ? Token : nullptr;
-	}
-
-
-	struct FSkyBoxObservation
-	{
-		bool bHasSkyBox = false;
-		Durin::FSkyBoxSceneData Data;
-		size_t Count = 0;
-	};
-
 	class FSkyBoxTestEngine final : public Durin::DEngine
 	{
 	public:
@@ -79,19 +60,6 @@ namespace
 
 		auto ResetTestScene() -> void { Durin::FSceneInterfaceTestAccess::ReleaseScene(MainScene); }
 	};
-
-	auto ObserveSkyBoxes(const Durin::FSceneInterface& SceneInterface)
-		-> FSkyBoxObservation
-	{
-		const auto& Scene = static_cast<const Durin::FScene&>(SceneInterface);
-		auto Result = std::make_shared<FSkyBoxObservation>();
-		Durin::EnqueueRenderCommand("ObserveSkyBox", [&Scene, Result](Durin::FRHICommandListImmediate&) {
-			Result->bHasSkyBox = Scene.GetSkyBox_RenderThread(Result->Data);
-			Result->Count = Scene.GetSkyBoxCount_RenderThread();
-		});
-		Durin::FlushRenderingCommands();
-		return *Result;
-	}
 
 	auto GetSkyBoxConventionFaces() -> std::array<std::string, Durin::TextureCubeFaceCount>
 	{

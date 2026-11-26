@@ -430,15 +430,13 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPendingGraphicsState::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
-		float MaxDepth = MinZ == MaxZ ? MinZ + 1.0f : MaxZ;
-
 		Viewport
 			.setX(MinX)
 			.setY(MinY)
 			.setWidth(MaxX - MinX)
 			.setHeight(MaxY - MinY)
 			.setMinDepth(MinZ)
-			.setMaxDepth(MaxDepth);
+			.setMaxDepth(MaxZ);
 
 		// Match the common RHI behavior where setting viewport also restores a full-viewport scissor.
 		SetScissorRect(static_cast<uint32>(MinX), static_cast<uint32>(MinY), static_cast<uint32>(MaxX - MinX), static_cast<uint32>(MaxY - MinY));

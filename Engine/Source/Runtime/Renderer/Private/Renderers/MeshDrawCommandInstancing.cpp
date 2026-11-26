@@ -30,7 +30,7 @@ namespace Durin::RendererPrivate
 	{
 		require(!bDispatched);
 		auto Commands = std::make_unique<FRHISubCommandList>(Parent);
-		Commands->SetViewport(ViewRect[0], ViewRect[1], 0, ViewRect[0] + ViewRect[2], ViewRect[1] + ViewRect[3], 1);
+		Commands->SetViewport(ViewRect[0], ViewRect[1], MinDepth, ViewRect[0] + ViewRect[2], ViewRect[1] + ViewRect[3], MaxDepth);
 		Commands->SetScissor(ViewRect[0], ViewRect[1], ViewRect[2], ViewRect[3]);
 		auto* Result = Commands.get();
 		Recordings.push_back({std::move(Commands), {}});

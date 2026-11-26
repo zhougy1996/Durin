@@ -106,6 +106,8 @@ namespace Durin
 		if (bOverrideOpacityMaskThreshold) Properties.OpacityMaskThreshold = Values.OpacityMaskThreshold;
 		if (bOverrideTwoSided) Properties.bTwoSided = Values.bTwoSided;
 		if (bOverrideDepthWritePolicy) Properties.DepthWritePolicy = Values.DepthWritePolicy;
+		if (Properties.BlendMode != EMaterialBlendMode::Opaque || Properties.ShadingModel != EMaterialShadingModel::Unlit)
+			Properties.bIsSky = false;
 	}
 
 	auto CanonicalizeMaterialShaderProperties(FMaterialStaticProperties Properties)
@@ -128,6 +130,7 @@ namespace Durin
 		else if (Properties.OpacityMaskThreshold == 0.0f)
 			Properties.OpacityMaskThreshold = 0.0f;
 		Properties.bTwoSided = false;
+		Properties.bIsSky = false;
 		Properties.DepthWritePolicy = EMaterialDepthWritePolicy::Automatic;
 		return Properties;
 	}
@@ -271,6 +274,8 @@ namespace Durin
 	auto ValidateMaterialStaticProperties(
 		const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>
 	{
+		if (Properties.bIsSky && (Properties.BlendMode != EMaterialBlendMode::Opaque || Properties.ShadingModel != EMaterialShadingModel::Unlit))
+			return std::unexpected("Sky materials must be opaque and unlit.");
 		// Built-in authored usage remains valid before renderer module registration.
 		uint8 GeometryMask = 7;
 		for (const auto& D : GetMaterialShaderEntries()) if (D.VertexFactory) GeometryMask |= D.GeometryUsage;
@@ -323,6 +328,7 @@ namespace Durin
 	}
     auto ValidateMaterialConfiguration(EMaterialDomain Domain, const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>
     {
+        if (Properties.bIsSky && Domain != EMaterialDomain::Surface) return std::unexpected("Sky materials require the Surface domain.");
         if (Domain > EMaterialDomain::PostProcess) return std::unexpected("Unsupported material domain.");
         if (const auto Valid = ValidateMaterialStaticProperties(Properties); !Valid) return Valid;
         if (Domain == EMaterialDomain::PostProcess && (Properties.ShadingModel != EMaterialShadingModel::Unlit || Properties.BlendMode != EMaterialBlendMode::Opaque))

@@ -92,7 +92,7 @@ namespace Durin
 		const auto Completion = Graph.CreateValue<FSceneColorPassResult>("Scene.BaseValue", "scene-color-result");
 		std::optional<FRDGTextureHandle> Sky;
 		FRHITexture* SkyTexture = nullptr;
-		if (Inputs.Record.Environment && !Inputs.Record.Environment->SkyBox.MaterialOverride
+		if (Inputs.Record.Environment
 			&& Inputs.Record.Environment->SkyBox.ProceduralSky.ToSunEnabled.w <= 0.5f)
 		{
 			SkyTexture = Inputs.Record.Environment->Texture;
@@ -214,9 +214,12 @@ namespace Durin
 		bool bBootstrapRendered = true;
 		if (Inputs.Environment)
 		{
-			const bool bSkyRendered = SkydomeMeshPass.Draw_RenderThread(CommandList, *Inputs.Environment, true);
+			const bool bSkyRendered = SkydomeMeshPass.Draw_RenderThread(CommandList, *Inputs.Environment);
 			bBootstrapRendered = bSkyRendered || !Inputs.bRequireEnvironmentTexture;
 		}
+		if (!Inputs.bRequireEnvironmentTexture)
+			StaticMeshRenderer.ExecutePass_RenderThread(CommandList, ResolvedSceneResources.Receiver.StaticMeshes,
+				{RendererPrivate::EMeshPipelinePass::HybridSky}, EMeshBasePass::Opaque, View);
 		if (!bBootstrapRendered)
 		{
 			return {
@@ -275,6 +278,9 @@ namespace Durin
 			if (!bSkyRendered && Inputs.bRequireEnvironmentTexture) return false;
 		}
 
+		if (!Inputs.bRequireEnvironmentTexture)
+			StaticMeshRenderer.ExecutePass_RenderThread(CommandList, ResolvedSceneResources.Receiver.StaticMeshes,
+				{RendererPrivate::EMeshPipelinePass::Sky}, EMeshBasePass::Opaque, View);
 		for (const EMeshBasePass Pass : {
 				 EMeshBasePass::Opaque, EMeshBasePass::Masked
 			 })
@@ -324,7 +330,7 @@ namespace Durin::RendererPrivate
 				return true;
 			}
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override
-			{ return Pass == EMeshPipelinePass::Forward ? Config.Settings.bForward : Config.Settings.bHybrid; }
+			{ return (Pass == EMeshPipelinePass::Forward || Pass == EMeshPipelinePass::Sky) ? Config.Settings.bForward : Config.Settings.bHybrid; }
 			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassForward; }
 			auto GetFragmentShader(FMaterialShaderBlendModeKey) const -> FMeshPassFragmentShader override
 			{
@@ -338,6 +344,14 @@ namespace Durin::RendererPrivate
 				FMaterialShaderBlendModeKey Blend, bool bReversedZ) const -> FMeshPipelineDescription override
 			{
 				FMeshPipelineDescription Result{.Topology = Topology, .Rasterizer = State.Rasterizer, .Depth = State.Depth};
+				if constexpr (Pass == EMeshPipelinePass::Sky || Pass == EMeshPipelinePass::HybridSky)
+				{
+					Result.RenderTargets = Pass == EMeshPipelinePass::Sky ? RenderTargetLayouts::MakeGraphSceneTargets() : RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
+					Result.Depth.bEnableWrite = false;
+					Result.Depth.bEnableTest = Pass == EMeshPipelinePass::HybridSky;
+					Result.Depth.CompareOp = ERHIDepthCompareOp::Equal;
+					return Result;
+				}
 				if constexpr (Pass == EMeshPipelinePass::Forward) Result.RenderTargets = RenderTargetLayouts::MakeGraphSceneTargets();
 				else if constexpr (Pass == EMeshPipelinePass::HybridRetainedForward) Result.RenderTargets = RenderTargetLayouts::MakeGraphHybridRetainedForward();
 				else if constexpr (Pass == EMeshPipelinePass::SingleLayerWater)
@@ -366,17 +380,23 @@ namespace Durin::RendererPrivate
 		{ return std::make_unique<TBasePassMeshProcessor<Pass>>(PSOCollectorIndex); }
 		template<EMeshPipelinePass Pass> auto CreateBasePSOCollector(ERHIFeatureLevel) -> std::unique_ptr<IPSOCollector>
 		{
-			constexpr auto Name = Pass == EMeshPipelinePass::Forward ? "Forward"
+			constexpr auto Name = Pass == EMeshPipelinePass::Sky ? "Sky"
+				: Pass == EMeshPipelinePass::HybridSky ? "HybridSky"
+				: Pass == EMeshPipelinePass::Forward ? "Forward"
 				: Pass == EMeshPipelinePass::HybridRetainedForward ? "HybridRetainedForward"
 				: Pass == EMeshPipelinePass::SingleLayerWater ? "SingleLayerWater"
 				: Pass == EMeshPipelinePass::SingleLayerWaterDepth ? "SingleLayerWaterDepth" : "SortedTranslucency";
 			return CreateBasePassMeshProcessor<Pass>(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, Name));
 		}
+		const FRegisterPSOCollectorCreateFunction RegisterSkyPSO(&CreateBasePSOCollector<EMeshPipelinePass::Sky>, EShadingPath::Deferred, "Sky");
+		const FRegisterPSOCollectorCreateFunction RegisterHybridSkyPSO(&CreateBasePSOCollector<EMeshPipelinePass::HybridSky>, EShadingPath::Deferred, "HybridSky");
 		const FRegisterPSOCollectorCreateFunction RegisterForwardPSO(&CreateBasePSOCollector<EMeshPipelinePass::Forward>, EShadingPath::Deferred, "Forward");
 		const FRegisterPSOCollectorCreateFunction RegisterHybridPSO(&CreateBasePSOCollector<EMeshPipelinePass::HybridRetainedForward>, EShadingPath::Deferred, "HybridRetainedForward");
 		const FRegisterPSOCollectorCreateFunction RegisterSortedPSO(&CreateBasePSOCollector<EMeshPipelinePass::SortedTranslucency>, EShadingPath::Deferred, "SortedTranslucency");
 		const FRegisterPSOCollectorCreateFunction RegisterWaterPSO(&CreateBasePSOCollector<EMeshPipelinePass::SingleLayerWater>, EShadingPath::Deferred, "SingleLayerWater");
 		const FRegisterPSOCollectorCreateFunction RegisterWaterDepthPSO(&CreateBasePSOCollector<EMeshPipelinePass::SingleLayerWaterDepth>, EShadingPath::Deferred, "SingleLayerWaterDepth");
+		const FRegisterPassProcessorCreateFunction RegisterSky(&CreateBasePassMeshProcessor<EMeshPipelinePass::Sky>, EShadingPath::Deferred, EMeshPipelinePass::Sky, EMeshPassFlags::CachedMeshCommands, RegisterSkyPSO.GetIndex());
+		const FRegisterPassProcessorCreateFunction RegisterHybridSky(&CreateBasePassMeshProcessor<EMeshPipelinePass::HybridSky>, EShadingPath::Deferred, EMeshPipelinePass::HybridSky, EMeshPassFlags::CachedMeshCommands, RegisterHybridSkyPSO.GetIndex());
 		const FRegisterPassProcessorCreateFunction RegisterForwardBasePass(&CreateBasePassMeshProcessor<EMeshPipelinePass::Forward>, EShadingPath::Deferred, EMeshPipelinePass::Forward, EMeshPassFlags::CachedMeshCommands, RegisterForwardPSO.GetIndex());
 		const FRegisterPassProcessorCreateFunction RegisterHybridRetainedForward(&CreateBasePassMeshProcessor<EMeshPipelinePass::HybridRetainedForward>, EShadingPath::Deferred, EMeshPipelinePass::HybridRetainedForward, EMeshPassFlags::CachedMeshCommands, RegisterHybridPSO.GetIndex());
 		const FRegisterPassProcessorCreateFunction RegisterSortedTranslucency(&CreateBasePassMeshProcessor<EMeshPipelinePass::SortedTranslucency>, EShadingPath::Deferred, EMeshPipelinePass::SortedTranslucency, EMeshPassFlags::CachedMeshCommands, RegisterSortedPSO.GetIndex());

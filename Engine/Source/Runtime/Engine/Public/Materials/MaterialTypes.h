@@ -118,6 +118,9 @@ namespace Durin
 		bool bTwoSided = false;
 
 		DPROPERTY()
+		bool bIsSky = false;
+
+		DPROPERTY()
 		EMaterialDepthWritePolicy DepthWritePolicy = EMaterialDepthWritePolicy::Automatic;
 
 		// Local=1, Spline=2. Legacy bit 4 is ignored; culling does not select a shader.

@@ -63,7 +63,7 @@ namespace
 			auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIBeginFrame"; }
 			auto RHISubmitCommands() -> void override
-			{ ADD_FAILURE() << "Unexpected backend operation: RHISubmitCommands"; }
+			{} // The inline executor flushes the default context at submission boundaries.
 			auto RHIEndFrame() -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIEndFrame"; }
 			auto RHIBeginDiagnosticRegion(std::string_view Name) -> void override
@@ -130,10 +130,10 @@ namespace
 		class FGPUSceneTestRHI final : public FDynamicRHI
 		{
 		public:
-			explicit FGPUSceneTestRHI(bool bExplicitSubmissions = false)
+			explicit FGPUSceneTestRHI(FGPUSceneRecordingContext& InContext) : Context(InContext)
 			{
 				Queues.bSplitBarriers = true;
-				if (bExplicitSubmissions) Queues.Queues.push_back({.Id = {}, .bGraphics = true});
+				Queues.Queues.push_back({.Id = {}, .bGraphics = true});
 				FRHICapabilities Capabilities;
 				Capabilities.SupportedTextureDimensions =
 					ERHITextureDimensionFlags::Texture2D
@@ -163,7 +163,7 @@ namespace
 			auto RHICreateViewport(const FRHIViewportCreateInfo&) -> TRefCountPtr<FRHIViewport> override { return {}; }
 			auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override {}
 			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&) noexcept -> TRefCountPtr<FRHIGraphicsPipelineState> override { return {}; }
-			auto RHIGetDefaultContext() -> IRHICommandContext* override { return nullptr; }
+			auto RHIGetDefaultContext() -> IRHICommandContext* override { return &Context; }
 			auto RHIGetViewportBackBuffer(FRHIViewport*) -> TRefCountPtr<FRHITexture> override { return {}; }
 			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&) noexcept -> TRefCountPtr<FRHIVertexDeclaration> override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
@@ -174,6 +174,7 @@ namespace
 			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc) noexcept -> FBufferRHIRef override
 			{ return MakeRefCount<FSceneBuffer>(Desc); }
 		private:
+			FGPUSceneRecordingContext& Context;
 			FRHIQueueCapabilities Queues;
 		};
 
@@ -195,8 +196,8 @@ namespace
 	class FGPUSceneTests : public ::testing::Test
 	{
 	protected:
-		FGPUSceneTestRHI RHI{true};
 		FGPUSceneRecordingContext Backend;
+		FGPUSceneTestRHI RHI{Backend};
 		FDynamicRHI* Previous = GDynamicRHI;
 		FRendererResourceCoordinator Coordinator;
 		FRendererRDGAllocator Allocator{Coordinator};

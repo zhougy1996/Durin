@@ -36,7 +36,7 @@ namespace Durin
 			.ShaderMap = {.RenderLayout = ShaderMap.Layout.Identity, .ProgramIdentity = ShaderMap.ShaderMapId,
 				.BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel,
 				.OpacityMaskThreshold = Properties.OpacityMaskThreshold},
-			.bTwoSided = Properties.bTwoSided, .DepthWritePolicy = Properties.DepthWritePolicy};
+			.bTwoSided = Properties.bTwoSided, .bIsSky = Properties.bIsSky, .DepthWritePolicy = Properties.DepthWritePolicy};
 		std::vector<FMaterialPSOPrecacheRequestID> Requests;
 		for (const auto& Factory : VertexFactoryDataList)
 		{

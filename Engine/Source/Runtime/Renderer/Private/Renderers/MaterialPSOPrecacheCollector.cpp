@@ -34,6 +34,7 @@ namespace Durin::RendererPrivate
         Properties.ShadingModel = static_cast<EMaterialShadingModel>(Params.Material.ShaderMap.ShadingModel.Value);
         Properties.OpacityMaskThreshold = Params.Material.ShaderMap.OpacityMaskThreshold;
         Properties.bTwoSided = Params.Material.bTwoSided;
+        Properties.bIsSky = Params.Material.bIsSky;
         Properties.DepthWritePolicy = Params.Material.DepthWritePolicy;
         return Properties;
     }

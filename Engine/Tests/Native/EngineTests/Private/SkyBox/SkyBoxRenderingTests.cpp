@@ -25,7 +25,7 @@ namespace
 
 TEST(FSkyBoxRenderingTests, ReconstructsTranslationInvariantDirectionAndInverseComponentRotation)
 {
-	Durin::FSkyBoxSceneData SkyBox;
+	Durin::FViewSkyParameters SkyBox;
 	SkyBox.Rotation = Durin::Math::MakeQuaternionFromAxisAngleRadians(
 		Durin::Math::HalfPi<Durin::FReal>(), Durin::FVectorConstants::Up);
 	SkyBox.Tint = {0.25f, 0.5f, 0.75f};
@@ -60,7 +60,7 @@ TEST(FSkyBoxRenderingTests, ReconstructsTranslationInvariantDirectionAndInverseC
 TEST(FSkyBoxRenderingTests, RejectsInvalidTransformsAndClampsIntensity)
 {
 	Durin::FSceneView View;
-	Durin::FSkyBoxSceneData SkyBox;
+	Durin::FViewSkyParameters SkyBox;
 	Durin::SkyBoxRendering::FSkyBoxUniform Uniform;
 
 	View.ViewProjectionMatrix = Durin::FMatrix(0.0);
@@ -90,7 +90,7 @@ TEST(FSkyBoxRenderingTests, KeepsDirectionsStableForTinyNearClipAtLargeWorldCoor
 
 	Durin::SkyBoxRendering::FSkyBoxUniform Uniform;
 	ASSERT_TRUE(Durin::SkyBoxRendering::BuildUniform(
-		View, Durin::FSkyBoxSceneData{}, Uniform));
+		View, Durin::FViewSkyParameters{}, Uniform));
 	const Durin::FVector3 Center = ReconstructSampleDirection(Uniform, {0.0, 0.0});
 	const Durin::FVector3 Neighbor = ReconstructSampleDirection(Uniform, {0.001, 0.0});
 	EXPECT_GT(Durin::Math::Dot(Center, Neighbor), 0.999999);

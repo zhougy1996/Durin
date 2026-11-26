@@ -1,4 +1,5 @@
 #include "NativeAssetRuntimeTestSupport.h"
+#include "AssetRegistry/Scan.h"
 #include "Misc/UnifiedError.h"
 #include "NativeAssetTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -52,6 +53,8 @@ TEST(FSkyBoxEditorWorkflowTests, RedoRestoresActorWithEmptyTextureAfterAssetReti
 {
 	using namespace Durin;
 	Testing::InitializeAssetSystemForTests();
+	Testing::RegisterMountPointForTests("/Engine/", FPaths::EngineContentDir());
+	ASSERT_TRUE(RefreshAssetRegistry());
 	Tests::FActorEditorFixture Editor;
 	auto* Transactions = Editor.GetTransactions();
 	auto* Level = Editor.GetWorld()->GetCurrentLevel();
@@ -69,7 +72,7 @@ TEST(FSkyBoxEditorWorkflowTests, RedoRestoresActorWithEmptyTextureAfterAssetReti
 		ASSERT_EQ(Transactions->GetQueueLength(), 1u);
 		EXPECT_FALSE(Transactions->GetTransaction(0)->IsOwnedByModule("DurinEd"));
 		ASSERT_TRUE(Transactions->Undo());
-		EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasSkyBox);
+		EXPECT_EQ(Level->FindActorByName("Sky"), nullptr);
 		Cube->MarkAsGarbage();
 		auto Rejected = Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(), *Level, Cube.Get(), "Invalid", {false});
 		ASSERT_FALSE(Rejected);
@@ -78,9 +81,7 @@ TEST(FSkyBoxEditorWorkflowTests, RedoRestoresActorWithEmptyTextureAfterAssetReti
 		ASSERT_TRUE(Transactions->Redo());
 		ASSERT_EQ(Level->FindActorByName("Sky"), *Placement);
 		EXPECT_EQ(Cast<ASkyBoxActor>(*Placement)->GetSkyBoxComponent()->GetTextureCube(), nullptr);
-		auto Observation = ObserveSkyBoxes(*Scene);
-		EXPECT_TRUE(Observation.bHasSkyBox);
-		EXPECT_FALSE(Observation.Data.TextureReference);
+
 	};
 	CheckReplay();
 	World->SetCurrentLevel(nullptr);
@@ -123,6 +124,8 @@ TEST(FSkyBoxEditorWorkflowTests, HostRejectsForeignLevelForCreationAndReplacemen
 TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 {
 	InitializeSkyBoxAssetMount();
+	Durin::Testing::RegisterMountPointForTests("/Engine/", Durin::FPaths::EngineContentDir());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	Durin::InitRenderingThread();
 	FSkyBoxTestEngine Engine;
 	Durin::FScene* Scene = Engine.CreateTestScene();
@@ -210,6 +213,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	ASSERT_NE(LoadedActor, nullptr);
 	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
 	ASSERT_NE(LoadedComponent, nullptr);
+	ASSERT_NE(LoadedComponent->GetStaticMesh(), nullptr);
+	EXPECT_EQ(LoadedComponent->GetStaticMesh()->GetName(), "Sphere");
 	ASSERT_NE(LoadedComponent->GetTextureCube(), nullptr);
 	ASSERT_NE(LoadedComponent->GetMaterialOverride(), nullptr);
 	EXPECT_EQ(LoadedComponent->GetMaterialOverride(), Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath)));
@@ -231,12 +236,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	EXPECT_NO_THROW(World->InitializeSubsystems());
 	World->SetRenderScene(Scene);
 	ASSERT_TRUE(World->SetCurrentLevel(LoadedLevel));
-	FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
-	ASSERT_TRUE(Observation.bHasSkyBox);
-	EXPECT_EQ(Observation.Count, 1u);
-	EXPECT_EQ(
-		Observation.Data.TextureReference,
-		LoadedComponent->GetTextureCube()->GetTextureReferenceRHI());
+	EXPECT_TRUE(LoadedComponent->IsRegistered());
 
 
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
@@ -260,6 +260,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcrossLevelReload)
 {
 	InitializeSkyBoxAssetMount();
+	Durin::Testing::RegisterMountPointForTests("/Engine/", Durin::FPaths::EngineContentDir());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	Durin::InitRenderingThread();
 	FSkyBoxTestEngine Engine;
 	Durin::FScene* Scene = Engine.CreateTestScene();
@@ -333,11 +335,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	EXPECT_NO_THROW(World->InitializeSubsystems());
 	World->SetRenderScene(Scene);
 	ASSERT_TRUE(World->SetCurrentLevel(LoadedLevel));
-	const FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
-	ASSERT_TRUE(Observation.bHasSkyBox);
-	EXPECT_EQ(
-		Observation.Data.TextureReference,
-		LoadedCube->GetTextureReferenceRHI());
+	EXPECT_TRUE(LoadedActor->GetSkyBoxComponent()->IsRegistered());
 
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
 	World->SetRenderScene(nullptr);

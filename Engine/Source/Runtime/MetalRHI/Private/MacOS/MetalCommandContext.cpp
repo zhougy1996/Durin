@@ -418,9 +418,8 @@ namespace Durin
 					&& MaxX <= RenderWidth && MaxY <= RenderHeight
 					&& MinZ >= 0 && MinZ <= 1 && MaxZ >= MinZ && MaxZ <= 1,
 					"Invalid Metal viewport bounds.");
-				const double MaxDepth = MinZ == MaxZ ? MinZ + 1.0 : MaxZ;
 				RenderEncoder->setViewport(MTL::Viewport{
-					MinX, MinY, MaxX - MinX, MaxY - MinY, MinZ, MaxDepth});
+					MinX, MinY, MaxX - MinX, MaxY - MinY, MinZ, MaxZ});
 				RHISetScissor(MinX, MinY, MaxX - MinX, MaxY - MinY);
 			}
 			auto RHISetScissor(float MinX, float MinY,

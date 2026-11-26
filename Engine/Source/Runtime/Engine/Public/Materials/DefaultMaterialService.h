@@ -8,7 +8,23 @@
 namespace Durin
 {
 	class DMaterialInterface;
+
+	struct FDefaultCubeSkyBindings
+	{
+		static constexpr const char* TextureName = "SkyTexture";
+		static constexpr const char* TintName = "SkyTint";
+		static constexpr const char* IntensityName = "SkyIntensity";
+
+		uint16 TextureIndex;
+		uint32 TintOffset;
+		uint32 IntensityOffset;
+	};
+
+	auto RefreshDefaultCubeSkyBindings_GameThread(const DMaterialInterface& Material, const FMaterialProgram* Program) -> void;
+	ENGINE_API auto GetDefaultCubeSkyBindings_RenderThread(const FMaterialRenderLayoutIdentity& Layout)
+		-> const FDefaultCubeSkyBindings*;
 	ENGINE_API auto GetDefaultSkyMaterialProxy_RenderThread(bool bProcedural) -> FMaterialRenderProxyRef;
+	ENGINE_API auto GetDefaultCubeSkyMaterial() -> DMaterialInterface*;
 	ENGINE_API auto GetDefaultMaterial() -> DMaterialInterface*;
 	inline constexpr std::string_view DefaultMaterialPackagePath =
 		"/Engine/Materials/DefaultMaterial";

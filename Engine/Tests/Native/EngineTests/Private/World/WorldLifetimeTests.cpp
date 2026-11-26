@@ -18,7 +18,6 @@
 #include "IRendererModule.h"
 #include "Rendering/LightSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
-#include "Rendering/SkyBoxSceneProxy.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
 
 namespace Durin
@@ -99,8 +98,6 @@ namespace
 			LightLocations.erase(Light);
 		}
 
-		auto AddSkyBox(Durin::DSkyBoxComponent*) -> void override {}
-		auto RemoveSkyBox(Durin::DSkyBoxComponent*) -> void override {}
 		auto AddProceduralSky(Durin::DProceduralSkyComponent*) -> void override {}
 		auto RemoveProceduralSky(Durin::DProceduralSkyComponent*) -> void override {}
 		auto UpdateSkyLighting() -> void override {}

@@ -53,6 +53,7 @@ namespace Durin
 				StaticProperties.ShadingModel;
 			RenderData.PlanningPassIdentity.ShaderMap.OpacityMaskThreshold =
 				StaticProperties.OpacityMaskThreshold;
+			RenderData.PlanningPassIdentity.bIsSky = StaticProperties.bIsSky;
 			RenderData.PlanningPassIdentity.bTwoSided =
 				StaticProperties.bTwoSided;
 			RenderData.PlanningPassIdentity.DepthWritePolicy =
@@ -320,7 +321,7 @@ namespace Durin
 		CheckRenderingThread();
 		if (bProgramUsesWPO || bCompiling) return false;
 		const auto* Material = GetMaterialNoFallback();
-		bHasValidatedOpaqueDepth = Material && Material->CompiledProgram->HasShaderMap()
+		bHasValidatedOpaqueDepth = Material && !Material->PlanningPassIdentity.bIsSky && Material->CompiledProgram->HasShaderMap()
 			&& Material->PlanningPassIdentity.ShaderMap.BlendMode == EMaterialBlendMode::Opaque;
 		return bHasValidatedOpaqueDepth;
 	}

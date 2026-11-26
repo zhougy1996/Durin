@@ -4,8 +4,16 @@
 
 #include "RendererAPI.h"
 
-#include "Rendering/SkyBoxSceneProxy.h"
+#include "Rendering/ProceduralSkySceneProxy.h"
 #include "SceneView.h"
+
+namespace Durin
+{
+	struct FViewSkyParameters : FViewEnvironmentOverride
+	{
+		FProceduralSkyUniform ProceduralSky;
+	};
+}
 
 namespace Durin::SkyBoxRendering
 {
@@ -19,5 +27,5 @@ namespace Durin::SkyBoxRendering
 
 	// Builds the shader snapshot without retaining scene objects or camera
 	// translation in the GPU direction reconstruction.
-	RENDERER_API auto BuildUniform(const FSceneView& View, const FSkyBoxSceneData& SkyBox, FSkyBoxUniform& OutUniform) -> bool;
+	RENDERER_API auto BuildUniform(const FSceneView& View, const FViewSkyParameters& SkyBox, FSkyBoxUniform& OutUniform) -> bool;
 }

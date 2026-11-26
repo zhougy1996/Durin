@@ -161,39 +161,6 @@ TEST(FSkyLightTests, SelectsDeterministicallyAndRetiresExactSnapshots)
 	Durin::ShutdownRenderingThread();
 }
 
-TEST(FSkyBoxTests, SceneAcceptsOneSkyBoxAndAppliesFifoReplacement)
-{
-	InitializeDObjectSystem();
-	Durin::InitRenderingThread();
-	Durin::FRendererModule SceneFactory;
-	Durin::FScenePtr SceneOwner = SceneFactory.CreateScene();
-	auto& Scene = static_cast<Durin::FScene&>(*SceneOwner);
-	Durin::FSkyBoxSceneData Sky;
-	Sky.Intensity = 2.0f;
-	auto* SkyToken = PublishSkyBox(Scene, Sky);
-	ASSERT_NE(SkyToken, nullptr);
-	EXPECT_EQ(PublishSkyBox(Scene, Sky), nullptr);
-	EXPECT_EQ(ObserveSkyBoxes(Scene).Count, 1u);
-
-	EXPECT_TRUE(Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyToken));
-	Sky.Intensity = 4.0f;
-	auto* ReplacementToken = PublishSkyBox(
-		Scene, Sky);
-	ASSERT_NE(ReplacementToken, nullptr);
-	// The removed proxy may already be destroyed and its address reused.
-	// Replacement is established by the single live proxy and new data below.
-
-	FSkyBoxObservation Observation = ObserveSkyBoxes(Scene);
-	ASSERT_TRUE(Observation.bHasSkyBox);
-	EXPECT_EQ(Observation.Count, 1u);
-	EXPECT_EQ(Observation.Data.Intensity, 4.0f);
-	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, ReplacementToken);
-
-	Durin::FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
-	Durin::FlushRenderingCommands();
-	Durin::ShutdownRenderingThread();
-}
-
 TEST(FSkyBoxTests, ActorDefaultsDuplicateAndRetainCubeReference)
 {
 	InitializeDObjectSystem();
@@ -203,6 +170,7 @@ TEST(FSkyBoxTests, ActorDefaultsDuplicateAndRetainCubeReference)
 	ASSERT_NE(Component, nullptr);
 
 	Component->SetTextureCube(Cube);
+	EXPECT_EQ(Component->CreateSceneProxy(), nullptr);
 	Component->SetTint(Durin::FLinearColor(0.25f, 0.5f, 0.75f, 1.0f));
 	Component->SetIntensity(-2.0f);
 	EXPECT_EQ(Component->GetIntensity(), 0.0f);
@@ -227,90 +195,6 @@ TEST(FSkyBoxTests, ActorDefaultsDuplicateAndRetainCubeReference)
 	Durin::MarkAsGarbage(LoadedActor);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(CubeHandle), nullptr);
-}
-
-TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProperties)
-{
-	InitializeDObjectSystem();
-	Durin::InitRenderingThread();
-	FSkyBoxTestEngine Engine;
-	Durin::FScene* Scene = Engine.CreateTestScene();
-	Durin::GEngine = &Engine;
-	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "LiveSkyBoxWorld");
-	EXPECT_NO_THROW(World->InitializeSubsystems());
-	ASSERT_TRUE(World->SetCurrentLevel(
-		Durin::NewObject<Durin::DLevel>(World, "LiveSkyBoxLevel")));
-	Engine.SetWorld(World);
-	auto* Actor = World->SpawnActor<Durin::ASkyBoxActor>("LiveSkyBoxActor");
-	Durin::DSkyBoxComponent* Component = Actor->GetSkyBoxComponent();
-	auto* Cube = Durin::NewObject<Durin::DTextureCube>(nullptr, "LiveSkyBoxCube");
-
-	Component->RegisterComponent();
-	FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
-	ASSERT_TRUE(Observation.bHasSkyBox);
-	EXPECT_EQ(Observation.Count, 1u);
-
-	const Durin::FQuat Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
-		45.0, Durin::FVectorConstants::Up);
-	Component->SetTextureCube(Cube);
-	Component->SetTint(Durin::FLinearColor(0.2f, 0.4f, 0.6f, 1.0f));
-	Component->SetIntensity(3.0f);
-	Component->SetWorldRotation(Rotation);
-	Observation = ObserveSkyBoxes(*Scene);
-	ASSERT_TRUE(Observation.bHasSkyBox);
-	EXPECT_EQ(
-		Observation.Data.TextureReference, Cube->GetTextureReferenceRHI());
-	EXPECT_EQ(Observation.Data.Rotation, Rotation);
-	EXPECT_EQ(Observation.Data.Tint, Durin::FVector3f(0.2f, 0.4f, 0.6f));
-	EXPECT_EQ(Observation.Data.Intensity, 3.0f);
-
-	Actor->SetActorHiddenInGame(true);
-	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasSkyBox);
-	Actor->SetActorHiddenInGame(false);
-	EXPECT_TRUE(ObserveSkyBoxes(*Scene).bHasSkyBox);
-	Component->UnregisterComponent();
-	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasSkyBox);
-
-	Engine.SetWorld(nullptr);
-	Engine.ResetTestScene();
-	Durin::FlushRenderingCommands();
-	Durin::GEngine = nullptr;
-	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::MarkAsGarbage(Cube);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	Durin::ShutdownRenderingThread();
-}
-
-TEST(FSkyBoxTests, WorldSceneEndpointIsIndependentOfGlobalEngine)
-{
-	InitializeDObjectSystem();
-	Durin::InitRenderingThread();
-	FSkyBoxTestEngine Engine;
-	Durin::FScene* MainScene = Engine.CreateTestScene();
-	Durin::FRendererModule SceneFactory;
-	auto AuxiliaryScene = SceneFactory.CreateScene();
-	Durin::GEngine = &Engine;
-
-	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "AuxiliarySkyBoxWorld");
-	EXPECT_NO_THROW(World->InitializeSubsystems());
-	World->SetRenderScene(AuxiliaryScene.get());
-	ASSERT_TRUE(World->SetCurrentLevel(
-		Durin::NewObject<Durin::DLevel>(World, "AuxiliarySkyBoxLevel")));
-	ASSERT_NE(World->SpawnActor<Durin::ASkyBoxActor>("AuxiliarySkyBox"), nullptr);
-	EXPECT_FALSE(ObserveSkyBoxes(*MainScene).bHasSkyBox);
-	EXPECT_TRUE(ObserveSkyBoxes(*AuxiliaryScene).bHasSkyBox);
-
-	Durin::GEngine = nullptr;
-	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
-	EXPECT_FALSE(ObserveSkyBoxes(*AuxiliaryScene).bHasSkyBox);
-	World->SetRenderScene(nullptr);
-
-	Durin::FSceneInterfaceTestAccess::ReleaseScene(AuxiliaryScene);
-	Engine.ResetTestScene();
-	Durin::FlushRenderingCommands();
-	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	Durin::ShutdownRenderingThread();
 }
 
 TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)

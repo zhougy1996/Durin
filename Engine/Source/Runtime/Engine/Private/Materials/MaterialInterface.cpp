@@ -1,4 +1,5 @@
 #include "Materials/MaterialInterface.h"
+#include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionEditing.h"
 #include "Materials/MaterialFunction.h"
@@ -506,6 +507,7 @@ namespace Durin
 			== CanonicalizeMaterialShaderProperties(Result))
 		{
 			Result.bTwoSided = Authored.bTwoSided;
+			Result.bIsSky = Authored.bIsSky;
 			Result.DepthWritePolicy = Authored.DepthWritePolicy;
 		}
 		Result.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(Result).OpacityMaskThreshold;
@@ -778,7 +780,9 @@ namespace Durin
 		// A pre-start edit is rebuilt on the next proxy request after render admission opens.
 		if (!IsRenderingThreadRunning()) return;
 
-		SubmitMaterialProxyUpdates(*MaterialRenderProxy, GetMaterialResource(), Flags, ChangedParameters);
+		const auto* Resource = GetMaterialResource();
+		RefreshDefaultCubeSkyBindings_GameThread(*this, Resource ? Resource->CompiledProgram.get() : nullptr);
+		SubmitMaterialProxyUpdates(*MaterialRenderProxy, Resource, Flags, ChangedParameters);
 		bMaterialProxyPublicationDirty = false;
 	}
 

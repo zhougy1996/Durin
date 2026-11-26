@@ -14,7 +14,6 @@ namespace Durin
 	class DLightComponent;
 	class IRendererModule;
 	class DPrimitiveComponent;
-	class DSkyBoxComponent;
 	class DSkyLightComponent;
 	class DProceduralSkyComponent;
 	class DVolumetricCloudComponent;
@@ -38,8 +37,6 @@ namespace Durin
 		virtual auto RemovePrimitive(DPrimitiveComponent* Primitive) -> void = 0;
 		virtual auto AddLight(DLightComponent* Light) -> void = 0;
 		virtual auto RemoveLight(DLightComponent* Light) -> void = 0;
-		virtual auto AddSkyBox(DSkyBoxComponent* SkyBox) -> void = 0;
-		virtual auto RemoveSkyBox(DSkyBoxComponent* SkyBox) -> void = 0;
 		virtual auto AddProceduralSky(DProceduralSkyComponent* Sky) -> void = 0;
 		virtual auto RemoveProceduralSky(DProceduralSkyComponent* Sky) -> void = 0;
 		virtual auto AddSkyLight(DSkyLightComponent* SkyLight) -> void = 0;

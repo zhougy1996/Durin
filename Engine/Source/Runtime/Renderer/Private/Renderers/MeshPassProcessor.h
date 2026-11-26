@@ -122,6 +122,7 @@ namespace Durin::RendererPrivate
 		uint32 PrimitiveIdOffset = INDEX_NONE_U32; // Durin shader's uint32 ID index.
 		uint64 IndirectArgsByteOffset = 0;
 		uint32 NumInstances = 0; // Zero preserves the source count.
+		FByteView VertexPushConstants{};
 	};
 	// Draw data and bindings only; resource lifetime belongs to the sources.
 	struct FMeshDrawCommand
