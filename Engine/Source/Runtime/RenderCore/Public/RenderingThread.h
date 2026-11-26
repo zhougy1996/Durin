@@ -71,22 +71,10 @@ namespace Durin
 	RENDERCORE_API auto EnqueueRenderCommandDeferred(
 		const char* Name, TMoveOnlyFunction<void(FRHICommandListImmediate&)> Function) -> void;
 
-	template<typename RenderCommandTag, typename LambdaType>
-	auto EnqueueRenderCommand(LambdaType&& Lambda) -> void
-	{
-		static_assert(!std::is_lvalue_reference_v<LambdaType>,
-			"EnqueueRenderCommand only accepts rvalue references.");
-		EnqueueRenderCommand(RenderCommandTag::GetName(), std::move(Lambda));
-	}
-
-#define DECLARE_RENDER_COMMAND_TAG(Type, Name) \
-	struct Type \
-	{ \
-		static constexpr const char* GetName() { return STR(#Name); } \
-	};
+} // namespace Durin
 
 #define ENQUEUE_RENDER_COMMAND(Name) \
-	DECLARE_RENDER_COMMAND_TAG(DURIN_JOIN(FRenderCommandTag_, DURIN_JOIN(Name, __LINE__)), Name) \
-	EnqueueRenderCommand<DURIN_JOIN(FRenderCommandTag_, DURIN_JOIN(Name, __LINE__))>
-
-} // namespace Durin
+	[](auto&& Command) { \
+		static_assert(!std::is_lvalue_reference_v<decltype(Command)>, "Render commands must be passed as rvalues."); \
+		::Durin::EnqueueRenderCommand(DURIN_STRINGIZE(Name), std::move(Command)); \
+	}
