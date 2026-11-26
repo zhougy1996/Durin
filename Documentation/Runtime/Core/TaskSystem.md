@@ -9,21 +9,21 @@ Last reviewed: 2026-11-26
 ## Construction And Acceptance
 
 `Threading/Task.h` defines the ordinary API in `Durin::Tasks`.
-`LaunchTask(Executor, Options, Callable)` returns `TTask<T>` directly,
+`LaunchTask(Name, Callable, Options)` returns `TTask<T>` directly,
 including `TTask<void>` for a void callable. `Tasks::FTask` is the public generic
 completion handle, an alias of `Tasks::Private::FTaskHandle`, and can observe any
 task or event without a typed result accessor. Callables accept no arguments.
 Cancellation tokens and input handles are captured explicitly. Dependent bodies capture the input handles
 they need and inspect their states before accessing results.
-`LaunchTask(Name, Callable, Options)`
-is the Worker convenience form. Tasks participate in the process scheduler
+Use a descriptive name or `DURIN_SOURCE_LOCATION` (the call site's file and line).
+Omitting options schedules a Worker task. Tasks participate in the process scheduler
 lifetime. Ordinary resource owners keep
 their task handles and completion events, stop their own producer admission,
 then cancel/wait the accepted work before releasing captures or resource state.
 There is no general task-group or group-join facade.
-`LaunchTask(Executor, Options, Callable)` supports a selected executor and
-records the executing parent identity for nested submissions. Package payload
-reads use this form when dispatching file work to BlockingIO.
+`Options.Executor` selects Worker, BlockingIO, or GameThreadDeferred.
+Nested submissions record the executing parent identity. Package payload
+reads select BlockingIO. Pipes and independent CPU tasks accept worker-only options.
 Domain queues own their admission policy. Accepted producer and publication tasks
 retain their scheduler participation through ordinary terminal publication.
 Asset compilation uses explicit operation completion dependencies as
@@ -234,9 +234,8 @@ following [UE task composition](https://dev.epicgames.com/documentation/en-us/un
 There are no Tasks Then, ThenCompleted or WhenAll helpers, or private continuation
 submission paths. Standalone Future continuations are described below.
 
-`LaunchTask(Executor, Options, Callable, Dependency)` accepts a task, event,
-or generic `FTask` directly, or a vector, array, or span of these types. The named
-Worker overload accepts `LaunchTask(Name, Callable, Dependency, Options)`.
+`LaunchTask(Name, Callable, Dependency, Options)` accepts a task, event,
+or generic `FTask` directly, or a vector, array, or span of these types.
 `Prerequisites(A, B, ...)` creates an owning array of `FTask` handles for mixed
 typed tasks, generic handles, and events; it never consumes a result. These
 overloads append their dependencies to `Options.Prerequisites`, and bind them

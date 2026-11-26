@@ -296,9 +296,9 @@ namespace Durin
 		Initializer.ComputeShader = Shader;
 		for (const auto Executor : {Tasks::ETaskExecutor::Worker, Tasks::ETaskExecutor::BlockingIO})
 		{
-			auto Task = Tasks::LaunchTask(Executor, {.DebugName = "direct queue admission"}, [&] {
+			auto Task = Tasks::LaunchTask("direct queue admission", [&] {
 				return Owner.RequestCompute(Initializer, "task PSO");
-			});
+			}, {.Executor = Executor});
 			ASSERT_TRUE(Task.Wait(5));
 			const auto& Request = Task.GetResult();
 			ASSERT_TRUE(Request.IsValid());

@@ -49,8 +49,7 @@ namespace Durin
 			Tasks::TTask<TResult> Task;
 			auto Admission = SubmitAsyncSaveTask(Bytes, std::move(Write),
 				[&Task, Callbacks](const Tasks::FTask& Disk, const std::shared_ptr<FAsyncSaveState>& Save) {
-					Task = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
-						{.DebugName = "Package.SavePublication"},
+					Task = Tasks::LaunchTask("Package.SavePublication",
 						[Disk, Save, Callbacks]() mutable -> TResult {
 							BeginAsyncSavePublication(Save);
 							struct FScope { ~FScope() { EndAsyncSavePublication(); } } Scope;
@@ -66,7 +65,7 @@ namespace Durin
 								catch (...) { ReportAsyncSaveAbandonmentException(); }
 								throw;
 							}
-						}, Disk);
+						}, Disk, {.Executor = Tasks::ETaskExecutor::GameThreadDeferred});
 					return Tasks::FTask(Task);
 				},
 				[Callbacks] {

@@ -212,7 +212,7 @@ TEST(FAsyncCacheTests, RequestOwnerQueuedCancellationNeedsNoBusyOwnerProgress)
 	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("NestedCancel"), '7')}};
 	Async->Get(Requests, Busy, [](auto Response) {});
 	FThreadEvent Submitted; std::atomic<uint32> Calls = 0;
-	auto Producer = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [&] {
+	auto Producer = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] {
 		Async->Get(Requests, Owner, [&](auto Response) {
 			EXPECT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Canceled); ++Calls;
 		});

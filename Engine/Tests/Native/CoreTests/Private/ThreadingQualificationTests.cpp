@@ -270,11 +270,11 @@ namespace Durin
 				auto Producer = Tasks::LaunchTask("SharedTransferQualification", []() {
 					return Durin::FByteBuffer(ResultBytes, std::byte{1});
 				});
-				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.DebugName = "SharedTransferSink"}, [&ResultBytesObserved, Producer]() {
+				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("SharedTransferSink", [&ResultBytesObserved, Producer]() {
 					const auto& Value = Producer.GetResult();
 					ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
 				}, Producer)));
-				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.DebugName = "SharedFanoutSink"}, [&ResultBytesObserved, Producer]() {
+				Sinks.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("SharedFanoutSink", [&ResultBytesObserved, Producer]() {
 						const auto& Value = Producer.GetResult();
 						ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
 					}, Producer)));
@@ -345,8 +345,8 @@ namespace Durin
 			{
 				FThreadEvent StartedA, StartedB, Release, CpuDone;
 				const auto Executor = Target == ETaskTarget::BlockingIO ? Tasks::ETaskExecutor::BlockingIO : Tasks::ETaskExecutor::Worker;
-				auto A = Durin::Tasks::FTask(Tasks::LaunchTask(Executor, {.DebugName = "MixedBlockA"}, [&] { StartedA.Trigger(); Release.Wait(); }));
-				auto B = Durin::Tasks::FTask(Tasks::LaunchTask(Executor, {.DebugName = "MixedBlockB"}, [&] { StartedB.Trigger(); Release.Wait(); }));
+				auto A = Durin::Tasks::FTask(Tasks::LaunchTask("MixedBlockA", [&] { StartedA.Trigger(); Release.Wait(); }, {.Executor = Executor}));
+				auto B = Durin::Tasks::FTask(Tasks::LaunchTask("MixedBlockB", [&] { StartedB.Trigger(); Release.Wait(); }, {.Executor = Executor}));
 				ASSERT_TRUE(StartedA.WaitFor(1.0));
 				ASSERT_TRUE(StartedB.WaitFor(1.0));
 				double Latency = 0;

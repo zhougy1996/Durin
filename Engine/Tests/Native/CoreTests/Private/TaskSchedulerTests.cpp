@@ -747,8 +747,8 @@ namespace Durin
 
 		Tasks::FTaskEvent Pending("IndependentUnknownGate"), KnownSignal("IndependentKnownSignal", false);
 		auto Ordinary = Tasks::LaunchTask("UnmarkedWorker", [] {}, KnownSignal);
-		auto Io = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] {}, KnownSignal);
-		auto Deferred = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}, KnownSignal);
+		auto Io = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, KnownSignal, {.Executor = Tasks::ETaskExecutor::BlockingIO});
+		auto Deferred = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, KnownSignal, {.Executor = Tasks::ETaskExecutor::GameThreadDeferred});
 		for (const auto& Input : Tasks::Prerequisites(Pending, KnownSignal, Ordinary, Io, Deferred))
 		{
 			FTaskLaunchOptions Options;
@@ -769,7 +769,7 @@ namespace Durin
 		{
 			EXPECT_DEATH({
 				auto Invalid = Tasks::LaunchIndependentTask("ForbiddenChildParent", [&] {
-					(void)Tasks::LaunchTask(Executor, {}, [] {});
+					(void)Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, {.Executor = Executor});
 				});
 				Invalid.Wait();
 			}, "Task construction failed");
@@ -840,7 +840,9 @@ namespace Durin
 		Tasks::FTaskEvent Signal("CompletedExternalCPUInput");
 		Signal.Trigger();
 		auto Ordinary = Tasks::LaunchTask("CompletedOrdinaryCPUInput", [] { return 17; });
-		auto Io = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] { return 25; });
+		constexpr const char* IoName = DURIN_SOURCE_LOCATION;
+		auto Io = Tasks::LaunchTask(IoName, [] { return 25; }, {.Executor = Tasks::ETaskExecutor::BlockingIO});
+		EXPECT_STREQ(Io.GetDebugName(), IoName);
 		ASSERT_TRUE(Ordinary.Wait());
 		ASSERT_TRUE(Io.Wait());
 		auto Task = Tasks::LaunchIndependentTask("IndependentCompletedInputs", [=] {
@@ -1800,7 +1802,7 @@ namespace Durin
 			return 42;
 		});
 		ASSERT_TRUE(TaskStarted.WaitFor(1.0));
-		Tasks::FTask Dependent = Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.DebugName = "PublicationBarrierDependent"}, [&, Producer]() {
+		Tasks::FTask Dependent = Durin::Tasks::FTask(Tasks::LaunchTask("PublicationBarrierDependent", [&, Producer]() {
 			const auto& Value = Producer.GetResult();
 			EXPECT_EQ(42, Value);
 			bDependentRan.store(true, std::memory_order::release);

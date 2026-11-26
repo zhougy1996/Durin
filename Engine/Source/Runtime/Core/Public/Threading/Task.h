@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Misc/CoreStd.h"
+#include "Misc/PreprocessorHelper.h"
 #include "Misc/CoreTypes.h"
 #include "Misc/CoreMiscDefines.h"
 
@@ -32,10 +33,18 @@ namespace Durin::Tasks
 	// Execution and owner identity; scheduler storage accounting is internal.
 	struct FTaskExecutionOptions
 	{
-		const char* DebugName = "Task";
+		ETaskExecutor Executor = ETaskExecutor::Worker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		FTaskAttribution Attribution;
 		// Owns ordering dependencies so saved options never borrow a temporary collection.
+		std::vector<FTask> Prerequisites;
+	};
+
+	// Pipes and independent CPU work always run on workers.
+	struct FWorkerTaskOptions
+	{
+		ETaskPriority Priority = ETaskPriority::Normal;
+		FTaskAttribution Attribution;
 		std::vector<FTask> Prerequisites;
 	};
 
@@ -250,7 +259,7 @@ namespace Durin::Tasks
 	{
 	template<typename F, typename T = std::invoke_result_t<std::decay_t<F>&>>
 	requires (!std::is_reference_v<T>)
-	auto LaunchTaskImpl(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false, FPipe* Pipe = nullptr)
+	auto LaunchTaskImpl(const char* Name, ETaskExecutor Executor, const auto& Options, F&& Function, bool bIndependentCPU = false, FPipe* Pipe = nullptr)
 		-> TTask<T>
 	{
 		try
@@ -264,7 +273,7 @@ namespace Durin::Tasks
 			Launch.Priority = Options.Priority;
 			Launch.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
 			Launch.Prerequisites = Options.Prerequisites;
-			auto Handle = Detail::LaunchWithStorage<T>(Options.DebugName, State,
+			auto Handle = Detail::LaunchWithStorage<T>(Name, State,
 				[State, Function = std::forward<F>(Function)]() mutable {
 					auto Invoke = [&]() -> T {
 						return std::invoke(Function);
@@ -279,42 +288,21 @@ namespace Durin::Tasks
 
 	}
 
-	// Preserve the executing parent identity for nested work, including blocking I/O.
 	template<typename F>
-	auto LaunchTask(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	auto LaunchTask(const char* Name, F&& Function, const FTaskExecutionOptions& Options = {})
 	{
-		return Detail::LaunchTaskImpl(Executor, Options, std::forward<F>(Function));
-	}
-
-	// Worker root in the scheduler lifetime. Owners stop their own submission before shutdown.
-	template<typename F>
-	auto LaunchTask(const char* Name, F&& Function, FTaskExecutionOptions Options = {})
-	{
-		Options.DebugName = Name;
-		return Detail::LaunchTaskImpl(ETaskExecutor::Worker, Options, std::forward<F>(Function));
+		return Detail::LaunchTaskImpl(Name, Options.Executor, Options, std::forward<F>(Function));
 	}
 
 	namespace Detail
 	{
 		template<CTaskDependencyCollection R, typename F>
-		auto WithPrerequisites(FTaskExecutionOptions Options, const R& Inputs, F&& Launch)
+		auto WithPrerequisites(auto Options, const R& Inputs, F&& Launch)
 		{
 			Options.Prerequisites = CollectDependencies(Inputs, Options.Prerequisites);
 			return Launch(Options);
 		}
 	}
-
-	template<typename F, Detail::CTaskDependencyCollection R>
-	auto LaunchTask(ETaskExecutor Executor, const FTaskExecutionOptions& Options,
-		F&& Function, const R& Inputs)
-	{
-		return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {
-			return LaunchTask(Executor, BoundOptions, std::forward<F>(Function));
-		});
-	}
-	template<typename F, Detail::CTaskDependency T>
-	auto LaunchTask(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, const T& Input)
-	{ return LaunchTask(Executor, Options, std::forward<F>(Function), Prerequisites(Input)); }
 
 	template<typename F, Detail::CTaskDependencyCollection R>
 	auto LaunchTask(const char* Name, F&& Function, const R& Inputs,
@@ -333,10 +321,9 @@ namespace Durin::Tasks
 	// inherit the contract. Callables must not depend on owner-thread, RHI, I/O or
 	// external progress; the caller owns their ordinary C++ side effects.
 	template<typename F>
-	auto LaunchIndependentTask(const char* Name, F&& Function, FTaskExecutionOptions Options = {})
+	auto LaunchIndependentTask(const char* Name, F&& Function, const FWorkerTaskOptions& Options = {})
 	{
-		Options.DebugName = Name;
-		return Detail::LaunchTaskImpl(ETaskExecutor::Worker,
+		return Detail::LaunchTaskImpl(Name, ETaskExecutor::Worker,
 			Options, std::forward<F>(Function), true);
 	}
 

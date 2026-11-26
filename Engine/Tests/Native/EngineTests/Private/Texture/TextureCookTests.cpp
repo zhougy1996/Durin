@@ -443,8 +443,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	// Explicit completion installs only this request, without pumping queued work.
 	Durin::Tasks::FTaskEvent QueuedWork("TestTextureWaitIsolation");
 	bool UnrelatedCallbackRan = false;
-	auto Unrelated = Durin::Tasks::LaunchTask(Durin::Tasks::ETaskExecutor::GameThreadDeferred,
-		{.DebugName = "TestTextureWaitIsolation"}, [&] { UnrelatedCallbackRan = true; }, QueuedWork);
+	auto Unrelated = Durin::Tasks::LaunchTask("TestTextureWaitIsolation", [&] { UnrelatedCallbackRan = true; }, QueuedWork, {.Executor = Durin::Tasks::ETaskExecutor::GameThreadDeferred});
 	QueuedWork.Trigger();
 	ASSERT_TRUE(Invalidated->FinishCachePlatformData(10.0));
 	EXPECT_FALSE(UnrelatedCallbackRan);
@@ -790,8 +789,7 @@ namespace
 		// without executing unrelated GameThread callbacks.
 		Durin::Tasks::FTaskEvent Gate("TextureResourceJoinIsolation");
 		auto CallbackRan = std::make_shared<std::atomic_bool>(false);
-		auto Unrelated = Durin::Tasks::LaunchTask(Durin::Tasks::ETaskExecutor::GameThreadDeferred,
-			{.DebugName = "TextureResourceJoinIsolation"}, [CallbackRan] { *CallbackRan = true; }, Gate);
+		auto Unrelated = Durin::Tasks::LaunchTask("TextureResourceJoinIsolation", [CallbackRan] { *CallbackRan = true; }, Gate, {.Executor = Durin::Tasks::ETaskExecutor::GameThreadDeferred});
 		Gate.Trigger();
 		Durin::FRenderCommandFence ResourceFence;
 		Texture->UpdateResource();

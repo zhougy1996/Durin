@@ -321,10 +321,10 @@ TEST_F(FPackagePersistenceTests, RejectedPublicationDoesNotWaitForOccupiedIoWork
 		~FRelease() { Event.Trigger(); for (const auto& Task : Tasks) Task.Wait(); }
 	} Resume{Release, Blockers};
 	for (uint32 Index = 0; Index < WorkerCount; ++Index)
-		Blockers.push_back(Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [&] {
+		Blockers.push_back(Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] {
 			if (Entered.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
 			Release.Wait();
-		}));
+		}, {.Executor = Tasks::ETaskExecutor::BlockingIO}));
 	ASSERT_TRUE(Started.WaitFor(5));
 	PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::RejectAdmission);
 	bool ReturnedWithoutIoProgress = false;
@@ -892,7 +892,7 @@ TEST_F(FPackagePersistenceTests, CapturePreservesOutputOnDefaultDeltaFailure)
 TEST_F(FPackagePersistenceTests, DrainPumpsTypedPublicationAndRejectsReentrantSaves)
 {
 	bool UnrelatedRan = false;
-	auto Unrelated = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&] {
+	auto Unrelated = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] {
 		UnrelatedRan = true;
 		{
 			std::optional<UnifiedError::FError> Error;
@@ -903,7 +903,7 @@ TEST_F(FPackagePersistenceTests, DrainPumpsTypedPublicationAndRejectsReentrantSa
 			const auto Failure = PackageSavePrivate::CheckAsyncAdmission();
 			EXPECT_TRUE(!Failure && Failure.error().Is(PackageSaveErrors::Busy));
 		}
-	});
+	}, {.Executor = Tasks::ETaskExecutor::GameThreadDeferred});
 	uint32 Destroyed = 0, Calls = 0;
 	std::weak_ptr<int> Weak, IoWeak;
 	std::atomic<bool> IoDestroyed = false;
@@ -1010,11 +1010,11 @@ TEST_F(FPackagePersistenceTests, FailedPublicationRetiresOwnerOnGameThread)
 		});
 		auto Admission = PackageSavePrivate::SubmitAsyncSaveTask(1, [Owner] {},
 			[&](const Tasks::FTask& Disk, const std::shared_ptr<PackageSavePrivate::FAsyncSaveState>&) {
-				Publication = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&] {
+				Publication = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] {
 					EXPECT_TRUE(IsInGameThread());
 					++Invoked;
 					throw std::runtime_error("save publication failure");
-				}, Disk);
+				}, Disk, {.Executor = Tasks::ETaskExecutor::GameThreadDeferred});
 				return Publication;
 			}, [&, Owner] { EXPECT_TRUE(IsInGameThread()); ++Cleaned; });
 		ASSERT_TRUE(Admission);
@@ -1058,7 +1058,7 @@ TEST_F(FPackagePersistenceTests, DrainFromDeferredCallbackReturnsBusyWithoutStea
 {
 	std::optional<UnifiedError::FError> NestedError;
 	bool Nested = true;
-	auto Callback = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&] { Nested = DPackage::DrainAsyncSaves(&NestedError); });
+	auto Callback = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] { Nested = DPackage::DrainAsyncSaves(&NestedError); }, {.Executor = Tasks::ETaskExecutor::GameThreadDeferred});
 	FPackageWriteResult Admission;
 	auto Save = FSavePackageContext{Options}.SaveAsync(Package);
 	ASSERT_TRUE(Admission);
@@ -1081,11 +1081,11 @@ TEST_F(FPackagePersistenceTests, BusinessSkippedPublicationCleanupMayPumpOtherAc
 	uint32 Applied = 0, Skipped = 0, Cleaned = 0;
 	auto Admission = PackageSavePrivate::SubmitAsyncSaveTask(1, [] {},
 		[&](const Tasks::FTask& Disk, const std::shared_ptr<PackageSavePrivate::FAsyncSaveState>&) {
-			Publication = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&, SubmittedSerial] {
+			Publication = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&, SubmittedSerial] {
 				EXPECT_TRUE(IsInGameThread());
 				if (SubmittedSerial != CurrentSerial) { ++Skipped; return; }
 				++Applied;
-			}, Disk);
+			}, Disk, {.Executor = Tasks::ETaskExecutor::GameThreadDeferred});
 			return Publication;
 		}, [&] {
 			EXPECT_TRUE(IsInGameThread());

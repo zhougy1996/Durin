@@ -5,6 +5,8 @@
 #define DURIN_STRINGIZE(Token) DURIN_PRIVATE_STRINGIZE(Token)
 #define DURIN_PRIVATE_STRINGIZE(Token) #Token
 
+#define DURIN_SOURCE_LOCATION __FILE__ "(" DURIN_STRINGIZE(__LINE__) ")"
+
 // Concatenates two preprocessor tokens, performing macro expansion on them first
 #define DURIN_JOIN(TokenA, TokenB) DURIN_PRIVATE_JOIN(TokenA, TokenB)
 #define DURIN_PRIVATE_JOIN(TokenA, TokenB) TokenA##TokenB

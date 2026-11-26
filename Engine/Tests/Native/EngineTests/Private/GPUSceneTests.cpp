@@ -813,7 +813,7 @@ namespace
             auto* Child = Set.NewParallelCommandList();
             bool bPrerequisiteRan = false, bVisited = false;
             auto Prerequisite = Tasks::LaunchIndependentTask("Test.DrawPrerequisite", [&] { bPrerequisiteRan = true; });
-            Tasks::FTaskExecutionOptions Options; Options.Prerequisites.push_back(Prerequisite);
+            Tasks::FWorkerTaskOptions Options; Options.Prerequisites.push_back(Prerequisite);
             auto Task = Tasks::LaunchIndependentTask("Test.ParallelDraw", [Child, &bVisited, &bPrerequisiteRan] {
                 EXPECT_TRUE(bPrerequisiteRan); bVisited = true; Child->FinishRecording();
             }, Options);

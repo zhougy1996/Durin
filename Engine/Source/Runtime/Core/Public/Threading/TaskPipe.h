@@ -25,28 +25,27 @@ namespace Durin::Tasks
 		auto WaitUntilEmpty(double TimeoutSeconds = std::numeric_limits<double>::infinity()) -> bool;
 
 		template<typename F>
-		auto Launch(const char* Name, F&& Function, FTaskExecutionOptions Options = {})
+		auto Launch(const char* Name, F&& Function, FWorkerTaskOptions Options = {})
 		{
-			Options.DebugName = Name;
-			return Detail::LaunchTaskImpl(ETaskExecutor::Worker, Options, std::forward<F>(Function), false, this);
+			return Detail::LaunchTaskImpl(Name, ETaskExecutor::Worker, Options, std::forward<F>(Function), false, this);
 		}
 		template<typename F>
 		auto Launch(const char* Name, F&& Function, ETaskPriority Priority)
-		{ return Launch(Name, std::forward<F>(Function), FTaskExecutionOptions{.Priority = Priority}); }
+		{ return Launch(Name, std::forward<F>(Function), FWorkerTaskOptions{.Priority = Priority}); }
 		template<typename F, Detail::CTaskDependencyCollection R>
-		auto Launch(const char* Name, F&& Function, const R& Inputs, FTaskExecutionOptions Options = {})
+		auto Launch(const char* Name, F&& Function, const R& Inputs, FWorkerTaskOptions Options = {})
 		{
 			return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {
 				return Launch(Name, std::forward<F>(Function), BoundOptions);
 			});
 		}
 		template<typename F, Detail::CTaskDependency T>
-		auto Launch(const char* Name, F&& Function, const T& Input, FTaskExecutionOptions Options = {})
+		auto Launch(const char* Name, F&& Function, const T& Input, FWorkerTaskOptions Options = {})
 		{ return Launch(Name, std::forward<F>(Function), Prerequisites(Input), Options); }
 		template<typename F, typename R>
 		requires (Detail::CTaskDependency<R> || Detail::CTaskDependencyCollection<R>)
 		auto Launch(const char* Name, F&& Function, const R& Inputs, ETaskPriority Priority)
-		{ return Launch(Name, std::forward<F>(Function), Inputs, FTaskExecutionOptions{.Priority = Priority}); }
+		{ return Launch(Name, std::forward<F>(Function), Inputs, FWorkerTaskOptions{.Priority = Priority}); }
 
 	private:
 		friend class Durin::FTaskStateData;

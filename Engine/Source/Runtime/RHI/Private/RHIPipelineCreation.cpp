@@ -261,7 +261,7 @@ namespace Durin
 					// Serialize retirement as well as execution. Waiting the last drain
 					// then covers every earlier callable that captured this device owner.
 					const std::span Dependencies(&LastDrain, LastDrain.IsValid() ? 1 : 0);
-					LastDrain = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.DebugName = "RHI.PipelineCreation"}, [this, Ticket] {
+					LastDrain = Tasks::LaunchTask("RHI.PipelineCreation", [this, Ticket] {
 							Drain();
 							Ticket->Finished = true; }, Dependencies);
 				}

@@ -86,12 +86,11 @@ namespace Durin
 			Signal.Trigger();
 			Release.Wait();
 		});
-		auto Publication = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
-			{.DebugName = "PreadmittedPublication"}, [&] {
+		auto Publication = Tasks::LaunchTask("PreadmittedPublication", [&] {
 				EXPECT_FALSE(IsTaskSchedulerRunning());
 				EXPECT_FALSE(Retired.load());
 				Release.Trigger();
-			}, Signal);
+			}, Signal, {.Executor = Tasks::ETaskExecutor::GameThreadDeferred});
 		Started.Wait(); Producer = {};
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		EXPECT_TRUE(Retired.load());
@@ -231,7 +230,7 @@ namespace Durin
 			EXPECT_EQ(Task.WaitDetailed(0).WaitStatus, ETaskWaitStatus::TimedOut);
 			EXPECT_EQ(Runs, 0u);
 			Tasks::FCancellationToken IndependentCancellation;
-			auto Next = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [Task, &IndependentCancellation]() {
+			auto Next = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [Task, &IndependentCancellation]() {
 				const auto& Token = IndependentCancellation;
 				auto& Value = Task.GetResult();
 				EXPECT_FALSE(Token.IsCanceled());
@@ -278,10 +277,10 @@ namespace Durin
 		});
 		ASSERT_TRUE(Started.WaitFor(1));
 		uint32 Runs = 0;
-		auto Deferred = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [&]() {
+		auto Deferred = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&]() {
 			const auto& Token = TestCancellation;
 			EXPECT_TRUE(Token.IsCanceled()); ++Runs;
-		});
+		}, {.Executor = Tasks::ETaskExecutor::GameThreadDeferred});
 		auto Dependent = Tasks::LaunchTask("CooperativeShutdownDependent", [&]() {
 			const auto& Token = TestCancellation;
 			EXPECT_TRUE(Token.IsCanceled()); ++Runs;

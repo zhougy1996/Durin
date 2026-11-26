@@ -169,10 +169,10 @@ namespace Durin::DerivedData
 		const auto Prerequisites = Tasks::Prerequisites(Published);
 		const std::string DebugName(Name);
 		Tasks::FTaskExecutionOptions Options;
-		Options.DebugName = DebugName.c_str(); Options.Prerequisites.assign(Prerequisites.begin(), Prerequisites.end());
+		Options.Prerequisites.assign(Prerequisites.begin(), Prerequisites.end());
 		const auto Priority = GetPriority();
 		Options.Priority = Priority == ERequestPriority::High ? ETaskPriority::High : Priority == ERequestPriority::Low ? ETaskPriority::Low : ETaskPriority::Normal;
-		Request->Task = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options, [this, Request, Work = std::move(Work)]() mutable { End(Request, Work); });
+		Request->Task = Tasks::LaunchTask(DebugName.c_str(), [this, Request, Work = std::move(Work)]() mutable { End(Request, Work); }, Options);
 		Begin(Request); Published.Trigger();
 	}
 }

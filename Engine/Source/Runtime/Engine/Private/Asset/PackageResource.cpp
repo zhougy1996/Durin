@@ -611,20 +611,19 @@ namespace Durin
 		}
 		State->OnCancel = [Input]() mutable { Input.Cancel(); };
 		Tasks::FTaskExecutionOptions Options;
-		Options.DebugName = "PackageResource.Transform";
 		Options.Attribution = PackageResourceAttribution();
 		if (Input.State && std::holds_alternative<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result))
 		{
 			const auto InputTask = std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result);
-			State->Bind(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
+			State->Bind(Tasks::LaunchTask("PackageResource.Transform",
 				[Function = std::move(Function), InputTask]() mutable {
 					return Function(ReadCompletedPackageTask(InputTask));
-				}, InputTask));
+				}, InputTask, Options));
 		}
 		else
 		{
-			State->Bind(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
-				[Input = std::move(Input), Function = std::move(Function)]() mutable { return Function(Input.Wait()); }));
+			State->Bind(Tasks::LaunchTask("PackageResource.Transform",
+				[Input = std::move(Input), Function = std::move(Function)]() mutable { return Function(Input.Wait()); }, Options));
 		}
 		return FPackageResourceRequest(std::move(State));
 	}
@@ -655,14 +654,14 @@ namespace Durin
 		}
 		auto Self = shared_from_this();
 		Tasks::FTaskExecutionOptions Options;
-		Options.DebugName = "PackageResource.ReadRange";
+		Options.Executor = Tasks::ETaskExecutor::BlockingIO;
 		Options.Attribution = PackageResourceAttribution();
-		State->Bind(Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, Options,
+		State->Bind(Tasks::LaunchTask("PackageResource.ReadRange",
 			[Self = std::move(Self), State, Offset, Size]() {
 				if (State->bCancelled.load(std::memory_order_acquire))
 					return Result(EPackageResourceReadStatus::Cancelled, {.Message = "Package range request was cancelled."});
 				return Self->ReadRangeImpl(Offset, Size, State->bCancelled);
-			}));
+			}, Options));
 		return FPackageResourceRequest(std::move(State));
 	}
 

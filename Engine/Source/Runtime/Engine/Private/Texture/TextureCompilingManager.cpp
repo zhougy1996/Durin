@@ -209,14 +209,13 @@ namespace Durin
 			}
 			const std::shared_ptr<FQueueState> Self = shared_from_this();
 			Tasks::FTaskExecutionOptions Options;
-			Options.DebugName = "Texture.Build";
 			Options.Attribution = Attribution;
 			Options.Priority = RequestState->Request.Priority == ETexture2DCompilationPriority::Interactive
 				? ETaskPriority::High : ETaskPriority::Low;
-			auto Admission = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
+			auto Admission = Tasks::LaunchTask("Texture.Build",
 				[Self, RequestState]() {
 					Self->RunWorker(RequestState);
-				});
+				}, Options);
 			std::lock_guard Lock(Mutex);
 			RequestState->Task = std::move(Admission);
 		}

@@ -94,7 +94,7 @@ namespace Durin
 			FCacheWrite Write = std::move(PendingEncodes.front());
 			PendingEncodes.pop_front();
 			EncodingBytes = Write.Bytes.size();
-			EncodeTask = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {.DebugName = "EncodeAssetThumbnailCache"}, [Write = std::move(Write)]() mutable {
+			EncodeTask = Tasks::LaunchTask("EncodeAssetThumbnailCache", [Write = std::move(Write)]() mutable {
 				FByteBuffer Encoded;
 				(void)Image::EncodeRgba8Png(Write.Bytes, Write.Width, Write.Height, Encoded);
 				Write.Bytes = std::move(Encoded);
@@ -136,7 +136,7 @@ namespace Durin
 			{
 				ActiveRead = &*Next;
 				FCacheRead& Read = *Next;
-				CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {.DebugName = "ReadAssetThumbnailCache"}, [State = Cache, Key = Read.Key, Output = Read.Output] {
+				CacheTask = Tasks::LaunchTask("ReadAssetThumbnailCache", [State = Cache, Key = Read.Key, Output = Read.Output] {
 					FCacheResult Result;
 					auto& Store = State->GetStore();
 					FByteBuffer Encoded;
@@ -157,7 +157,7 @@ namespace Durin
 					}
 					Result.Evictions = Store.GetStats().Evictions;
 					return Result;
-				});
+				}, {.Executor = Tasks::ETaskExecutor::BlockingIO});
 				return;
 			}
 			if (Writes.empty())
@@ -166,24 +166,24 @@ namespace Durin
 				{
 					bNeedsIndexFlush = false;
 					bMaintenanceTask = true;
-					CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {.DebugName = "FlushAssetThumbnailIndex"}, [State = Cache] {
+					CacheTask = Tasks::LaunchTask("FlushAssetThumbnailIndex", [State = Cache] {
 						State->GetStore().Flush();
 						return FCacheResult{};
-					});
+					}, {.Executor = Tasks::ETaskExecutor::BlockingIO});
 				}
 				return;
 			}
 			FCacheWrite Write = std::move(Writes.front());
 			Writes.pop_front();
 			ActiveWriteBytes = Write.Bytes.size();
-			CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {.DebugName = "SaveAssetThumbnailCache"}, [State = Cache, Write = std::move(Write)] {
+			CacheTask = Tasks::LaunchTask("SaveAssetThumbnailCache", [State = Cache, Write = std::move(Write)] {
 				FCacheResult Result;
 				const FByteView Bytes = Write.Bytes;
 				auto& Store = State->GetStore();
 				Result.bSucceeded = Store.Store(Write.Key, Bytes);
 				Result.Evictions = Store.GetStats().Evictions;
 				return Result;
-			});
+			}, {.Executor = Tasks::ETaskExecutor::BlockingIO});
 		}
 
 		auto QueueWrite(std::string Key, FByteView Bytes, uint32 Width, uint32 Height) -> void

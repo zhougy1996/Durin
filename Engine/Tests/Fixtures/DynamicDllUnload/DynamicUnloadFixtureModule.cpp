@@ -147,16 +147,15 @@ namespace Durin
 			if (!Worker.IsValid()) return false;
 
 			Tasks::FTaskExecutionOptions PublisherOptions;
-			PublisherOptions.DebugName = "DynamicUnloadFixture.Publish";
 			PublisherOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Worker);
-			Publisher = Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, PublisherOptions,
+			Publisher = Durin::Tasks::FTask(Tasks::LaunchTask("DynamicUnloadFixture.Publish",
 				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial, Outcome = Worker] {
 					if (Outcome.GetState() == ETaskState::Succeeded
 						&& Outcome.GetResult() == Serial)
 					{
 						Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::AsyncPublished, Serial});
 					}
-				}, Worker));
+				}, Worker, PublisherOptions));
 			return Publisher.IsValid();
 		}
 
