@@ -685,11 +685,7 @@ namespace
 	auto ObserveLight(Durin::FScene& Scene) -> FObservedLight
 	{
 		auto Result = std::make_shared<FObservedLight>();
-		struct FObserveLightCommand
-		{
-			static constexpr auto GetName() -> const char* { return "ObserveLight"; }
-		};
-		Durin::EnqueueRenderCommand<FObserveLightCommand>(
+		Durin::EnqueueRenderCommand("ObserveLight",
 			[&Scene, Result](Durin::FRHICommandListImmediate&) {
 				const auto& Lights = Scene.GetDirectionalLightSceneInfos();
 				Result->bPresent = !Lights.empty();
@@ -776,14 +772,7 @@ TEST(FRendererSceneContractTests, OwningScenePointerDefersDeletionBehindQueuedCo
 	};
 	auto BlockedRenderCommand =
 		std::make_shared<FBlockedRenderCommandState>();
-	struct FBlockRenderThreadCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "BlockRenderThread";
-		}
-	};
-	Durin::EnqueueRenderCommand<FBlockRenderThreadCommand>(
+	Durin::EnqueueRenderCommand("BlockRenderThread",
 		[BlockedRenderCommand](Durin::FRHICommandListImmediate&) {
 			std::unique_lock Lock(BlockedRenderCommand->Mutex);
 			BlockedRenderCommand->bStarted = true;
@@ -813,14 +802,7 @@ TEST(FRendererSceneContractTests, OwningScenePointerDefersDeletionBehindQueuedCo
 	Durin::FScenePtr Scene = RendererModule.CreateScene();
 	auto* ConcreteScene = static_cast<Durin::FScene*>(Scene.get());
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*ConcreteScene, Durin::FPrimitiveComponentId(1), std::make_unique<FTrackedStaticMeshSceneProxy>(&RenderData, Destroyed, DestroyedOnRenderingThread), Durin::FMatrix(1.0));
-	struct FObserveQueuedSceneMutationCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ObserveQueuedSceneMutation";
-		}
-	};
-	Durin::EnqueueRenderCommand<FObserveQueuedSceneMutationCommand>(
+	Durin::EnqueueRenderCommand("ObserveQueuedSceneMutation",
 		[ConcreteScene, ObservedQueuedMutation](
 			Durin::FRHICommandListImmediate&
 		) {
@@ -994,14 +976,7 @@ TEST(FRendererSceneContractTests, ViewStateTransactionsPreserveLastSuccessfulFit
 	FRenderingThreadScope RenderingThread;
 	auto Result = std::make_shared<std::vector<Durin::FSceneViewTemporalContext>>();
 	auto HistoryPolicies = std::make_shared<std::vector<uint64>>();
-	struct FExerciseViewStateTransactionsCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ExerciseViewStateTransactions";
-		}
-	};
-	Durin::EnqueueRenderCommand<FExerciseViewStateTransactionsCommand>(
+	Durin::EnqueueRenderCommand("ExerciseViewStateTransactions",
 		[Result, HistoryPolicies](Durin::FRHICommandListImmediate&) {
 			Durin::FSceneViewStateRegistry Registry;
 			const Durin::FSceneViewStateId FirstId =
@@ -1111,14 +1086,7 @@ TEST(FRendererSceneContractTests, VolumetricCloudHistoryPublishesIndependentlyAn
 {
 	FRenderingThreadScope RenderingThread;
 	auto Observed = std::make_shared<std::vector<uint64>>();
-	struct FExerciseCloudHistoryTransactionsCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ExerciseCloudHistoryTransactions";
-		}
-	};
-	Durin::EnqueueRenderCommand<FExerciseCloudHistoryTransactionsCommand>(
+	Durin::EnqueueRenderCommand("ExerciseCloudHistoryTransactions",
 		[Observed](Durin::FRHICommandListImmediate&) {
 			Durin::FSceneViewState State;
 			Durin::FSceneView View;
@@ -1170,11 +1138,7 @@ TEST(FRendererSceneContractTests, VolumetricCloudHistoryPublishesIndependentlyAn
 TEST(FRendererSceneContractTests, CloudHistoryKeepsPublishedCameraAfterOuterFailureAndUsesRenderFrameAge)
 {
 	FRenderingThreadScope RenderingThread;
-	struct FExerciseCloudHistoryAgeCommand
-	{
-		static constexpr auto GetName() -> const char* { return "ExerciseCloudHistoryAge"; }
-	};
-	Durin::EnqueueRenderCommand<FExerciseCloudHistoryAgeCommand>(
+	Durin::EnqueueRenderCommand("ExerciseCloudHistoryAge",
 		[](Durin::FRHICommandListImmediate&) {
 			Durin::FVolumetricCloudViewHistory History;
 			Durin::FSceneViewTemporalMetadata First;
@@ -1250,14 +1214,7 @@ TEST(FRendererSceneContractTests, ViewStateReportsEveryFrozenDiscontinuityCause)
 	FRenderingThreadScope RenderingThread;
 	auto Contexts = std::make_shared<
 		std::vector<Durin::FSceneViewTemporalContext>>();
-	struct FExerciseViewStateDiscontinuitiesCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ExerciseViewStateDiscontinuities";
-		}
-	};
-	Durin::EnqueueRenderCommand<FExerciseViewStateDiscontinuitiesCommand>(
+	Durin::EnqueueRenderCommand("ExerciseViewStateDiscontinuities",
 		[Contexts](Durin::FRHICommandListImmediate&) {
 			Durin::FSceneViewState State;
 			Durin::FSceneView View;
@@ -1610,14 +1567,7 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsAreCoherentAndIsolated)
 	AuxiliaryStatistics.Summary.Triangles = 12;
 	AuxiliaryStatistics.Summary.DrawCalls = 3;
 
-	struct FPublishViewportStatisticsCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "PublishViewportStatistics";
-		}
-	};
-	Durin::EnqueueRenderCommand<FPublishViewportStatisticsCommand>(
+	Durin::EnqueueRenderCommand("PublishViewportStatistics",
 		[Main, Auxiliary, MainStatistics, AuxiliaryStatistics](
 			Durin::FRHICommandListImmediate&
 		) {
@@ -1640,7 +1590,7 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsAreCoherentAndIsolated)
 	EXPECT_EQ(AuxiliarySnapshot.Revision, 1u);
 	EXPECT_EQ(AuxiliarySnapshot.Statistics, AuxiliaryStatistics);
 
-	Durin::EnqueueRenderCommand<FPublishViewportStatisticsCommand>(
+	Durin::EnqueueRenderCommand("PublishViewportStatistics",
 		[Main](Durin::FRHICommandListImmediate&) {
 			Main->PublishRenderStatistics_RenderThread({}, false);
 		}
@@ -1675,14 +1625,7 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsPublishDuringConcurrent
 	while (!bReaderReady.load(std::memory_order_acquire))
 		std::this_thread::yield();
 
-	struct FPublishConcurrentViewportStatisticsCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "PublishConcurrentViewportStatistics";
-		}
-	};
-	Durin::EnqueueRenderCommand<FPublishConcurrentViewportStatisticsCommand>(
+	Durin::EnqueueRenderCommand("PublishConcurrentViewportStatistics",
 		[Viewport](Durin::FRHICommandListImmediate&) {
 			for (uint64 Value = 1; Value <= 1000; ++Value)
 			{
@@ -1705,7 +1648,7 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsPublishDuringConcurrent
 	EXPECT_EQ(Snapshot.Statistics.Summary.DrawCalls, 1000u);
 
 	std::weak_ptr<Durin::FSceneViewport> WeakViewport = Viewport;
-	Durin::EnqueueRenderCommand<FPublishConcurrentViewportStatisticsCommand>(
+	Durin::EnqueueRenderCommand("PublishConcurrentViewportStatistics",
 		[Viewport](Durin::FRHICommandListImmediate&) {
 			Viewport->PublishRenderStatistics_RenderThread({}, false);
 		}
@@ -1732,14 +1675,7 @@ TEST(FRendererSceneContractTests, SceneViewportRenderGraphCaptureIsExplicitAndIs
 	auto Capture = std::make_shared<Durin::FRDGCapture>();
 	Capture->Dump = "main graph";
 	Capture->Statistics.DeclaredPasses = 7;
-	struct FPublishViewportRenderGraphCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "PublishViewportRenderGraph";
-		}
-	};
-	Durin::EnqueueRenderCommand<FPublishViewportRenderGraphCommand>(
+	Durin::EnqueueRenderCommand("PublishViewportRenderGraph",
 		[Main, Capture](Durin::FRHICommandListImmediate&) {
 			Main->PublishRenderGraphCapture_RenderThread(Capture, true);
 		}
@@ -1755,7 +1691,7 @@ TEST(FRendererSceneContractTests, SceneViewportRenderGraphCaptureIsExplicitAndIs
 	EXPECT_EQ(MainSnapshot.Capture->Statistics.DeclaredPasses, 7u);
 	EXPECT_FALSE(Auxiliary->GetRenderGraphSnapshot().bAvailable);
 
-	Durin::EnqueueRenderCommand<FPublishViewportRenderGraphCommand>(
+	Durin::EnqueueRenderCommand("PublishViewportRenderGraph",
 		[Main](Durin::FRHICommandListImmediate&) {
 			Main->PublishRenderGraphCapture_RenderThread(nullptr, false);
 		}
@@ -2062,14 +1998,7 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 	auto ObservedMode = std::make_shared<Durin::EViewVisibilityMode>(
 		Durin::EViewVisibilityMode::Normal
 	);
-	struct FObserveVisibilityPolicyCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ObserveVisibilityPolicy";
-		}
-	};
-	Durin::EnqueueRenderCommand<FObserveVisibilityPolicyCommand>(
+	Durin::EnqueueRenderCommand("ObserveVisibilityPolicy",
 		[ViewSnapshot = SubmittedView, ObservedMode](
 			Durin::FRHICommandListImmediate&
 		) {
@@ -2240,11 +2169,7 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 		Durin::FSceneView View;
 		View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
 		View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-		struct FPrepareLightsCommand
-		{
-			static constexpr auto GetName() -> const char* { return "PrepareLights"; }
-		};
-		Durin::EnqueueRenderCommand<FPrepareLightsCommand>(
+		Durin::EnqueueRenderCommand("PrepareLights",
 			[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
 				Observed->Lights = Durin::GatherAndSortLights_RenderThread(
 					Scene, Durin::BuildSceneViewRequirements(View, {}, {}), Observed->Telemetry
@@ -2324,16 +2249,12 @@ TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBou
 	View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
 	View.ProjectionMatrix = MakePerspectiveProjection();
 	View.ViewProjectionMatrix = View.ProjectionMatrix;
-	struct FCullLightsCommand
-	{
-		static constexpr auto GetName() -> const char* { return "CullLights"; }
-	};
 	const auto Gather = [&](double CameraY, bool Cull) {
 		*Observed = {};
 		View.ViewProjectionMatrix = View.ProjectionMatrix * Durin::Math::TranslationMatrix(Durin::FVector3{0, -CameraY, 0});
 		View.Settings.Mode.VisibilityMode = Cull ? Durin::EViewVisibilityMode::Normal
 			: Durin::EViewVisibilityMode::FrustumCullingDisabled;
-		Durin::EnqueueRenderCommand<FCullLightsCommand>(
+		Durin::EnqueueRenderCommand("CullLights",
 			[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
 				Observed->first = Durin::GatherAndSortLights_RenderThread(
 					Scene, Durin::BuildSceneViewRequirements(View, {}, {}), Observed->second);
@@ -2646,10 +2567,6 @@ namespace Durin::Tests
 	namespace
 	{
 		constexpr uint64 MiB = 1024ull * 1024ull;
-		struct FRDGAllocatorTestCommand final
-		{
-			static constexpr auto GetName() -> const char* { return "RDGAllocatorTest"; }
-		};
 
 		class FAllocatorRenderingThreadScope final
 		{
@@ -2857,7 +2774,7 @@ namespace Durin::Tests
 	TEST(FRendererRDGAllocatorTests, GraphAliasingSharesOnePoolEntryAcrossExecutions)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RDGAllocatorTest", [](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			RHI.bSupportAliasing = true;
 			FRendererResourceCoordinator Coordinator;
@@ -2900,7 +2817,7 @@ namespace Durin::Tests
 						GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 						GIsGameThreadIdInitialized = true;
 						FAllocatorRenderingThreadScope RenderingThread;
-						EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+						EnqueueRenderCommand("RDGAllocatorTest", [](FRHICommandListImmediate&) {
 							FRDGAllocationTestRHI RHI;
 							RHI.FailOnCreate = 2;
 							FRendererResourceCoordinator Coordinator;
@@ -2915,7 +2832,7 @@ namespace Durin::Tests
 	TEST(FRendererRDGAllocatorTests, UnpublishedRetirementCannotEvictOrExceedThePoolBudget)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RDGAllocatorTest", [](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
 			FRendererRDGAllocator Allocator(Coordinator);
@@ -2942,7 +2859,7 @@ namespace Durin::Tests
 	TEST(FRendererRDGAllocatorTests, FailedSubmissionRemainsQuarantinedUnderPoolPressure)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RDGAllocatorTest", [](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
 			FRendererRDGAllocator Allocator(Coordinator);
@@ -2997,7 +2914,7 @@ namespace Durin::Tests
 	TEST(FRendererRDGAllocatorTests, BucketsReserveDuplicateDescriptorsInCreationOrder)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RDGAllocatorTest", [](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
 			FRendererRDGAllocator Allocator(Coordinator);
@@ -3034,7 +2951,7 @@ namespace Durin::Tests
 	TEST(FRendererRDGAllocatorTests, BatchEvictionMergesKindsAndReindexesSurvivors)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RDGAllocatorTest", [](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
 			FRendererRDGAllocator Allocator(Coordinator);
@@ -3064,7 +2981,7 @@ namespace Durin::Tests
 	TEST(FRendererRDGAllocatorTests, ExportCompactionRemovesIdsAndPreservesBucketOrder)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RDGAllocatorTest", [](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
 			FRendererRDGAllocator Allocator(Coordinator);
@@ -3095,7 +3012,7 @@ namespace Durin::Tests
 	TEST(FRendererRDGAllocatorTests, ReservesWholeBatchAndCollectsBeforeCreating)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RDGAllocatorTest", [](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
 			FRendererRDGAllocator Allocator(Coordinator);
@@ -3327,7 +3244,7 @@ namespace Durin
 	TEST(FRendererSceneContractTests, ResourcePreparationReadsSamplingSequenceWithoutBeginningHistory)
 	{
 		FRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<Tests::FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RDGAllocatorTest", [](FRHICommandListImmediate&) {
 			FSceneViewState State;
 			EXPECT_EQ(State.GetVolumetricCloudHistory().GetSuccessfulSequence(), 0u);
 			EXPECT_FALSE(State.GetVolumetricCloudHistory().IsSubmissionActive());
@@ -3351,7 +3268,7 @@ namespace Durin
 	TEST(FRendererSceneContractTests, SceneRenderAuthorsIntoCallerGraphAndAllocationFailureDoesNotPublish)
 	{
 		FRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<Tests::FRDGAllocatorTestCommand>([](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("RDGAllocatorTest", [](FRHICommandListImmediate& Commands) {
 			Tests::FRDGAllocationTestRHI RHI;
 			FSceneRenderingService Service;
 			FSceneRenderer Submission(Service);

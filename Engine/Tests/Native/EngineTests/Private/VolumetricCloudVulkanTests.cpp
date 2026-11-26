@@ -32,13 +32,6 @@ namespace Durin
 {
 	namespace
 	{
-		struct FVolumetricCloudTargetLifecycle
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "VolumetricCloudTargetLifecycle";
-			}
-		};
 
 		auto BuildViewMatrix(
 			const FVector3& Location,
@@ -170,7 +163,7 @@ namespace Durin
 		} while (!Prepared && std::chrono::steady_clock::now() < Deadline);
 		EXPECT_TRUE(Prepared) << "The host must prepare asynchronous shader and pipeline resources before route validation.";
 		auto Results = std::make_shared<std::array<bool, 39>>();
-		EnqueueRenderCommand<FVolumetricCloudTargetLifecycle>(
+		EnqueueRenderCommand("VolumetricCloudTargetLifecycle",
 			[&Coordinator, &Clouds, &CloudShadows,
 				&FullscreenGeometry, Results](
 				FRHICommandListImmediate& CommandList

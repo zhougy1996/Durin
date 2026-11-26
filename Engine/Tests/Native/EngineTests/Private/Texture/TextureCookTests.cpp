@@ -366,11 +366,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
-	struct FBeginCookedTextureUploadFrame
-	{
-		static constexpr auto GetName() -> const char* { return "BeginCookedTextureUploadFrame"; }
-	};
-	Durin::EnqueueRenderCommand<FBeginCookedTextureUploadFrame>(
+	Durin::EnqueueRenderCommand("BeginCookedTextureUploadFrame",
 		[](Durin::FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -509,11 +505,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	auto SampleProxy = std::make_shared<std::unique_ptr<Durin::FPrimitiveSceneProxy>>(
 		SampleComponent->CreateSceneProxy());
 	ASSERT_NE(*SampleProxy, nullptr);
-	struct FEndCookedTextureUploadFrame
-	{
-		static constexpr auto GetName() -> const char* { return "EndCookedTextureUploadFrame"; }
-	};
-	Durin::EnqueueRenderCommand<FEndCookedTextureUploadFrame>(
+	Durin::EnqueueRenderCommand("EndCookedTextureUploadFrame",
 		[](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 		});
@@ -525,16 +517,12 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 		Durin::FByteBuffer SamplePixels;
 	};
 	auto UploadResult = std::make_shared<FTextureCookUploadResult>();
-	struct FValidateCookedTextureUpload
-	{
-		static constexpr auto GetName() -> const char* { return "ValidateCookedTextureUpload"; }
-	};
 	const auto Preparation = Durin::FRenderResourcePreparation::Create();
 	bool Pending = false;
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
 	do
 	{
-	Durin::EnqueueRenderCommand<FValidateCookedTextureUpload>(
+	Durin::EnqueueRenderCommand("ValidateCookedTextureUpload",
 		[&Renderer, &Scene, TextureReference, ExpectedPlatformData, UploadResult, SampleProxy, Preparation, &Pending](
 			Durin::FRHICommandListImmediate& CommandList) {
 			++Durin::GRenderFrameCounterRenderThread;
@@ -645,11 +633,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CookedPath));
 	CookedTexture = nullptr;
 	ASSERT_TRUE(AssetRuntime.Restore());
-	struct FRetireCookedTextureResource
-	{
-		static constexpr auto GetName() -> const char* { return "RetireCookedTextureResource"; }
-	};
-	Durin::EnqueueRenderCommand<FRetireCookedTextureResource>(
+	Durin::EnqueueRenderCommand("RetireCookedTextureResource",
 		[Reference = std::move(TextureReference)](
 			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();

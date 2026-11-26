@@ -96,7 +96,6 @@ TEST_F(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 	struct FShutdown { bool Owns; ~FShutdown() { if (Owns) ShutdownRenderingThread(); } } Shutdown{OwnsThread};
 	const auto Root = Testing::CreateTestFixtureDirectory("MaterialProxyBaseline");
 	std::string Csv = "parameters,proxies,run,sample,publication_resolve_ns,cached_resolve_ns\n";
-	struct FMeasure { static constexpr auto GetName() -> const char* { return "MaterialProxyBaseline"; } };
 	for (const uint32 Count : {8u, 32u, 128u})
 	{
 		auto Program = std::make_shared<FMaterialProgram>();
@@ -116,7 +115,7 @@ TEST_F(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 		Layer.StaticProperties = FMaterialStaticProperties{};
 		std::array<FMaterialRenderProxyRef, 32> Proxies;
 		for (auto& Proxy : Proxies) Proxy = new FMaterialRenderProxy;
-		EnqueueRenderCommand<FMeasure>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("MaterialProxyBaseline", [&](FRHICommandListImmediate&) {
 			uint64 Version = 0;
 			for (uint32 Run = 0; Run < 3; ++Run)
 			{

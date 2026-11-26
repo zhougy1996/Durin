@@ -333,11 +333,7 @@ namespace
 	auto CaptureScene(Durin::FScene* Scene) -> FSceneSnapshot
 	{
 		FSceneSnapshot Snapshot;
-		struct FCaptureMaterialTestSceneCommand
-		{
-			static constexpr const char* GetName() { return "CaptureMaterialTestScene"; }
-		};
-		Durin::EnqueueRenderCommand<FCaptureMaterialTestSceneCommand>([Scene, &Snapshot](Durin::FRHICommandListImmediate& CommandList) {
+		Durin::EnqueueRenderCommand("CaptureMaterialTestScene", [Scene, &Snapshot](Durin::FRHICommandListImmediate& CommandList) {
 			Snapshot.ProxyCount = Scene->GetPrimitiveSceneInfos().size();
 			if (Scene->GetPrimitiveSceneInfos().empty()) return;
 			const Durin::FPrimitiveSceneInfo* Info = Scene->GetPrimitiveSceneInfos().front();
@@ -354,11 +350,7 @@ namespace
 	auto CaptureMaterialSlots(Durin::FScene* Scene) -> FMaterialSlotsSnapshot
 	{
 		FMaterialSlotsSnapshot Snapshot;
-		struct FCaptureMaterialSlotsCommand
-		{
-			static constexpr const char* GetName() { return "CaptureMaterialSlots"; }
-		};
-		Durin::EnqueueRenderCommand<FCaptureMaterialSlotsCommand>([Scene, &Snapshot](Durin::FRHICommandListImmediate&) {
+		Durin::EnqueueRenderCommand("CaptureMaterialSlots", [Scene, &Snapshot](Durin::FRHICommandListImmediate&) {
 			if (Scene->GetPrimitiveSceneInfos().empty()) return;
 			Snapshot.Proxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(&Scene->GetPrimitiveSceneInfos().front()->GetProxy());
 			if (Snapshot.Proxy == nullptr) return;

@@ -218,13 +218,6 @@ namespace
 			CommandList, Readback, 0, 0, Pixels));
 	}
 
-	struct FGBufferQualificationCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "GBufferQualification";
-		}
-	};
 
 	auto CaptureGBufferTiming(const Durin::FGPUTimingQueryRHIRef& Query) -> void
 	{
@@ -548,7 +541,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 
 	auto StaticQuad = MakeStaticQuad();
 	auto SpecularAAQuad = MakeSpecularAAQuad();
-	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+	Durin::EnqueueRenderCommand("GBufferQualification",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			ASSERT_TRUE(StaticQuad->InitResources(CommandList));
 			ASSERT_TRUE(SpecularAAQuad->InitResources(CommandList));
@@ -651,7 +644,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		bool bEnableSpecularAA, Durin::FByteBuffer& Pixels) {
 		GSpecularAASurfacePixels = &Pixels;
 		Durin::SetGBufferCaptureSink(CaptureSpecularAAGBuffer);
-		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+		Durin::EnqueueRenderCommand("GBufferQualification",
 			[&Renderer, &SpecularAAScene, bEnableSpecularAA](
 				Durin::FRHICommandListImmediate& CommandList) {
 				constexpr uint32 Width = 32;
@@ -725,7 +718,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		constexpr std::array<double, 9> MotionPixels{
 			-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0};
 		std::array<Durin::FByteBuffer, MotionPixels.size()> Frames;
-		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+		Durin::EnqueueRenderCommand("GBufferQualification",
 			[&Renderer, &SpecularAAScene, bEnableSpecularAA, bEnableFXAA,
 			 Scale, &Frames, &MotionPixels](
 				Durin::FRHICommandListImmediate& CommandList) {
@@ -871,7 +864,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	GDeferredTimingQueries = &DeferredQueries;
 	Durin::SetGBufferTimingQuerySink(CaptureGBufferTiming);
 	Durin::SetDeferredDirectionalTimingQuerySink(CaptureDeferredTiming);
-	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+	Durin::EnqueueRenderCommand("GBufferQualification",
 		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 								  "GBufferQualificationColor", TimingWidth, TimingHeight,
@@ -927,7 +920,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 			&& DeferredQueries.size() == WarmupFrames + MeasuredFrames
 			&& AllReady(GBufferQueries) && AllReady(DeferredQueries);
 		if (bReady) break;
-		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+		Durin::EnqueueRenderCommand("GBufferQualification",
 			[](Durin::FRHICommandListImmediate& CommandList) {
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -1036,7 +1029,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	Durin::SetGroundTruthAmbientOcclusionFilterTimingQuerySink(
 		CaptureGroundTruthAmbientOcclusionFilterTiming
 	);
-	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+	Durin::EnqueueRenderCommand("GBufferQualification",
 		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 								  "GroundTruthAmbientOcclusionQualification", TimingWidth, TimingHeight,
@@ -1089,7 +1082,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 						  == Durin::ERHIGPUTimingResultState::Ready;
 			   });
 		if (bReady) break;
-		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+		Durin::EnqueueRenderCommand("GBufferQualification",
 			[](Durin::FRHICommandListImmediate& CommandList) {
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -1182,7 +1175,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		Durin::SetGroundTruthAmbientOcclusionCaptureSink(
 			CaptureGroundTruthAmbientOcclusion
 		);
-		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+		Durin::EnqueueRenderCommand("GBufferQualification",
 			[&Renderer, &Scene, Width, Height](
 				Durin::FRHICommandListImmediate& CommandList
 			) {
@@ -1382,7 +1375,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 								   &ProductionViewportHeight,
 								   &ProductionAmbientOcclusionQuality](
 			uint32 FrameCount, Durin::FByteBuffer* OutputPixels = nullptr) {
-		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+		Durin::EnqueueRenderCommand("GBufferQualification",
 			[&Renderer, &Scene, bEnableProductionAmbientOcclusion,
 			 bEnableProductionContactShadows, bForceProductionFragmentContact,
 			 bEnableProductionAsyncCompute,
@@ -1453,7 +1446,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 											  == Durin::ERHIGPUTimingResultState::Ready;
 								   });
 			if (bReady) break;
-			Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+			Durin::EnqueueRenderCommand("GBufferQualification",
 				[](Durin::FRHICommandListImmediate& CommandList) {
 					++Durin::GRenderFrameCounterRenderThread;
 					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -1989,7 +1982,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 			  << ",active_bytes=" << ProductionActiveBytes
 			  << ",active_with_shadow_bytes=" << ProductionActiveBytes + ShadowBytes
 			  << ",retained_ceiling_bytes=" << ProductionRetainedCeiling << '\n';
-	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+	Durin::EnqueueRenderCommand("GBufferQualification",
 		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 								  "HybridFourFamilyProduction", 320, 180,
@@ -2031,7 +2024,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		Durin::FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
 			320, 180,
 			Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution));
-	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+	Durin::EnqueueRenderCommand("GBufferQualification",
 		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 								  "GroundTruthAmbientOcclusionViewMatrix", 384, 216,
@@ -2102,7 +2095,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	ASSERT_TRUE(MaterialObject->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), {0.2, 0.55, 0.8}));
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+	Durin::EnqueueRenderCommand("GBufferQualification",
 		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 								  "HybridFourFamilyMutation", 384, 216,
@@ -2152,7 +2145,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	GGPUCullingTimingQueries = &GPUCullingQueries;
 	Durin::SetGPUCullingTimingQuerySink(CaptureGPUCullingTiming);
 	Durin::SetGBufferCaptureSink(CaptureGPUCullingGBuffer);
-	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+	Durin::EnqueueRenderCommand("GBufferQualification",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 				"GPUCullingQualificationColor", 128, 128,
@@ -2224,7 +2217,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(6));
 	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(SpecularAAScene, Durin::FPrimitiveComponentId(200));
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+	Durin::EnqueueRenderCommand("GBufferQualification",
 		[&](Durin::FRHICommandListImmediate&) {
 			StaticQuad->ReleaseResources();
 			SpecularAAQuad->ReleaseResources();
@@ -2262,7 +2255,7 @@ TEST(FGBufferQualificationTests, ProfilesBloomAlongSubpixelCameraTrack)
 		~FCleanup()
 		{
 			Scene.Reset();
-			EnqueueRenderCommand<FGBufferQualificationCommand>([this](FRHICommandListImmediate&) {
+			EnqueueRenderCommand("GBufferQualification", [this](FRHICommandListImmediate&) {
 				Quad.ReleaseResources();
 			});
 			FlushRenderingCommands();
@@ -2272,7 +2265,7 @@ TEST(FGBufferQualificationTests, ProfilesBloomAlongSubpixelCameraTrack)
 			RHIExit();
 		}
 	} Cleanup{Scene, *Quad, Lifecycle};
-	EnqueueRenderCommand<FGBufferQualificationCommand>([&](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("GBufferQualification", [&](FRHICommandListImmediate& Commands) {
 		ASSERT_TRUE(Quad->InitResources(Commands));
 	});
 	FlushRenderingCommands();
@@ -2313,7 +2306,7 @@ TEST(FGBufferQualificationTests, ProfilesBloomAlongSubpixelCameraTrack)
 		SCOPED_TRACE(Route.Name);
 		std::vector<FGPUTimingQueryRHIRef> ViewQueries, DisplayQueries;
 		std::array<FByteBuffer, CaptureFrames> Frames;
-		EnqueueRenderCommand<FGBufferQualificationCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("GBufferQualification", [&](FRHICommandListImmediate& Commands) {
 			const auto Desc = FRHITextureCreateDesc::Create2D(
 				"BloomCameraTrack", TimingWidth, TimingHeight, EPixelFormat::SRGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource

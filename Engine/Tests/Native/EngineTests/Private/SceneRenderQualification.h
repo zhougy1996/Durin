@@ -225,13 +225,6 @@ namespace Durin
 			return Texture;
 		}
 
-		struct FSceneCloudRender
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "SceneCloudRender";
-			}
-		};
 	} // namespace
 
 	inline auto QualifySceneRenderRoutes(bool bPresentation, bool bGPUCullingQualification = false, bool bAliasingQualification = false,
@@ -345,7 +338,7 @@ namespace Durin
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
 			do
 			{
-			EnqueueRenderCommand<FSceneCloudRender>(
+			EnqueueRenderCommand("SceneCloudRender",
 				[&Renderer, Scene, Pixels, Result, bForceFragment, bAmbientOcclusion, AOQuality, RenderMode, RasterMode,
 					Failure, Width, Height, Policy = ExtraPolicy, Options = ExtraOptions, bContactShadows, bDisableFrustumCulling, WorldShift, HistoryId, bEditorAssistance, bOverrideDuringRecording, ObservePreparedDraw, Preparation](
 					FRHICommandListImmediate& CommandList
@@ -518,7 +511,7 @@ namespace Durin
 				const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
 				do
 				{
-				EnqueueRenderCommand<FSceneCloudRender>(
+				EnqueueRenderCommand("SceneCloudRender",
 					[&Renderer, Scene, Viewport, Width, Height, Result, bForceFragment, Preparation](
 						FRHICommandListImmediate& CommandList
 					) {
@@ -813,7 +806,7 @@ namespace Durin
 		LOD.LocalBounds = LOD.Sections[0].LocalBounds;
 		Geometry->LODVertexFactories.resize(1);
 		Geometry->RecalculateBounds();
-		EnqueueRenderCommand<FSceneCloudRender>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("SceneCloudRender", [&](FRHICommandListImmediate& Commands) {
 			ASSERT_TRUE(Geometry->InitResources(Commands));
 		});
 		FlushRenderingCommands();
@@ -1191,7 +1184,7 @@ namespace Durin
                 ASSERT_NE(Found, Bindings.end());
                 GCullingDepthBindings[Index] = *Found;
             }
-			EnqueueRenderCommand<FSceneCloudRender>([&](FRHICommandListImmediate&) {
+			EnqueueRenderCommand("SceneCloudRender", [&](FRHICommandListImmediate&) {
 				GCullingDepthShader = GDynamicRHI->RHICreateShader(MakeShaderCreateDesc(DepthCode.CompiledShaders[0]));
 				ASSERT_NE(GCullingDepthShader, nullptr);
 				FComputePipelineStateInitializer Initializer;
@@ -1584,7 +1577,7 @@ namespace Durin
 		MarkAsGarbage(DetailAsset);
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		FlushRenderingCommands();
-		EnqueueRenderCommand<FSceneCloudRender>([&](FRHICommandListImmediate&) { Geometry->ReleaseResources(); });
+		EnqueueRenderCommand("SceneCloudRender", [&](FRHICommandListImmediate&) { Geometry->ReleaseResources(); });
 		FlushRenderingCommands();
 		RendererLifecycle.Shutdown();
 		FlushRenderingCommands();

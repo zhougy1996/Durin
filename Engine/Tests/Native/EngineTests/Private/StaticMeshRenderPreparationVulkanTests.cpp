@@ -210,7 +210,7 @@ namespace
 		FScopedRenderThreadBlocker()
 			: State(std::make_shared<FState>())
 		{
-			Durin::EnqueueRenderCommand<FBlockCookedStaticMeshInitializationCommand>(
+			Durin::EnqueueRenderCommand("BlockCookedStaticMeshInitialization",
 				[State = State](Durin::FRHICommandListImmediate&) {
 					std::unique_lock Lock(State->Mutex);
 					State->bEntered = true;
@@ -242,13 +242,6 @@ namespace
 			bool bReleased = false;
 		};
 
-		struct FBlockCookedStaticMeshInitializationCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "BlockCookedStaticMeshInitialization";
-			}
-		};
 
 		std::shared_ptr<FState> State;
 	};

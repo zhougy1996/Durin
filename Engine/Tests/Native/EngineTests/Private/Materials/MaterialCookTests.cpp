@@ -557,11 +557,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	Durin::FMaterialRenderData BaseData, ChildData;
 	auto BaseProxy = Cooked->GetRenderProxy();
 	auto ChildProxy = Child->GetRenderProxy();
-	struct FCaptureCookedBindingsCommand
-	{
-		static constexpr auto GetName() -> const char* { return "CaptureCookedBindings"; }
-	};
-	Durin::EnqueueRenderCommand<FCaptureCookedBindingsCommand>(
+	Durin::EnqueueRenderCommand("CaptureCookedBindings",
 		[&](Durin::FRHICommandListImmediate&) {
 			BaseData = BaseProxy->GetMaterialWithFallback();
 			ChildData = ChildProxy->GetMaterialWithFallback();

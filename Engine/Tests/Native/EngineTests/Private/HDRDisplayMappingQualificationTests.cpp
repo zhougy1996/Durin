@@ -36,13 +36,6 @@ namespace Durin
 				GDisplayTimingQueries->push_back(Query);
 		}
 
-		struct FProfileHDRDisplayMapping
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "ProfileHDRDisplayMapping";
-			}
-		};
 
 		struct FDisplayTimingSummary
 		{
@@ -92,7 +85,7 @@ namespace Durin
 			std::vector<FGPUTimingQueryRHIRef> Queries;
 			GDisplayTimingQueries = &Queries;
 			SetPostProcessTimingQuerySink(CaptureDisplayTiming);
-			EnqueueRenderCommand<FProfileHDRDisplayMapping>(
+			EnqueueRenderCommand("ProfileHDRDisplayMapping",
 				[&Renderer, &Scene, TargetName, bEnableFXAA](
 					FRHICommandListImmediate& CommandList) {
 					const auto Desc = FRHITextureCreateDesc::Create2D(
@@ -137,7 +130,7 @@ namespace Durin
 							== ERHIGPUTimingResultState::Ready;
 					});
 				if (bReady) break;
-				EnqueueRenderCommand<FProfileHDRDisplayMapping>(
+				EnqueueRenderCommand("ProfileHDRDisplayMapping",
 					[](FRHICommandListImmediate& CommandList) {
 						++GRenderFrameCounterRenderThread;
 						GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);

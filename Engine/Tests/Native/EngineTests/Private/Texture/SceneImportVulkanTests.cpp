@@ -490,14 +490,7 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	};
 	auto BlockedRenderCommand =
 		std::make_shared<FBlockedRenderCommandState>();
-	struct FBlockStaticMeshRelease
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "BlockStaticMeshRelease";
-		}
-	};
-	Durin::EnqueueRenderCommand<FBlockStaticMeshRelease>(
+	Durin::EnqueueRenderCommand("BlockStaticMeshRelease",
 		[BlockedRenderCommand](Durin::FRHICommandListImmediate&) {
 			std::unique_lock Lock(BlockedRenderCommand->Mutex);
 			BlockedRenderCommand->CV.wait(
@@ -591,15 +584,7 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		std::span<Durin::DObject* const>(&ReloadedParentCompilationObject, 1));
 	ASSERT_TRUE(ReloadedParentMaterial->GetMaterialCompileStatus().IsCurrent());
 
-	struct FBeginSceneImportFrame
-	{
-		static constexpr auto GetName() -> const char* { return "BeginSceneImportFrame"; }
-	};
-	struct FPrepareSceneImportPreview
-	{
-		static constexpr auto GetName() -> const char* { return "PrepareSceneImportPreview"; }
-	};
-	Durin::EnqueueRenderCommand<FBeginSceneImportFrame>(
+	Durin::EnqueueRenderCommand("BeginSceneImportFrame",
 		[](Durin::FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -666,7 +651,7 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 			do
 			{
-				Durin::EnqueueRenderCommand<FPrepareSceneImportPreview>(
+				Durin::EnqueueRenderCommand("PrepareSceneImportPreview",
 					[&](Durin::FRHICommandListImmediate& Commands) { Renderer.BeginFrame_RenderThread(Commands); });
 				Durin::FlushRenderingCommands();
 				Durin::PumpGameThreadDeferredWork();
@@ -810,11 +795,7 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		for (const auto& Output : PbrImport.Outputs)
 			if (Output.AssetClassName == Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString())
 				ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Output.AssetPath));
-		struct FEndSceneImportFrame
-		{
-			static constexpr auto GetName() -> const char* { return "EndSceneImportFrame"; }
-		};
-		Durin::EnqueueRenderCommand<FEndSceneImportFrame>(
+		Durin::EnqueueRenderCommand("EndSceneImportFrame",
 			[](Durin::FRHICommandListImmediate& CommandList) {
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			});
@@ -899,8 +880,7 @@ TEST_F(FSceneImportVulkanTests, PendingMeshDestructionDrainsAfterRenderFenceWith
 			Gate->CV.notify_all();
 		}
 	} ReleaseGate{Gate};
-	struct FBlockPurgeFence { static constexpr auto GetName() -> const char* { return "BlockPurgeFence"; } };
-	EnqueueRenderCommand<FBlockPurgeFence>([Gate](FRHICommandListImmediate&) {
+	EnqueueRenderCommand("BlockPurgeFence", [Gate](FRHICommandListImmediate&) {
 		std::unique_lock Lock(Gate->Mutex);
 		Gate->CV.wait(Lock, [&] { return Gate->Open; });
 	});

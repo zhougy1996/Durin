@@ -33,7 +33,6 @@ namespace Durin
 				return &Metadata;
 			}
 		};
-		struct FGPUSceneNativeCommand { static constexpr auto GetName() -> const char* { return "GPUSceneNativeUpload"; } };
 	}
 
 	TEST(FGPUSceneVulkanTests, UploadsPatchesGrowthAndRecoveryMatchMirrorBytes)
@@ -57,7 +56,7 @@ namespace Durin
 			};
 			std::array<FRHIGPUBufferReadback, 3> BufferReadbacks;
 			auto Run = [&](bool ExpectUpload, bool Recover = false, bool Reject = false, bool CancelReadbacks = false) {
-				EnqueueRenderCommand<FGPUSceneNativeCommand>([&](FRHICommandListImmediate& Commands) {
+				EnqueueRenderCommand("GPUSceneNativeUpload", [&](FRHICommandListImmediate& Commands) {
 					FRendererResourceCoordinator Coordinator;
 					FRendererRDGAllocator Allocator(Coordinator);
 					if (Recover) Scene->GPUScene->ReleaseRHI();
@@ -137,7 +136,7 @@ namespace Durin
 			Scene->UpdateStaticMeshRenderInstances(FPrimitiveComponentId{1}, Instances);
 			Run(true); Run(false); Run(true, true); Run(false);
             FGPUSceneDynamicAllocation Dynamic;
-            EnqueueRenderCommand<FGPUSceneNativeCommand>([&](FRHICommandListImmediate&) {
+            EnqueueRenderCommand("GPUSceneNativeUpload", [&](FRHICommandListImmediate&) {
                 Dynamic = Scene->GPUScene->AllocateDynamicPrimitiveRange(4);
                 for (uint32 Index = 0; Index < Dynamic.Count; ++Index) {
                     FPrimitiveCustomData PrimitiveData, InstanceData; PrimitiveData.Values[2] = 11.f + Index; InstanceData.Values[7] = 9.f + Index;
@@ -146,7 +145,7 @@ namespace Durin
                 }
             });
             FlushRenderingCommands(); Run(true); Run(false);
-            EnqueueRenderCommand<FGPUSceneNativeCommand>([&](FRHICommandListImmediate&) { Scene->GPUScene->ReleaseDynamicPrimitiveRange(Dynamic); });
+            EnqueueRenderCommand("GPUSceneNativeUpload", [&](FRHICommandListImmediate&) { Scene->GPUScene->ReleaseDynamicPrimitiveRange(Dynamic); });
             FlushRenderingCommands(); Run(false);
             Add(4); Run(true); Run(false);
 			Scene.Reset();

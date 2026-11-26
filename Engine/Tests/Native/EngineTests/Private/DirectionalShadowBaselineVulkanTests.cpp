@@ -123,13 +123,6 @@ namespace
 					static_cast<double>(Samples.size()) * 0.95)) - 1u)]};
 	}
 
-	struct FShadowBaselineCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ShadowBaselineCapture";
-		}
-	};
 
 	template<typename TCapture>
 	void CaptureReadyShadowFrame(Durin::FRendererModule& Renderer, TCapture Capture, std::optional<uint64> FrameNumber = {})
@@ -141,7 +134,7 @@ namespace
 		do
 		{
 			FAssetCompilingManager::Get().ProcessAsyncTasks();
-			EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate& Commands) {
 				if (FrameNumber) GRenderFrameCounterRenderThread = *FrameNumber;
 				else ++GRenderFrameCounterRenderThread;
 				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
@@ -760,7 +753,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 
 	auto Quad = MakeQuadRenderData();
 	auto Box = MakeBoxRenderData();
-	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+	Durin::EnqueueRenderCommand("ShadowBaselineCapture",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			ASSERT_TRUE(Quad->InitResources(CommandList));
 			ASSERT_TRUE(Box->InitResources(CommandList));
@@ -1387,7 +1380,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	Durin::SetSceneRenderGraphCaptureSink(nullptr);
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	RendererLifecycle.Shutdown();
-	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+	Durin::EnqueueRenderCommand("ShadowBaselineCapture",
 		[&](Durin::FRHICommandListImmediate&) { Box->ReleaseResources(); Quad->ReleaseResources(); }
 	);
 	Durin::FlushRenderingCommands();
@@ -1557,7 +1550,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 		{{-1, -1, 0}, {-0.5f, -1, 0}, {-0.5f, 1, 0}, {-1, 1, 0}});
 	Wall->LODResources.push_back(std::move(NarrowLOD));
 	Wall->LODVertexFactories.resize(Wall->LODResources.size());
-	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate& Commands) {
 		ASSERT_TRUE(Quad->InitResources(Commands));
 		ASSERT_TRUE(Wall->InitResources(Commands));
 	});
@@ -1602,7 +1595,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 		auto CullingFailure = EGPUCullingFailure::None;
 		// Hold render-frame age fixed across resource preparation retries.
 		uint64 FrameNumber = 0;
-		EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) { FrameNumber = GRenderFrameCounterRenderThread; });
+		EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate&) { FrameNumber = GRenderFrameCounterRenderThread; });
 		FlushRenderingCommands();
 		auto Frame = [&] {
 			FByteBuffer Pixels;
@@ -1697,7 +1690,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 			Options.bEnableOcclusionHistory = true;
 		}
 
-		EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate& Commands) {
 			CheckDelayedOcclusionFeedback(Commands, *Scene, View);
 			CheckOcclusionHistoryBudget(Commands, *Scene, View);
 		});
@@ -1716,7 +1709,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 		CheckChange("out-of-range uniform publication invalidates ready history", [&] {
 			const FGuid BaseColor = AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
 				AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value;
-			EnqueueRenderCommand<FShadowBaselineCommand>([&, BaseColor](FRHICommandListImmediate&) {
+			EnqueueRenderCommand("ShadowBaselineCapture", [&, BaseColor](FRHICommandListImmediate&) {
 				const uint64 Revision = Scene->GetOcclusionRevision_RenderThread();
 				WallMaterial->UpdateParameter_RenderThread(BaseColor,
 					FMaterialParameterValue::MakeVector(FVector3(std::numeric_limits<double>::max())));
@@ -1727,7 +1720,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 		});
 		auto ReadWallPublication = [&] {
 			std::pair<FGPUScenePrimitiveHandle, FBox> Result;
-			EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) {
+			EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate&) {
 				const auto& Infos = Scene->GetPrimitiveSceneInfos();
 				const auto Found = std::ranges::find_if(Infos, [](const auto* Info) { return Info->GetId().Value == 1u; });
 				ASSERT_NE(Found, Infos.end());
@@ -1747,7 +1740,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 			});
 		};
 		std::shared_ptr<const FMaterialProgram> WallProgram, TranslucentProgram;
-		EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate&) {
 			WallProgram = WallMaterial->GetMaterialWithFallback().CompiledProgram;
 			TranslucentProgram = Translucent->GetMaterialWithFallback().CompiledProgram;
 		});
@@ -1766,7 +1759,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 		PublishWallMaterial(EMaterialBlendMode::Opaque, WallProgram);
 
 		auto SetWallLODReady = [&](bool bReady) {
-			EnqueueRenderCommand<FShadowBaselineCommand>([&, bReady](FRHICommandListImmediate&) {
+			EnqueueRenderCommand("ShadowBaselineCapture", [&, bReady](FRHICommandListImmediate&) {
 				Wall->SetLODReady_RenderThread(0, bReady);
 			});
 			FlushRenderingCommands();
@@ -1798,7 +1791,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 		CheckChange("cut on a rejected submission", [&] {
 			auto Cut = View;
 			Cut.bDiscardHistory = true;
-			EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate& Commands) {
 				EXPECT_EQ(Renderer.RenderView(Commands, {Scene, Cut, nullptr, false, Options}), ERenderViewResult::InvalidOutput);
 			});
 			FlushRenderingCommands();
@@ -1972,7 +1965,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 	}
 	SetViewRenderTelemetrySink(nullptr);
 	Lifecycle.Shutdown();
-	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) {
+	EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate&) {
 		Wall->ReleaseResources();
 		Quad->ReleaseResources();
 	});
@@ -2000,7 +1993,7 @@ static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 	Durin::SetViewRenderTelemetrySink(CaptureTelemetry);
 
 	auto Quad = bBoxes ? MakeBoxRenderData() : MakeQuadRenderData();
-	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+	Durin::EnqueueRenderCommand("ShadowBaselineCapture",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			ASSERT_TRUE(Quad->InitResources(CommandList));
 		});
@@ -2047,7 +2040,7 @@ static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 		auto Profile = std::make_shared<FProfile>();
 		GPreparationTimingQueries = &Profile->Queries;
 		Durin::SetShadowDepthTimingQuerySink(CapturePreparationTiming);
-		Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+		Durin::EnqueueRenderCommand("ShadowBaselineCapture",
 			[&Renderer, &Scene, Candidate, Profile](
 				Durin::FRHICommandListImmediate& CommandList) {
 				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
@@ -2113,7 +2106,7 @@ static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 			if (std::ranges::all_of(Profile->Queries, [](const auto& Query) {
 				return Query->GetResult().State == Durin::ERHIGPUTimingResultState::Ready;
 			})) break;
-			Durin::EnqueueRenderCommand<FShadowBaselineCommand>([](Durin::FRHICommandListImmediate& Commands) {
+			Durin::EnqueueRenderCommand("ShadowBaselineCapture", [](Durin::FRHICommandListImmediate& Commands) {
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(Commands);
@@ -2205,7 +2198,7 @@ static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	SceneOwner.Reset();
 	RendererLifecycle.Shutdown();
-	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+	Durin::EnqueueRenderCommand("ShadowBaselineCapture",
 		[&](Durin::FRHICommandListImmediate&) { Quad->ReleaseResources(); });
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
@@ -2234,7 +2227,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ProfilesOccludedAndExposedMainViews)
 	Lifecycle.Start(Renderer);
 	SetViewRenderTelemetrySink(CaptureTelemetry);
 	auto Quad = MakeQuadRenderData();
-	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) { ASSERT_TRUE(Quad->InitResources(Commands)); });
+	EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate& Commands) { ASSERT_TRUE(Quad->InitResources(Commands)); });
 	FlushRenderingCommands();
 	{
 		const auto Material = MakeMaterial(EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72});
@@ -2256,7 +2249,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ProfilesOccludedAndExposedMainViews)
 			PublishLightForTest<FDirectionalLightSceneProxy>(Scene, FLightComponentId(1), Light);
 			auto State = Renderer.CreateViewState();
 			FlushRenderingCommands();
-			EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate& Commands) {
 				FSceneView View;
 				View.ViewStateId = State.GetId();
 				View.ProjectionMatrix[2][2] = -1;
@@ -2374,7 +2367,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ProfilesOccludedAndExposedMainViews)
 	}
 	SetViewRenderTelemetrySink(nullptr);
 	Lifecycle.Shutdown();
-	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) { Quad->ReleaseResources(); });
+	EnqueueRenderCommand("ShadowBaselineCapture", [&](FRHICommandListImmediate&) { Quad->ReleaseResources(); });
 	FlushRenderingCommands();
 	ShutdownRenderingThread();
 	RHIExit();
@@ -2410,7 +2403,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Durin::SetViewRenderTelemetrySink(CaptureTelemetry);
 
 	auto Quad = MakeQuadRenderData();
-	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+	Durin::EnqueueRenderCommand("ShadowBaselineCapture",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			ASSERT_TRUE(Quad->InitResources(CommandList));
 		}
@@ -3570,7 +3563,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	SceneOwner.Reset();
 	RendererLifecycle.Shutdown();
-	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+	Durin::EnqueueRenderCommand("ShadowBaselineCapture",
 		[&](Durin::FRHICommandListImmediate&) { Quad->ReleaseResources(); }
 	);
 	Durin::FlushRenderingCommands();

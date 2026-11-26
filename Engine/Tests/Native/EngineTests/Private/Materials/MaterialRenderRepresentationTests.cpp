@@ -284,14 +284,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	EXPECT_EQ(First.GetReference(), Second.GetReference());
 
 	Durin::FMaterialRenderData Resolved;
-	struct FCaptureDefaultMaterialCommand
-	{
-		static constexpr const char* GetName()
-		{
-			return "CaptureDefaultMaterial";
-		}
-	};
-	Durin::EnqueueRenderCommand<FCaptureDefaultMaterialCommand>(
+	Durin::EnqueueRenderCommand("CaptureDefaultMaterial",
 		[First, &Resolved](Durin::FRHICommandListImmediate&) {
 			Resolved = First->GetMaterialWithFallback();
 		});
@@ -375,14 +368,7 @@ TEST(FErrorMaterialTests, MissingStructuralProxyUsesErrorWithoutAssetLookup)
 		!Durin::IsRenderingThreadRunning();
 	if (bOwnsRenderingThread) Durin::InitRenderingThread();
 	Durin::FMaterialRenderData Resolved;
-	struct FCaptureMissingProxyErrorCommand
-	{
-		static constexpr const char* GetName()
-		{
-			return "CaptureMissingProxyError";
-		}
-	};
-	Durin::EnqueueRenderCommand<FCaptureMissingProxyErrorCommand>(
+	Durin::EnqueueRenderCommand("CaptureMissingProxyError",
 		[&Resolved](Durin::FRHICommandListImmediate&) {
 			Resolved = Durin::QueryMeshMaterial_RenderThread({});
 		});

@@ -173,8 +173,7 @@ float4 FragmentMain() : SV_Target
 			ASSERT_TRUE(GDynamicRHI->RHIGetQueueCapabilities().bIndependentCompute);
 			InitRenderingThread();
 			Scope.bRendering = true;
-			struct FPoolTestCommand { static constexpr auto GetName() -> const char* { return "AsyncPoolReuseTest"; } };
-			EnqueueRenderCommand<FPoolTestCommand>([](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("AsyncPoolReuseTest", [](FRHICommandListImmediate& Commands) {
 				FRendererResourceCoordinator Coordinator;
 				FRendererRDGAllocator Allocator(Coordinator);
 				auto Record = [&](bool bFailRecording = false) {
@@ -278,16 +277,9 @@ float4 FragmentMain() : SV_Target
 		FRendererResourceCoordinator OwnershipCoordinator;
 		std::vector<std::string> OwnershipEvents;
 		FRendererResourceInvalidationSnapshot OwnershipSnapshot;
-		struct FValidateCoordinatorOwnership
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "ValidateCoordinatorOwnership";
-			}
-		};
 		const uint64 PreviousShaderReloadGeneration =
 			GetShaderReloadGeneration();
-		EnqueueRenderCommand<FValidateCoordinatorOwnership>(
+		EnqueueRenderCommand("ValidateCoordinatorOwnership",
 			[&OwnershipCoordinator, &OwnershipEvents, &OwnershipSnapshot](
 				FRHICommandListImmediate&) {
 				const FRendererResourceInvalidationTargets Targets{
@@ -339,14 +331,7 @@ float4 FragmentMain() : SV_Target
 		EXPECT_TRUE(std::ranges::equal(
 			OwnershipEvents, ExpectedOwnershipEvents));
 
-		struct FBeginReloadValidationFrame
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "BeginReloadValidationFrame";
-			}
-		};
-		EnqueueRenderCommand<FBeginReloadValidationFrame>(
+		EnqueueRenderCommand("BeginReloadValidationFrame",
 			[](FRHICommandListImmediate& CommandList) {
 				CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -371,14 +356,7 @@ float4 FragmentMain() : SV_Target
 		};
 		auto ResolveOnce = [&]() {
 			auto Observation = std::make_shared<FResolveObservation>();
-			struct FResolveReloadValidationResource
-			{
-				static constexpr auto GetName() -> const char*
-				{
-					return "ResolveReloadValidationResource";
-				}
-			};
-			EnqueueRenderCommand<FResolveReloadValidationResource>(
+			EnqueueRenderCommand("ResolveReloadValidationResource",
 				[&Renderer, &Slot, &Diagnostics, &Attempts, &ForceFlags, Observation](
 					FRHICommandListImmediate&) {
 					Observation->Snapshot =
@@ -501,14 +479,7 @@ float4 FragmentMain() : SV_Target
 		auto RenderPipeline =
 			[](auto PipelineState) {
 				auto Pixels = std::make_shared<Durin::FByteBuffer>();
-				struct FRenderReloadValidationResource
-				{
-					static constexpr auto GetName() -> const char*
-					{
-						return "RenderReloadValidationResource";
-					}
-				};
-				EnqueueRenderCommand<FRenderReloadValidationResource>(
+				EnqueueRenderCommand("RenderReloadValidationResource",
 					[PipelineState = std::move(PipelineState), Pixels](
 						FRHICommandListImmediate& CommandList) {
 						FRHITextureCreateDesc ColorDesc =
@@ -702,8 +673,7 @@ float4 FragmentMain() : SV_Target
 
 		FGraphicsPipelineStateInitializer PreparedPipeline;
 		FGraphicsPipelineStateRef PrewarmRequest;
-		struct FPrewarmReloadPipeline { static constexpr auto GetName() -> const char* { return "PrewarmReloadPipeline"; } };
-		EnqueueRenderCommand<FPrewarmReloadPipeline>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("PrewarmReloadPipeline", [&](FRHICommandListImmediate&) {
 			PreparedPipeline.RenderTargetLayout = MakeReloadRenderTargetLayout();
 			PreparedPipeline.BoundShaders = {Forced->Payload->VertexShader.GetRHIShader(), Forced->Payload->FragmentShader.GetRHIShader()};
 			PreparedPipeline.VertexDeclaration = Forced->Payload->VertexDeclaration;
@@ -721,14 +691,7 @@ float4 FragmentMain() : SV_Target
 		PrewarmRequest.reset();
 		PreparedPipeline = {};
 
-		struct FReleaseReloadValidationResource
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "ReleaseReloadValidationResource";
-			}
-		};
-		EnqueueRenderCommand<FReleaseReloadValidationResource>(
+		EnqueueRenderCommand("ReleaseReloadValidationResource",
 			[&Slot](FRHICommandListImmediate& CommandList) {
 				Slot.Reset();
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);

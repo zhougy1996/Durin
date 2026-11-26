@@ -26,10 +26,6 @@ namespace Durin
 	{
 		constexpr int32 CaptureSize = 256;
 		const FVector3 SurfaceColor{0.25, 0.5, 0.75};
-		struct FMaterialMeasurementCommand
-		{
-			static constexpr auto GetName() -> const char* { return "MaterialCreationMeasurement"; }
-		};
 
 		auto MakeMeasurementMesh() -> std::unique_ptr<FStaticMeshRenderData>
 		{
@@ -70,7 +66,7 @@ namespace Durin
 				if (bRendererStarted) RendererLifecycle.Shutdown();
 				if (bRenderingThreadStarted)
 				{
-					EnqueueRenderCommand<FMaterialMeasurementCommand>([this](FRHICommandListImmediate&) {
+					EnqueueRenderCommand("MaterialCreationMeasurement", [this](FRHICommandListImmediate&) {
 						Target = nullptr;
 						if (Mesh) Mesh->ReleaseResources();
 					});
@@ -146,7 +142,7 @@ namespace Durin
 			InitRenderingThread(); Life.bRenderingThreadStarted = true;
 			Life.RendererLifecycle.Start(Life.Renderer); Life.bRendererStarted = true;
 			Life.Mesh = MakeMeasurementMesh();
-			EnqueueRenderCommand<FMaterialMeasurementCommand>([&](FRHICommandListImmediate& Cmd) {
+			EnqueueRenderCommand("MaterialCreationMeasurement", [&](FRHICommandListImmediate& Cmd) {
 				ASSERT_TRUE(Life.Mesh->InitResources(Cmd));
 				auto Desc = FRHITextureCreateDesc::Create2D("MaterialFirstUse", CaptureSize, CaptureSize,
 					EPixelFormat::SRGBA8_UNORM).SetFlags(ETextureCreateFlags::RenderTargetable
@@ -197,7 +193,7 @@ namespace Durin
 				const auto CacheBefore = GDynamicRHI->RHIGetPipelineCacheStatistics();
 				FCreationMemorySampler MemorySampler;
 				const auto ProducerStart = VulkanCreationTimestamp();
-				EnqueueRenderCommand<FMaterialMeasurementCommand>([&](FRHICommandListImmediate& Cmd) {
+				EnqueueRenderCommand("MaterialCreationMeasurement", [&](FRHICommandListImmediate& Cmd) {
 					RenderTimes[0] = VulkanCreationTimestamp();
 					FSceneView View;
 					View.ViewMatrix = FMatrix(1);
@@ -242,7 +238,7 @@ namespace Durin
 				if (Frame == 0 || Frame == 120)
 				{
 					FByteBuffer Pixels;
-					EnqueueRenderCommand<FMaterialMeasurementCommand>([&](FRHICommandListImmediate& Cmd) {
+					EnqueueRenderCommand("MaterialCreationMeasurement", [&](FRHICommandListImmediate& Cmd) {
 						ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd, Life.Target, 0, 0, Pixels));
 					});
 					FlushRenderingCommands();

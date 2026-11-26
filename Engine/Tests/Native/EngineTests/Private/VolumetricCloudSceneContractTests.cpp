@@ -35,20 +35,6 @@ namespace
 		}
 		auto ResetScene() -> void { Durin::FSceneInterfaceTestAccess::ReleaseScene(MainScene); }
 	};
-	struct FObserveVolumetricCloud
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ObserveVolumetricCloud";
-		}
-	};
-	struct FMakeCloudTexturesReady
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "MakeCloudTexturesReady";
-		}
-	};
 
 	struct FCloudObservation
 	{
@@ -81,7 +67,7 @@ namespace
 	{
 		const auto& Scene = static_cast<const Durin::FScene&>(SceneInterface);
 		auto Result = std::make_shared<FCloudObservation>();
-		Durin::EnqueueRenderCommand<FObserveVolumetricCloud>(
+		Durin::EnqueueRenderCommand("ObserveVolumetricCloud",
 			[&Scene, Result](Durin::FRHICommandListImmediate&) {
 				Result->bHasActive =
 					Scene.GetActiveVolumetricCloud_RenderThread(Result->Active);
@@ -358,7 +344,7 @@ TEST(FVolumetricCloudSceneContractTests,
 
 	Durin::FTextureRHIRef BaseTexture(new FDeferredReadyCloudTexture());
 	Durin::FTextureRHIRef DetailTexture(new FDeferredReadyCloudTexture());
-	Durin::EnqueueRenderCommand<FMakeCloudTexturesReady>(
+	Durin::EnqueueRenderCommand("MakeCloudTexturesReady",
 		[&BaseReference, &DetailReference, BaseTexture, DetailTexture](
 			Durin::FRHICommandListImmediate&) {
 			BaseReference.SetReferencedTexture_RenderThread(BaseTexture);

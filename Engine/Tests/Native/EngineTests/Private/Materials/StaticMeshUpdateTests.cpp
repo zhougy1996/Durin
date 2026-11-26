@@ -38,11 +38,7 @@ namespace
 	auto CapturePrimitiveCount(Durin::FScene* Scene) -> size_t
 	{
 		size_t Count = 0;
-		struct FCapturePrimitiveCountCommand
-		{
-			static constexpr auto GetName() -> const char* { return "CapturePrimitiveCount"; }
-		};
-		Durin::EnqueueRenderCommand<FCapturePrimitiveCountCommand>(
+		Durin::EnqueueRenderCommand("CapturePrimitiveCount",
 			[Scene, &Count](Durin::FRHICommandListImmediate&) {
 				Count = Scene->GetPrimitiveSceneInfos().size();
 			});

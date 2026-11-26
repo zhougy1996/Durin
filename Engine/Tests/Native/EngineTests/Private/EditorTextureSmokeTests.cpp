@@ -187,14 +187,7 @@ namespace Durin
 			ASSERT_NE(StaticMeshProxy, nullptr);
 			EXPECT_NE(StaticMeshProxy->GetRenderData(), nullptr);
 			FRHITextureReferenceRef BoundTexture;
-			struct FCaptureMixedV4Texture
-			{
-				static constexpr auto GetName() -> const char*
-				{
-					return "CaptureMixedV4Texture";
-				}
-			};
-			EnqueueRenderCommand<FCaptureMixedV4Texture>(
+			EnqueueRenderCommand("CaptureMixedV4Texture",
 				[StaticMeshProxy, &BoundTexture](FRHICommandListImmediate&) {
 					const auto& SlotProxy = StaticMeshProxy->GetMaterialRenderProxy(0);
 					ASSERT_TRUE(SlotProxy);
@@ -311,14 +304,7 @@ namespace Durin
 			LOD.GetNumVertices());
 		auto CaptureMaterialTextureReference = [StaticMeshProxy]() {
 			FRHITextureReferenceRef Result;
-			struct FCaptureEditorTextureMaterialReference
-			{
-				static constexpr auto GetName() -> const char*
-				{
-					return "CaptureEditorTextureMaterialReference";
-				}
-			};
-			EnqueueRenderCommand<FCaptureEditorTextureMaterialReference>(
+			EnqueueRenderCommand("CaptureEditorTextureMaterialReference",
 				[StaticMeshProxy, &Result](FRHICommandListImmediate&) {
 					const auto& SlotProxy = StaticMeshProxy->GetMaterialRenderProxy(0);
 					ASSERT_TRUE(SlotProxy);

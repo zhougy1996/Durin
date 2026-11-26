@@ -141,11 +141,7 @@ namespace
 			ASSERT_TRUE(Durin::InitializeDefaultMaterialService());
 			Engine.SetTestRendererModule(&Renderer);
 			Durin::GEngine = &Engine;
-			struct FBeginThumbnailFrame
-			{
-				static constexpr auto GetName() -> const char* { return "BeginThumbnailFrame"; }
-			};
-			Durin::EnqueueRenderCommand<FBeginThumbnailFrame>([](Durin::FRHICommandListImmediate& List) {
+			Durin::EnqueueRenderCommand("BeginThumbnailFrame", [](Durin::FRHICommandListImmediate& List) {
 				List.SwitchPipeline(Durin::ERHIPipeline::Graphics);
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(List);
 			});
@@ -175,11 +171,7 @@ namespace
 			ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Renderer/ThumbnailStudioCube", Studio));
 			(void)Durin::UnloadPackage(Studio, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-			struct FEndThumbnailFrame
-			{
-				static constexpr auto GetName() -> const char* { return "EndThumbnailFrame"; }
-			};
-			Durin::EnqueueRenderCommand<FEndThumbnailFrame>([](Durin::FRHICommandListImmediate& List) {
+			Durin::EnqueueRenderCommand("EndThumbnailFrame", [](Durin::FRHICommandListImmediate& List) {
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(List);
 			});
 			Durin::FlushRenderingCommands();
@@ -872,15 +864,8 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 
 	Durin::FTextureRHIRef OriginalCubeTarget;
 
-	struct FRestoreThumbnailEnvironment
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "RestoreThumbnailEnvironment";
-		}
-	};
 	auto RestoreCubeTarget = [&] {
-		Durin::EnqueueRenderCommand<FRestoreThumbnailEnvironment>(
+		Durin::EnqueueRenderCommand("RestoreThumbnailEnvironment",
 			[Reference = CaptureCubeReference, OriginalCubeTarget](
 				Durin::FRHICommandListImmediate&
 			) {
@@ -893,14 +878,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	};
 
 	Pool.SetViewEnvironment(CubeEnvironment);
-	struct FClearThumbnailEnvironment
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ClearThumbnailEnvironment";
-		}
-	};
-	Durin::EnqueueRenderCommand<FClearThumbnailEnvironment>(
+	Durin::EnqueueRenderCommand("ClearThumbnailEnvironment",
 		[Reference = CaptureCubeReference, &OriginalCubeTarget](
 			Durin::FRHICommandListImmediate&
 		) {
@@ -954,15 +932,8 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 		bool bEntered = false;
 		bool bReleased = false;
 	};
-	struct FBlockThumbnailCaptureForCancellation
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "BlockThumbnailCaptureForCancellation";
-		}
-	};
 	const auto Gate = std::make_shared<FThumbnailCancellationGate>();
-	Durin::EnqueueRenderCommand<FBlockThumbnailCaptureForCancellation>(
+	Durin::EnqueueRenderCommand("BlockThumbnailCaptureForCancellation",
 		[Gate](Durin::FRHICommandListImmediate&) {
 			std::unique_lock Lock(Gate->Mutex);
 			Gate->bEntered = true;

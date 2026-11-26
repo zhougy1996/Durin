@@ -53,10 +53,6 @@ namespace
 		return Durin::FSceneInterfaceTestAccess::TryAddSkyBoxProxy(Scene, std::move(Proxy)) ? Token : nullptr;
 	}
 
-	struct FObserveSkyBoxCommand
-	{
-		static constexpr auto GetName() -> const char* { return "ObserveSkyBox"; }
-	};
 
 	struct FSkyBoxObservation
 	{
@@ -89,7 +85,7 @@ namespace
 	{
 		const auto& Scene = static_cast<const Durin::FScene&>(SceneInterface);
 		auto Result = std::make_shared<FSkyBoxObservation>();
-		Durin::EnqueueRenderCommand<FObserveSkyBoxCommand>([&Scene, Result](Durin::FRHICommandListImmediate&) {
+		Durin::EnqueueRenderCommand("ObserveSkyBox", [&Scene, Result](Durin::FRHICommandListImmediate&) {
 			Result->bHasSkyBox = Scene.GetSkyBox_RenderThread(Result->Data);
 			Result->Count = Scene.GetSkyBoxCount_RenderThread();
 		});

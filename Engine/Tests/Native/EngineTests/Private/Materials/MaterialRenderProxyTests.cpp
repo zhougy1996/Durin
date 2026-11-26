@@ -53,14 +53,7 @@ namespace
 	) -> FMaterialProxySnapshot
 	{
 		FMaterialProxySnapshot Snapshot;
-		struct FCaptureMaterialRenderProxyCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "CaptureMaterialRenderProxy";
-			}
-		};
-		Durin::EnqueueRenderCommand<FCaptureMaterialRenderProxyCommand>(
+		Durin::EnqueueRenderCommand("CaptureMaterialRenderProxy",
 			[Proxy, &Snapshot, bResolve](
 				Durin::FRHICommandListImmediate&) {
 				if (bResolve)
@@ -155,8 +148,7 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 	Layer.CompiledProgram = Program;
 	Layer.StaticProperties = FMaterialStaticProperties{};
 	FMaterialRenderProxyRef Proxy = new FMaterialRenderProxy;
-	struct FCheck { static constexpr auto GetName() -> const char* { return "PreboundMaterialFields"; } };
-	EnqueueRenderCommand<FCheck>([&](FRHICommandListImmediate&) {
+	EnqueueRenderCommand("PreboundMaterialFields", [&](FRHICommandListImmediate&) {
 		const auto Before = GetMaterialRenderProxyCounters();
 		std::shared_ptr<const FUniformExpressionCache> Publisher;
 		for (uint64 Version = 1; Version <= 3; ++Version)
@@ -720,14 +712,7 @@ TEST(FMaterialRenderProxyTests, OrderedPublicationsShareOnlyLazyResolution)
 	auto AllowCommandCompletion = std::make_shared<std::promise<void>>();
 	std::shared_future<void> AllowCommandCompletionFuture =
 		AllowCommandCompletion->get_future().share();
-	struct FBlockMaterialPublicationCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "BlockMaterialPublication";
-		}
-	};
-	Durin::EnqueueRenderCommand<FBlockMaterialPublicationCommand>(
+	Durin::EnqueueRenderCommand("BlockMaterialPublication",
 		[CommandStarted, AllowCommandCompletionFuture](
 			Durin::FRHICommandListImmediate&) {
 			CommandStarted->set_value();
@@ -950,15 +935,7 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 	constexpr uint32 UnrelatedMaterialCount = 1;
 	auto CapturePrimitiveCount = [&Harness]() -> size_t {
 		size_t Count = 0;
-		struct FCaptureMaterialInterleavedPrimitiveCountCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "CaptureMaterialInterleavedPrimitiveCount";
-			}
-		};
-		Durin::EnqueueRenderCommand<
-			FCaptureMaterialInterleavedPrimitiveCountCommand>(
+		Durin::EnqueueRenderCommand("CaptureMaterialInterleavedPrimitiveCount",
 			[&Count, Scene = Harness.Scene](
 				Durin::FRHICommandListImmediate&) {
 				Count = Scene->GetPrimitiveSceneInfos().size();
@@ -1087,14 +1064,7 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 	const auto AllowCommandCompletion = std::make_shared<std::promise<void>>();
 	std::shared_future<void> AllowCommandCompletionFuture =
 		AllowCommandCompletion->get_future().share();
-	struct FBlockMaterialInterleavedCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "BlockMaterialInterleavedPublication";
-		}
-	};
-	Durin::EnqueueRenderCommand<FBlockMaterialInterleavedCommand>(
+	Durin::EnqueueRenderCommand("BlockMaterialInterleavedPublication",
 		[CommandStarted, AllowCommandCompletionFuture](
 			Durin::FRHICommandListImmediate&) {
 			CommandStarted->set_value();

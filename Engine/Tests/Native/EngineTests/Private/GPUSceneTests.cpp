@@ -203,7 +203,6 @@ namespace
 		FRHICommandListExecutor Executor{Backend};
 		std::unique_ptr<FSceneTestOwner> Scene;
 		bool bStartedScheduler = false;
-		struct FTestCommand { static constexpr auto GetName() -> const char* { return "GPUSceneTest"; } };
 		auto SetUp() -> void override
 		{
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -216,7 +215,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			Scene.reset();
-			EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { Allocator.Release_RenderThread(); RHIFlushDeferredResources(); });
+			EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) { Allocator.Release_RenderThread(); RHIFlushDeferredResources(); });
 			FlushRenderingCommands();
 			GDynamicRHI = Previous;
 			ShutdownRenderingThread();
@@ -242,13 +241,13 @@ namespace
 		auto Info(uint32 Index = 0) -> FPrimitiveSceneInfo& { return *(*Scene)->GetPrimitiveSceneInfos()[Index]; }
 		auto Dirty(EGPUSceneDirtyState Value) -> void
 		{
-			EnqueueRenderCommand<FTestCommand>([&, Value](FRHICommandListImmediate&) { Info().RequestGPUSceneUpdate(Value); });
+			EnqueueRenderCommand("GPUSceneTest", [&, Value](FRHICommandListImmediate&) { Info().RequestGPUSceneUpdate(Value); });
 			FlushRenderingCommands();
 		}
 		auto Request(FGPUScenePrimitiveHandle Handle, EGPUSceneDirtyState Value) -> bool
 		{
 			bool Accepted = false;
-			EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+			EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 				auto& GPU = *(*Scene)->GPUScene;
 				Accepted = GPU.ResolvePrimitive(Handle) && GPU.AddPrimitiveToUpdate(Handle.PersistentPrimitiveIndex, Value);
 			});
@@ -257,7 +256,7 @@ namespace
 		auto Run() -> FGPUSceneUpdateResult
 		{
 			FGPUSceneUpdateResult Result;
-			EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+			EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			FRDGBuilder Graph;
 			Graph.EnablePassCulling();
 			Result = (*Scene)->GPUScene->Update(Graph);
@@ -321,7 +320,7 @@ namespace
 		Add(1); Add(2, Sources({})); Add(3, Sources({30, 10, 20}));
 		const auto Uploaded = Run();
         EXPECT_GT(Uploaded.UploadBytes, 0u);
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             const auto Stats = (*Scene)->GPUScene->GetStatistics();
             EXPECT_EQ(Stats.UploadBytes, Uploaded.UploadBytes);
             EXPECT_EQ(Stats.UploadRanges, Uploaded.UploadRanges);
@@ -345,7 +344,7 @@ namespace
 		for (uint64 Index = 2; Index <= 64; ++Index) Add(Index);
 		Run();
 		FGPUSceneStatistics Before;
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { Before = (*Scene)->GPUScene->GetStatistics(); });
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) { Before = (*Scene)->GPUScene->GetStatistics(); });
 		FlushRenderingCommands();
 		auto Changed = Sources({10, 20}); Changed->Instances[1].CustomData.Values[3] = 42.f;
 		Target->Source = Changed;
@@ -354,7 +353,7 @@ namespace
 		EXPECT_EQ(Patch.UploadBytes, sizeof(FPrimitiveCustomData));
 		EXPECT_EQ(Patch.UploadRanges, 1u);
 		EXPECT_FLOAT_EQ((*Scene)->GPUScene->GetInstancePayloadData()[Info().InstanceSceneDataOffset + 1].Values[3], 42.f);
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			auto& GPU = *(*Scene)->GPUScene;
 			EXPECT_EQ(GPU.GetStatistics().CPUPrimitiveUpdateVisits, Before.CPUPrimitiveUpdateVisits + 1);
 			for (uint32 Index = 0; Index < 16; ++Index) { GPU.UpdateCPUData(); EXPECT_FALSE(GPU.IsDirty()); }
@@ -385,7 +384,7 @@ namespace
 	TEST_F(FGPUSceneTests, GraphRegistrationUsesCommittedGenerationOutsideUpdateAndAcrossAbandonment)
 	{
 		Add(1); Run();
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			auto& GPU = *(*Scene)->GPUScene;
 			const auto OldBuffers = GPU.GetResourceBuffers();
 			FRDGBuilder FirstGraph, SecondGraph;
@@ -430,7 +429,7 @@ namespace
 	TEST_F(FGPUSceneTests, ReusedBuilderAddressDoesNotExposeAbandonedUpdateHandles)
 	{
 		Add(1); Run();
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			auto& GPU = *(*Scene)->GPUScene;
 			const auto Generation = GPU.GetResourceGeneration();
 			const auto Allocation = GPU.AllocateDynamicPrimitiveRange(32);
@@ -460,7 +459,7 @@ namespace
 
 	TEST_F(FGPUSceneTests, TypedReadParametersShareSceneAttributesAndValidateExternalContracts)
 	{
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			auto MakeBuffer = [] { return MakeRefCount<FSceneBuffer>(FRHIBufferCreateDesc::Create("SceneRead", 64, 4,
 				EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::DestinationCopy)); };
 			auto Set = std::make_shared<FGPUSceneBufferSet>();
@@ -495,7 +494,7 @@ namespace
 	TEST_F(FGPUSceneTests, DirectIdsReusePersistentBuffersAndDynamicFactsOwnTheirStorage)
 	{
 		Add(1); Run();
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			FPreparedStaticMeshView Prepared;
 			FPreparedStaticMeshPrimitive Primitive;
 			Primitive.PrimitiveId = FPrimitiveComponentId{1}; Primitive.BatchId = 901;
@@ -545,7 +544,7 @@ namespace
 	TEST_F(FGPUSceneTests, SubmissionCollectorUsesExplicitRecordsAndPreservesEarlierSnapshots)
 	{
 		Add(1); Run();
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			auto& Commands = Executor.GetImmediateCommandList();
 			auto GPU = (*Scene)->GPUScene;
 			auto Context = std::make_shared<FGPUSceneDynamicContext>(GPU);
@@ -605,7 +604,7 @@ namespace
     TEST_F(FGPUSceneTests, GenericCollectorBatchesMixedSourcesAndBuffersOwnTheContext)
     {
         Add(1); Run();
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             auto Context = std::make_shared<FGPUSceneDynamicContext>((*Scene)->GPUScene);
             std::weak_ptr<FGPUSceneDynamicContext> Lifetime = Context;
             FGPUScenePrimitiveData First, Persistent, Shared;
@@ -643,7 +642,7 @@ namespace
     TEST_F(FGPUSceneTests, GenericCollectorRejectsInvalidPublicationBeforeAllocating)
     {
         Add(1); Run();
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             auto GPU = (*Scene)->GPUScene;
             auto Context = std::make_shared<FGPUSceneDynamicContext>(GPU);
             const auto Before = GPU->GetInstanceSceneData().size();
@@ -668,7 +667,7 @@ namespace
         std::shared_ptr<FGPUSceneDynamicContext> Context;
         std::unique_ptr<FGPUScenePrimitiveCollector> Collector;
         const auto Old = Info().GPUSceneHandle;
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             Context = std::make_shared<FGPUSceneDynamicContext>((*Scene)->GPUScene);
             Collector = std::make_unique<FGPUScenePrimitiveCollector>(Context);
             Collector->Add(Old.PersistentPrimitiveIndex, FPrimitiveInstanceId{});
@@ -678,7 +677,7 @@ namespace
         FlushRenderingCommands(); Add(2); Run();
         ASSERT_EQ(Info().GetPersistentIndex(), Old.PersistentPrimitiveIndex);
         EXPECT_NE(Info().GPUSceneHandle.Generation, Old.Generation);
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             EXPECT_EQ(Context->GetGPUScene().GetPrimitiveSceneInfo(Old.PersistentPrimitiveIndex), &Info());
             EXPECT_FALSE(Collector->Commit());
             EXPECT_TRUE(Context->Upload(Executor.GetImmediateCommandList(), Allocator));
@@ -690,7 +689,7 @@ namespace
     TEST_F(FGPUSceneTests, ParallelMeshPassDispatchAggregatesSourcesAndValidatesRanges)
     {
         using namespace RendererPrivate;
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             FMeshCommandOneFrameArray Commands(2);
             Commands[0].NumSourceDraws = 64; Commands[0].SourceDrawIndex = 10;
             Commands[1].NumSourceDraws = 3; Commands[1].SourceDrawIndex = 42;
@@ -754,7 +753,7 @@ namespace
         Description.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
         auto Key = BuildGraphicsPipelineStateKey(Description, &Capabilities);
         ASSERT_TRUE(Key) << ToString(Key.error());
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             constexpr uint32 Count = 513;
             const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
             FMeshPassPipelineInitializer Initializer;
@@ -807,7 +806,7 @@ namespace
     TEST_F(FGPUSceneTests, ParallelRecordingGroupHonorsPrerequisites)
     {
         using namespace RendererPrivate;
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             FRHICommandList Parent; Parent.SwitchPipeline(ERHIPipeline::Graphics); Parent.BeginRenderPass({}, "Prerequisites");
             const auto Before = Parent.GetNumRecordedCommands();
             FParallelCommandListSet Set(FSceneView{}, Parent);
@@ -829,7 +828,7 @@ namespace
     TEST_F(FGPUSceneTests, ParallelRecordingFailureDoesNotInsertSuccessfulSiblings)
     {
         using namespace RendererPrivate;
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             FRHICommandList Parent; Parent.SwitchPipeline(ERHIPipeline::Graphics); Parent.BeginRenderPass({}, "FailedGroup");
             const auto Before = Parent.GetNumRecordedCommands();
             FParallelCommandListSet Set(FSceneView{}, Parent);
@@ -846,7 +845,7 @@ namespace
 
     TEST_F(FGPUSceneTests, CullingDrawParametersResolveDeclaredRangesAndOffsetsOnce)
     {
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate& Commands) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate& Commands) {
             auto Ids = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("Ids", 128, 4, EBufferUsageFlags::StructuredBuffer));
             auto Arguments = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("Args", 128, 4, EBufferUsageFlags::DrawIndirect));
             FRDGBuilder Graph;
@@ -869,7 +868,7 @@ namespace
         TEST_F(FGPUSceneTests, MeshDrawStatisticsKeepCPUAndGPURequestsIndependentAndCancelFailedPasses)
     {
         using namespace RendererPrivate;
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             FRDGBuilder Graph; Graph.EnablePassCulling();
             const auto Completion = Graph.CreateValue<bool>("DrawComplete", "bool");
             std::array Expected{FRHIDrawIndexedIndirectArguments{3, 0, 0, 0, 0}};
@@ -902,7 +901,7 @@ namespace
     TEST_F(FGPUSceneTests, PreparedViewRequiresOneSceneAndDirectIdDomain)
     {
         using namespace RendererPrivate;
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             FPreparedStaticMeshView Prepared; FResolvedStaticMeshView Resolved;
             Resolved.DrawCommandStorage = std::make_shared<FDynamicMeshDrawCommandStorage>();
             auto A = std::make_shared<FGPUSceneBufferSet>(); auto B = std::make_shared<FGPUSceneBufferSet>();
@@ -921,7 +920,7 @@ namespace
 
 	TEST_F(FGPUSceneTests, InstanceIdUploadsShareImmutableContentsAndProtectPendingReaders)
 	{
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			auto& Commands = Executor.GetImmediateCommandList();
 			auto GPU = CreateRenderResource<FGPUScene>();
 			auto First = std::make_shared<FGPUSceneDynamicContext>(GPU);
@@ -971,7 +970,7 @@ namespace
 			FVertexDeclarationElementList Elements;
 			auto GetElements() const -> const FVertexDeclarationElementList& override { return Elements; }
 		};
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			auto& Commands = Executor.GetImmediateCommandList();
 			FMeshPassPipelineInitializer AInitializer; AInitializer.VertexDeclaration = new FDeclaration;
 			auto A = std::make_shared<const FMeshPassPipeline>(AInitializer);
@@ -1048,7 +1047,7 @@ namespace
             FVertexDeclarationElementList Elements;
             auto GetElements() const -> const FVertexDeclarationElementList& override { return Elements; }
         };
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             auto& Commands = Executor.GetImmediateCommandList();
             FMeshPassPipeline Pipeline(FMeshPassPipelineInitializer{.VertexDeclaration = new FDeclaration});
             FMeshDrawCommand Command; Command.Pipeline = &Pipeline; Command.bFinalized = true;
@@ -1116,7 +1115,7 @@ namespace
 		private:
 			FVertexDeclarationElementList Elements;
 		};
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			FMeshPassPipelineInitializer Initializer;
 			Initializer.FactoryKey = FStaticMeshBatchBinding{}.GetFactoryKey();
 			Initializer.VertexDeclaration = new FDeclaration;
@@ -1218,7 +1217,7 @@ namespace
                 FVertexDeclarationElementList Elements;
                 auto GetElements() const -> const FVertexDeclarationElementList& override { return Elements; }
             };
-        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
             FPreparedStaticMeshView Prepared;
             FResolvedStaticMeshView Resolved;
             Resolved.DrawCommandStorage = std::make_shared<FDynamicMeshDrawCommandStorage>();
@@ -1388,7 +1387,7 @@ namespace
 	TEST_F(FGPUSceneTests, FailedAndAbandonedGraphsRetryWithoutAcknowledgingDirtyData)
 	{
 		Add(1);
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 		{
 			FRDGBuilder Graph;
 			auto Pending = (*Scene)->GPUScene->Update(Graph);
@@ -1408,7 +1407,7 @@ namespace
 		EXPECT_GT(Run().UploadBytes, 0u);
 		EXPECT_EQ(Run().UploadBytes, 0u);
 		(*Scene)->UpdatePrimitiveCustomData(FPrimitiveComponentId{1}, [] { FPrimitiveCustomData Data; Data.Values[0] = 99.f; return Data; }());
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 		{
 			FRDGBuilder Graph;
 			auto Pending = (*Scene)->GPUScene->Update(Graph);
@@ -1431,7 +1430,7 @@ namespace
 		Proxy->Source = Sources({10, 20, 30}); Dirty(EGPUSceneDirtyState::InstanceData);
 		EXPECT_GT(Run().BufferRebuilds, 0u);
 		EXPECT_EQ(Info().NumInstanceSceneDataEntries, 3u);
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { (*Scene)->GPUScene->ReleaseRHI(); });
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) { (*Scene)->GPUScene->ReleaseRHI(); });
 		FlushRenderingCommands();
 		EXPECT_EQ(Run().BufferRebuilds, 3u);
 		EXPECT_EQ(Run().UploadBytes, 0u);
@@ -1440,7 +1439,7 @@ namespace
 	TEST_F(FGPUSceneTests, AllocationRejectionRebuildsNativeStorageBeforeRetry)
 	{
 		Add(1); Run();
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			FRejectGPUSceneAllocator Reject;
 			FRDGBuilder Graph;
 			auto Pending = (*Scene)->GPUScene->Update(Graph);
@@ -1459,14 +1458,14 @@ namespace
 	{
 		Add(1); Run();
 		FPrimitiveSceneInfoRef Borrow;
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { Borrow = Info().GetSceneInfoRef(); EXPECT_EQ(Borrow.Resolve(), &Info()); });
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) { Borrow = Info().GetSceneInfoRef(); EXPECT_EQ(Borrow.Resolve(), &Info()); });
 		FlushRenderingCommands();
 		FSceneInterfaceTestAccess::RemovePrimitiveProxy(**Scene, FPrimitiveComponentId{1}); FlushRenderingCommands();
 		Add(2); Run();
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { EXPECT_TRUE(Borrow.IsSceneBound()); EXPECT_FALSE(Borrow.Resolve()); });
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) { EXPECT_TRUE(Borrow.IsSceneBound()); EXPECT_FALSE(Borrow.Resolve()); });
 		FlushRenderingCommands();
 		Scene.reset(); FlushRenderingCommands();
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { EXPECT_FALSE(Borrow.Resolve()); });
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) { EXPECT_FALSE(Borrow.Resolve()); });
 		FlushRenderingCommands();
 	}
 
@@ -1474,7 +1473,7 @@ namespace
 	{
 		Add(1); Run();
 		FGPUSceneDynamicAllocation Reused;
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			auto& GPU = *(*Scene)->GPUScene;
 			const auto Range = GPU.AllocateDynamicPrimitiveRange(2);
             auto OtherScene = CreateRenderResource<FGPUScene>();
@@ -1510,7 +1509,7 @@ namespace
 			GPU.ReleaseDynamicPrimitiveRange(InFlight); GPU.ReleaseRHI(); Backend.bCompleteImmediately = true;
 		});
 		FlushRenderingCommands(); EXPECT_EQ(Run().BufferRebuilds, 3u);
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			EXPECT_FLOAT_EQ((*Scene)->GPUScene->GetInstanceSceneData()[Reused.InstanceOffset].Data[12].x, 47.f);
 			(*Scene)->GPUScene->ReleaseDynamicPrimitiveRange(Reused);
 		});
@@ -1521,7 +1520,7 @@ namespace
 	{
 		Add(1); Run();
 		FGPUSceneDynamicAllocation Reused;
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			auto& GPU = *(*Scene)->GPUScene;
 			const auto Range = GPU.AllocateDynamicPrimitiveRange(1);
 			EXPECT_TRUE(GPU.WriteDynamicPrimitive(Range, 0, FMatrix(1.0), FBox(FVector3(-1.0), FVector3(1.0)), {}, {}));
@@ -1535,7 +1534,7 @@ namespace
 			EXPECT_TRUE(GPU.WriteDynamicPrimitive(Reused, 0, Math::TranslationMatrix(FVector3(19.0, 0.0, 0.0)), FBox(FVector3(-1.0), FVector3(1.0)), {}, {}));
 		});
 		FlushRenderingCommands(); EXPECT_GT(Run().UploadBytes, 0u);
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { (*Scene)->GPUScene->ReleaseDynamicPrimitiveRange(Reused); });
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) { (*Scene)->GPUScene->ReleaseDynamicPrimitiveRange(Reused); });
 		FlushRenderingCommands(); EXPECT_EQ(Run().UploadBytes, 0u);
 	}
 
@@ -1544,7 +1543,7 @@ namespace
 		Add(1); Run();
 		std::vector<FGPUScenePrimitiveData> Data;
 		std::weak_ptr<FGPUScene> Lifetime;
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("GPUSceneTest", [&](FRHICommandListImmediate&) {
 			FPreparedStaticMeshView Prepared;
 			FPreparedStaticMeshPrimitive Primitive; Primitive.LocalToWorld = FMatrix(1.0); Primitive.WorldBounds = FBox(FVector3(-1.0), FVector3(1.0));
 			Primitive.PrimitiveIdMode = EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData; Prepared.Primitives.push_back(Primitive);

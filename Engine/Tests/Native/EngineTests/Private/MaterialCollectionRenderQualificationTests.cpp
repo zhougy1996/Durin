@@ -28,14 +28,6 @@
 #include "RenderingThread.h"
 #include "RHICommandList.h"
 
-namespace
-{
-	struct FCaptureMaterialCollectionViewCommand
-	{
-		static constexpr auto GetName() -> const char* { return "CaptureMaterialCollectionView"; }
-	};
-}
-
 TEST(FMaterialCollectionRenderQualificationTests, RecordsStableWorldRenderViewBaseline)
 {
 	using namespace Durin;
@@ -126,7 +118,7 @@ TEST(FMaterialCollectionRenderQualificationTests, RecordsStableWorldRenderViewBa
 			MakeSnapshot(FVector4(0.0, 1.0, 0.0, 0.0), 1.0f, 1));
 		const auto MaterialProxy = Material->GetRenderProxy();
 		FProceduralGeometry Geometry;
-		EnqueueRenderCommand<FCaptureMaterialCollectionViewCommand>(
+		EnqueueRenderCommand("CaptureMaterialCollectionView",
 			[&](FRHICommandListImmediate& Commands) {
 				Geometry = FProceduralGeometry::Create(Commands, 901, false);
 				const auto Resolved = MaterialProxy->GetMaterialWithFallback();
@@ -155,7 +147,7 @@ TEST(FMaterialCollectionRenderQualificationTests, RecordsStableWorldRenderViewBa
 		{
 			const auto Root = Testing::CreateTestFixtureDirectory("MaterialCollectionBaseline");
 			std::string Csv = "run,sample,render_view_ns,command_hits,command_misses,surface_preparations,binding_batches\n";
-			EnqueueRenderCommand<FCaptureMaterialCollectionViewCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("CaptureMaterialCollectionView", [&](FRHICommandListImmediate& Commands) {
 				FSceneView View;
 				View.ViewportWidth = 192; View.ViewportHeight = 108;
 				View.Settings.Mode.RenderMode = ERenderMode::Unlit;

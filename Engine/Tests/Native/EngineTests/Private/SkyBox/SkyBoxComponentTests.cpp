@@ -103,7 +103,7 @@ TEST(FSkyLightTests, SelectsDeterministicallyAndRetiresExactSnapshots)
 	B->SetSource(Durin::ESkyLightSourceMode::CapturedSky, nullptr);
 	auto Observe = [&](bool bRequireSourceReady = true) {
 		std::shared_ptr<const Durin::FSkyLightSceneProxy> Result;
-		Durin::EnqueueRenderCommand<FObserveSkyBoxCommand>([&](Durin::FRHICommandListImmediate&) {
+		Durin::EnqueueRenderCommand("ObserveSkyBox", [&](Durin::FRHICommandListImmediate&) {
 			Result = Scene->GetSkyLight_RenderThread(bRequireSourceReady);
 		});
 		Durin::FlushRenderingCommands();

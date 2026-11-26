@@ -123,13 +123,6 @@ namespace Durin
 			return "Unknown";
 		}
 
-		struct FProfileVolumetricCloud
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "ProfileVolumetricCloud";
-			}
-		};
 
 		std::vector<FGPUTimingQueryRHIRef>* GCloudTimingQueries = nullptr;
 		std::vector<FGPUTimingQueryRHIRef>* GCloudShadowTimingQueries = nullptr;
@@ -325,7 +318,7 @@ namespace Durin
 		for (size_t Index = 0; Index < QualityTiers.size(); ++Index)
 			(*TierProfiles)[Index].Tier = QualityTiers[Index];
 
-		EnqueueRenderCommand<FProfileVolumetricCloud>(
+		EnqueueRenderCommand("ProfileVolumetricCloud",
 			[&Clouds, &Coordinator, &FullscreenGeometry,
 				Profiles, TierProfiles](
 				FRHICommandListImmediate& CommandList

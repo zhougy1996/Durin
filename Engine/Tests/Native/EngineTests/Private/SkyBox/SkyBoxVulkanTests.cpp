@@ -160,11 +160,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FRendererModule Renderer;
 	Durin::FScenePtr SceneOwner = Renderer.CreateScene();
 	auto& Scene = static_cast<Durin::FScene&>(*SceneOwner);
-	struct FBeginSkyBoxValidationFrame
-	{
-		static constexpr auto GetName() -> const char* { return "BeginSkyBoxValidationFrame"; }
-	};
-	Durin::EnqueueRenderCommand<FBeginSkyBoxValidationFrame>([](Durin::FRHICommandListImmediate& CommandList) {
+	Durin::EnqueueRenderCommand("BeginSkyBoxValidationFrame", [](Durin::FRHICommandListImmediate& CommandList) {
 		CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
 		Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 	});
@@ -183,14 +179,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	BackloggedViewport->InitializeViewState(&Renderer);
 	std::weak_ptr<Durin::FSceneViewport> BackloggedViewportWeak =
 		BackloggedViewport;
-	struct FRetainBackloggedSceneViewport
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "RetainBackloggedSceneViewport";
-		}
-	};
-	Durin::EnqueueRenderCommand<FRetainBackloggedSceneViewport>(
+	Durin::EnqueueRenderCommand("RetainBackloggedSceneViewport",
 		[BackloggedViewport](Durin::FRHICommandListImmediate&) {});
 	BackloggedViewport.reset();
 
@@ -268,11 +257,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	SkyBox.TextureReference = CubeReference;
 	Durin::FSkyBoxSceneProxy* SkyBoxToken = PublishSkyBox(Scene, SkyBox);
 
-	struct FEndSkyBoxValidationSetupFrame
-	{
-		static constexpr auto GetName() -> const char* { return "EndSkyBoxValidationSetupFrame"; }
-	};
-	Durin::EnqueueRenderCommand<FEndSkyBoxValidationSetupFrame>([](Durin::FRHICommandListImmediate& CommandList) {
+	Durin::EnqueueRenderCommand("EndSkyBoxValidationSetupFrame", [](Durin::FRHICommandListImmediate& CommandList) {
 		Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 	});
 	Durin::FlushRenderingCommands();
@@ -280,14 +265,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 
 	auto ObservedCubeTarget =
 		std::make_shared<std::atomic<Durin::FRHITexture*>>(nullptr);
-	struct FObserveInitialCubeTarget
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ObserveInitialCubeTarget";
-		}
-	};
-	Durin::EnqueueRenderCommand<FObserveInitialCubeTarget>(
+	Durin::EnqueueRenderCommand("ObserveInitialCubeTarget",
 		[CubeReference, ObservedCubeTarget](
 			Durin::FRHICommandListImmediate&
 		) {
@@ -312,14 +290,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	ASSERT_NE(CubeResult.Asset->GetResource(), nullptr);
 	EXPECT_TRUE(CubeResult.Asset->GetResource()->GetTextureRHI_GameThread());
 	EXPECT_FALSE(CubeResult.Asset->HasPendingRenderResourceInitialization());
-	struct FObserveReplacementCubeTarget
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ObserveReplacementCubeTarget";
-		}
-	};
-	Durin::EnqueueRenderCommand<FObserveReplacementCubeTarget>(
+	Durin::EnqueueRenderCommand("ObserveReplacementCubeTarget",
 		[CubeReference, ObservedCubeTarget](
 			Durin::FRHICommandListImmediate&
 		) {
@@ -372,11 +343,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto Result = std::make_shared<FValidationResult>();
 	Durin::FTextureRHIRef Color;
 
-	struct FRenderSkyBoxValidationFrame
-	{
-		static constexpr auto GetName() -> const char* { return "RenderSkyBoxValidationFrame"; }
-	};
-	Durin::EnqueueRenderCommand<FRenderSkyBoxValidationFrame>(
+	Durin::EnqueueRenderCommand("RenderSkyBoxValidationFrame",
 		[&Color, CubeReference, PlatformData, HdrCubeReference, HdrPlatformData, Result](Durin::FRHICommandListImmediate& CommandList) mutable {
 			FSkyValidationFrame Frame(CommandList);
 
@@ -854,11 +821,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		ADD_FAILURE() << "Failed to create the Vulkan HDR cube cleanup path.";
 	}
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	struct FRetireSkyBoxValidationResource
-	{
-		static constexpr auto GetName() -> const char* { return "RetireSkyBoxValidationResource"; }
-	};
-	Durin::EnqueueRenderCommand<FRetireSkyBoxValidationResource>(
+	Durin::EnqueueRenderCommand("RetireSkyBoxValidationResource",
 		[Reference = std::move(CubeReference),
 		 HdrReference = std::move(HdrCubeReference)](
 			Durin::FRHICommandListImmediate&

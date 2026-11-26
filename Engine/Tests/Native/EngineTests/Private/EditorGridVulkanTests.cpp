@@ -172,45 +172,10 @@ namespace Durin
 			return Result;
 		}
 
-		struct FRenderEditorGridCapture
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "RenderEditorGridCapture";
-			}
-		};
 
-		struct FCaptureHDRDisplayContract
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "CaptureHDRDisplayContract";
-			}
-		};
 
-		struct FFailDisplayPayloadContract
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "FailDisplayPayloadContract";
-			}
-		};
 
-		struct FContactVisibilityTargetLifecycle
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "ContactVisibilityTargetLifecycle";
-			}
-		};
 
-		struct FRDGDescriptorReuseContract
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "RDGDescriptorReuseContract";
-			}
-		};
 
 		auto BuildViewMatrix(
 			const FVector3& Location,
@@ -319,7 +284,7 @@ namespace Durin
 			auto Pixels = std::make_shared<Durin::FByteBuffer>();
 			FTextureRHIRef Target;
 			FSceneView View;
-			EnqueueRenderCommand<FRenderEditorGridCapture>(
+			EnqueueRenderCommand("RenderEditorGridCapture",
 				[Forward, &Target, &View, bLit, bSimpleElements](
 					FRHICommandListImmediate& CommandList
 				) {
@@ -544,7 +509,7 @@ namespace Durin
 		std::vector<FGPUTimingQueryRHIRef> PostProcessTimingQueries;
 		GPostProcessTimingQueries = &PostProcessTimingQueries;
 		SetPostProcessTimingQuerySink(CapturePostProcessTiming);
-		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
+		EnqueueRenderCommand("CaptureHDRDisplayContract",
 			[HDRPixels](
 				FRHICommandListImmediate& CommandList
 			) {
@@ -605,7 +570,7 @@ namespace Durin
 									}
 								);
 			if (bReady) break;
-			EnqueueRenderCommand<FCaptureHDRDisplayContract>(
+			EnqueueRenderCommand("CaptureHDRDisplayContract",
 				[](FRHICommandListImmediate& CommandList) {
 					GRenderFrameCounterRenderThread++;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -756,7 +721,7 @@ namespace Durin
 		InitRenderingThread();
 
 		auto Captures = std::make_shared<std::array<FRDGCapture, 9>>();
-		EnqueueRenderCommand<FRDGDescriptorReuseContract>(
+		EnqueueRenderCommand("RDGDescriptorReuseContract",
 			[Captures](FRHICommandListImmediate& CommandList) {
 				FRendererResourceCoordinator Coordinator;
 				FRendererRDGAllocator Allocator(Coordinator);
@@ -884,7 +849,7 @@ namespace Durin
 			std::make_shared<std::array<bool, 8>>();
 		std::array<FGBufferRenderer::FPipelineRequest, 2> Requests;
 		std::optional<FGBufferRenderer::FTargets> DeviceTargets, ReleasedTargets;
-		EnqueueRenderCommand<FFailDisplayPayloadContract>(
+		EnqueueRenderCommand("FailDisplayPayloadContract",
 			[&Coordinator, &GBuffer,
 			 RecoveredTargets, AlternateTargets, PipelineResults, MaterialData, &Requests](
 				FRHICommandListImmediate&
@@ -1022,7 +987,7 @@ namespace Durin
 		for (size_t Index = 0; Index < PipelineResults->size(); ++Index)
 			EXPECT_TRUE((*PipelineResults)[Index]) << Index;
 
-		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
+		EnqueueRenderCommand("CaptureHDRDisplayContract",
 			[&GBuffer, RecoveredTargets, AlternateTargets](
 				FRHICommandListImmediate&
 			) {
@@ -1055,7 +1020,7 @@ namespace Durin
 		FSceneView View;
 		View.ViewportWidth = 64;
 		View.ViewportHeight = 32;
-		EnqueueRenderCommand<FFailDisplayPayloadContract>(
+		EnqueueRenderCommand("FailDisplayPayloadContract",
 			[&Coordinator, &AmbientOcclusion,
 				&FullscreenGeometry, Results, &Normals, &Surface, &Depth, &ReleasedTargets](
 				FRHICommandListImmediate& CommandList
@@ -1195,7 +1160,7 @@ namespace Durin
 		View.ViewProjectionMatrix = FMatrix(1.0);
 		View.ViewportWidth = 65;
 		View.ViewportHeight = 33;
-		EnqueueRenderCommand<FContactVisibilityTargetLifecycle>(
+		EnqueueRenderCommand("ContactVisibilityTargetLifecycle",
 			[&Coordinator, &ContactVisibility,
 				&FullscreenGeometry, Results, &Material, &Normals, &Surface, &Depth, &FragmentTargets, &DispatchTargets](
 				FRHICommandListImmediate& CommandList) {
@@ -1418,7 +1383,7 @@ namespace Durin
 		EXPECT_EQ(AlternateTarget->Color->GetSizeX(), 32u);
 		EXPECT_EQ(AlternateTarget->Color->GetSizeY(), 16u);
 
-		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
+		EnqueueRenderCommand("CaptureHDRDisplayContract",
 			[&Deferred, &FullscreenGeometry,
 				FirstTarget, AlternateTarget](
 				FRHICommandListImmediate&

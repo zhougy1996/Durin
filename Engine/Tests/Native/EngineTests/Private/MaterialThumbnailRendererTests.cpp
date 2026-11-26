@@ -230,14 +230,7 @@ TEST(FMaterialThumbnailRendererTests, PreviewComponentResolvesInstanceInheritanc
 
 	Durin::FMaterialRenderData MaterialData;
 	Durin::FMaterialRenderData InstanceData;
-	struct FCaptureThumbnailMaterialProxiesCommand
-	{
-		static constexpr const char* GetName()
-		{
-			return "CaptureThumbnailMaterialProxies";
-		}
-	};
-	Durin::EnqueueRenderCommand<FCaptureThumbnailMaterialProxiesCommand>(
+	Durin::EnqueueRenderCommand("CaptureThumbnailMaterialProxies",
 		[MaterialProxy, InstanceProxy, &MaterialData, &InstanceData](
 			Durin::FRHICommandListImmediate&) {
 			const auto& MaterialSlot = MaterialProxy->GetMaterialRenderProxy(0);

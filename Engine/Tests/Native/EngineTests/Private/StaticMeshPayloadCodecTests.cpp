@@ -26,15 +26,6 @@ namespace
 	using namespace Durin::PhysicsPrivate;
 	using namespace Durin::AssetPrivate;
 
-	DECLARE_RENDER_COMMAND_TAG(
-		FSetPartialStaticMeshReadinessResources,
-		SetPartialStaticMeshReadinessResources);
-	DECLARE_RENDER_COMMAND_TAG(
-		FSetCompleteStaticMeshReadinessResources,
-		SetCompleteStaticMeshReadinessResources);
-	DECLARE_RENDER_COMMAND_TAG(
-		FReleaseStaticMeshReadinessResources,
-		ReleaseStaticMeshReadinessResources);
 
 	auto MakeBounds(const FVector3& Minimum, const FVector3& Maximum) -> FBox
 	{
@@ -749,7 +740,7 @@ TEST(FStaticMeshPayloadCodecTests,
 				LOD.GetNumIndices() * sizeof(uint32)),
 			sizeof(uint32)));
 
-	EnqueueRenderCommand<FSetPartialStaticMeshReadinessResources>(
+	EnqueueRenderCommand("SetPartialStaticMeshReadinessResources",
 		[&LOD, PositionBuffer](
 			FRHICommandListImmediate&) {
 			LOD.VertexBuffers.PositionVertexBuffer.SetRHI(
@@ -758,7 +749,7 @@ TEST(FStaticMeshPayloadCodecTests,
 	FlushRenderingCommands();
 	EXPECT_FALSE(RenderData->IsReadyForRendering());
 
-	EnqueueRenderCommand<FSetCompleteStaticMeshReadinessResources>(
+	EnqueueRenderCommand("SetCompleteStaticMeshReadinessResources",
 		[&LOD,
 			TangentsBuffer,
 			TexCoordBuffer,
@@ -803,7 +794,7 @@ TEST(FStaticMeshPayloadCodecTests,
 	Normals = SavedNormals;
 	EXPECT_FALSE(RenderData->IsReadyForRendering());
 
-	EnqueueRenderCommand<FReleaseStaticMeshReadinessResources>(
+	EnqueueRenderCommand("ReleaseStaticMeshReadinessResources",
 		[RenderDataView = RenderData.get()](
 			FRHICommandListImmediate&) {
 			RenderDataView->ReleaseResources();
@@ -1632,11 +1623,10 @@ TEST(FStaticMeshPayloadCodecTests, PositionBufferSupportsUEAccessAndDetachesShar
 
 namespace
 {
-	DECLARE_RENDER_COMMAND_TAG(FPositionBufferLifetimeCommand, PositionBufferLifetimeCommand);
 
 	auto RunPositionBufferCommand(std::function<void(FRHICommandListImmediate&)> Operation) -> void
 	{
-		EnqueueRenderCommand<FPositionBufferLifetimeCommand>(std::move(Operation));
+		EnqueueRenderCommand("PositionBufferLifetimeCommand", std::move(Operation));
 		FlushRenderingCommands();
 	}
 
