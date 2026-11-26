@@ -85,17 +85,4 @@ namespace Durin::Tests::Preparation
 		Result->RecalculateBounds();
 		return Result;
 	}
-
-	struct FInitializePreparedStaticMeshResourcesCommand
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "InitializePreparedStaticMeshResources";
-		}
-	};
-	struct FCapturePreparedStaticMeshViewCommand
-	{
-		static constexpr auto GetName() -> const char* { return "CapturePreparedStaticMeshView"; }
-	};
-
 }

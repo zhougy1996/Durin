@@ -492,7 +492,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	EXPECT_EQ(CookedMesh->GetRenderResourceStatus().Readiness, Durin::EStaticMeshRenderResourceReadiness::Ready);
 	EXPECT_TRUE(CookedMesh->GetRenderResourceStatus().IsReady());
 
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&Scene](Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Prepared =
 				Durin::PrepareStaticMeshView_RenderThread(
@@ -559,7 +559,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::FSceneTestOwner SceneOwner;
 	Durin::FScene& Scene = *SceneOwner;
 	auto Summary = std::make_shared<FPreparationSummary>();
-	Durin::EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>(
+	Durin::EnqueueRenderCommand("InitializePreparedStaticMeshResources",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			ASSERT_TRUE(RenderData->InitResources(CommandList));
 			ASSERT_TRUE(MultiLODRenderData->InitResources(CommandList));
@@ -587,7 +587,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&](Durin::FRHICommandListImmediate&) {
 			using namespace Durin;
 			FMeshCollectionContext Context;
@@ -676,7 +676,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		std::make_unique<Durin::FSplineMeshSceneProxy>(RenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent, Opaque}, SplineDynamic), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&SplineScene](Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Prepared =
 				Durin::PrepareStaticMeshView_RenderThread(CommandList, SplineScene.GetPrimitiveSceneInfos(),
@@ -693,7 +693,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(SplineScene, Durin::FPrimitiveComponentId(72),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Opaque, Opaque, Opaque}), Durin::FMatrix(1.0));
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			using namespace Durin;
 			const auto& Infos = SplineScene.GetPrimitiveSceneInfos();
@@ -780,7 +780,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}), Durin::Math::ScaleMatrix(Durin::FVector3(-1.0, 1.0, 1.0)));
 	Durin::FlushRenderingCommands();
 
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&Scene, Summary](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::FSceneView FirstView;
 			FirstView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
@@ -948,7 +948,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			std::vector<Durin::FMaterialRenderProxyRef>(4, Translucent)),
 		Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&OrderingScene](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::FSceneView OriginView;
 			OriginView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
@@ -1017,7 +1017,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::FlushRenderingCommands();
 	auto GroupedOrder = std::make_shared<
 		std::vector<std::pair<uint64, uint64>>>();
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&GroupingScene, GroupedOrder](
 			Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Prepared =
@@ -1068,7 +1068,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::FlushRenderingCommands();
 	AddGroupingPrimitive(100);
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&GroupingScene, GroupedOrder](
 			Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Readded =
@@ -1101,7 +1101,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}),
 		Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&MultiLODScene, &MultiLODRenderData](
 			Durin::FRHICommandListImmediate& CommandList) {
 			auto MakeOrthographicView = [](double HalfExtent) {
@@ -1300,7 +1300,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}),
 		Durin::Math::ScaleMatrix(Durin::FVector3(1.0, 0.5, 2.0)));
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&MultiLODScene](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::FSceneView View;
 			View.ProjectionMatrix = Durin::FMatrix(0.0);
@@ -1345,7 +1345,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}),
 		Durin::Math::ScaleMatrix(Durin::FVector3(1.0e-12, 1.0, 1.0)));
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&DegenerateTransformScene](
 			Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Prepared =
@@ -1364,7 +1364,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&Scene](Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Replaced =
 				Durin::PrepareStaticMeshView_RenderThread(
@@ -1380,7 +1380,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Id);
 	Durin::FlushRenderingCommands();
 	EXPECT_TRUE(Scene.GetPrimitiveSceneInfos().empty());
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			EXPECT_EQ(Durin::PrepareStaticMeshView_RenderThread(
 				CommandList, Scene.GetPrimitiveSceneInfos(), Durin::FSceneView{},
@@ -1490,7 +1490,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		MakeMaterial(Durin::EMaterialBlendMode::Opaque, true)};
 	Durin::FSceneTestOwner SceneOwner;
 	auto& Scene = *SceneOwner;
-	Durin::EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>(
+	Durin::EnqueueRenderCommand("InitializePreparedStaticMeshResources",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			ASSERT_TRUE(RenderData->InitResources(CommandList));
 		});
@@ -1523,7 +1523,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	}
 	Durin::FlushRenderingCommands();
 
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			for (size_t Frame = 0; Frame < 2; ++Frame)
 			{
@@ -1541,7 +1541,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::FlushRenderingCommands();
 	SceneOwner.Reset();
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>(
+	Durin::EnqueueRenderCommand("InitializePreparedStaticMeshResources",
 		[&](Durin::FRHICommandListImmediate&) { RenderData->ReleaseResources(); });
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
@@ -1645,7 +1645,7 @@ namespace
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
 		do
 		{
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 				FGeometryQualificationFrame Frame(Commands);
 				auto Policy = GetRendererQualificationPolicy();
 				Policy.bFailPostProcessMaterialPreparation = PostProcessFailure == 1;
@@ -1684,7 +1684,7 @@ namespace
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		} while (std::chrono::steady_clock::now() < Deadline);
 		if (Result == ERenderViewResult::RendererResourcesPending) Preparation.RequestCancel();
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) {
 			if (Result == ERenderViewResult::RendererResourcesPending)
 				Preparation.Retire_RenderThread(ERenderResourcePreparationState::Canceled);
 			Target = {};
@@ -1703,7 +1703,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, DepthReadbackConsumesHostPreparedS
 	RHIInit(GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(GDynamicRHI, nullptr);
 	InitRenderingThread();
-	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("InitializePreparedStaticMeshResources", [](FRHICommandListImmediate& Commands) {
 		++GRenderFrameCounterRenderThread;
 		GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
 		for (bool Array : {false, true})
@@ -1830,7 +1830,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	std::array<FMaterialRenderData, 2> Materials;
 	std::shared_ptr<const FStaticMeshPreparationInputs> FrozenInput;
 	FPreparedStaticMeshView FrozenExpected;
-	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
+	EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& CommandList) {
 		Materials = {Opaque->GetMaterialWithFallback(), Masked->GetMaterialWithFallback()};
 		// Keep the entry-point collision that previously substituted the
 		// generated Local vertex stage for this independent factory's shader.
@@ -1906,7 +1906,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	}
 	FlushRenderingCommands();
 	FPreparedStaticMeshView Snapshot;
-	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
+	EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& CommandList) {
 		FSceneView View;
 		View.ViewportWidth = 192; View.ViewportHeight = 108;
 		View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
@@ -2334,7 +2334,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	FProceduralGeometry ForwardGeometry;
 	const auto Translucent = MakeMaterial(EMaterialBlendMode::Translucent, true);
 	FMaterialRenderData TranslucentData;
-	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 		ForwardGeometry = FProceduralGeometry::Create(Commands, 500, true);
 		ForwardGeometry.Binding->bForwardOnly = true;
 		TranslucentData = Translucent->GetMaterialWithFallback();
@@ -2351,7 +2351,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		Proxy->bFailShadow = FailShadow;
 		ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*ForwardOwner, FPrimitiveComponentId(300), std::move(Proxy), FMatrix(1.0)));
 		FlushRenderingCommands();
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			FSceneView View;
 			View.ViewportWidth = 192; View.ViewportHeight = 108;
 			View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
@@ -2394,7 +2394,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	for (uint64 Cycle = 0; Cycle < 100; ++Cycle)
 	{
 		const std::weak_ptr<const FVertexFactoryInputBinding> Retired = Geometries[0].Binding;
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& CommandList) {
 			Geometries[0] = FProceduralGeometry::Create(CommandList, Cycle + 3, false);
 		});
 		FlushRenderingCommands();
@@ -2407,7 +2407,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	}
 	EXPECT_EQ(Snapshot.Opaque.front().Command->Vertices.Buffer, OldBuffer);
 	EXPECT_NE(Geometries[0].Vertices.Buffer, OldBuffer);
-	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 		auto Collected = CollectStaticMeshView_RenderThread(Commands, Scene.GetPrimitiveSceneInfos(), InitialView, ERasterMode::Solid);
 		FrozenInput = ResolveCollectedStaticMeshView_RenderThread(Commands, std::move(Collected));
 	});
@@ -2487,7 +2487,7 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 		const auto MaterialProxy = Material->GetRenderProxy();
 		const FGuid TextureParameterId = Sample->Metadata.Id;
 		const FGuid BrightnessParameterId = Brightness->Metadata.Id;
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			const std::array<std::array<uint8, 4>, 2> Colors{{{255, 0, 0, 255}, {0, 255, 0, 255}}};
 			for (size_t Index = 0; Index < Textures.size(); ++Index)
 			{
@@ -2563,7 +2563,7 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 				ASSERT_TRUE(Builder.Build(Data.Representation, Diagnostic));
 				Publish();
 			}
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 				if (Frame == 2) Reference.SetReferencedTexture_RenderThread(Textures[1]);
 				if (Frame == 4) Reference.Clear_RenderThread();
 				View.MaterialTimeSeconds = Frame;
@@ -2661,7 +2661,7 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 		FSceneTestOwner Owner;
 		auto Proxy = std::make_unique<FProceduralProxy>();
 		const auto MaterialProxy = Material->GetRenderProxy();
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			Proxy->Geometry = FProceduralGeometry::Create(Commands, 1, false);
 			const auto Resolved = MaterialProxy->GetMaterialWithFallback();
 			Proxy->Materials = {Resolved, Resolved};
@@ -2680,7 +2680,7 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 			FRHITextureCreateDesc::Create2D("MaterialTimePreparation", 192, 108, EPixelFormat::SRGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)),
 			ERenderViewResult::Success);
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			FSceneView View;
 			View.ViewportWidth = 192; View.ViewportHeight = 108;
 			View.Settings.Mode.RenderMode = ERenderMode::Unlit;
@@ -2801,7 +2801,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		auto Geometry = MakeRenderData();
 		Geometry->LODResources[0].Sections.resize(1);
 		Geometry->RecalculateBounds();
-		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("InitializePreparedStaticMeshResources", [&](FRHICommandListImmediate& Commands) {
 			ASSERT_TRUE(Geometry->InitResources(Commands));
 		});
 		FlushRenderingCommands();
@@ -2886,7 +2886,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			View.Settings.Mode.VisibilityMode = VisibilityMode;
 			View.Settings.DirectionalShadow.Candidate = ShadowCandidate;
 			FSceneViewRenderOptions Options; Options.bEnableGPUCulling = GPU; Options.bEnableDynamicInstancing = bDynamicInstancing; Options.bEnableAsyncCompute = bAsyncCompute;
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 				Result.MaterialGroups = PrepareStaticMeshView_RenderThread(Commands, Scene->GetPrimitiveSceneInfos(),
 					View, ERasterMode::Solid).MaterialUniformGroups.size();
 			});
@@ -2922,7 +2922,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
             if (!Query) return {};
             for (uint32 Poll = 0; Poll < 128 && !Query->GetCounts(); ++Poll)
             {
-                EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([](FRHICommandListImmediate& Commands) {
+                EnqueueRenderCommand("CapturePreparedStaticMeshView", [](FRHICommandListImmediate& Commands) {
                     FGeometryQualificationFrame Frame(Commands); Commands.PollTextureReadbacks();
                     Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
                 });
@@ -3206,7 +3206,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 							return Q && Q->GetResult().State == ERHIGPUTimingResultState::Ready;
 						};
 						if (Query->GetCounts() && (!bTimePasses || (Ready(D.RasterTime) && Ready(G.RasterTime) && Ready(G.CullTime)))) break;
-						EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([](FRHICommandListImmediate& Commands) {
+						EnqueueRenderCommand("CapturePreparedStaticMeshView", [](FRHICommandListImmediate& Commands) {
 							FGeometryQualificationFrame Frame(Commands);
 							Commands.PollTextureReadbacks();
 							Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
@@ -3313,7 +3313,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
             std::string CSV = "scenario,sample,view,mode,update_ns,prepare_ns,gbuffer_ns,cull_ns,shadow_ns,attribute_upload_bytes,attribute_upload_ranges,buffer_rebuilds,scene_gpu_capacity_bytes,scene_mirror_capacity_bytes,native_draws,shadow_native_draws,persistent_hits,persistent_misses,culling_transient_bytes,shadow_cascades,shadow_target_backend_bytes,record_ns,instance_id_buffer_creates,instance_id_upload_bytes,cpu_primitive_update_visits,update_queue_capacity_bytes\n";
             auto Statistics = [&] {
                 FGPUSceneStatistics Result;
-                EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) { Result = Instanced->GPUScene->GetStatistics(); });
+                EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) { Result = Instanced->GPUScene->GetStatistics(); });
                 FlushRenderingCommands(); return Result;
             };
             auto WaitTimings = [&](const FObservation& Observation) {
@@ -3323,7 +3323,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
                         return !Query || Query->GetResult().State == ERHIGPUTimingResultState::Ready;
                     };
                     if (Ready(Observation.RasterTime) && Ready(Observation.CullTime) && Ready(Observation.ShadowTime)) break;
-                    EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([](FRHICommandListImmediate& Commands) {
+                    EnqueueRenderCommand("CapturePreparedStaticMeshView", [](FRHICommandListImmediate& Commands) {
                         FGeometryQualificationFrame Frame(Commands); Commands.PollTextureReadbacks(); Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
                     });
                     FlushRenderingCommands();
@@ -3492,7 +3492,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		EXPECT_EQ(Empty.Telemetry.StaticMesh.PreparedStaticMeshPrimitives, 0u);
 		Instanced.Reset(); Dynamic.Reset();
 		FlushRenderingCommands();
-		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate&) { Geometry->ReleaseResources(); });
+		EnqueueRenderCommand("InitializePreparedStaticMeshResources", [&](FRHICommandListImmediate&) { Geometry->ReleaseResources(); });
 		FlushRenderingCommands();
 	}
 
@@ -3590,7 +3590,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 			MakeSnapshot(FVector4(0.0, 1.0, 0.0, 0.0), 1.0f, 1));
 		const auto MaterialProxy = Material->GetRenderProxy();
 		FProceduralGeometry Geometry;
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+		EnqueueRenderCommand("CapturePreparedStaticMeshView",
 			[&](FRHICommandListImmediate& Commands) {
 				Geometry = FProceduralGeometry::Create(Commands, 901, false);
 				const auto Resolved = MaterialProxy->GetMaterialWithFallback();
@@ -3634,7 +3634,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 				EXPECT_EQ(Outcome, ERenderViewResult::Success);
 				if (Outcome != ERenderViewResult::Success) return Observation.StaticMesh;
 			}
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
 					FRHITextureCreateDesc::Create2D("CollectionCacheCorrectness", 192, 108, EPixelFormat::SRGBA8_UNORM)
 						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy));
@@ -3698,7 +3698,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 				FRHITextureCreateDesc::Create2D("CollectionLitPreparation", 192, 108, EPixelFormat::SRGBA8_UNORM)
 					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)),
 				ERenderViewResult::Success);
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+		EnqueueRenderCommand("CapturePreparedStaticMeshView",
 			[&](FRHICommandListImmediate& Commands) {
 				FSceneView View;
 				View.ViewportWidth = 192; View.ViewportHeight = 108;
@@ -3789,7 +3789,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		GreenWorld->UpdateMaterialParameterCollection(
 			MakeSnapshot(FVector4(0.0, 1.0, 0.0, 0.0), 0.0f, 2));
 		FlushRenderingCommands();
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+		EnqueueRenderCommand("CapturePreparedStaticMeshView",
 			[&](FRHICommandListImmediate& Commands) {
 				FSceneView View;
 				View.ViewportWidth = 192; View.ViewportHeight = 108;
@@ -3840,7 +3840,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		ASSERT_TRUE(OtherMaterial->GetAcceptedCompiledProgram());
 		const auto OtherProxy = OtherMaterial->GetRenderProxy();
 		FSceneTestOwner MixedWorld;
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) {
 			auto Proxy = std::make_unique<FProceduralProxy>();
 			Proxy->Geometry = Geometry;
 			Proxy->Materials = {MaterialProxy->GetMaterialWithFallback(), OtherProxy->GetMaterialWithFallback()};
@@ -3867,7 +3867,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		EXPECT_EQ(Partial.StaticMeshSuccessfulDraws, 0u);
 		EXPECT_NE(Repeated, MixedPixels);
 		FSceneTestOwner PartialWorld;
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) {
 			for (uint32 Index = 0; Index < 2; ++Index)
 			{
 				auto Proxy = std::make_unique<FProceduralProxy>(); Proxy->Geometry = Geometry;
@@ -3901,7 +3901,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		// Retained programs can carry different default payloads for the same ID.
 		// Default values do not participate in shader identity.
 		FSceneTestOwner DefaultsWorld;
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) {
 			auto Proxy = std::make_unique<FProceduralProxy>();
 			Proxy->Geometry = Geometry;
 			const auto Primary = MaterialProxy->GetMaterialWithFallback();
@@ -4051,7 +4051,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 		auto Data = MakeRenderData();
 		Data->LODResources[0].Sections.resize(1);
 		Data->RecalculateBounds();
-		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("InitializePreparedStaticMeshResources", [&](FRHICommandListImmediate& Commands) {
 			ASSERT_TRUE(Data->InitResources(Commands));
 		});
 		FlushRenderingCommands();
@@ -4108,7 +4108,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 						std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector{Material}, Dynamic), World));
 					FlushRenderingCommands();
 					// Exercise the same orientation policy used by base and shadow passes.
-					EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+					EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 						for (const auto Mode : {ERenderPreparationMode::Full, ERenderPreparationMode::ShadowDepth})
 						{
 							FSceneView View;
@@ -4180,7 +4180,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 				ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Spline, FPrimitiveComponentId(602),
 					std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector{SingleSided->GetRenderProxy()}, Dynamic), World));
 				FlushRenderingCommands();
-				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+				EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 					for (const auto Mode : {ERenderPreparationMode::Full, ERenderPreparationMode::ShadowDepth})
 					{
 						const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, Spline->GetPrimitiveSceneInfos(),
@@ -4209,7 +4209,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 			}
 		Reference.Reset();
 		Spline.Reset();
-		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate&) { Data->ReleaseResources(); });
+		EnqueueRenderCommand("InitializePreparedStaticMeshResources", [&](FRHICommandListImmediate&) { Data->ReleaseResources(); });
 		FlushRenderingCommands();
 	}
 	Lifecycle.Shutdown();
@@ -4269,7 +4269,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 			while (std::ranges::any_of(Requests, [](const auto& Id) { return Id.GetProgress().State == EMaterialPSOPrecacheState::Pending; })
 				&& std::chrono::steady_clock::now() < Deadline)
 			{
-				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { ++GRenderFrameCounterRenderThread; Renderer.BeginFrame_RenderThread(Commands); });
+				EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) { ++GRenderFrameCounterRenderThread; Renderer.BeginFrame_RenderThread(Commands); });
 				FlushRenderingCommands();
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
@@ -4346,7 +4346,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 			DStaticMesh* Mesh;
 			~FMeshCleanup() {
 				auto* Data = FStaticMeshTestAccess::GetMutableRenderData(Mesh);
-				if (Data) EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([Data](FRHICommandListImmediate&) { Data->ReleaseResources(); });
+				if (Data) EnqueueRenderCommand("CapturePreparedStaticMeshView", [Data](FRHICommandListImmediate&) { Data->ReleaseResources(); });
 				FlushRenderingCommands(); MarkAsGarbage(Mesh); CollectGarbage(Durin::EObjectFlags::Standalone); FlushRenderingCommands();
 			}
 		} MeshCleanup{Mesh};
@@ -4381,14 +4381,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		for (const auto& Request : OldRequests) EXPECT_EQ(Request.GetPriority(), EPSOPrecachePriority::Highest);
 		auto Count = [&] {
 			size_t Result = 0;
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) { Result = Scene.GetPrimitiveSceneInfos().size(); });
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) { Result = Scene.GetPrimitiveSceneInfos().size(); });
 			FlushRenderingCommands(); return Result;
 		};
 		EXPECT_EQ(Count(), 0u); // No explicit precache or first draw has occurred.
 		auto Pump = [&](size_t Expected) {
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 			do {
-				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { ++GRenderFrameCounterRenderThread; Renderer.BeginFrame_RenderThread(Commands); });
+				EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) { ++GRenderFrameCounterRenderThread; Renderer.BeginFrame_RenderThread(Commands); });
 				FlushRenderingCommands(); DPrimitiveComponent::ProcessPSOPrecacheRequests(World.Get());
 				if (Count() == Expected) break;
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4405,7 +4405,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		Durin::Testing::FMaterialTestState Compiling;
 		Compiling.bIsCompiling = true;
 		Durin::Testing::QueueMaterialTestState(*MaterialProxy, Compiling);
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			EXPECT_EQ(MaterialProxy->GetMaterialNoFallback(), nullptr);
 			EXPECT_TRUE(MaterialProxy->QueryMaterial_RenderThread().Representation.IsPending());
 			const auto* DefaultMaterial = DefaultMaterialProxy->GetMaterialNoFallback();
@@ -4422,7 +4422,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		});
 		auto CheckDraws = [&](const Durin::Testing::FMaterialTestState& State, bool bExpectError) {
 			Durin::Testing::QueueMaterialTestState(*MaterialProxy, State);
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&, bExpectError](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&, bExpectError](FRHICommandListImmediate& Commands) {
 				FRenderPipelinePreparationBatch Batch;
 				FSceneView View;
 				View.ViewportWidth = View.ViewportHeight = 64;
@@ -4490,7 +4490,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		EXPECT_EQ(Count(), 1u);
 		Spline->RegisterComponent(); Pump(2);
 		auto CheckParticipation = [&](bool bMain, bool bShadow) {
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 				FSceneView View;
 				View.ViewportWidth = View.ViewportHeight = 64;
 				for (const auto* Info : Scene.GetPrimitiveSceneInfos()) {
@@ -4562,7 +4562,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	const auto Material = MakeMaterial(EMaterialBlendMode::Opaque, true);
 	FSceneTestOwner Owner;
 	auto& Scene = *Owner;
-	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("InitializePreparedStaticMeshResources", [&](FRHICommandListImmediate& Commands) {
 		ASSERT_TRUE(Data->InitResources(Commands));
 	});
 	FlushRenderingCommands();
@@ -4591,7 +4591,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		do
 		{
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 				++GRenderFrameCounterRenderThread;
 				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
 				LastMap = Renderer.RenderHitProxies(Commands, &Scene, Request);
@@ -4638,7 +4638,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	EXPECT_EQ(Request.Cache->GetStatistics().ReuseCount, ReuseCount + 1);
 	// An unrelated texture publication must not invalidate this scene's picking map.
 	const auto BeforeTexturePublication = LastMap;
-	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([](FRHICommandListImmediate&) {
+	EnqueueRenderCommand("InitializePreparedStaticMeshResources", [](FRHICommandListImmediate&) {
 		FTextureReference Reference;
 		const auto Texture = RHICreateTexture(FRHITextureCreateDesc::Create2D("HitProxyEpoch", 1, 1, EPixelFormat::RG32_UINT)
 			.SetFlags(ETextureCreateFlags::ShaderResource));
@@ -4768,7 +4768,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	const auto BeforeInvalidOutput = Request.Cache->GetStatistics().RenderCount;
 	const auto BeforeInvalidMap = LastMap;
 	Request.View.ViewportWidth = 0;
-	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 		LastMap = Renderer.RenderHitProxies(Commands, &Scene, Request);
 	});
 	FlushRenderingCommands();
@@ -4777,7 +4777,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	Request.View.ViewportWidth = 64;
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
 	EXPECT_EQ(LastMap, BeforeInvalidMap);
-	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+	EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) {
 		Request.Cache->Invalidate_RenderThread();
 	});
 	FlushRenderingCommands();
@@ -4788,7 +4788,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	ASSERT_TRUE(BeforeInvalidMap->ReadPixel(32, 32, RetiredPixel));
 	EXPECT_EQ(RetiredPixel.Id.Value, 0xabcdef12u);
 	Owner.Reset();
-	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate&) { Data->ReleaseResources(); });
+	EnqueueRenderCommand("InitializePreparedStaticMeshResources", [&](FRHICommandListImmediate&) { Data->ReleaseResources(); });
 	FlushRenderingCommands();
 	Lifecycle.Shutdown();
 	FlushRenderingCommands();
@@ -4969,13 +4969,13 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HiddenStaticMeshPublishesReadyLODs
 		FStaticMeshRenderData& Data;
 		~FReleaseMesh()
 		{
-			EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([this](FRHICommandListImmediate&) { Data.ReleaseResources(); });
+			EnqueueRenderCommand("InitializePreparedStaticMeshResources", [this](FRHICommandListImmediate&) { Data.ReleaseResources(); });
 			FlushRenderingCommands();
 		}
 	} ReleaseMesh{*Data};
 	FSceneTestOwner Scene;
 	const auto Material = MakeMaterial(EMaterialBlendMode::Opaque);
-	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("InitializePreparedStaticMeshResources", [&](FRHICommandListImmediate& Commands) {
 		ASSERT_TRUE(Data->InitResources(Commands));
 		Data->SetLODReady_RenderThread(2, false);
 	});
@@ -5031,7 +5031,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HiddenStaticMeshPublishesReadyLODs
 	};
 	const auto SetLastLODReady = [&](bool bReady, bool bShadowOnly = false) {
 		++ExpectedSubmissions;
-		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("InitializePreparedStaticMeshResources", [&](FRHICommandListImmediate& Commands) {
 			ObservedProxy->bSubmitShadowOnly = bShadowOnly;
 			Data->SetLODReady_RenderThread(2, bReady);
 			EXPECT_EQ(Scene->GetCachedMeshDrawCommands(Commands, Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation).Num(), 0u);
@@ -5100,7 +5100,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 			Low->CleanupWorld();
 			HighScene->Release(); LowScene->Release(); HighScene.reset(); LowScene.reset(); FlushRenderingCommands();
 			auto* Data = FStaticMeshTestAccess::GetMutableRenderData(Mesh);
-			if (Data) EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([Data](FRHICommandListImmediate&) { Data->ReleaseResources(); });
+			if (Data) EnqueueRenderCommand("CapturePreparedStaticMeshView", [Data](FRHICommandListImmediate&) { Data->ReleaseResources(); });
 			FlushRenderingCommands(); MarkAsGarbage(Mesh); CollectGarbage(Durin::EObjectFlags::Standalone); FlushRenderingCommands();
 		}
 	} Cleanup{HighWorld.Get(), LowWorld.Get(), HighScene, LowScene, Mesh};
@@ -5128,11 +5128,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	bool Ready = false;
 	while (!Ready && std::chrono::steady_clock::now() < Deadline) {
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			++GRenderFrameCounterRenderThread; Renderer.BeginFrame_RenderThread(Commands);
 		});
 		FlushRenderingCommands(); DPrimitiveComponent::ProcessPSOPrecacheRequests(HighWorld.Get()); DPrimitiveComponent::ProcessPSOPrecacheRequests(LowWorld.Get());
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) {
 			Ready = static_cast<FScene*>(HighScene.get())->GetPrimitiveSceneInfos().size() == 1
 				&& static_cast<FScene*>(LowScene.get())->GetPrimitiveSceneInfos().size() == 1;
 		});
@@ -5182,7 +5182,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 		EXPECT_EQ(ViaHost[0].GetValue(), Repeated[0].GetValue());
 		EXPECT_TRUE(ViaHost[0].IsCurrent());
 	}
-	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 		for (auto* Scene : {static_cast<FScene*>(HighScene.get()), static_cast<FScene*>(LowScene.get())}) {
 			FSceneView View; View.ViewportWidth = View.ViewportHeight = 64; View.FeatureLevel = Scene->GetFeatureLevel();
 			const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, Scene->GetPrimitiveSceneInfos(), View, ERasterMode::Solid);
@@ -5212,7 +5212,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 		FRenderResourceAttemptState& Requests;
 		FGraphicsPipelineStateRef& Expected;
 		~FDirectCollectorCleanup() {
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([this](FRHICommandListImmediate&) { Initializers.clear(); Processor.reset(); Requests.Reset(); Expected.reset(); });
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [this](FRHICommandListImmediate&) { Initializers.clear(); Processor.reset(); Requests.Reset(); Expected.reset(); });
 			FlushRenderingCommands();
 		}
 	} DirectCleanup{DirectCollector, DirectInitializers, DirectCommandRequests, ExpectedCommandPipeline};
@@ -5220,7 +5220,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	std::string DirectError;
 	const auto DirectDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 	do {
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			FGeometryQualificationFrame Frame(Commands);
 			if (!DirectCollector) {
 				DirectCollector = RendererPrivate::FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Deferred, RendererPrivate::EMeshPipelinePass::Forward);
@@ -5492,7 +5492,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	struct FConfigTargetCleanup {
 		FTextureRHIRef& Target;
 		~FConfigTargetCleanup() {
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&Target = Target](FRHICommandListImmediate&) { Target = {}; });
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&Target = Target](FRHICommandListImmediate&) { Target = {}; });
 			FlushRenderingCommands();
 		}
 	} TargetCleanup{ConfigTarget};
@@ -5501,7 +5501,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	const auto ViewPreparation = FRenderResourcePreparation::Create();
 	const auto PrepareDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 	do {
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			FGeometryQualificationFrame Frame(Commands);
 			Renderer.BeginFrame_RenderThread(Commands);
 			if (!ConfigTarget) ConfigTarget = GDynamicRHI->RHICreateTexture(Commands,
@@ -5524,7 +5524,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	SceneLessRequest.bSceneGeometry = false;
 	const auto PickingDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 	do {
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			FGeometryQualificationFrame Frame(Commands);
 			SceneLessPicking = Renderer.RenderHitProxies(Commands, nullptr, SceneLessRequest);
 		});
@@ -5539,7 +5539,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 		~FConfigUpdateDrain() { Blocker.Release(); FlushRenderingCommands(); }
 	} ConfigUpdateDrain{ConfigUpdateBlocker};
 	// This frame is queued before the policy update but sees the future admission.
-	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 		FGeometryQualificationFrame Frame(Commands);
 		Renderer.BeginFrame_RenderThread(Commands);
 		ASSERT_EQ(UpdatedRequests.size(), 1u);
@@ -5565,7 +5565,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	EXPECT_EQ(ViewPreparation.GetProgress().State, ERenderResourcePreparationState::Stale);
 	const auto UpdatedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 	while (!UpdatedRequests[0].GetProgress().bRequiredReady && std::chrono::steady_clock::now() < UpdatedDeadline) {
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			FGeometryQualificationFrame Frame(Commands);
 			Renderer.BeginFrame_RenderThread(Commands);
 		});
@@ -5577,7 +5577,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	ASSERT_TRUE(UpdatedRequests[0].GetProgress().bRequiredReady) << UpdatedRequests[0].GetDiagnostic();
 	Settings.bForward = false;
 	ASSERT_TRUE(Renderer.SetPreparationSettings(Settings));
-	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+	EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 		FGeometryQualificationFrame Frame(Commands);
 		EXPECT_EQ(Renderer.RenderView(Commands, {LowScene.get(), ConfigView, ConfigTarget}), ERenderViewResult::RendererResourcesUnavailable);
 		FHitProxyRenderRequest Picking;
@@ -5660,7 +5660,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceRepla
 		ASSERT_TRUE(Instance);
 		FSceneTestOwner Scene;
 		FProceduralGeometry Geometry;
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { Geometry = FProceduralGeometry::Create(Commands,1,false); });
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) { Geometry = FProceduralGeometry::Create(Commands,1,false); });
 		FlushRenderingCommands();
 		FSceneView View; View.ViewportWidth = 96; View.ViewportHeight = 96;
 		View.Settings.Mode.RenderMode = ERenderMode::Unlit;
@@ -5668,7 +5668,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceRepla
 		const auto Capture = [&](const std::array<uint8,3>& Expected) {
 			FlushRenderingCommands();
 			const auto ProxyRef = Instance->GetRenderProxy();
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) {
 				auto Proxy = std::make_unique<FProceduralProxy>(); Proxy->Geometry = Geometry;
 				Proxy->Materials = {ProxyRef->GetMaterialWithFallback(),ProxyRef->GetMaterialWithFallback()};
 				ASSERT_FALSE(Proxy->Materials[0].Representation.IsError());
@@ -5823,7 +5823,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ExplicitTextureLODVertexDisplaceme
 			ASSERT_TRUE(Instance);
 			FSceneTestOwner Scene;
 			FProceduralGeometry Geometry;
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 				Geometry = FProceduralGeometry::Create(Commands,1,false);
 			});
 			FlushRenderingCommands();
@@ -5834,7 +5834,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ExplicitTextureLODVertexDisplaceme
 				ASSERT_TRUE(Instance->SetScalarParameterValue("Mip", float(Level)));
 				FlushRenderingCommands();
 				const auto ProxyRef = Instance->GetRenderProxy();
-				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+				EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) {
 					auto Proxy = std::make_unique<FProceduralProxy>(); Proxy->Geometry = Geometry;
 					Proxy->Materials = {ProxyRef->GetMaterialWithFallback(),ProxyRef->GetMaterialWithFallback()};
 					ASSERT_FALSE(Proxy->Materials[0].Representation.IsError());

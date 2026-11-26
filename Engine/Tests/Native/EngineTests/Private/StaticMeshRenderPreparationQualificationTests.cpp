@@ -60,7 +60,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests,
 		MakeMaterial(Durin::EMaterialBlendMode::Opaque, true)};
 	Durin::FSceneTestOwner SceneOwner;
 	auto& Scene = *SceneOwner;
-	Durin::EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>(
+	Durin::EnqueueRenderCommand("InitializePreparedStaticMeshResources",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			ASSERT_TRUE(RenderData->InitResources(CommandList));
 		});
@@ -102,7 +102,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests,
 		size_t ContainerBytes = 0;
 	};
 	std::array<std::array<FPreparationSample, MeasuredFrames>, Runs> Samples{};
-	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+	Durin::EnqueueRenderCommand("CapturePreparedStaticMeshView",
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			// This is owned top-level container capacity, not allocator or
 			// transitive material/RHI memory accounting.
@@ -159,7 +159,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests,
 	Durin::FlushRenderingCommands();
 	SceneOwner.Reset();
 	Durin::FlushRenderingCommands();
-	Durin::EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>(
+	Durin::EnqueueRenderCommand("InitializePreparedStaticMeshResources",
 		[&](Durin::FRHICommandListImmediate&) { RenderData->ReleaseResources(); });
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
@@ -215,7 +215,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests, RecordsDisjointViewCacheChu
 	}
 	FSceneTestOwner Scene;
 	const std::vector Materials{MakeMaterial(EMaterialBlendMode::Opaque, true)};
-	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>(
+	EnqueueRenderCommand("InitializePreparedStaticMeshResources",
 		[&](FRHICommandListImmediate& Commands) {
 			for (auto& Mesh : Meshes) ASSERT_TRUE(Mesh->InitResources(Commands));
 		});
@@ -248,7 +248,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests, RecordsDisjointViewCacheChu
 		FSceneViewRenderOptions Options;
 		Options.bEnableDynamicInstancing = false;
 		Options.bEnableGPUCulling = false;
-		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			std::unordered_set<uint64> GeometryIds;
 			std::unordered_set<const FStaticMeshBatch*> StaticMeshes;
 			for (size_t Index = 0; Index < Views.size(); ++Index)
@@ -295,7 +295,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests, RecordsDisjointViewCacheChu
 		FRenderCommandFence Fence;
 		auto Render = [&](size_t View, FFrameSample& Frame, bool bMeasured) {
 			const auto GTStart = FSampleClock::now();
-			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&, View, bMeasured](FRHICommandListImmediate& Commands) {
+			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&, View, bMeasured](FRHICommandListImmediate& Commands) {
 				static thread_local std::optional<FViewRenderTelemetry> Observed;
 				Observed.reset();
 				SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Observed = Value; });
@@ -379,7 +379,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests, RecordsDisjointViewCacheChu
 	Scene.Reset();
 	FlushRenderingCommands();
 	RendererLifecycle.Shutdown();
-	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate&) {
+	EnqueueRenderCommand("InitializePreparedStaticMeshResources", [&](FRHICommandListImmediate&) {
 		for (auto& Mesh : Meshes) Mesh->ReleaseResources();
 	});
 	FlushRenderingCommands();
