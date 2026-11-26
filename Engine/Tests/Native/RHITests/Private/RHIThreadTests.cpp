@@ -541,6 +541,20 @@ namespace Durin
 		EXPECT_EQ(nullptr, GRHIThread);
 	}
 
+	TEST(FRHIThreadTests, StoppedThreadCannotRestart)
+	{
+		FRHIThread Thread;
+		ASSERT_TRUE(Thread.Start());
+		FRHIThreadWork Work;
+		Work.Execute = [] {};
+		const uint64 Serial = Thread.Enqueue(Work);
+		ASSERT_NE(Serial, 0u);
+		Thread.Stop();
+		EXPECT_FALSE(Thread.Start());
+		EXPECT_EQ(Thread.GetStats().CompletedSerial, Serial);
+		EXPECT_EQ(Thread.WaitForSerial(Serial), ERHIThreadWaitResult::Completed);
+	}
+
 	TEST(FRHIThreadTests, ClosedQueuePreservesUnacceptedWorkAndWaitReturnsCanceled)
 	{
 		FRHIThread Thread;

@@ -179,16 +179,16 @@ namespace Durin
 		// The render queue owns this scheduler-independent signal through execution.
 		// Signaling never needs GameThread work.
 		Tasks::FTaskEvent Event("RenderCommandFence", false);
-		auto Receipt = Mode == ERenderCommandFenceMode::RHIThread
+		auto Fence = Mode == ERenderCommandFenceMode::RHIThread
 			? std::make_shared<FRHICommandListFence>() : nullptr;
 		CompletionTask = Event;
-		RHIFence = Receipt;
+		RHIFence = Fence;
 		EnqueueRenderCommand("FenceCommand",
-			[Event = std::move(Event), Receipt = std::move(Receipt)](FRHICommandListImmediate&) mutable {
-				if (Receipt)
+			[Event = std::move(Event), Fence = std::move(Fence)](FRHICommandListImmediate&) mutable {
+				if (Fence)
 				{
 					const uint64 Serial = GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
-					*Receipt = GCommandListExecutor.CreateFence(Serial);
+					*Fence = GCommandListExecutor.CreateFence(Serial);
 				}
 				Event.Trigger();
 			});
@@ -204,11 +204,7 @@ namespace Durin
 		const auto RenderCompleted = std::chrono::steady_clock::now();
 		requiref(Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded,
 			"Render fence completion failed: {}", CompletionTask.GetDiagnostic());
-		if (RHIFence)
-		{
-			const auto Outcome = RHIFence->Wait();
-			requiref(Outcome == ERHICommandBatchState::Succeeded, "RHI render fence did not succeed.");
-		}
+		if (RHIFence) RHIFence->Wait();
 		const double RenderMS = std::chrono::duration<double, std::milli>(RenderCompleted - Started).count();
 		const double RHIMS = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - RenderCompleted).count();
 		if (Profiling::AreStartupDiagnosticsEnabled() && RenderMS + RHIMS >= 20.0)
@@ -225,11 +221,7 @@ namespace Durin
 		if (!CompletionTask.IsCompleted()) return false;
 		requiref(CompletionTask.GetState() == ETaskState::Succeeded,
 			"Render fence completion failed: {}", CompletionTask.GetDiagnostic());
-		if (!RHIFence) return true;
-		const ERHICommandBatchState State = RHIFence->GetState();
-		requiref(State == ERHICommandBatchState::Pending || State == ERHICommandBatchState::Succeeded,
-			"RHI render fence failed for serial {}.", RHIFence->GetTargetSerial());
-		return State == ERHICommandBatchState::Succeeded;
+		return !RHIFence || RHIFence->IsComplete();
 	}
 
 	namespace FFrameSync

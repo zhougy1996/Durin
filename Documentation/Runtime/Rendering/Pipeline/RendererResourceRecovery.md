@@ -253,15 +253,12 @@ Neither creator work nor its dependencies may depend on replay. Compute stage
 and binding validation remains active; a pipeline becoming Ready does not make
 missing bindings valid.
 
-`FRHICommandListFence` reports Pending, Succeeded, Canceled, or Expired.
-Completed serials describe terminal CPU queue progress, not successful native
-execution or GPU completion. Captured fences retain their batch outcome; render
-fences capture that receipt on the rendering thread. Late serial lookup uses a
-fixed 4,096-entry history and returns Expired when a needed receipt has been
-overwritten, never an inferred success. `Wait` blocks and returns the final batch
-state, including Canceled or Expired. GetState/IsComplete are nonblocking queries;
-there is no TryWait wrapper. Required-success owners such as render fences check
-the returned state before releasing their completion receipt. Queue payload
+`FRHICommandListFence` tracks one accepted CPU submission within the current
+RHI lifecycle. Render fences capture the serial on the rendering thread.
+`IsComplete()` compares it with the executor's completed serial, and `Wait()`
+blocks until that serial is reached. Completed submissions remain observable
+through device shutdown regardless of how many later submissions execute.
+GPU completion uses separate backend synchronization. Queue payload
 accounting includes the retained compilation handles. Each PSO publishes its
 native result before storing the terminal outcome and notifying waiters. An
 atomic wait that starts after publication returns immediately.

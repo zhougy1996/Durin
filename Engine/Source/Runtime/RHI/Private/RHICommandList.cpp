@@ -1442,13 +1442,6 @@ namespace Durin
 						PayloadBytes, Batch.GetPayloadBytes());
 				}
 			}
-			~FSubmissionGroup()
-			{
-				auto Pending = ERHICommandBatchState::Pending;
-				Completion->State.compare_exchange_strong(Pending, ERHICommandBatchState::Canceled);
-			}
-			std::shared_ptr<FRHICommandBatchCompletion> Completion = std::make_shared<FRHICommandBatchCompletion>();
-
 			FSubmissionGroup(FSubmissionGroup&&) noexcept = default;
 			FSubmissionGroup(const FSubmissionGroup&) = delete;
 			auto operator=(const FSubmissionGroup&)
@@ -1487,16 +1480,6 @@ namespace Durin
 		}
 
 		std::vector<FBatch> PendingBatches;
-		struct FCompletionEntry { uint64 Serial = 0; std::shared_ptr<FRHICommandBatchCompletion> Completion; };
-		std::mutex CompletionHistoryMutex;
-		std::array<FCompletionEntry, 4096> CompletionHistory;
-		uint64 LatestCompletionSerial = 0;
-		auto RememberCompletion(uint64 Serial, std::shared_ptr<FRHICommandBatchCompletion> Completion) -> void
-		{
-			std::lock_guard Lock(CompletionHistoryMutex);
-			CompletionHistory[Serial % CompletionHistory.size()] = {Serial, std::move(Completion)};
-			LatestCompletionSerial = Serial;
-		}
 		FRHICommandReplayContext ReplayContext;
 		FRHIThread* RHIThread = nullptr;
 		std::atomic<uint64> LastSubmittedSerial = 0;
@@ -2519,26 +2502,12 @@ namespace Durin
 
 	auto FRHICommandListFence::IsComplete() const -> bool
 	{
-		return GetState() == ERHICommandBatchState::Succeeded;
-	}
-	auto FRHICommandListFence::GetState() const -> ERHICommandBatchState
-	{
-		if (Executor && Executor->IsSerialCanceled(TargetSerial)) return ERHICommandBatchState::Canceled;
-		if (Completion)
-		{
-			const auto State = Completion->State.load();
-			if (State == ERHICommandBatchState::Canceled
-				|| State == ERHICommandBatchState::Expired) return State;
-		}
-		return !Executor || Executor->IsSerialComplete(TargetSerial)
-			? ERHICommandBatchState::Succeeded : ERHICommandBatchState::Pending;
+		return !Executor || Executor->IsSerialComplete(TargetSerial);
 	}
 
-	auto FRHICommandListFence::Wait() const -> ERHICommandBatchState
+	auto FRHICommandListFence::Wait() const -> void
 	{
-		if (Executor && Executor->WaitForSerial(TargetSerial) == ERHICommandBatchState::Canceled)
-			return ERHICommandBatchState::Canceled;
-		return GetState();
+		if (Executor) Executor->WaitForSerial(TargetSerial);
 	}
 
 	FRHICommandListExecutor::FRHICommandListExecutor()
@@ -2566,9 +2535,7 @@ namespace Durin
 	{
 		if (State->RHIThread)
 		{
-			const auto WaitState = WaitForSerial(GetLastSubmittedSerial());
-			if (WaitState != ERHICommandBatchState::Succeeded)
-				RHITerminateOnFailure("RHI wait", "Accepted work did not complete");
+			WaitForSerial(GetLastSubmittedSerial());
 		}
 	}
 
@@ -2673,9 +2640,7 @@ namespace Durin
 			const uint64 Serial = GetLastSubmittedSerial();
 			if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
 			{
-				const auto WaitState = WaitForSerial(Serial);
-				if (WaitState != ERHICommandBatchState::Succeeded)
-					RHITerminateOnFailure("RHI wait", "Accepted work did not complete");
+				WaitForSerial(Serial);
 			}
 			return Serial;
 		}
@@ -2801,17 +2766,13 @@ namespace Durin
 			Work.PayloadBytes = static_cast<uint64>(GroupPayloadBytes);
 			Work.Execute = [Replay, SubmissionGroup]() mutable {
 				Replay(*SubmissionGroup);
-				SubmissionGroup->Completion->State.store(ERHICommandBatchState::Succeeded);
 			};
 			const uint64 Serial = State->RHIThread->Enqueue(Work);
 			if (!Serial) RHITerminateOnFailure("RHI submission", "RHI thread is closed");
 			RecordAcceptedSubmission();
-			State->RememberCompletion(Serial, SubmissionGroup->Completion);
 			if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
 			{
-				const auto WaitState = WaitForSerial(Serial);
-				if (WaitState != ERHICommandBatchState::Succeeded)
-					RHITerminateOnFailure("RHI wait", "Accepted work did not complete");
+				WaitForSerial(Serial);
 			}
 			return Serial;
 		}
@@ -2825,9 +2786,7 @@ namespace Durin
 		const uint64 Serial = PreviousSerial + 1;
 		RecordAcceptedSubmission();
 		State->LastSubmittedSerial.store(Serial, std::memory_order_release);
-		State->RememberCompletion(Serial, SubmissionGroup->Completion);
 		Replay(*SubmissionGroup);
-		SubmissionGroup->Completion->State.store(ERHICommandBatchState::Succeeded);
 		SubmissionGroup.reset();
 		{
 			std::lock_guard Lock(State->CompletionMutex);
@@ -2836,9 +2795,7 @@ namespace Durin
 		State->CompletionCV.notify_all();
 		if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
 		{
-			const auto WaitState = WaitForSerial(Serial);
-			if (WaitState != ERHICommandBatchState::Succeeded)
-				RHITerminateOnFailure("RHI wait", "Accepted work did not complete");
+			WaitForSerial(Serial);
 		}
 		return Serial;
 	}
@@ -2886,8 +2843,7 @@ namespace Durin
 		};
 		const uint64 Serial = State->RHIThread->Enqueue(Work);
 		if (!Serial) RHITerminateOnFailure("Synchronous RHI operation", "RHI thread is closed");
-		if (WaitForSerial(Serial) != ERHICommandBatchState::Succeeded)
-			RHITerminateOnFailure("Synchronous RHI operation", "RHI thread wait was canceled");
+		WaitForSerial(Serial);
 	}
 
 	auto FRHICommandListExecutor::CreateFence() -> FRHICommandListFence
@@ -2898,18 +2854,8 @@ namespace Durin
 	auto FRHICommandListExecutor::CreateFence(uint64 TargetSerial)
 		-> FRHICommandListFence
 	{
-		check(TargetSerial <= GetLastSubmittedSerial());
-		auto Fence = FRHICommandListFence(*this, TargetSerial);
-		std::lock_guard Lock(State->CompletionHistoryMutex);
-		const auto& Entry = State->CompletionHistory[TargetSerial % State->CompletionHistory.size()];
-		if (TargetSerial != 0 && Entry.Serial == TargetSerial) Fence.Completion = Entry.Completion;
-		else if (TargetSerial != 0 && TargetSerial < State->LatestCompletionSerial
-			&& State->LatestCompletionSerial - TargetSerial >= State->CompletionHistory.size())
-		{
-			Fence.Completion = std::make_shared<FRHICommandBatchCompletion>();
-			Fence.Completion->State.store(ERHICommandBatchState::Expired);
-		}
-		return Fence;
+		requiref(TargetSerial <= GetLastSubmittedSerial(), "RHI fence requires an already submitted serial.");
+		return FRHICommandListFence(*this, TargetSerial);
 	}
 
 	auto FRHICommandListExecutor::GetLastSubmittedSerial() const -> uint64
@@ -2999,8 +2945,7 @@ namespace Durin
 		{
 			const FRHIThreadStats ThreadStats = State->RHIThread->GetStats();
 			const uint64 LastSubmittedSerial = ThreadStats.LastSubmittedSerial;
-			if (WaitForSerial(LastSubmittedSerial) != ERHICommandBatchState::Succeeded)
-				RHITerminateOnFailure("RHI inline mode", "Accepted work has not completed");
+			WaitForSerial(LastSubmittedSerial);
 			State->LastSubmittedSerial.store(
 				LastSubmittedSerial, std::memory_order_release);
 			State->CompletedSerial.store(
@@ -3015,42 +2960,33 @@ namespace Durin
 		return GetCompletedSerial() >= Serial;
 	}
 
-	auto FRHICommandListExecutor::IsSerialCanceled(uint64 Serial) const -> bool
-	{
-		return !IsSerialComplete(Serial) && State->RHIThread
-			&& State->RHIThread->GetStats().AdmissionState == ERHIThreadAdmissionState::Stopped;
-	}
-
-	auto FRHICommandListExecutor::WaitForSerial(uint64 Serial) const -> ERHICommandBatchState
+	auto FRHICommandListExecutor::WaitForSerial(uint64 Serial) const -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.WaitForSerial");
 		State->WaitCount.fetch_add(1, std::memory_order_relaxed);
 		const auto WaitStart = std::chrono::steady_clock::now();
 		if (IsSerialComplete(Serial))
 		{
-			return ERHICommandBatchState::Succeeded;
+			return;
 		}
 
 		if (IsExecutingRHICommands()) RHITerminateOnFailure("RHI wait", "SelfWait");
-		bool bCompleted = true;
 		if (State->RHIThread)
 		{
-			bCompleted = State->RHIThread->WaitForSerial(Serial)
-				== ERHIThreadWaitResult::Completed;
+			if (State->RHIThread->WaitForSerial(Serial) != ERHIThreadWaitResult::Completed)
+				RHITerminateOnFailure("RHI wait", "Accepted work did not complete");
 		}
 		else
 		{
 			std::unique_lock Lock(State->CompletionMutex);
 			State->CompletionCV.wait(Lock, [this, Serial]() {
-				return IsSerialComplete(Serial) || IsSerialCanceled(Serial);
+				return IsSerialComplete(Serial);
 			});
-			bCompleted = IsSerialComplete(Serial);
 		}
 		const auto WaitEnd = std::chrono::steady_clock::now();
 		State->WaitDurationNanoseconds.fetch_add(
 			static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				WaitEnd - WaitStart).count()), std::memory_order_relaxed);
-		return bCompleted ? ERHICommandBatchState::Succeeded : ERHICommandBatchState::Canceled;
 	}
 
 } // namespace Durin

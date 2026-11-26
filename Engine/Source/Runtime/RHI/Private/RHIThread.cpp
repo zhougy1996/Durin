@@ -32,6 +32,7 @@ namespace Durin
 	{
 	public:
 		FRHIThreadQueueLimits Limits;
+		bool bStoppedPermanently = false;
 		ERHIThreadAdmissionState AdmissionState = ERHIThreadAdmissionState::Stopped;
 		std::deque<FRHIThreadQueueEntry> Queue;
 		uint64 LastSubmittedSerial = 0;
@@ -165,7 +166,7 @@ namespace Durin
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->AdmissionState != ERHIThreadAdmissionState::Stopped
-				|| Thread || GRHIThread)
+				|| State->bStoppedPermanently || Thread || GRHIThread)
 			{
 				return false;
 			}
@@ -224,6 +225,10 @@ namespace Durin
 
 	auto FRHIThread::Stop() -> void
 	{
+		{
+			std::lock_guard Lock(State->Mutex);
+			State->bStoppedPermanently = true;
+		}
 		BeginDrain();
 		if (Thread)
 		{

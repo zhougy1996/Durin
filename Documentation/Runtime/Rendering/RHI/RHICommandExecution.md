@@ -193,8 +193,9 @@ charges one frame until replay finishes or rejects the work. This is a CPU
 queue latency limit, independent of Vulkan's two-slot GPU pacing. A producer
 that would cross a bound waits for capacity and wakes
 on completion or admission close. Admission is explicit
-`Stopped -> Running -> Draining -> Stopped`; rejection never consumes the
-producer's work. The RHI thread is the sole runtime owner of command-context
+`Stopped -> Running -> Draining -> Stopped`. Once stopped, a thread object
+cannot start again. A new RHI lifecycle creates a fresh thread and serial space.
+Rejection leaves work with its producer. The RHI thread is the sole runtime owner of command-context
 replay, Vulkan command-pool/buffer mutation, graphics and present queue
 submission, frame state, and ordered backend deletion.
 
@@ -492,8 +493,7 @@ See [runtime shutdown](../../Application/RuntimeLifecycle.md).
 
 `FFrameSync::Sync(EndFrame)` limits GameThread lead over the rendering thread to
 one frame. `Threads` and `FlushRenderingCommands()` synchronize accepted work
-through the exact RHI serial captured by their fence. RHI execution failure
-fails the wait.
+through the exact RHI serial captured on the rendering thread.
 Final render shutdown also drains cleanup queued behind the fence.
 `FlushRenderingCommands()` is a GameThread no-op when the rendering thread is
 stopped. A queued fence retains its completion state independently of the fence

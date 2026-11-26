@@ -1904,7 +1904,8 @@ namespace Durin
 					auto Fence = Executor->CreateFence();
 					if (Threaded && Pending) EXPECT_FALSE(Fence.IsComplete());
 					Release.Trigger();
-					EXPECT_TRUE(Fence.Wait() == ERHICommandBatchState::Succeeded);
+					Fence.Wait();
+					EXPECT_TRUE(Fence.IsComplete());
 					EXPECT_EQ(Context.Operations.size(), 320u);
 					EXPECT_EQ(RHI.ComputeCreations, 320u);
 					Executor.reset();
@@ -1976,8 +1977,8 @@ namespace Durin
 			EXPECT_FALSE(Lifetime.expired());
 			EXPECT_LT(Executor.GetCompletedSerial(), Serial);
 			Release.Trigger();
-			EXPECT_EQ(Last.Wait(), ERHICommandBatchState::Succeeded);
-			EXPECT_EQ(Fence.GetState(), ERHICommandBatchState::Succeeded);
+			Last.Wait();
+			EXPECT_TRUE(Fence.IsComplete());
 			EXPECT_EQ(Order, std::vector<int>({1, 2, 3}));
 			EXPECT_EQ(std::ranges::count(Context.Operations, "Dispatch"), 1);
 			EXPECT_EQ(std::ranges::count(Context.Operations, "SubmitToGPU"), bOrderedEvent ? 1 : 0);
@@ -2014,7 +2015,7 @@ namespace Durin
 		EXPECT_EQ(Outcome.GetState(), ERHIPipelineState::Ready);
 	}
 
-	TEST(FRHICommandListTests, CapturedFenceSurvivesSerialHistoryRollover)
+	TEST(FRHICommandListTests, OldSubmittedSerialRemainsComplete)
 	{
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
@@ -2022,13 +2023,15 @@ namespace Durin
 		Commands.EnqueueLambda([] {});
 		Executor.Submit({}, ERHISubmitFlags::None);
 		auto Fence = Executor.CreateFence();
-		for (uint32 Index = 0; Index < 4096; ++Index)
+		for (uint32 Index = 0; Index < 4097; ++Index)
 		{
 			Commands.EnqueueLambda([] {});
 			Executor.Submit({}, ERHISubmitFlags::None);
 		}
-		EXPECT_EQ(Executor.CreateFence(Fence.GetTargetSerial()).GetState(), ERHICommandBatchState::Expired);
-		EXPECT_EQ(Fence.GetState(), ERHICommandBatchState::Succeeded);
+		auto LateFence = Executor.CreateFence(Fence.GetTargetSerial());
+		EXPECT_TRUE(LateFence.IsComplete());
+		LateFence.Wait();
+		EXPECT_TRUE(Fence.IsComplete());
 	}
 
 	TEST(FRHICommandListTests, ExitCompletesSubmittedDrawBeforeDeviceShutdown)
@@ -2075,11 +2078,11 @@ namespace Durin
 		}
 		auto Fence = GCommandListExecutor.CreateFence(GCommandListExecutor.Submit({}, ERHISubmitFlags::None));
 		EXPECT_TRUE(Entered.WaitFor(5.0));
-		EXPECT_EQ(Fence.GetState(), ERHICommandBatchState::Pending);
+		EXPECT_FALSE(Fence.IsComplete());
 		auto Handle = GetRHIReleaseResourcesDelegate().AddLambda([&] { Release.Trigger(); });
 		bool ShutdownObserved = false;
 		Backend->ObserveShutdown = [&] {
-			EXPECT_EQ(Fence.GetState(), ERHICommandBatchState::Succeeded);
+			EXPECT_TRUE(Fence.IsComplete());
 			EXPECT_EQ(std::ranges::count(Backend->Context.Operations, "Draw3"), 1);
 			ShutdownObserved = true;
 		};

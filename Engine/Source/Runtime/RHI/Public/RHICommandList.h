@@ -368,19 +368,14 @@ namespace Durin
 		friend class FRHIGPUBufferReadback;
 	};
 
-	enum class ERHICommandBatchState : uint8 { Pending, Succeeded, Canceled, Expired };
-	struct FRHICommandBatchCompletion
-	{
-		std::atomic<ERHICommandBatchState> State = ERHICommandBatchState::Pending;
-	};
+	// CPU progress within one RHI lifecycle. The executor must outlive the fence.
 	class FRHICommandListFence
 	{
 	public:
 		FRHICommandListFence() = default;
 
 		RHI_API auto IsComplete() const -> bool;
-		RHI_API auto GetState() const -> ERHICommandBatchState;
-		RHI_API auto Wait() const -> ERHICommandBatchState;
+		RHI_API auto Wait() const -> void;
 		FORCEINLINE auto GetTargetSerial() const -> uint64 { return TargetSerial; }
 
 	private:
@@ -388,7 +383,6 @@ namespace Durin
 
 		FRHICommandListExecutor* Executor = nullptr;
 		uint64 TargetSerial = 0;
-		std::shared_ptr<FRHICommandBatchCompletion> Completion;
 
 		friend class FRHICommandListExecutor;
 	};
@@ -418,7 +412,7 @@ namespace Durin
 		RHI_API auto GetCompletedSerial() const -> uint64;
 		RHI_API auto GetFrameNumber() const -> uint64;
 		RHI_API auto GetStats() const -> FRHICommandListExecutorStats;
-		// Capture receipts promptly; lookup of overwritten serial history returns Expired.
+		// TargetSerial must have been submitted in this RHI lifecycle.
 		RHI_API auto CreateFence(uint64 TargetSerial) -> FRHICommandListFence;
 		RHI_API auto SetThreadedMode(FRHIThread& InRHIThread) -> void;
 		RHI_API auto SetInlineMode() -> void;
@@ -437,8 +431,7 @@ namespace Durin
 		auto QueueCommandList(FRHICommandList& CommandList) -> void;
 		auto SealImmediateSegment() -> void;
 		RHI_API auto IsSerialComplete(uint64 Serial) const -> bool;
-		RHI_API auto IsSerialCanceled(uint64 Serial) const -> bool;
-		RHI_API auto WaitForSerial(uint64 Serial) const -> ERHICommandBatchState;
+		RHI_API auto WaitForSerial(uint64 Serial) const -> void;
 		auto ExecuteSynchronousContextOperation(
 			bool bFlushRecordedCommands,
 			std::function<void(IRHICommandContext&)> Operation,
