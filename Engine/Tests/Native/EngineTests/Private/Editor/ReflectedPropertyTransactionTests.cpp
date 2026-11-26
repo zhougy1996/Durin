@@ -350,7 +350,7 @@ TEST(FReflectedPropertyEditSessionTests, StandaloneWriteAllowsCollectionOfReplac
 	EXPECT_TRUE(bNotified);
 }
 
-TEST(FReflectedPropertyEditSessionTests, ClosingRecordingDuringModifyStopsTheWrite)
+TEST(FReflectedPropertyEditSessionTests, CancellingRecordingDuringModifyPublishesWithoutUndo)
 {
 	using namespace Durin;
 	using namespace Durin::PropertyEditor;
@@ -365,11 +365,114 @@ TEST(FReflectedPropertyEditSessionTests, ClosingRecordingDuringModifyStopsTheWri
 	});
 	const auto Result = Handle.SetValue(19);
 	OnAssetPackagesChanged().Remove(Listener);
-	EXPECT_EQ(Result, FPropertyAccess::Fail);
-	EXPECT_TRUE(Object->Changes.empty());
-	EXPECT_EQ(Object->Value, 7);
+	EXPECT_EQ(Result, FPropertyAccess::Success);
+	ASSERT_EQ(Object->Changes.size(), 1u);
+	EXPECT_EQ(Object->Changes.front().Phase, EPropertyChangePhase::Committed);
+	EXPECT_EQ(Object->Value, 19);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(Transactions.Get()->CanUndo());
+}
+
+TEST(FReflectedPropertyEditSessionTests, RetiringTargetInPreEditExtensionSkipsRemainingHooks)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	auto* Package = MakeReflectedRevisionTestPackage();
+	auto* Object = NewObject<DReflectedTransactionTestObject>(Package, "RetiredProposalTarget");
+	Object->Value = 7;
+	FReflectedPropertyHandle Handle(*Object, "Value");
+	Package->ClearDirty();
+	int Calls = 0;
+	FPropertyEditExtension Extension{.PreEdit = [&](DObject& Target, FPropertyEditProposal&) -> std::expected<void, FObjectValidationError> {
+		if (&Target == Object)
+		{
+			++Calls;
+			MarkAsGarbage(&Target);
+		}
+		return {};
+	}};
+	const auto First = RegisterPropertyEditExtension(Extension);
+	const auto Second = RegisterPropertyEditExtension(Extension);
+	const auto Result = Handle.SetValue(19, EPropertyValueSetFlags::NotTransactable);
+	UnregisterPropertyEditExtension(Second);
+	UnregisterPropertyEditExtension(First);
+
+	EXPECT_EQ(Result, FPropertyAccess::Fail);
+	EXPECT_EQ(Calls, 1);
+	EXPECT_EQ(Object->PreChangeCount, 0u);
+	EXPECT_TRUE(Object->Changes.empty());
+	EXPECT_EQ(Object->Value, 7);
+	EXPECT_FALSE(Package->IsDirty());
+}
+
+TEST(FReflectedPropertyEditSessionTests, RetiringTargetDuringDirtyNotificationRejectsPublication)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	auto* Package = MakeReflectedRevisionTestPackage();
+	auto* Object = NewObject<DReflectedTransactionTestObject>(Package, "RetiredPropertyTarget");
+	Object->Value = 7;
+	FReflectedPropertyHandle Handle(*Object, "Value");
+	Package->ClearDirty();
+	const auto Listener = OnAssetPackagesChanged().AddLambda([&] {
+		if (Package->IsDirty() && IsValid(Object)) MarkAsGarbage(Object);
+	});
+	const auto Result = Handle.SetValue(19, EPropertyValueSetFlags::NotTransactable);
+	OnAssetPackagesChanged().Remove(Listener);
+	EXPECT_FALSE(IsValid(Object));
+	EXPECT_EQ(Result, FPropertyAccess::Fail);
+	EXPECT_EQ(Handle.GetLastError(), "The property edit target is unavailable.");
+	EXPECT_EQ(Object->Value, 7);
+	EXPECT_TRUE(Object->Changes.empty());
+}
+
+TEST(FReflectedPropertyEditSessionTests, ShutdownRequestDuringProposalAllowsPendingWriteAndRejectsNextEdit)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	FTestTransactorOwner Editor;
+	auto* Object = NewObject<DReflectedTransactionTestObject>(nullptr, "ShutdownPropertyTarget");
+	Object->PreChange = [](FPropertyEditProposal&) -> std::expected<void, FObjectValidationError> {
+		GEditor->RequestShutdown();
+		return {};
+	};
+	FReflectedPropertyHandle Handle(*Object, "Value");
+	EXPECT_EQ(Handle.SetValue(19, EPropertyValueSetFlags::NotTransactable), FPropertyAccess::Success);
+	EXPECT_EQ(Handle.SetValue(23, EPropertyValueSetFlags::NotTransactable), FPropertyAccess::Fail);
+	EXPECT_EQ(Object->Value, 19);
+	ASSERT_EQ(Object->Changes.size(), 1u);
+	EXPECT_EQ(Object->Changes.front().Phase, EPropertyChangePhase::Committed);
+}
+
+TEST(FReflectedPropertyEditSessionTests, ClosingPreviewDuringModifyCompletesWriteWithoutAnotherPreviewEvent)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	auto* Package = MakeReflectedRevisionTestPackage();
+	auto* Object = NewObject<DReflectedTransactionTestObject>(Package, "UnrecordedPreview");
+	Object->Value = 7;
+	auto* Property = DReflectedTransactionTestObject::FindProperty("Value");
+	FPropertyEdit Edit;
+	ASSERT_TRUE(Edit.Begin(FPropertyEditTarget::ForMember(Object, Property), "Preview", false));
+	Package->ClearDirty();
+	Object->Value = 11;
+	ASSERT_TRUE(Edit.SetValue(int32{11}));
+	EXPECT_TRUE(Edit.HasChanges());
+	EXPECT_FALSE(Package->IsDirty());
+	ASSERT_EQ(Object->Changes.size(), 1u);
+	EXPECT_EQ(Object->Changes.front().Phase, EPropertyChangePhase::Interactive);
+
+	const auto Listener = OnAssetPackagesChanged().AddLambda([&] {
+		if (Package->IsDirty() && Edit.IsActive()) EXPECT_TRUE(Edit.Commit());
+	});
+	const bool bWritten = Edit.SetValue(int32{19});
+	OnAssetPackagesChanged().Remove(Listener);
+	EXPECT_TRUE(bWritten);
+	EXPECT_FALSE(Edit.IsActive());
+	EXPECT_EQ(Object->Value, 19);
+	EXPECT_FALSE(Edit.GetCurrentValue().IsValid());
+	ASSERT_EQ(Object->Changes.size(), 2u);
+	EXPECT_EQ(Object->Changes.back().Phase, EPropertyChangePhase::Committed);
 }
 
 TEST(FReflectedPropertyEditSessionTests, RecordedEditEnrollsOrdinaryTargetAndRestoresInitialPackageDirtyState)

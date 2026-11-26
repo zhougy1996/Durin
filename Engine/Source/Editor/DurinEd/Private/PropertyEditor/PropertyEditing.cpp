@@ -461,7 +461,7 @@ namespace Durin
 
 	auto PropertyEditor::BeginPropertyRecording(const FPropertyEditTarget& Target, std::string_view Description,
 		DTransactor& Transactor, bool bOpenScope, std::optional<FScopedTransaction>& Scope)
-		-> std::expected<FTransactionId, std::string>
+		-> std::expected<void, std::string>
 	{
 		if (!GEditor || GEditor->GetTransactor() != &Transactor)
 			return std::unexpected("Property recording requires the active editor's transactor.");
@@ -474,7 +474,7 @@ namespace Durin
 		if (!Target.Object->IsTemplateObject()) Target.Object->SetFlags(EObjectFlags::Transactional);
 		if (!GUndo || !CanTransactObject(*Target.Object) || !Target.Object->HasAnyObjectFlags(EObjectFlags::Transactional))
 			return std::unexpected("The target cannot participate in transaction history.");
-		return GUndo->GetContext().TransactionId;
+		return {};
 	}
 
 	auto PropertyEditor::FPropertyEdit::BeginInternal(
@@ -531,7 +531,6 @@ namespace Durin
 				Reset(bOwnsRecording);
 				return FailPropertyEdit(OutError, Recording.error());
 			}
-			RecordingId = *Recording;
 		}
 		bActive = true;
 		return true;
@@ -550,20 +549,12 @@ namespace Durin
 
 	auto PropertyEditor::WriteValidatedValue(const FPropertyEditTarget& WriteTarget,
 		FPropertyValueDraft& Draft, EPropertyChangePhase Phase,
-		FPropertyValueSnapshotPayload& CurrentValue,
-		FTransactionId RecordingId, const FPropertyEdit* Session) -> std::expected<bool, std::string>
+		FPropertyValueSnapshotPayload& LiveValue) -> std::expected<bool, std::string>
 	{
 		if (std::ranges::any_of(GActiveGenericMutations, [&](const auto* Active) { return Active->IsSameMutationTarget(WriteTarget); }))
 			return std::unexpected("A reflected property hook cannot start a nested edit of the same target.");
 		FGenericMutationScope Scope(WriteTarget);
 
-		FPropertyValueSnapshotPayload LiveValue;
-		if (Session)
-		{
-			if (auto Capture = CaptureTargetValue(WriteTarget, LiveValue); !Capture)
-				return std::unexpected(ToString(Capture.error()));
-		}
-		const auto& Before = Session ? LiveValue : CurrentValue;
 		if (!Draft.IsValid()) return std::unexpected(FormatPropertyValueDraftError(Draft.GetError()));
 
 		FResolvedPropertyValue DraftLeaf;
@@ -583,66 +574,57 @@ namespace Durin
 			bResolvedLeaf ? DraftLeaf.Container : nullptr,
 			bResolvedLeaf ? DraftLeaf.ArrayIndex : 0
 		};
+		const TWeakObjectPtr<DObject> TargetObject(WriteTarget.Object);
+		constexpr auto Unavailable = "The property edit target is unavailable.";
 		for (const FPropertyEditExtension& Extension : SnapshotPropertyEditExtensions())
 		{
 			if (!Extension.PreEdit) continue;
-			if (const auto Validation = Extension.PreEdit(*WriteTarget.Object, Proposal); !Validation)
+			DObject* Object = TargetObject.Get();
+			if (!Object) return std::unexpected(Unavailable);
+			if (const auto Validation = Extension.PreEdit(*Object, Proposal); !Validation)
 				return std::unexpected(ToString(Validation.error()));
 		}
-		if (const auto Validation = WriteTarget.Object->PreEditChangeProperty(Proposal); !Validation)
+		DObject* Object = TargetObject.Get();
+		if (!Object) return std::unexpected(Unavailable);
+		if (const auto Validation = Object->PreEditChangeProperty(Proposal); !Validation)
 			return std::unexpected(ToString(Validation.error()));
 
 		FPropertyValueSnapshotPayload Normalized;
 		if (const auto Result = Draft.Capture(Normalized); !Result)
 			return std::unexpected(FormatPropertyValueDraftError(Result.error()));
+		Object = TargetObject.Get();
+		if (!Object) return std::unexpected(Unavailable);
 		// Proposal hooks can retire a document, target or endpoint. Check live authority
 		// at the publication boundary, after all synchronous normalization callbacks.
 		if (Phase != EPropertyChangePhase::Cancelled)
 			if (auto* Script = FScopedEditorScriptCall::Current(); Script
-				&& Script->ResolveEditAccess(*WriteTarget.Object) != EEditorScriptTargetAccess::Writable)
+				&& Script->ResolveEditAccess(*Object) != EEditorScriptTargetAccess::Writable)
 			{
 				Script->Reject("Property target is no longer writable.");
 				return std::unexpected("Script property publication lost target admission.");
 			}
-		if (Normalized == Before)
-		{
-			const bool bChanged = Session && CurrentValue != Before;
-			if (Session) CurrentValue = std::move(LiveValue);
-			return bChanged;
-		}
+		if (Normalized == LiveValue) return false;
 		if (Phase != EPropertyChangePhase::Cancelled)
 		{
-			const auto CanWrite = [&] {
-				return IsValid(WriteTarget.Object) && (Session ? Session->IsEditingObject(WriteTarget.Object)
-					: !(GEditor && GEditor->IsShutdownRequested()))
-					&& (!RecordingId || (GUndo && GUndo->GetContext().TransactionId == RecordingId
-						&& GEditor && GEditor->GetTransactor() && GEditor->GetTransactor()->CanTransact()));
-			};
-			bool bAdmitted = CanWrite();
-			if (bAdmitted)
-			{
-				if (RecordingId) bAdmitted = WriteTarget.Object->Modify();
-				else if (GUndo) WriteTarget.Object->MarkPackageDirty(); // Excluded from the active recording.
-				else (void)WriteTarget.Object->Modify();
-			}
-			if (!bAdmitted || !CanWrite())
-			{
-				return std::unexpected("The property edit or its recording is no longer available.");
-			}
+			if (WriteTarget.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional))
+				Object->MarkPackageDirty();
+			else
+				(void)Object->Modify();
+			if (!TargetObject.IsValid()) return std::unexpected(Unavailable);
 		}
 		FPropertyValueSnapshotPayload Applied;
 		if (const auto Publication = RestoreTargetValue(WriteTarget, Normalized); !Publication)
 		{
-			CurrentValue = {};
+			LiveValue = {};
 			return std::unexpected(ToString(Publication.error()));
 		}
 		if (const auto Capture = CaptureTargetValue(WriteTarget, Applied); !Capture)
 		{
-			CurrentValue = {};
+			LiveValue = {};
 			return std::unexpected(ToString(Capture.error()));
 		}
-		const bool bChanged = Applied != CurrentValue;
-		CurrentValue = std::move(Applied);
+		const bool bChanged = Applied != LiveValue;
+		LiveValue = std::move(Applied);
 		return bChanged;
 	}
 
@@ -667,9 +649,22 @@ namespace Durin
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
 		const auto Owner = TargetObject;
 		const auto WriteTarget = Target;
-		const auto Result = WriteValidatedValue(WriteTarget, Draft, Phase, CurrentValue, RecordingId, this);
-		if (!Result) return FailPropertyEdit(OutError, Result.error());
-		const bool bChanged = *Result;
+		FPropertyValueSnapshotPayload LiveValue;
+		if (auto Capture = CaptureTargetValue(WriteTarget, LiveValue); !Capture)
+			return FailPropertyEdit(OutError, ToString(Capture.error()));
+		const auto Result = WriteValidatedValue(WriteTarget, Draft, Phase, LiveValue);
+		if (!Result)
+		{
+			if (IsEditingObject(WriteTarget.Object) && !LiveValue.IsValid()) CurrentValue = {};
+			return FailPropertyEdit(OutError, Result.error());
+		}
+		if (!IsEditingObject(WriteTarget.Object))
+		{
+			if (OutChanged) *OutChanged = *Result;
+			return true;
+		}
+		const bool bChanged = CurrentValue != LiveValue;
+		CurrentValue = std::move(LiveValue);
 		if (Phase != EPropertyChangePhase::Interactive || bChanged)
 			NotifyMutation(WriteTarget, Phase);
 		if (OutChanged) *OutChanged = bChanged;
@@ -742,7 +737,6 @@ namespace Durin
 		if (bCancelRecording && bOwnsRecording && TransactionScope) TransactionScope->Cancel();
 		TransactionScope.reset();
 		bOwnsRecording = false;
-		RecordingId = 0;
 		Target = {};
 		TargetObject.Reset();
 		OriginalValue = {};

@@ -89,7 +89,6 @@ namespace Durin::PropertyEditor
 		std::optional<FScopedTransaction> TransactionScope;
 		bool bActive = false;
 		bool bCommitting = false;
-		FTransactionId RecordingId = 0;
 		bool bOwnsRecording = false;
 	};
 

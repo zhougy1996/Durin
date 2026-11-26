@@ -130,11 +130,17 @@ already returned to callers.
 
 Typed setters pass their prepared draft directly to the shared write path.
 Snapshot application and cancellation initialize a draft from the supplied
-value or the original value. The write path captures the live snapshot root,
-invokes the pre hook, compares the normalized draft with live state, and
-publishes and recaptures a changed value. A failed publication or readback returns the original diagnostic and leaves live
-storage as it stands. A session invalidates its cached current value so an explicit
-cancel can still restore the gesture's original snapshot. A rejected proposal leaves
+value or the original value. The shared write compares the normalized draft with the live
+value captured for this write. A synchronous listener can close the recording or preview during
+`Modify()`. Shutdown requests block new edit sessions and handle writes. A pending write can finish
+while its target remains live. Retiring the target in a proposal or dirty notification
+rejects publication.
+Canceling the recording discards its undo entry. A closed preview skips its cache
+update and further preview notifications. A session compares the result with its last preview to decide
+whether to notify, even when the live value already matched the draft.
+A publication or readback failure returns the original diagnostic and leaves
+live storage as it stands. The session then invalidates its cached value so
+explicit cancellation can still restore the gesture's original snapshot. A rejected proposal leaves
 the cached value intact. Same-target nested edits from a hook are rejected.
 
 Canonical values reside in reflected object storage. Object hooks and registered

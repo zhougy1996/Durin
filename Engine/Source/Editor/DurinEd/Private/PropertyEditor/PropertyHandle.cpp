@@ -253,7 +253,6 @@ namespace Durin::PropertyEditor
 			return Fail("The property edit target is unavailable.");
 
 		std::optional<FScopedTransaction> Scope;
-		FTransactionId RecordingId = 0;
 		if (!Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional))
 		{
 			const bool bOpenScope = !(Flags & EPropertyValueSetFlags::NotTransactable) && !GUndo;
@@ -268,7 +267,6 @@ namespace Durin::PropertyEditor
 					if (Scope) Scope->Cancel();
 					return Fail(Recording.error());
 				}
-				RecordingId = *Recording;
 			}
 		}
 
@@ -291,7 +289,7 @@ namespace Durin::PropertyEditor
 		bool bChanged = false;
 		if (bProposedChange)
 		{
-			auto Result = WriteValidatedValue(Target, Draft, Phase, Before, RecordingId);
+			auto Result = WriteValidatedValue(Target, Draft, Phase, Before);
 			if (!Result)
 			{
 				LastError = std::move(Result.error());

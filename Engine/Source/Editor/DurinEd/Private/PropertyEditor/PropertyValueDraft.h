@@ -145,11 +145,9 @@ namespace Durin::PropertyEditor
 {
 	auto BeginPropertyRecording(const FPropertyEditTarget& Target, std::string_view Description,
 		DTransactor& Transactor, bool bOpenScope, std::optional<FScopedTransaction>& Scope)
-		-> std::expected<FTransactionId, std::string>;
+		-> std::expected<void, std::string>;
 
-	class FPropertyEdit;
 	auto WriteValidatedValue(const FPropertyEditTarget& Target, FPropertyValueDraft& Draft, EPropertyChangePhase Phase,
-		FPropertyValueSnapshotPayload& CurrentValue,
-		FTransactionId RecordingId, const FPropertyEdit* Session = nullptr) -> std::expected<bool, std::string>;
+		FPropertyValueSnapshotPayload& LiveValue) -> std::expected<bool, std::string>;
 	auto NotifyMutation(const FPropertyEditTarget& Target, EPropertyChangePhase Phase, bool bValueChanged = true) -> void;
 }
