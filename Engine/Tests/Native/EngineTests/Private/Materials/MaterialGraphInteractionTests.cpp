@@ -463,7 +463,7 @@ TEST(FMaterialGraphInteractionTests, PreviewBindingRejectsWrongTypesAndStaleSour
 	ASSERT_TRUE(Preview);
 	Controls.Observe(8, PropertyEditor::FReflectedPropertyHandle(Preview->GetEditTarget()), EEnd::Commit, .6f);
 	Error.clear();
-	EXPECT_TRUE(Controls.EndFrame(false, false, {}, &Error));
+	EXPECT_TRUE(Controls.EndFrame(false, false, &Error));
 	EXPECT_EQ(Error, "The property is no longer editable.");
 	EXPECT_FALSE(Controls.IsActive());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .6f);

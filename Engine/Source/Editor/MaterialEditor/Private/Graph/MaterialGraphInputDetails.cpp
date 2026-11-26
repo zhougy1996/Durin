@@ -145,7 +145,7 @@ namespace Durin::MaterialEditor
 		EndNodeLiteralFrame();
 		EndRootInputFrame();
 		std::string Error;
-		ParameterControls.EndFrame(ImGui::IsKeyPressed(ImGuiKey_Escape, false), true, {}, &Error);
+		ParameterControls.EndFrame(ImGui::IsKeyPressed(ImGuiKey_Escape, false), true, &Error);
 		if (!Error.empty()) ReportError(std::move(Error));
 	}
 

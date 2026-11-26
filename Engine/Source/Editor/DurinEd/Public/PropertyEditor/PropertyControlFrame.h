@@ -16,6 +16,9 @@ namespace Durin::PropertyEditor
 	public:
 		using EEnd = MonaImGui::PropertyEdit::EPropertyInteractionEnd;
 
+		auto IsActive() const -> bool { return ActiveId.has_value(); }
+		auto Matches(const TId& Id) const -> bool { return ActiveId == Id; }
+
 		auto Observe(const TId& Id, const TTarget& Target, EEnd End, std::optional<TValue> Value) -> void
 		{
 			if (ActiveId == Id) ActiveObservation = {End, std::move(Value)};
@@ -88,14 +91,13 @@ namespace Durin::PropertyEditor
 		DURINED_API auto Observe(ImGuiID Id, const FReflectedPropertyHandle& Handle, EEnd End,
 			std::optional<FValue> Value) -> void;
 		DURINED_API auto EndFrame(bool bCancel, bool bShouldTransact,
-			const std::function<bool()>& PrepareNewEdit = {}, std::string* OutError = nullptr, bool* OutChanged = nullptr) -> bool;
+			std::string* OutError = nullptr) -> bool;
 		DURINED_API auto Finish(bool bCancel, std::string* OutError = nullptr) -> bool;
 		auto IsActive() const -> bool { return Edit.IsActive(); }
 		auto IsEditingObject(const DObject* Object) const -> bool { return Edit.IsEditingObject(Object); }
-		auto MatchesTarget(const FPropertyEditTarget& Target) const -> bool { return Edit.MatchesTarget(Target); }
 
 	private:
-		auto FinishEdit(bool bCancel, std::string* OutError, bool* OutChanged = nullptr) -> bool;
+		auto FinishEdit(bool bCancel, std::string* OutError) -> bool;
 
 		FPropertyEdit Edit;
 		TPropertyControlFrame<ImGuiID, FReflectedPropertyHandle, FValue> Frame;

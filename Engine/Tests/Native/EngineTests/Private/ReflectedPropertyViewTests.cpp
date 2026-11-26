@@ -127,6 +127,7 @@ namespace
 
 		std::vector<Durin::EPropertyChangeType::Type> ChangeTypes;
 		int32 Value = 5;
+		std::string Text;
 		Durin::FVector3f FloatVector{0.0f};
 		FSoftObjectViewValue SoftValues[2];
 		FSoftObjectViewArray SoftArray;
@@ -222,7 +223,14 @@ namespace
 			MapProperty->SetValueProp(MapValue);
 			SetPropertyViewValueLifecycle<FSoftObjectViewMap>(*MapProperty);
 
-			Property->SetNext(SoftProperty);
+			TextProperty = new Durin::FStringProperty(
+				Durin::FFieldVariant(Class), Durin::FName("Text"), Durin::EObjectFlags::Transient,
+				Durin::EPropertyFlags::Edit, 1, static_cast<uint16>(reinterpret_cast<const uint8*>(&OffsetProbe.Text)
+					- reinterpret_cast<const uint8*>(&OffsetProbe)), sizeof(std::string),
+				Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr);
+			SetPropertyViewValueLifecycle<std::string>(*TextProperty);
+			Property->SetNext(TextProperty);
+			TextProperty->SetNext(SoftProperty);
 			SoftProperty->SetNext(ArrayProperty);
 			ArrayProperty->SetNext(MapProperty);
 			Class->SetChildProperties(Property);
@@ -231,6 +239,7 @@ namespace
 		}
 
 		Durin::DClass* Class = nullptr;
+		Durin::FStringProperty* TextProperty = nullptr;
 		Durin::FNumericProperty* Property = nullptr;
 		Durin::FSoftObjectProperty* SoftProperty = nullptr;
 		Durin::FArrayProperty* ArrayProperty = nullptr;
@@ -905,7 +914,7 @@ TEST(FReflectedPropertyViewTests, IntegerGestureReturningToOriginalPublishesOneF
 	FPropertyControlFrame Frame;
 	const auto Draw = [&](EEnd End, std::optional<FPropertyControlFrame::FValue> Value) {
 		Frame.Observe(1, FReflectedPropertyHandle(*Object, Reflection.Property->NamePrivate), End, Value);
-		return Frame.EndFrame(false, true, [] { return true; });
+		return Frame.EndFrame(false, true);
 	};
 	ASSERT_TRUE(Draw(EEnd::None, std::nullopt));
 	EXPECT_TRUE(Object->ChangeTypes.empty());
@@ -917,47 +926,78 @@ TEST(FReflectedPropertyViewTests, IntegerGestureReturningToOriginalPublishesOneF
 	EXPECT_FALSE(Transactions->CanUndo());
 }
 
-TEST(FReflectedPropertyViewTests, IntegerControlHandoffHasTheSameHistoryInBothDrawOrders)
+TEST(FReflectedPropertyViewTests, NumberAndTextHandoffHasTheSameUndoBoundariesInBothDrawOrders)
 {
 	using namespace Durin;
-	using namespace Durin::PropertyEditor;
-	using EEnd = FPropertyControlFrame::EEnd;
 	Testing::InitializeAssetSystemForTests();
 	auto& Reflection = GetPropertyViewHostTestReflection();
-	for (bool bDrawIncomingFirst : {false, true})
+	for (bool bTextFirst : {false, true})
 	{
-		SCOPED_TRACE(bDrawIncomingFirst);
-		TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(
-			nullptr, bDrawIncomingFirst ? "IncomingIntegerFirst" : "OutgoingIntegerFirst"));
+		SCOPED_TRACE(bTextFirst);
+		TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(nullptr, "NumberAndText"));
 		FPropertyViewTestTransactorOwner Transactions;
-		const FReflectedPropertyHandle Handle(*Object, Reflection.Property->NamePrivate);
-		FPropertyControlFrame Frame;
-		const auto EndFrame = [&] { return Frame.EndFrame(false, true, [] { return true; }); };
-
-		Frame.Observe(1, Handle, EEnd::None, 7);
-		ASSERT_TRUE(EndFrame());
-		ASSERT_TRUE(Frame.IsActive());
-		EXPECT_EQ(Object->Value, 7);
-
-		const auto DrawOutgoing = [&] { Frame.Observe(1, Handle, EEnd::Commit, 8); };
-		const auto DrawIncoming = [&] { Frame.Observe(2, Handle, EEnd::Commit, 9); };
-		if (bDrawIncomingFirst) { DrawIncoming(); DrawOutgoing(); }
-		else { DrawOutgoing(); DrawIncoming(); }
-		EXPECT_EQ(Object->Value, 7);
-		ASSERT_TRUE(EndFrame());
-		EXPECT_EQ(Object->Value, 9);
-		EXPECT_FALSE(Frame.IsActive());
-
+		FPropertyView View;
+		const FPropertyViewContext Context{.ReportPropertyError = [](std::string Error) { ADD_FAILURE() << Error; }};
+		const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), ImGui::DestroyContext);
+		auto& IO = ImGui::GetIO();
+		IO.ConfigInputTrickleEventQueue = false;
+		IO.DisplaySize = {800, 600}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+		IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+		ImVec2 NumberPos, TextPos;
+		const auto Draw = [&](bool bHandoff = false) {
+			ImGui::NewFrame();
+			// Release the numeric text input before either row can consume the new field's character.
+			if (bHandoff) ImGui::ClearActiveID();
+			ImGui::SetNextWindowSize({600, 300});
+			ImGui::Begin("Control handoff");
+			if (MonaImGui::PropertyEdit::BeginTable("Rows"))
+			{
+				const auto Row = [&](FProperty* Property, ImVec2& Position) {
+					View.EditProperty(Context, Object.Get(), Property);
+					const auto Min = ImGui::GetItemRectMin(), Max = ImGui::GetItemRectMax();
+					Position = {(Min.x + Max.x) * .5f, (Min.y + Max.y) * .5f};
+				};
+				if (bTextFirst) Row(Reflection.TextProperty, TextPos);
+				Row(Reflection.Property, NumberPos);
+				if (!bTextFirst) Row(Reflection.TextProperty, TextPos);
+				MonaImGui::PropertyEdit::EndTable();
+			}
+			if (bHandoff)
+			{
+				EXPECT_TRUE(View.IsEditingTarget(FPropertyEditTarget::ForMember(Object.Get(), Reflection.Property)));
+				EXPECT_TRUE(Object->Text.empty());
+			}
+			EXPECT_TRUE(View.EndInteractionFrame(Context));
+			ImGui::End(); ImGui::Render();
+		};
+		Draw(); Draw();
+		IO.AddMousePosEvent(NumberPos.x, NumberPos.y);
+		IO.AddKeyEvent(ImGuiMod_Ctrl, true);
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true); Draw();
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+		IO.AddKeyEvent(ImGuiMod_Ctrl, false); Draw();
+		IO.AddInputCharactersUTF8("7"); Draw();
+		ASSERT_EQ(Object->Value, 7);
+		IO.AddMousePosEvent(TextPos.x, TextPos.y);
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+		IO.AddInputCharactersUTF8("x"); Draw(true);
+		ASSERT_EQ(Object->Text, "x");
+		EXPECT_TRUE(View.IsEditingTarget(FPropertyEditTarget::ForMember(Object.Get(), Reflection.TextProperty)));
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false); Draw();
+		IO.AddKeyEvent(ImGuiKey_Enter, true); Draw();
+		IO.AddKeyEvent(ImGuiKey_Enter, false); Draw();
+		ASSERT_FALSE(View.IsEditing());
 		ASSERT_TRUE(Transactions->Undo());
-		EXPECT_EQ(Object->Value, 8);
+		EXPECT_TRUE(Object->Text.empty());
+		EXPECT_EQ(Object->Value, 7);
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(Object->Value, 5);
 		EXPECT_FALSE(Transactions->CanUndo());
 		ASSERT_TRUE(Transactions->Redo());
-		EXPECT_EQ(Object->Value, 8);
+		EXPECT_EQ(Object->Value, 7);
+		EXPECT_TRUE(Object->Text.empty());
 		ASSERT_TRUE(Transactions->Redo());
-		EXPECT_EQ(Object->Value, 9);
-		EXPECT_FALSE(Transactions->CanRedo());
+		EXPECT_EQ(Object->Text, "x");
 	}
 }
 
@@ -985,7 +1025,7 @@ TEST(FReflectedPropertyViewTests, ColorPickerHandoffToIntegerHasTheSameHistoryIn
 		FLinearColor Original;
 		ASSERT_EQ(ColorHandle.GetValue(Original), Durin::PropertyEditor::FPropertyAccess::Success);
 		FPropertyControlFrame Frame;
-		const auto EndFrame = [&] { return Frame.EndFrame(false, true, [] { return true; }); };
+		const auto EndFrame = [&] { return Frame.EndFrame(false, true); };
 
 		Frame.Observe(1, ColorHandle, EEnd::None, Preview);
 		ASSERT_TRUE(EndFrame());

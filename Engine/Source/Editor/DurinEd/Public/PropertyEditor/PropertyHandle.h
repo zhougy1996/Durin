@@ -67,6 +67,7 @@ namespace Durin::PropertyEditor
 		}
 
 	private:
+		friend class ::Durin::FPropertyView;
 		friend class FPropertyControlFrame;
 		friend class FPropertyEdit;
 		FReflectedPropertyHandle() = default;
@@ -74,6 +75,7 @@ namespace Durin::PropertyEditor
 			FPropertyValueSnapshotPayload& LiveValue) -> std::expected<bool, std::string>;
 		auto NotifyValueSet(const FPropertyEditTarget& Target, EPropertyValueSetFlags::Type Flags, bool bChanged) -> void;
 		auto ResolveTarget() const -> FPropertyEditTarget;
+		auto ResolveEditablePath() const -> const FPropertyEditTarget*;
 		auto ResolveMember(DObject*& OutOwner) const -> const FProperty*;
 		template<typename TValue>
 		auto ReadValue(TValue& OutValue) const -> bool;
@@ -133,16 +135,14 @@ namespace Durin::PropertyEditor
 			DTransactor* Transactor, std::string* OutError, bool bOpenScope = true) -> bool;
 		friend class ::Durin::DEditorEngine;
 		friend class ::Durin::FPropertyView;
-		friend class FPropertyControlFrame;
 		auto ApplyDraft(FPropertyValueDraft& Draft, std::string* OutError, bool* OutChanged) -> bool;
 		auto ApplyInternal(const FPropertyValueSnapshotPayload& ProposedValue,
 			std::string* OutError, bool* OutChanged) -> bool;
 		auto RestoreOriginalValue(std::string* OutError) -> bool;
 		auto Reset(bool bCancelRecording = true) -> void;
 
-		auto WriteControlValue(const FPropertyControlValue& Value, std::string* OutError, bool* OutChanged) -> bool;
 		template<typename TValue>
-		auto WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged) -> bool;
+		auto WriteValue(const TValue& Value, std::string* OutError) -> bool;
 		FReflectedPropertyHandle Handle;
 		TStrongObjectPtr<DObject> TargetObject;
 		FPropertyValueSnapshot OriginalValue;

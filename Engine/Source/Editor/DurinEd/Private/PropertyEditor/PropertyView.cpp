@@ -211,24 +211,6 @@ namespace Durin
 				Operation, static_cast<uint32>(Result)));
 		}
 
-		template<typename TWriteProposed>
-		auto CaptureProposedPropertyValue(const FPropertyEditTarget& Target,
-			TWriteProposed&& WriteProposed, FPropertyValueSnapshot& OutSnapshot) -> std::expected<void, std::string>
-		{
-			FPropertyValueDraft Draft(Target);
-			if (!Draft.IsValid()) return std::unexpected(FormatPropertyValueDraftError(Draft.GetError()));
-			FResolvedPropertyValue DraftValue;
-			if (auto Result = Draft.Resolve(Target, DraftValue.Property, DraftValue.Container, DraftValue.ArrayIndex); !Result)
-				return std::unexpected(FormatPropertyValueDraftError(Result.error()));
-			if (auto Written = WriteProposed(DraftValue, &Draft); !Written) return Written;
-			auto Validation = ValidatePropertyEditValue(
-				Draft.GetRootProperty(), Draft.GetRootContainer(), Draft.GetRootArrayIndex());
-			if (!Validation) return std::unexpected(ToString(Validation.error()));
-			auto Result = Draft.Capture(OutSnapshot);
-			if (!Result) return std::unexpected(FormatPropertyValueDraftError(Result.error()));
-			return {};
-		}
-
 		auto DrawNumericProperty(const FProperty& Property, ImGuiDataType DataType, void* Value,
 			MonaImGui::PropertyEdit::FWidgetState& OutState) -> bool
 		{
@@ -518,55 +500,13 @@ namespace Durin
 		FProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,
 		const FPropertyEditTarget* ExistingTarget, bool bStructMember, bool bShowTransformHeader) -> bool
 	{
-		using DurinCodeGen::EPropertyGenFlags;
-		const auto Kind = Property->GetKind();
-		const bool bColor = Kind == EPropertyGenFlags::Struct
-			&& static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_FLinearColor();
-		if (!Property->HasValueAccessors() && (bColor || (!ExistingTarget && (Kind == EPropertyGenFlags::Int32 || Kind == EPropertyGenFlags::Float))))
-		{
-			using namespace MonaImGui::PropertyEdit;
-			using FValue = PropertyEditor::FPropertyControlFrame::FValue;
-			const auto Handle = ExistingTarget
-				? PropertyEditor::FReflectedPropertyHandle(bStructMember ? ExistingTarget->ForStructMember(Property, ArrayIndex) : *ExistingTarget)
-				: PropertyEditor::FReflectedPropertyHandle(*Object, Property->NamePrivate, ArrayIndex);
-			const char* Tooltip = Property->GetTypedMetadata().ToolTip.c_str();
-			bReadOnly |= Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
-			if (bColor)
-			{
-				FLinearColor Value;
-				if (Handle.GetValue(Value) == PropertyEditor::FPropertyAccess::Success)
-				{
-					const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
-					FPropertyInteractionState Interaction;
-					const bool bChanged = EditColor(Label.c_str(), Value, bShowAlpha, bReadOnly, nullptr, Tooltip, &Interaction);
-					HandleControls.Observe(Interaction.Id, Handle, Interaction.End, bChanged ? std::optional(FValue{Value}) : std::nullopt);
-					return false;
-				}
-			}
-			else
-			{
-				const auto DrawNumber = [&](auto Value, ImGuiDataType Type) {
-					if (Handle.GetValue(Value) != PropertyEditor::FPropertyAccess::Success) return false;
-					const ImGuiID Id = ImGui::GetID(Label.c_str());
-					BeginRow(Label.c_str(), bReadOnly, 0.0f, Tooltip);
-					FWidgetState Widget;
-					const bool bChanged = DrawNumericProperty(*Property, Type, &Value, Widget);
-					EndRow(bReadOnly);
-					const auto State = FPropertyInteractionState::FromWidget(Id, Widget, bReadOnly, bChanged);
-					HandleControls.Observe(Id, Handle, State.End, bChanged ? std::optional(FValue{Value}) : std::nullopt);
-					return true;
-				};
-				if (Kind == EPropertyGenFlags::Float ? DrawNumber(float{}, ImGuiDataType_Float) : DrawNumber(int32{}, ImGuiDataType_S32))
-					return false;
-			}
-		}
 		FPropertyWidgetEditResult Edit;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Details.Property.Widget");
 			Edit = EditPropertyWidget(Context, Property, Container, ArrayIndex, Label,
 				bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly), bShowTransformHeader);
 		}
-		const bool bNeedsTarget = (Edit.bChanged && Edit.AssignValue) || EditInteraction.Matches(Edit.Interaction);
+		const bool bNeedsTarget = (Edit.bChanged && Edit.AssignValue) || (Edit.bContinuous && Controls.Matches(Edit.Interaction.Id));
 		if (!bNeedsTarget) return false;
 		if (ExistingTarget && !bStructMember) return SubmitWidgetEdit(Context, *ExistingTarget, Edit);
 		FPropertyEditTarget Target;
@@ -1035,11 +975,43 @@ namespace Durin
 		DURIN_PROFILE_CPU_ZONE_NAMED("Details.Property.SubmitEdit");
 		if (Edit.bContinuous)
 		{
-			bool bChanged = false;
-			return UpdatePropertyValueEdit(Context, EditTarget, Edit.Interaction, Edit.AssignValue, &bChanged) && bChanged;
+			Controls.Observe(Edit.Interaction.Id, PropertyEditor::FReflectedPropertyHandle(EditTarget), Edit.Interaction.End,
+				Edit.AssignValue ? std::optional(Edit.AssignValue) : std::nullopt);
+			return false;
 		}
 		bool bChanged = false;
 		return Edit.bChanged && ApplyPropertyValueEdit(Context, EditTarget, Edit.AssignValue, false, nullptr, &bChanged) && bChanged;
+	}
+
+	template<typename TWrite>
+	auto FPropertyView::ApplyPropertyDraft(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+		bool bContinuous, bool* OutChanged, TWrite&& Write) -> bool
+	{
+		const auto Reject = [&](std::string Error) {
+			ReportEditError(Context, std::move(Error));
+			return false;
+		};
+		FPropertyValueDraft Draft(Target);
+		if (!Draft.IsValid()) return Reject(FormatPropertyValueDraftError(Draft.GetError()));
+		FResolvedPropertyValue Leaf;
+		if (auto Result = Draft.Resolve(Target, Leaf.Property, Leaf.Container, Leaf.ArrayIndex); !Result)
+			return Reject(FormatPropertyValueDraftError(Result.error()));
+		if (auto Written = Write(Leaf, Draft); !Written) return Reject(Written.error());
+		if (auto Valid = ValidatePropertyEditValue(Draft.GetRootProperty(), Draft.GetRootContainer(), Draft.GetRootArrayIndex()); !Valid)
+			return Reject(ToString(Valid.error()));
+		FPropertyValueSnapshot Proposed;
+		if (auto Result = Draft.Capture(Proposed); !Result) return Reject(FormatPropertyValueDraftError(Result.error()));
+
+		if (!EditSession.IsActive() && !BeginEdit(Context, Target)) return false;
+		if (OutChanged) *OutChanged = false;
+		std::string Error;
+		if (Proposed.GetPayload() != EditSession.GetCurrentValue() && !EditSession.ApplyDraft(Draft, &Error, OutChanged))
+		{
+			ReportEditError(Context, std::move(Error));
+			FinishActiveEdit(&Context, true);
+			return false;
+		}
+		return bContinuous || FinishActiveEdit(&Context, false);
 	}
 
 	auto FPropertyView::EditArrayProperty(
@@ -1083,19 +1055,13 @@ namespace Durin
 			FPropertyEditTarget StructuralTarget = EditTarget;
 			StructuralTarget.ChangeType = ChangeType;
 			if (!PreparePropertyWrite(Context, StructuralTarget)) return false;
-			FPropertyValueSnapshot Proposed;
-			if (const auto Captured = CaptureProposedPropertyValue(StructuralTarget,
-				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) -> std::expected<void, std::string> {
-					auto Mutated = Mutation(*static_cast<const FArrayProperty*>(DraftValue.Property), DraftValue.Container, DraftValue.ArrayIndex);
+			bool bAppliedChange = false;
+			return ApplyPropertyDraft(Context, StructuralTarget, false, &bAppliedChange,
+				[&](const FResolvedPropertyValue& Leaf, FPropertyValueDraft&) -> std::expected<void, std::string> {
+					auto Mutated = Mutation(*static_cast<const FArrayProperty*>(Leaf.Property), Leaf.Container, Leaf.ArrayIndex);
 					if (!Mutated) return std::unexpected(ToString(Mutated.error()));
 					return {};
-				}, Proposed); !Captured)
-			{
-				ReportEditError(Context, Captured.error());
-				return false;
-			}
-			bool bAppliedChange = false;
-			return ApplyPreparedPropertyEdit(Context, StructuralTarget, Proposed, false, &bAppliedChange) && bAppliedChange;
+				}) && bAppliedChange;
 		};
 		if (ImGui::SmallButton("+"))
 		{
@@ -1184,18 +1150,8 @@ namespace Durin
 			bool bContinuous = false, const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr) -> bool {
 			StructuralTarget.ChangeType = ChangeType;
 			if (!PreparePropertyWrite(Context, StructuralTarget, Interaction)) return false;
-			FPropertyValueSnapshot Proposed;
-			if (const auto Captured = CaptureProposedPropertyValue(StructuralTarget,
-				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft* Draft) {
-					return Mutation(DraftValue, *Draft);
-				}, Proposed); !Captured)
-			{
-				ReportEditError(Context, Captured.error());
-				return false;
-			}
-
 			bool bAppliedChange = false;
-			return ApplyPreparedPropertyEdit(Context, StructuralTarget, Proposed, bContinuous, &bAppliedChange) && bAppliedChange;
+			return ApplyPropertyDraft(Context, StructuralTarget, bContinuous, &bAppliedChange, Mutation) && bAppliedChange;
 		};
 		if (ImGui::SmallButton("+ Add"))
 		{
@@ -1456,7 +1412,7 @@ namespace Durin
 	{
 		if (Context.bReadOnly)
 			return false;
-		if (HandleControls.IsActive() && !FinishActiveEdit(&Context, ImGui::GetCurrentContext()
+		if (Controls.IsActive() && !FinishActiveEdit(&Context, ImGui::GetCurrentContext()
 			&& ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
 			return false;
 		if (!EditSession.IsActive()) return true;
@@ -1474,28 +1430,16 @@ namespace Durin
 		return true;
 	}
 
-	auto FPropertyView::ApplyPreparedPropertyEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
-		const FPropertyValueSnapshot& ProposedValue, bool bContinuous, bool* OutChanged) -> bool
+	auto FPropertyView::BeginEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target) -> bool
 	{
 		std::string Error;
-		if (!EditSession.IsActive())
-		{
-			if (!EditSession.Begin(Target, {}, Context.bShouldTransact, &Error))
-			{
-				ReportEditError(Context, std::move(Error));
-				return false;
-			}
-			ActiveEditObject = Target.Object;
-			ActiveEditOwnerObject = OwnerContextObject ? OwnerContextObject : Target.Object;
-		}
-
-		if (!EditSession.ApplyInternal(ProposedValue.GetPayload(), &Error, OutChanged))
+		if (!EditSession.Begin(Target, {}, Context.bShouldTransact, &Error))
 		{
 			ReportEditError(Context, std::move(Error));
-			FinishActiveEdit(&Context, true);
 			return false;
 		}
-		return bContinuous || FinishActiveEdit(&Context, false);
+		ActiveEditOwnerObject = OwnerContextObject ? OwnerContextObject : Target.Object;
+		return true;
 	}
 
 	auto FPropertyView::SubmitPropertyValueEdit(
@@ -1518,40 +1462,31 @@ namespace Durin
 			return false;
 		}
 		if (!PreparePropertyWrite(Context, Target, Interaction)) return false;
-		FPropertyValueSnapshot Proposed;
-		if (const auto Captured = CaptureProposedPropertyValue(Target,
-			[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
-				AssignValue(const_cast<FProperty*>(DraftValue.Property), DraftValue.Container, DraftValue.ArrayIndex);
+		return WritePropertyValue(Context, Target, AssignValue, bContinuous, OutChanged);
+	}
+
+	auto FPropertyView::WritePropertyValue(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+		const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool bContinuous, bool* OutChanged) -> bool
+	{
+		return ApplyPropertyDraft(Context, Target, bContinuous, OutChanged,
+			[&](const FResolvedPropertyValue& Leaf, FPropertyValueDraft&) {
+				AssignValue(const_cast<FProperty*>(Leaf.Property), Leaf.Container, Leaf.ArrayIndex);
 				return std::expected<void, std::string>{};
-			}, Proposed); !Captured)
-		{
-			ReportEditError(Context, Captured.error());
-			return false;
-		}
-		return ApplyPreparedPropertyEdit(Context, Target, Proposed, bContinuous, OutChanged);
+			});
 	}
 
 	auto FPropertyView::UpdatePropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
 		const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
 		const std::function<void(FProperty*, void*, uint32)>& AssignValue) -> bool
 	{
-		return UpdatePropertyValueEdit(Context, Target, Interaction, AssignValue, nullptr);
-	}
-
-	auto FPropertyView::UpdatePropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
-		const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
-		const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool* OutChanged) -> bool
-	{
+		if (Controls.IsActive() && !AssignValue) return true;
 		if (Interaction.IsCancelled() || Context.bReadOnly)
 		{
 			if (!EditSession.MatchesTarget(Target)) return true;
-			// A refused Escape still counts as a draw of the active widget.
-			if (EditInteraction.Matches(Interaction))
-				EditInteraction.Observe({Interaction.Id, Interaction.Boundary});
 			return FinishActiveEdit(&Context, true);
 		}
 
-		const bool bApplied = !AssignValue || ApplyPropertyValueEdit(Context, Target, AssignValue, true, &Interaction, OutChanged);
+		const bool bApplied = !AssignValue || ApplyPropertyValueEdit(Context, Target, AssignValue, true, &Interaction);
 		if (!EditSession.MatchesTarget(Target)) return bApplied;
 		if (EditInteraction.Observe(Interaction))
 			return FinishActiveEdit(&Context, false) && bApplied;
@@ -1560,32 +1495,41 @@ namespace Durin
 
 	auto FPropertyView::FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool
 	{
+		const bool bFinished = FinishSession(Context, bCancel);
+		Controls = {};
+		return bFinished;
+	}
+
+	auto FPropertyView::FinishSession(const FPropertyViewContext* Context, bool bCancel, bool* OutChanged) -> bool
+	{
 		std::string Error;
-		const bool bHandleFinished = HandleControls.Finish(bCancel, &Error);
-		if (EditSession.IsActive() && bHandleFinished)
+		if (EditSession.IsActive())
 		{
-			if (bCancel) EditSession.Cancel(&Error);
-			else EditSession.Commit(&Error);
-			if (!EditSession.IsActive())
+			if (bCancel && Controls.IsActive() && !EditSession.HasChanges()) EditSession.CancelUnchanged(&Error);
+			else if (bCancel)
 			{
-				ActiveEditObject = nullptr;
-				ActiveEditOwnerObject = nullptr;
-				EditInteraction = {};
-				MapKeyInteraction = {};
+				const bool bChanged = EditSession.HasChanges();
+				const bool bRestored = EditSession.Cancel(&Error);
+				if (OutChanged) *OutChanged |= bRestored && bChanged;
 			}
+			else EditSession.Commit(&Error);
+		}
+		if (!EditSession.IsActive())
+		{
+			ActiveEditOwnerObject = nullptr;
+			EditInteraction = {};
+			MapKeyInteraction = {};
 		}
 		if (!Error.empty())
 		{
 			if (Context) ReportEditError(*Context, std::move(Error));
 			else DURIN_ERROR("Could not finish the property edit: {}", Error);
 		}
-		return bHandleFinished && !EditSession.IsActive();
+		return !EditSession.IsActive();
 	}
 
 	auto FPropertyView::HandleOwnerContext(const FPropertyViewContext& Context, DObject* Object) -> bool
 	{
-		if (HandleControls.IsActive() && (OwnerContextObject != Object || Context.bReadOnly))
-			if (!FinishActiveEdit(&Context, true)) return false;
 		if (EditSession.IsActive() && (ActiveEditOwnerObject != Object || Context.bReadOnly))
 		{
 			if (!FinishActiveEdit(&Context, true)) return false;
@@ -1597,11 +1541,26 @@ namespace Durin
 
 	auto FPropertyView::EndInteractionFrame(const FPropertyViewContext& Context, bool* OutChanged) -> bool
 	{
-		std::string Error;
-		const bool bFinished = HandleControls.EndFrame(Context.bReadOnly || ImGui::IsKeyPressed(ImGuiKey_Escape, false),
-			Context.bShouldTransact, [&] { return ReconcileInteraction(Context, true) && FinishActiveEdit(&Context, false); },
-			&Error, OutChanged);
-		if (!Error.empty()) ReportEditError(Context, std::move(Error));
+		const bool bCancel = Context.bReadOnly || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+		const bool bFinished = Controls.EndFrame(bCancel,
+			[&](ImGuiID, const PropertyEditor::FReflectedPropertyHandle& Handle) {
+				if (EditSession.IsActive() && !FinishSession(&Context, EditInteraction.ShouldCancel(true))) return false;
+				const auto* Target = Handle.ResolveEditablePath();
+				return Target && BeginEdit(Context, *Target);
+			},
+			[&](const FWidgetAssignment& AssignValue) {
+				bool bChanged = false;
+				const auto* Target = EditSession.Handle.ResolveEditablePath();
+				if (!Target) ReportEditError(Context, "The property edit target is unavailable or read-only.");
+				if (!Target || !WritePropertyValue(Context, *Target, AssignValue, true, &bChanged))
+				{
+					FinishActiveEdit(&Context, true);
+					return false;
+				}
+				if (OutChanged) *OutChanged |= bChanged;
+				return true;
+			},
+			[&](bool bRestore) { return FinishSession(&Context, bRestore, OutChanged); });
 		return ReconcileInteraction(Context, true) && bFinished;
 	}
 

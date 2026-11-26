@@ -169,19 +169,17 @@ member or nested path on the current object generation. `SetValue` completes
 a standalone write synchronously. It seeds the draft and compares values using a payload of serialized data and object keys.
 Only the target is pinned by the handle during the call. A cross-frame session also
 retains hard references from the original value for cancellation. A rejected
-standalone write returns `Fail` without a property notification. The view
-and its frame-settled controls retain an `FPropertyEdit` for
-interactive writes. Both paths validate detached drafts and use the active
-editor's history. Editor shutdown restores unfinished previews and releases
-their scopes before another editor can record.
+standalone write returns `Fail` without a property notification. Each property view owns one `FPropertyEdit` for interactive writes.
+Editor shutdown restores unfinished previews and releases their scopes before
+another editor can record.
 
-The default top-level integer and float controls and the reflected color popup record
-input during drawing. At frame end the host applies the active control's final
-value and settles its edit before starting a different control's edit. A color
-popup keeps one edit through successive picker gestures and commits it on
-dismissal. Escape or disappearance restores the active preview. Drawing order does not change the values
-recorded for Undo. Other controls continue to use the legacy widget submission
-path.
+Ordinary numeric, text, vector, transform and color controls record input during
+drawing. After all rows have drawn, `EndInteractionFrame` applies the outgoing
+control's terminal value and closes its scope before starting the incoming
+edit. Each proposal owns its widget value and is applied to a fresh draft of
+the live target. Row order therefore leaves the Undo boundaries unchanged.
+Escape or disappearance restores the outgoing preview. Escape also discards
+the incoming proposal for that frame.
 
 `FPropertyEdit` implements one logical edit. `Begin`, `Apply`, `Commit`,
 and `Cancel` return success as a boolean. Applying the current value succeeds
@@ -237,19 +235,13 @@ the activation state of its nested controls; it does not write reflected
 storage or own history. Map keys remain structural edits and retain their widget
 identity across renames, with uniqueness validation on the structural write path.
 
-Legacy controls use `FPropertyEditInteraction` to
-observe `FPropertyInteractionState` independently of the writer. Numeric and vector controls submit the terminal value on edited deactivation.
-Text confirmation and single-step changes submit once. Idle redraws leave the
-gesture alone. The picker detects closure once
-after drawing, using the popup ID and its open state in the owning window.
-The consumers keep widget identity and frame observations for handoff and
-disappearance. This follows UE's separation of interactive updates from
-the enclosing transaction boundary. Escape takes precedence over deactivation
-and new proposals. Hosts call `EndInteractionFrame` after drawing all rows to
-cancel abandoned previews. Legacy per-row reconciliation also detects missing
-controls on the next frame.
+Release or text confirmation submits the terminal request once. The picker
+detects closure after drawing using its popup ID and window storage. Idle
+redraws leave an observed gesture open. Structural map-key editing and custom
+synchronous controls retain widget identity and last-drawn frame to detect
+abandonment. They finish through the same view-owned property session.
 
-The legacy UI entry point `UpdatePropertyValueEdit` accepts one interaction description
+The synchronous UI entry point `UpdatePropertyValueEdit` accepts one interaction description
 and an optional detached-value assignment. Missing assignments only observe the
 control lifetime. Its boolean result reports successful processing of the update.
 `SubmitPropertyValueEdit` remains the explicit non-widget assignment entry point

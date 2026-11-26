@@ -93,7 +93,7 @@ namespace Durin::PropertyEditor
 	}
 
 	template<typename TValue>
-	auto FPropertyEdit::WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged) -> bool
+	auto FPropertyEdit::WriteValue(const TValue& Value, std::string* OutError) -> bool
 	{
 		if (!IsActive())
 			return Reject(OutError, "The property edit cannot write this value.");
@@ -101,22 +101,12 @@ namespace Durin::PropertyEditor
 		FPropertyValueDraft Draft(Target);
 		FPropertyValueSnapshotPayload Proposed;
 		if (!PrepareTypedValue(Target, Value, Draft, Proposed, OutError)) return false;
-		if (Proposed == CurrentValue)
-		{
-			if (OutChanged) *OutChanged = false;
-			return true;
-		}
-		return ApplyDraft(Draft, OutError, OutChanged);
+		return Proposed == CurrentValue || ApplyDraft(Draft, OutError, nullptr);
 	}
 
 	auto FPropertyEdit::SetValue(const FPropertyControlValue& Value, std::string* OutError) -> bool
 	{
-		return WriteControlValue(Value, OutError, nullptr);
-	}
-
-	auto FPropertyEdit::WriteControlValue(const FPropertyControlValue& Value, std::string* OutError, bool* OutChanged) -> bool
-	{
-		return std::visit([&](const auto& TypedValue) { return WriteValue(TypedValue, OutError, OutChanged); }, Value);
+		return std::visit([&](const auto& TypedValue) { return WriteValue(TypedValue, OutError); }, Value);
 	}
 
 	FReflectedPropertyHandle::FReflectedPropertyHandle(DObject& InObject, FName InMember, uint32 InArrayIndex)
@@ -188,14 +178,17 @@ namespace Durin::PropertyEditor
 	auto FReflectedPropertyHandle::IsEditable() const -> bool
 	{
 		if (PathTarget)
-		{
-			FResolvedPropertyValue Resolved;
-			return ResolveBoundPath(Object.Get(), *PathTarget, Resolved)
-				&& IsSupportedMember(Resolved.Property) && IsEditablePath(*PathTarget);
-		}
+			return ResolveEditablePath() && IsSupportedMember(PathTarget->LeafProperty);
 		DObject* Owner = nullptr;
 		const auto* Property = ResolveMember(Owner);
 		return Owner && Property && Owner->CanEditChange(Property);
+	}
+
+	auto FReflectedPropertyHandle::ResolveEditablePath() const -> const FPropertyEditTarget*
+	{
+		FResolvedPropertyValue Leaf;
+		return PathTarget && ResolveBoundPath(Object.Get(), *PathTarget, Leaf) && IsEditablePath(*PathTarget)
+			? &*PathTarget : nullptr;
 	}
 
 	auto FReflectedPropertyHandle::ResolveTarget() const -> FPropertyEditTarget
