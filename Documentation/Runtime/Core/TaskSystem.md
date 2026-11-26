@@ -303,39 +303,12 @@ Task results are produced by ordinary task bodies; there is no externally
 settled task-result source or external scheduler node. External data delivery
 uses independent promises/futures, while task graphs use `FTaskEvent` for readiness
 and real producer tasks or explicit domain joins for retirement. An event alone
-does not register work for scheduler drain. Public completion observers dispatch without new
-submission; readiness alone never proves producer/capture retirement.
+does not register work for scheduler drain. Readiness alone never proves producer/capture retirement.
 
 There is no public completion source or detached data-only task constructor.
 Ready data uses MakeReadyFuture; scheduled work that returns a constant is an
 ordinary LaunchTask with normal scheduler lifetime and dependency rules. No
 observation-only MakeReadyTask helper is exposed.
-
-`TTask::Subscribe(Callback)` returns a move-only `FTaskSubscription`.
-Notification runs once, possibly inline, on the completing/subscribing thread.
-`SubscribeTask` uses the same public completion channel. Every callback observes
-IsCompleted true and the published terminal state. Successful results are readable
-through GetResult, and waiting on the observed task returns
-immediately. Failure/cancellation remain task outcomes, not observer exceptions.
-Public dispatch follows result publication and callable retirement, terminal state
-publication, and kernel dependency release. A subscription racing that release
-joins the pending notification pass; subscriptions after dispatch readiness run
-inline. Registration and invocation never hold the node lock across user code.
-A closed producer is no longer an executing parent or wait-cycle ancestor during
-notification; a live caller's task context and actual thread/executor authority
-remain in effect. Notification does not switch threads or submit another task.
-Observers must not wait for other notifications in the same dispatch cascade.
-
-Wait/IsCompleted do not join observer execution or capture retirement. Callbacks
-may still be in flight after completion is observed; their ordering is unspecified.
-The scheduler retains accepted tasks through their original notification pass,
-but late inline subscribers own their own call lifetime.
-Callback owners synchronize in-flight callbacks before unloading their own code.
-Dropping/Resetting observation releases its captures and does not cancel domain
-work; an already in-flight notification may finish. Notification exceptions are
-contained. Task handles retain the node's own result
-storage. Additional ownership belongs in the task result or the domain owner;
-tasks expose no readiness marker or arbitrary lifetime-pin attachment API.
 
 ## Standalone Futures
 
@@ -498,12 +471,10 @@ the same Close path once the body has finished and no nested work remains.
 Close publishes result storage, then atomically closes dependent registration
 and exposes the terminal outcome.
 Public task state remains Waiting, Queued or Running until that point; bound
-result-storage metadata is independent of completion. Public observer dispatch has
-its own readiness gate after dependency release; it is not a second task-completion
-condition and does not delay result readability or waiters.
+result-storage metadata is independent of completion. Closure releases waiters and graph dependents.
 Synchronous close propagation is limited to 128 levels. Deeper closures retain
 their nodes in a thread-local worklist, drained iteratively by the outermost close
-on that same thread. This covers nested parent notifications and completion-observer
+on that same thread. This covers nested parent notifications and dependency
 cascades without requiring scheduler work or unbounded native recursion.
 
 Execution prerequisites and nested completion have separate phase counters.

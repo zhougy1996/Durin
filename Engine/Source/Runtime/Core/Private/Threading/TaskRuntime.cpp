@@ -695,31 +695,6 @@ namespace Durin
 			return ExecutionState == ETaskState::Running && !IsTaskEvent() && Phase == EPhase::Open;
 		}
 		auto IsTaskEvent() const -> bool { return Event != nullptr; }
-		static auto InvokeCompletionObserver(std::shared_ptr<std::function<void(ETaskState)>> Callback, ETaskState Terminal) -> void
-		{
-			// A closed producer is no longer an executing parent or a wait-cycle ancestor.
-			// Keep the scheduler/thread authority, and preserve a live caller's context.
-			FTaskStateData* Previous = GCurrentTaskState;
-			if (Previous && IsTerminalState(Previous->GetState())) GCurrentTaskState = nullptr;
-			try { (*Callback)(Terminal); } catch (...) {}
-			Callback.reset();
-			GCurrentTaskState = Previous;
-		}
-		auto ObserveCompletion(const std::shared_ptr<std::function<void(ETaskState)>>& Callback) -> void
-		{
-			ETaskState Terminal;
-			{
-				std::lock_guard Lock(Mutex);
-				if (!bCompletionNotificationsReady)
-				{
-					std::erase_if(CompletionObservers, [](const auto& Weak) { return Weak.expired(); });
-					CompletionObservers.emplace_back(Callback);
-					return;
-				}
-				Terminal = Outcome.State;
-			}
-			InvokeCompletionObserver(Callback, Terminal);
-		}
 		// Ordinary waits own one signal; concurrent limiter waits share one.
 		// Graph subscriptions are weak and expire when the interested waits return.
 		using FWaitSignal = FTaskWaitSignal;
@@ -1074,8 +1049,6 @@ namespace Durin
 		std::unique_ptr<FEventData> Event;
 		uint32 PendingNestedCount = 0;
 		bool bUnknownExecutionRequirement = false;
-		std::vector<std::weak_ptr<std::function<void(ETaskState)>>> CompletionObservers;
-		bool bCompletionNotificationsReady = false;
 		FTaskDependencyEdges Dependencies;
 		std::vector<FTaskSubsequent> Subsequents;
 		uint32 RemainingPrerequisites = 0;
@@ -2121,16 +2094,6 @@ namespace Durin
 				else if (Subsequent.Kind == ETaskDependencyKind::Pipe) Pinned->OnPipePredecessorTerminal();
 				else Pinned->OnNestedCompleted();
 			}
-		std::vector<std::weak_ptr<std::function<void(ETaskState)>>> Observers;
-		{
-			std::lock_guard Lock(Mutex);
-			// Late registration before this point joins the notification pass, even
-			// though completion is visible already. Kernel dependency release comes first.
-			bCompletionNotificationsReady = true;
-			Observers.swap(CompletionObservers);
-		}
-		for (const auto& Weak : Observers)
-			if (auto Callback = Weak.lock()) InvokeCompletionObserver(std::move(Callback), Outcome.State);
 		if (auto PinnedScheduler = Scheduler.lock()) PinnedScheduler->OnTaskTerminal(shared_from_this());
 	}
 
@@ -2784,11 +2747,6 @@ namespace Durin
 			State->FinishBody(ETaskState::Succeeded);
 		}
 
-		auto FTaskRuntimeAccess::ObserveCompletion(const Tasks::FTask& Task, const std::shared_ptr<std::function<void(ETaskState)>>& Callback) -> void
-		{
-			require(Task.State && Callback && *Callback);
-			Task.State->ObserveCompletion(Callback);
-		}
 		auto FTaskRuntimeAccess::AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskConstructionError>
 		{
 			if (!GCurrentTaskState || !GCurrentTaskState->IsRunningBody())

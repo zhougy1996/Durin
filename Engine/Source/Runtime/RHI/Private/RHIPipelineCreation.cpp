@@ -62,36 +62,29 @@ namespace Durin
 	{
 		explicit FState(std::shared_ptr<const FKey> InIdentity)
 			: Identity(std::move(InIdentity)) {}
-		~FState() { Completion.Trigger(); } // Also settles event construction rollback.
 		template<typename T> auto Publish(T Native, const std::atomic<bool>& QueueClosed) -> void
 		{
-			{
-				std::lock_guard Lock(Mutex);
-				if (Outcome->load() != ERHIPipelineState::Pending) return;
-				const auto Next = QueueClosed.load() ? ERHIPipelineState::Canceled
-					: Native ? ERHIPipelineState::Ready : ERHIPipelineState::Failed;
-				if (Next == ERHIPipelineState::Ready) Pipeline = std::move(Native);
-				Outcome->store(Next, std::memory_order_release);
-			}
-			Changed.notify_all();
-			Completion.Trigger();
+			std::unique_lock Lock(Mutex);
+			if (Outcome->load() != ERHIPipelineState::Pending) return;
+			const auto Next = QueueClosed.load() ? ERHIPipelineState::Canceled
+				: Native ? ERHIPipelineState::Ready : ERHIPipelineState::Failed;
+			if (Next == ERHIPipelineState::Ready) Pipeline = std::move(Native);
+			Outcome->store(Next, std::memory_order_release);
+			Lock.unlock();
+			Outcome->notify_all();
 		}
 		auto Cancel() -> void
 		{
-			{
-				std::lock_guard Lock(Mutex);
-				if (Outcome->load() != ERHIPipelineState::Pending) return;
-				Outcome->store(ERHIPipelineState::Canceled, std::memory_order_release);
-			}
-			Changed.notify_all();
-			Completion.Trigger();
+			std::unique_lock Lock(Mutex);
+			if (Outcome->load() != ERHIPipelineState::Pending) return;
+			Outcome->store(ERHIPipelineState::Canceled, std::memory_order_release);
+			Lock.unlock();
+			Outcome->notify_all();
 		}
 		const std::shared_ptr<const FKey> Identity;
-		Tasks::FTaskEvent Completion{"RHI.PipelineCompilation"};
 		std::shared_ptr<std::atomic<ERHIPipelineState>> Outcome = std::make_shared<std::atomic<ERHIPipelineState>>(ERHIPipelineState::Pending);
 		std::atomic<EPSOPrecachePriority> Priority = EPSOPrecachePriority::Medium;
 		mutable std::mutex Mutex;
-		std::condition_variable Changed;
 		std::variant<FGraphicsPipelineStateRHIRef, FComputePipelineStateRHIRef> Pipeline;
 	};
 
@@ -121,10 +114,6 @@ namespace Durin
 		const auto* Native = std::get_if<FComputePipelineStateRHIRef>(&State->Pipeline);
 		return Native ? *Native : FComputePipelineStateRHIRef{};
 	}
-	auto FPipelineCompilation::GetTaskHandle() const -> Durin::Tasks::FTask
-	{
-		return State ? Durin::Tasks::FTask(State->Completion) : Durin::Tasks::FTask{};
-	}
 	auto FPipelineCompilation::IsCompute() const -> bool
 	{
 		return State && State->Identity && State->Identity->index() == 1;
@@ -151,8 +140,11 @@ namespace Durin
 	{
 		require(State);
 		if (!CanWait()) return ERHIPipelineState::Pending;
-		std::unique_lock Lock(State->Mutex);
-		State->Changed.wait(Lock, [&] { return GetState() != ERHIPipelineState::Pending; });
+		return WaitForPublication();
+	}
+	auto FPipelineCompilation::WaitForPublication() const -> ERHIPipelineState
+	{
+		State->Outcome->wait(ERHIPipelineState::Pending, std::memory_order_acquire);
 		return GetState();
 	}
 

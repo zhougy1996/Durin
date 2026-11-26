@@ -13,7 +13,7 @@ The graphics PSO cache looks up the initializer directly, using shader, vertex
 declaration and immutable fixed-state identities together with the pipeline
 layout, topology, multisampling and render-target compatibility. A hit reuses
 the existing pipeline. On a miss, RHI validates and builds the backend
-compilation key. Drawing and precaching share the cache and completion event.
+compilation key. Drawing and precaching share the cached compilation state.
 See [pipeline cache and binding](../Pipeline/RendererResourceRecovery.md#pipeline-cache-and-binding)
 for ownership and retirement.
 

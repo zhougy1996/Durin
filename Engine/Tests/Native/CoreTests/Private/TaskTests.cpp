@@ -1482,25 +1482,6 @@ namespace Durin
 		}, "Task event nodes must be completed");
 	}
 
-	TEST(FTaskCompositionTests, EventCompletionObserversCanRetriggerAndReleaseTheirSignalingHandle)
-	{
-		Tasks::FTaskEvent Event("ReentrantEvent", false);
-		Tasks::FTask Observer = Event;
-		uint32 Calls = 0;
-		auto Subscription = Tasks::SubscribeTask(Event, [&](ETaskState) {
-			EXPECT_TRUE(Event.IsCompleted());
-			EXPECT_TRUE(Event.Wait());
-			++Calls;
-			Event.Trigger();
-			Tasks::FTask Released = std::move(Event);
-			Observer = {};
-		});
-		Event.Trigger();
-		EXPECT_EQ(Calls, 1u);
-		EXPECT_FALSE(Event.IsValid());
-		EXPECT_FALSE(Observer.IsValid());
-	}
-
 	TEST(FTaskCompositionTests, TaskEventEnforcesSharedOneShotSignalAndNodeLifetime)
 	{
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);

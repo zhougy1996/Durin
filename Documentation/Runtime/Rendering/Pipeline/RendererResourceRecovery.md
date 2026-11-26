@@ -125,8 +125,7 @@ The cache constructs its private `FPipelineCompileQueue` during initialization.
 When compilation is needed, the queue submits a drain task to the existing Core
 worker pool. Only one native creator runs at a time. Valid requests are not rejected by
 artificial request-count, description-size, or metadata-budget limits.
-Each live key shares one compilation state, priority, result, and completion
-event. The queue retains unfinished work independently of caller handles; dropping
+Each live key shares one compilation state, priority, and native result. The queue retains unfinished work independently of caller handles; dropping
 a caller does not cancel compilation. There is no per-caller cancellation,
 observer registry, or observation-count admission limit. No public request/batch admission bypasses the cache,
 and no per-item semaphore-waiting worker is launched.
@@ -173,7 +172,7 @@ share a live state for equal graphics initializers or equal compute keys. Names 
 returns a typed reference and must succeed; unavailable acquisition is fatal.
 Like UE, ordinary acquisition receives the recording command list and attaches
 the internal compilation dependency there. Native compilation may still be Pending;
-command dispatch joins its shared completion event before replay. A failed PSO required by draw/dispatch is fatal,
+replay checks the shared PSO state before executing dependent commands. A failed PSO required by draw/dispatch is fatal,
 including a failure first discovered during precaching. `Precache*` may return
 an empty reference when acquisition is unavailable or the description is invalid;
 an acquired precache identity may settle as Failed without terminating rendering.
@@ -182,7 +181,7 @@ There is no public rejection enum or `expected` acquisition protocol.
 Identities expose Pending/Ready/Failed/Canceled, immutable layout metadata, and
 type-specific nullable `GetRHIPipeline()` results. `Wait()` returns the observed
 domain state: Pending means the caller cannot safely wait; the other states are
-terminal. Completion tasks, typed native accessors, executor wait preflight, and
+terminal. Dispatch waits, typed native accessors, executor wait preflight, and
 `FPipelineCompilation` belong to the Backend implementation seam. Public state
 objects hide compilation storage behind an incomplete type.
 `GetStateObservation()` returns read-only outcome metadata without atomic storage,
@@ -248,8 +247,12 @@ Recorded command lists retain typed cache identities and their internal creation
 dependencies. Pending identities expose immutable layout metadata, never
 unfinished native handles.
 Submission deduplicates shared compilation dependencies without a PSO-count cap.
-The threaded queue preserves FIFO serial order and wakes from Core completion; its
-replay thread does not wait inside a command. A failed required compilation is fatal. A canceled dependency
+The dedicated FIFO consumer checks the next safe replay segment outside the queue lock.
+When a dependency is pending, it waits directly on that PSO's atomic outcome,
+then checks the segment again. If another dependency cancels during that wait,
+the consumer observes cancellation when the selected PSO settles. Earlier
+complete scopes can replay first. Ordered
+frame and resource submissions gate the whole group. A failed required compilation is fatal. A canceled dependency
 skips the whole batch and terminates its CPU fence as Canceled,
 while later independent batches can proceed. Inline submission waits before
 replay only on permitted callers. Ordinary Submit and QueueCommandList are
@@ -268,7 +271,9 @@ overwritten, never an inferred success. `Wait` blocks and returns the final batc
 state, including Canceled or Expired. GetState/IsComplete are nonblocking queries;
 there is no TryWait wrapper. Required-success owners such as render fences check
 the returned state before releasing their completion receipt. Queue payload
-accounting reserves dependency wake storage; retired groups release subscriptions.
+accounting includes the retained compilation handles. Each PSO publishes its
+native result before storing the terminal outcome and notifying waiters. An
+atomic wait that starts after publication returns immediately.
 
 Mesh material shader maps, shared fullscreen geometry, and
 Texture Editor previews use

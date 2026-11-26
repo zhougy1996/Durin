@@ -141,25 +141,6 @@ namespace Durin::Tasks
 
 
 	namespace Detail { struct FTaskAccess; }
-	// Dropping observation never cancels the producer. An in-flight callback may finish.
-	class FTaskSubscription
-	{
-	public:
-		FTaskSubscription() = default;
-		FTaskSubscription(FTaskSubscription&&) noexcept = default;
-		auto operator=(FTaskSubscription&&) noexcept -> FTaskSubscription& = default;
-		FTaskSubscription(const FTaskSubscription&) = delete;
-		auto operator=(const FTaskSubscription&) -> FTaskSubscription& = delete;
-		auto Reset() -> void { Callback.reset(); }
-	private:
-		friend CORE_API auto SubscribeTask(const FTask&, std::function<void(ETaskState)>) -> FTaskSubscription;
-		std::shared_ptr<std::function<void(ETaskState)>> Callback;
-	};
-
-	// Runs outside the node lock after public completion and kernel dependency release.
-	// Results/state are readable; Wait does not join notifications or their capture retirement.
-	CORE_API auto SubscribeTask(const FTask& Task, std::function<void(ETaskState)> Callback) -> FTaskSubscription;
-
 	// Copyable handles share the task node and its result. Erased FTask handles
 	// retain the same result lifetime without exposing a typed accessor.
 	template<typename T>
@@ -193,8 +174,6 @@ namespace Durin::Tasks
 			Detail::WaitForSuccess(Handle);
 			return *Storage->PeekPublished();
 		}
-		auto Subscribe(std::function<void(ETaskState)> Callback) const -> FTaskSubscription
-		{ return SubscribeTask(Handle, std::move(Callback)); }
 	private:
 		friend struct Detail::FTaskAccess;
 		FTask Handle;

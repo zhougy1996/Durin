@@ -3,7 +3,6 @@
 #include "Backend/RHIDynamicBufferWrite.h"
 #include "RHICommandList.h"
 #include "Backend/RHICreation.h"
-#include "Threading/Task.h"
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "Backend/RHIPipelineStateCacheBackend.h"
@@ -1451,15 +1450,14 @@ namespace Durin
 					PayloadBytes = CheckedAddPayloadBytes(
 						PayloadBytes, Batch.GetPayloadBytes());
 				}
-				PayloadBytes = CheckedAddPayloadBytes(PayloadBytes, Dependencies.size() * 1024);
+				PayloadBytes = CheckedAddPayloadBytes(PayloadBytes, Dependencies.capacity() * sizeof(FPipelineCompilation));
 			}
 			~FSubmissionGroup()
 			{
-				WakeSubscriptions.clear();
 				auto Pending = ERHICommandBatchState::Pending;
 				Completion->State.compare_exchange_strong(Pending, ERHICommandBatchState::Canceled);
 			}
-			auto GetDependencyState() const -> ERHICommandBatchState
+			auto GetDependencyState(const FPipelineCompilation** FirstPending = nullptr) const -> ERHICommandBatchState
 			{
 				bool Pending = false, Canceled = false;
 				const size_t End = GetStepEnd();
@@ -1471,12 +1469,15 @@ namespace Durin
 						if (State == ERHIPipelineState::Failed)
 							RHITerminateOnFailure("PSO", "Required pipeline compilation failed");
 						Canceled |= State == ERHIPipelineState::Canceled;
-						Pending |= State == ERHIPipelineState::Pending;
+						if (State == ERHIPipelineState::Pending)
+						{
+							if (FirstPending && !Pending) *FirstPending = &Request;
+							Pending = true;
+						}
 					}
 				}
 				return Canceled ? ERHICommandBatchState::Canceled : Pending ? ERHICommandBatchState::Pending : ERHICommandBatchState::Succeeded;
 			}
-			std::vector<Tasks::FTaskSubscription> WakeSubscriptions;
 			std::vector<FPipelineCompilation> Dependencies;
 			std::shared_ptr<FRHICommandBatchCompletion> Completion = std::make_shared<FRHICommandBatchCompletion>();
 
@@ -2872,20 +2873,17 @@ namespace Durin
 			Work.FrameCount = EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::EndFrame) ? 1u : 0u;
 			Work.BatchCount = static_cast<uint32>(GroupBatchCount);
 			Work.PayloadBytes = static_cast<uint64>(GroupPayloadBytes);
-			Work.IsReady = [SubmissionGroup] { return SubmissionGroup->GetDependencyState() != ERHICommandBatchState::Pending; };
-			for (const auto& Request : SubmissionGroup->Dependencies)
-			{
-				if (Request.GetState() != ERHIPipelineState::Pending) continue;
-				// Wake after public completion for every outcome. The queue can inspect
-				// completion/results immediately, without scheduling a Worker continuation.
-				SubmissionGroup->WakeSubscriptions.push_back(Tasks::SubscribeTask(FRHIPipelineStateCacheBackend::GetCompletionTask(Request),
-					[Wake = State->RHIThread->GetWakeCallback()](ETaskState) { Wake(); }));
-			}
 			Work.Execute = [Replay, SubmissionGroup]() mutable {
 				while (true)
 				{
-					const auto Outcome = SubmissionGroup->GetDependencyState();
-					if (Outcome == ERHICommandBatchState::Pending) return;
+					const FPipelineCompilation* Pending = nullptr;
+					const auto Outcome = SubmissionGroup->GetDependencyState(&Pending);
+					if (Outcome == ERHICommandBatchState::Pending)
+					{
+						DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.PipelineWait");
+						FRHIPipelineStateCacheBackend::WaitForDispatch(*Pending);
+						continue;
+					}
 					if (Outcome == ERHICommandBatchState::Succeeded) Replay(*SubmissionGroup);
 					if (Outcome != ERHICommandBatchState::Succeeded || SubmissionGroup->IsReplayComplete())
 					{
@@ -2893,9 +2891,6 @@ namespace Durin
 						return;
 					}
 				}
-			};
-			Work.IsComplete = [SubmissionGroup] {
-				return SubmissionGroup->Completion->State.load() != ERHICommandBatchState::Pending;
 			};
 			const uint64 Serial = State->RHIThread->Enqueue(Work);
 			if (!Serial) RHITerminateOnFailure("RHI submission", "RHI thread is closed");

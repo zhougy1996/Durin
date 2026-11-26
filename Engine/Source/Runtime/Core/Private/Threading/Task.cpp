@@ -17,15 +17,6 @@ namespace Durin::Tasks
 		}
 	}
 
-	auto SubscribeTask(const Tasks::FTask& Task, std::function<void(ETaskState)> Callback) -> FTaskSubscription
-	{
-		require(Task.IsValid() && Callback);
-		FTaskSubscription Subscription;
-		Subscription.Callback = std::make_shared<std::function<void(ETaskState)>>(std::move(Callback));
-		Durin::Private::FTaskRuntimeAccess::ObserveCompletion(Task, Subscription.Callback);
-		return Subscription;
-	}
-
 	auto AddNested(const Tasks::FTask& Completion) -> void
 	{
 		if (auto Error = Durin::Private::FTaskRuntimeAccess::AddNested(Completion))

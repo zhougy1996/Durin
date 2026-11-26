@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "RHIPipelineCreation.h"
-#include "Threading/TaskRuntime.h"
 
 namespace Durin
 {
@@ -27,9 +26,7 @@ namespace Durin
 		// Returns Pending when the current execution context cannot safely wait.
 		RHI_API auto Wait() const -> ERHIPipelineState;
 	private:
-		// One completion signal per compilation. Closure can cancel pending work.
-		// Completed outcomes remain stable after their native resource is released.
-		RHI_API auto GetTaskHandle() const -> Tasks::FTask;
+		RHI_API auto WaitForPublication() const -> ERHIPipelineState;
 		RHI_API auto GetGraphicsPipeline() const -> FGraphicsPipelineStateRHIRef;
 		RHI_API auto GetComputePipeline() const -> FComputePipelineStateRHIRef;
 		RHI_API auto CanWait() const -> bool;

@@ -27,7 +27,7 @@ to a stable type.
 
 Detailed parameter-validation errors and validators live in
 `Backend/RHIValidation.h`. Required-success native creation failures terminate through
-`Backend/RHICreation.h`. Internal PSO completion tasks and typed native accessors
+`Backend/RHICreation.h`. Internal PSO dispatch waits and typed native accessors
 live in `Backend/RHIPipelineStateCacheBackend.h`; ordinary callers use typed cache
 identities and read-only state observations. Recording and execution report validation diagnostics inside
 RHI. Ordinary consumers use resource descriptions and commands, or the boolean
@@ -107,18 +107,15 @@ the recording command list receives its compilation dependency during acquisitio
 `Precache*PipelineState` allows an empty result and compilation failure. Required
 compilation failure is fatal before draw/dispatch replay. Public identities expose
 state, immutable layout metadata, and typed native access. Their internal
-`FPipelineCompilation`, typed native storage, and CPU completion event belong to the
-Backend seam. Equal live keys share one state and completion event. Successful
-CPU event completion means compilation settled, not that it succeeded or the GPU
-finished. Read-only state observations retain no native resources.
+compile state, typed native storage, and dispatch waits belong to
+the Backend seam. Equal live keys share one compilation. The consumer reads the
+published PSO outcome before replay. Read-only state observations retain no native resources.
 
 Dropping a reference never cancels compilation. Cache shutdown closes acquisition,
 settles queued work, and joins active compilation and drain capture retirement.
 PSO owners release their references before backend teardown. Only CPU metadata
-may outlive the device. The shared
-outcome and native result publish before terminal subscribers are notified;
-active compilation signals only after its native call returns. Task/event
-composition follows the [Core task API](../../Core/TaskSystem.md#composition).
+may outlive the device. Active compilation publishes its native result and terminal outcome
+after the native call returns. Dispatch waits on the shared outcome.
 
 An enum value, resource flag, shader frequency, or feature level is vocabulary,
 not proof that a backend implements the feature. Runtime support requires a

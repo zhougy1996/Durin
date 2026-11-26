@@ -911,7 +911,10 @@ TEST_F(FPackagePersistenceTests, DrainPumpsTypedPublicationAndRejectsReentrantSa
 	Tasks::TTask<int> Task;
 	{
 		auto Owner = std::shared_ptr<int>(new int(1), [&](int* Value) {
-			EXPECT_TRUE(IsInGameThread()); ++Destroyed; delete Value;
+			EXPECT_TRUE(IsInGameThread());
+			EXPECT_TRUE(Task.IsValid());
+			EXPECT_FALSE(Task.IsCompleted());
+			++Destroyed; delete Value;
 		});
 		Weak = Owner;
 		auto IoPayload = std::shared_ptr<int>(new int(2), [&](int* Value) {
@@ -942,10 +945,6 @@ TEST_F(FPackagePersistenceTests, DrainPumpsTypedPublicationAndRejectsReentrantSa
 	EXPECT_FALSE(Weak.expired());
 	EXPECT_FALSE(Task.IsCompleted());
 	EXPECT_EQ(Task.GetDiagnostics().Target, ETaskTarget::GameThreadDeferred);
-	auto Subscription = Tasks::SubscribeTask(Task, [&](ETaskState) {
-		EXPECT_TRUE(Task.IsCompleted()); EXPECT_TRUE(Task.Wait());
-		EXPECT_EQ(Task.GetResult(), 37); EXPECT_TRUE(Weak.expired());
-	});
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_TRUE(UnrelatedRan);
 	EXPECT_TRUE(Unrelated.IsCompleted());
@@ -962,7 +961,10 @@ TEST_F(FPackagePersistenceTests, PublicationExceptionsRetireCapturesAndReleaseCa
 	Tasks::TTask<int> Task;
 	{
 		auto Owner = std::shared_ptr<int>(new int(1), [&](int* Value) {
-			EXPECT_TRUE(IsInGameThread()); ++Destroyed; delete Value;
+			EXPECT_TRUE(IsInGameThread());
+			EXPECT_TRUE(Task.IsValid());
+			EXPECT_FALSE(Task.IsCompleted());
+			++Destroyed; delete Value;
 		});
 		auto Submitted = PackageSavePrivate::SubmitTypedAsyncSave<int>(1, [Owner] {},
 			[&, Owner](bool) -> int { ++Calls; throw std::runtime_error("publication failure"); },
@@ -973,11 +975,6 @@ TEST_F(FPackagePersistenceTests, PublicationExceptionsRetireCapturesAndReleaseCa
 		ASSERT_TRUE(Submitted);
 		Task = std::move(*Submitted);
 	}
-	auto Subscription = Tasks::SubscribeTask(Task, [&](ETaskState) {
-		EXPECT_TRUE(Task.IsCompleted()); EXPECT_TRUE(Task.Wait());
-		EXPECT_EQ(Task.GetState(), ETaskState::Failed);
-		EXPECT_EQ(Abandoned, 1u); EXPECT_EQ(Destroyed, 1u);
-	});
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_EQ(Task.GetState(), ETaskState::Failed);
 	EXPECT_EQ(Calls, 1u);
