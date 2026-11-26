@@ -78,23 +78,10 @@ namespace Durin
 				FRHIThreadQueueEntry Entry;
 				{
 					std::unique_lock Lock(State.Mutex);
-					const auto CanConsume = [this]() {
-						return State.Queue.empty()
-							? State.AdmissionState != ERHIThreadAdmissionState::Running
-							: (!State.Queue.front().Work.IsReady || State.Queue.front().Work.IsReady());
-					};
-					while (!CanConsume())
+					while (State.Queue.empty() && State.AdmissionState == ERHIThreadAdmissionState::Running)
 					{
-						if (State.Queue.empty())
-						{
-							DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.IdleWait");
-							State.WorkCV.wait(Lock);
-						}
-						else
-						{
-							DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.DependencyWait");
-							State.WorkCV.wait(Lock);
-						}
+						DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.IdleWait");
+						State.WorkCV.wait(Lock);
 					}
 					if (State.Queue.empty())
 					{
@@ -109,13 +96,6 @@ namespace Durin
 					DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} batches={} payloadBytes={}", Entry.Serial, Entry.Work.BatchCount, Entry.Work.PayloadBytes));
 					Entry.Work.Execute();
 				}
-				if (Entry.Work.IsComplete && !Entry.Work.IsComplete())
-				{
-					std::lock_guard Lock(State.Mutex);
-					State.Queue.push_front(std::move(Entry));
-					continue;
-				}
-
 				const uint32 CompletedFrameCount = Entry.Work.FrameCount;
 				const uint32 CompletedBatchCount = Entry.Work.BatchCount;
 				const uint64 CompletedPayloadBytes = Entry.Work.PayloadBytes;
@@ -129,8 +109,6 @@ namespace Durin
 					State.CompletedSerial = Entry.Serial;
 				}
 				State.CompletionCV.notify_all();
-				State.WorkCV.notify_all();
-
 			}
 
 			{
@@ -138,7 +116,6 @@ namespace Durin
 				State.AdmissionState = ERHIThreadAdmissionState::Stopped;
 				State.bConsumerReady = false;
 				State.CompletionCV.notify_all();
-				State.WorkCV.notify_all();
 			}
 			return 0;
 		}
@@ -171,7 +148,7 @@ namespace Durin
 	};
 
 	FRHIThread::FRHIThread()
-		: State(std::make_shared<FState>())
+		: State(std::make_unique<FState>())
 	{
 	}
 
@@ -258,17 +235,6 @@ namespace Durin
 			Thread.reset();
 		}
 		RunnableOwner.reset();
-	}
-
-	auto FRHIThread::GetWakeCallback() const -> std::function<void()>
-	{
-		return [Weak = std::weak_ptr<FState>(State)] {
-			if (const auto Pinned = Weak.lock())
-			{
-				std::lock_guard Lock(Pinned->Mutex);
-				Pinned->WorkCV.notify_all();
-			}
-		};
 	}
 
 	auto FRHIThread::Enqueue(FRHIThreadWork& Work) -> uint64

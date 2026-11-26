@@ -47,13 +47,6 @@ namespace Durin
 
 		// Exceptions escaping work are fatal; the queue does not translate them.
 		std::function<void()> Execute;
-		// A pending head stays queued, including during drain; later serials never
-		// bypass it. Readiness is monotonic per step and its publisher must wake the queue.
-		std::function<bool()> IsReady;
-		// Optional continuation: false retains this serial at the head after
-		// Execute and waits for IsReady again. Capacity and captures stay owned
-		// until the final step; later work cannot overtake a partial execution.
-		std::function<bool()> IsComplete;
 		uint32 BatchCount = 0;
 		uint64 PayloadBytes = 0;
 		uint32 FrameCount = 0;
@@ -90,9 +83,8 @@ namespace Durin
 		auto operator=(const FRHIThread&) -> FRHIThread& = delete;
 
 		RHI_API auto Start(const FRHIThreadQueueLimits& InLimits = {}) -> bool;
-		// Closes admission but preserves accepted work and its readiness dependencies.
+		// Closes admission but drains every accepted entry through execution and capture retirement.
 		RHI_API auto BeginDrain() -> void;
-		RHI_API auto GetWakeCallback() const -> std::function<void()>;
 		RHI_API auto Stop() -> void;
 
 		// Returns the queue serial, or zero if closed without moving Work.
@@ -110,7 +102,7 @@ namespace Durin
 		class FState;
 		class FRunnableOwner;
 
-		std::shared_ptr<FState> State;
+		std::unique_ptr<FState> State;
 		std::unique_ptr<FRunnableOwner> RunnableOwner;
 		std::unique_ptr<FRunnableThread> Thread;
 	};

@@ -208,8 +208,9 @@ scopes replay together without another queue round trip. Required PSO failure is
 cancellation discards the remaining suffix and publishes the group's canceled
 outcome; it cannot undo the already executed prefix. Frame/resource
 event submissions retain an aggregate dependency gate and execute their events
-only after all dependencies succeed. Drain preserves readiness waits and accepted continuation ownership until
-completion. Closing admission wakes blocked producers without consuming their work.
+only after all dependencies succeed. The FIFO consumer executes each accepted entry once.
+PSO waits occur inside that execution, outside the queue lock. Drain retains
+capacity and storage until execution and capture retirement finish. Closing admission wakes blocked producers without consuming their work.
 
 Binding a cached graphics or compute PSO retains its compilation dependency and
 promotes unfinished work to Highest priority. This demand path reuses the same

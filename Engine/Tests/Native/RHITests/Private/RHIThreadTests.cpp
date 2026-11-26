@@ -475,59 +475,33 @@ namespace Durin
 		EXPECT_EQ(1u, RejectedDestroyedCount.load(std::memory_order::acquire));
 	}
 
-	TEST(FRHIThreadTests, DrainWaitsForPendingHead)
+	TEST(FRHIThreadTests, RunningWorkRetainsSerialCapacityAndOwnershipThroughDrain)
 	{
 		FRHIThread Thread;
 		ASSERT_TRUE(Thread.Start());
-		std::atomic<bool> Ready = false;
-		FThreadEvent HeadChecked, HeadExecuted;
-		FRHIThreadWork Head;
-		Head.IsReady = [&] {
-			HeadChecked.Trigger();
-			return Ready.load(std::memory_order_acquire);
-		};
-		Head.Execute = [&] { HeadExecuted.Trigger(); };
-		const auto Accepted = Thread.Enqueue(Head);
-		EXPECT_TRUE(bool(Accepted));
-		EXPECT_TRUE(HeadChecked.WaitFor(1.0));
-		Thread.BeginDrain();
-		EXPECT_FALSE(HeadExecuted.WaitFor(0.05));
-		EXPECT_EQ(Thread.GetStats().CompletedSerial, 0u);
-		Ready.store(true, std::memory_order_release);
-		Thread.GetWakeCallback()();
-		EXPECT_EQ(Thread.WaitForSerial(Accepted), ERHIThreadWaitResult::Completed);
-		Thread.Stop();
-		EXPECT_TRUE(HeadExecuted.WaitFor(0.0));
-		EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 0u);
-	}
-
-	TEST(FRHIThreadTests, PartialWorkRetainsSerialCapacityAndOwnershipThroughDrain)
-	{
-		FRHIThread Thread;
-		ASSERT_TRUE(Thread.Start());
-		FThreadEvent PrefixExecuted;
-		std::atomic<bool> Ready = false;
-		uint32 Steps = 0;
+		FThreadEvent Entered, Release;
+		uint32 Calls = 0;
 		auto Owner = std::make_shared<int>(1);
 		std::weak_ptr<int> Lifetime = Owner;
 		FRHIThreadWork Work;
 		Work.BatchCount = 1;
-		Work.IsReady = [&] { return Steps == 0 || Ready.load(); };
-		Work.Execute = [&, Owner] { ++Steps; PrefixExecuted.Trigger(); };
-		Work.IsComplete = [&] { return Steps == 2; };
+		Work.Execute = [&, Owner] {
+			++Calls;
+			Entered.Trigger();
+			Release.Wait();
+		};
 		const auto Accepted = Thread.Enqueue(Work);
 		EXPECT_TRUE(bool(Accepted));
 		Owner.reset();
-		EXPECT_TRUE(PrefixExecuted.WaitFor(5.0));
+		EXPECT_TRUE(Entered.WaitFor(5.0));
 		Thread.BeginDrain();
 		EXPECT_EQ(Thread.GetStats().CompletedSerial, 0u);
 		EXPECT_EQ(Thread.GetStats().OutstandingBatchCount, 1u);
 		EXPECT_FALSE(Lifetime.expired());
-		Ready.store(true);
-		Thread.GetWakeCallback()();
+		Release.Trigger();
 		EXPECT_EQ(Thread.WaitForSerial(Accepted), ERHIThreadWaitResult::Completed);
 		Thread.Stop();
-		EXPECT_EQ(Steps, 2u);
+		EXPECT_EQ(Calls, 1u);
 		EXPECT_TRUE(Lifetime.expired());
 		EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 0u);
 		EXPECT_EQ(Thread.GetStats().OutstandingBatchCount, 0u);
