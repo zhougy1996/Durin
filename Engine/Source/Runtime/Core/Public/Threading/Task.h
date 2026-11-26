@@ -240,7 +240,7 @@ namespace Durin::Tasks
 	{
 	template<typename F, typename T = std::invoke_result_t<std::decay_t<F>&>>
 	requires (!std::is_reference_v<T>)
-	auto LaunchTaskImpl(const char* Name, ETaskTarget Target, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false, FPipe* Pipe = nullptr)
+	auto LaunchTaskImpl(const char* Name, ETaskThread Target, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false, FPipe* Pipe = nullptr)
 		-> TTask<T>
 	{
 		try
@@ -269,19 +269,10 @@ namespace Durin::Tasks
 
 	}
 
-	// GameThread submissions run when the deferred queue is pumped.
-	enum class ETaskThread : uint8
-	{
-		Worker = static_cast<uint8>(ETaskTarget::AnyWorker),
-		GameThread = static_cast<uint8>(ETaskTarget::GameThreadDeferred),
-		BlockingIO = static_cast<uint8>(ETaskTarget::BlockingIO),
-	};
-
 	template<typename F>
 	auto LaunchTask(const char* Name, F&& Function, ETaskThread Thread, const FTaskExecutionOptions& Options = {})
 	{
-		const auto Target = static_cast<ETaskTarget>(Thread);
-		return Detail::LaunchTaskImpl(Name, Target, Options, std::forward<F>(Function));
+		return Detail::LaunchTaskImpl(Name, Thread, Options, std::forward<F>(Function));
 	}
 
 	template<typename F>
@@ -324,7 +315,7 @@ namespace Durin::Tasks
 	template<typename F>
 	auto LaunchIndependentTask(const char* Name, F&& Function, const FTaskExecutionOptions& Options = {})
 	{
-		return Detail::LaunchTaskImpl(Name, ETaskTarget::AnyWorker,
+		return Detail::LaunchTaskImpl(Name, ETaskThread::Worker,
 			Options, std::forward<F>(Function), true);
 	}
 

@@ -397,7 +397,7 @@ namespace Durin
 		for (uint32 Index = 0; Index < CallbackCount; ++Index)
 		{
 			FTaskLaunchOptions Options;
-			Options.Target = ETaskTarget::GameThreadDeferred;
+			Options.Target = Tasks::ETaskThread::GameThread;
 			Options.EstimatedPayloadBytes = DeclaredCaptureBytes;
 			Options.Prerequisites = std::span(&Root, 1);
 			Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);

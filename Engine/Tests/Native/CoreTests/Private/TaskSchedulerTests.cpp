@@ -1526,7 +1526,7 @@ namespace Durin
 		std::vector<int> Order;
 		auto Enqueue = [&](int Value, ETaskPriority Priority) {
 			FTaskLaunchOptions Options;
-			Options.Target = ETaskTarget::GameThreadDeferred;
+			Options.Target = Tasks::ETaskThread::GameThread;
 			Options.Priority = Priority;
 			Options.EstimatedPayloadBytes = 1;
 			Options.Prerequisites = std::span(&Root, 1);
@@ -1569,7 +1569,7 @@ namespace Durin
 
 		auto Enqueue = [&](uint64 Bytes) {
 			FTaskLaunchOptions Options;
-			Options.Target = ETaskTarget::GameThreadDeferred;
+			Options.Target = Tasks::ETaskThread::GameThread;
 			Options.EstimatedPayloadBytes = Bytes;
 			Options.Prerequisites = std::span(&Root, 1);
 			Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
@@ -1608,7 +1608,7 @@ namespace Durin
 		ASSERT_EQ(ETaskState::Succeeded, Root.WaitDetailed().TaskState);
 
 		FTaskLaunchOptions Options;
-		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.Target = Tasks::ETaskThread::GameThread;
 		Options.EstimatedPayloadBytes = 1;
 		Options.Prerequisites = std::span(&Root, 1);
 		Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
@@ -1639,7 +1639,7 @@ namespace Durin
 		ASSERT_EQ(ETaskState::Succeeded, Root.WaitDetailed().TaskState);
 
 		FTaskLaunchOptions Options;
-		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.Target = Tasks::ETaskThread::GameThread;
 		Options.EstimatedPayloadBytes = 1;
 		Options.Prerequisites = std::span(&Root, 1);
 		Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);
@@ -1673,7 +1673,7 @@ namespace Durin
 			ReleaseDrainRoot.Wait();
 		});
 		FTaskLaunchOptions Options;
-		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.Target = Tasks::ETaskThread::GameThread;
 		Options.EstimatedPayloadBytes = 1;
 		std::atomic<bool> bDrainRan = false;
 		Options.Prerequisites = std::span(&DrainRoot, 1);
@@ -1727,7 +1727,7 @@ namespace Durin
 		for (uint32 Index = 0; Index < CallbackCount; ++Index)
 		{
 			FTaskLaunchOptions Options;
-			Options.Target = ETaskTarget::GameThreadDeferred;
+			Options.Target = Tasks::ETaskThread::GameThread;
 			Options.EstimatedPayloadBytes = DeclaredCaptureBytes;
 			Options.Prerequisites = std::span(&Root, 1);
 			Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Root);

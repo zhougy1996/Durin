@@ -240,7 +240,7 @@ TEST_F(FPackagePersistenceTests, ProtectedTaskCompletesOnHostPumpAndRejectsGameT
 {
 	auto Task = FSavePackageContext{Options}.SaveAsync(Package);
 	ASSERT_TRUE(Task.IsValid());
-	EXPECT_EQ(Task.GetDiagnostics().Target, ETaskTarget::GameThreadDeferred);
+	EXPECT_EQ(Task.GetDiagnostics().Target, Tasks::ETaskThread::GameThread);
 	EXPECT_EQ(Task.WaitDetailed().WaitStatus, ETaskWaitStatus::UnsupportedThread);
 	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_FALSE(Task.IsCompleted());
@@ -944,7 +944,7 @@ TEST_F(FPackagePersistenceTests, DrainPumpsTypedPublicationAndRejectsReentrantSa
 	EXPECT_TRUE(IoWeak.expired());
 	EXPECT_FALSE(Weak.expired());
 	EXPECT_FALSE(Task.IsCompleted());
-	EXPECT_EQ(Task.GetDiagnostics().Target, ETaskTarget::GameThreadDeferred);
+	EXPECT_EQ(Task.GetDiagnostics().Target, Tasks::ETaskThread::GameThread);
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_TRUE(UnrelatedRan);
 	EXPECT_TRUE(Unrelated.IsCompleted());

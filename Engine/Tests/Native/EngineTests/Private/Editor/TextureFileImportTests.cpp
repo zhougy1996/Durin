@@ -802,7 +802,7 @@ TEST_F(FTextureImportQueueTests, AsyncSaveUsesExplicitCancellationForTypedPublic
 		Tasks::FCancellationToken Cancellation;
 	auto Save = SavePackageAsync(Texture->GetPackage(), {}, [&Cancellation] { return Cancellation.IsCanceled(); });
 	ASSERT_TRUE(Save.IsValid());
-	EXPECT_EQ(Save.GetDiagnostics().Target, ETaskTarget::GameThreadDeferred);
+	EXPECT_EQ(Save.GetDiagnostics().Target, Tasks::ETaskThread::GameThread);
 	EXPECT_EQ(Save.WaitDetailed().WaitStatus, ETaskWaitStatus::UnsupportedThread);
 	Cancellation.Cancel();
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());

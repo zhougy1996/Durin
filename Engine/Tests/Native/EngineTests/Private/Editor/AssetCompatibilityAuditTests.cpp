@@ -261,8 +261,8 @@ TEST_F(FAssetCompatibilityAuditTests, StreamsProgressBeforeTypedTerminalPublicat
 		return Model.GetState() == Durin::EAssetCompatibilityAuditState::Completed;
 	}));
 	EXPECT_EQ(2u, Model.GetProgress().Completed);
-	EXPECT_EQ(Durin::ETaskTarget::AnyWorker, Model.GetWorkerTaskDiagnostics().Target);
-	EXPECT_EQ(Durin::ETaskTarget::GameThreadDeferred, Model.GetTerminalTaskDiagnostics().Target);
+	EXPECT_EQ(Durin::Tasks::ETaskThread::Worker, Model.GetWorkerTaskDiagnostics().Target);
+	EXPECT_EQ(Durin::Tasks::ETaskThread::GameThread, Model.GetTerminalTaskDiagnostics().Target);
 }
 
 TEST_F(FAssetCompatibilityAuditTests, ProjectChangeIgnoresQueuedTerminalPublication)

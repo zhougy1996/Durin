@@ -46,6 +46,14 @@ namespace Durin
 
 	namespace Tasks
 	{
+		// Values index the scheduler's per-thread storage diagnostics.
+		enum class ETaskThread : uint8
+		{
+			Worker = 0,
+			GameThread = 1, // Runs when the deferred GameThread queue is pumped.
+			BlockingIO = 2,
+		};
+
 		// Cooperative cancellation; callers own the token lifetime and capture it explicitly.
 		class FCancellationToken
 		{
@@ -99,13 +107,6 @@ namespace Durin
 	{
 		ETaskWaitStatus WaitStatus = ETaskWaitStatus::InvalidTask;
 		ETaskState TaskState = ETaskState::Invalid;
-	};
-
-	enum class ETaskTarget : uint8
-	{
-		AnyWorker,
-		GameThreadDeferred,
-		BlockingIO,
 	};
 
 	enum class ETaskPriority : uint8
@@ -168,7 +169,7 @@ namespace Durin
 		std::string ExecutingThreadName;
 		std::string Diagnostic;
 		ETaskState State = ETaskState::Invalid;
-		ETaskTarget Target = ETaskTarget::AnyWorker;
+		Tasks::ETaskThread Target = Tasks::ETaskThread::Worker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
 		uint64 EstimatedPayloadBytes = 0;
@@ -405,7 +406,7 @@ namespace Durin
 		// Order execution after every nonempty prerequisite completes, regardless of outcome.
 		std::span<const Tasks::FTask> Prerequisites;
 		FTaskAttribution Attribution;
-		ETaskTarget Target = ETaskTarget::AnyWorker;
+		Tasks::ETaskThread Target = Tasks::ETaskThread::Worker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
 		// Declares an independent CPU graph that RenderingThread may join.

@@ -27,7 +27,7 @@ namespace Durin::Tasks
 		template<typename F>
 		auto Launch(const char* Name, F&& Function, FTaskExecutionOptions Options = {})
 		{
-			return Detail::LaunchTaskImpl(Name, ETaskTarget::AnyWorker, Options, std::forward<F>(Function), false, this);
+			return Detail::LaunchTaskImpl(Name, ETaskThread::Worker, Options, std::forward<F>(Function), false, this);
 		}
 		template<typename F>
 		auto Launch(const char* Name, F&& Function, ETaskPriority Priority)

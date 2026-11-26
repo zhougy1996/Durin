@@ -91,7 +91,7 @@ estimated consistently for every entry; callers do not declare admission budgets
 Domain payload budgets remain with their resource owners. Deferred shutdown and
 selected module drain see the entire accepted queue.
 
-`FTaskSchedulerDiagnostics::ExecutorStorage` is indexed by native `ETaskTarget`.
+`FTaskSchedulerDiagnostics::ExecutorStorage` is indexed by `Tasks::ETaskThread`.
 It reports current/peak node count, a unified estimate of scheduler-owned task
 storage, current/peak pending nodes and bytes,
 current/peak running bodies, and node-threshold crossings. Pending includes

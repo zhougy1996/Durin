@@ -594,7 +594,7 @@ namespace Durin
 		std::shared_ptr<FTaskSchedulerLifetimeAccounting> LifetimeAccounting;
 		std::vector<std::shared_ptr<FTaskStateData>> Prerequisites;
 		uint64 ParentTaskId = 0;
-		ETaskTarget Target = ETaskTarget::AnyWorker;
+		Tasks::ETaskThread Target = Tasks::ETaskThread::Worker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
 		uint64 AdditionalStorageBytes = 0;
@@ -885,7 +885,7 @@ namespace Durin
 				if (bRequirements)
 				{
 					Result.bUnknown |= Entry.Node->bUnknownExecutionRequirement;
-					Result.bGameThread |= Entry.Node->Phase == EPhase::Open && Entry.Node->Target == ETaskTarget::GameThreadDeferred;
+					Result.bGameThread |= Entry.Node->Phase == EPhase::Open && Entry.Node->Target == Tasks::ETaskThread::GameThread;
 				}
 				// Closed ancestors still participate in cycle identity, but must not
 				// leak their former executor restrictions into an active wait.
@@ -992,7 +992,7 @@ namespace Durin
 		auto GetDebugName() const -> const char* { return DebugName.c_str(); }
 		auto GetTaskId() const -> uint64 { return TaskId; }
 		auto PinScheduler() const -> std::shared_ptr<FTaskScheduler> { return Scheduler.lock(); }
-		auto GetTarget() const -> ETaskTarget { return Target; }
+		auto GetTarget() const -> Tasks::ETaskThread { return Target; }
 		auto GetPriority() const -> ETaskPriority { return Priority.load(); }
 		auto SetPriority(ETaskPriority Value) -> void;
 		std::mutex PriorityMutex;
@@ -1054,7 +1054,7 @@ namespace Durin
 		uint32 RemainingPrerequisites = 0;
 		// Execution progress remains nonterminal; only Closed exposes Outcome.State.
 		ETaskState ExecutionState = ETaskState::Queued;
-		ETaskTarget Target = ETaskTarget::AnyWorker;
+		Tasks::ETaskThread Target = Tasks::ETaskThread::Worker;
 		std::atomic<ETaskPriority> Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
 		const bool bIndependentCPU;
@@ -1149,7 +1149,7 @@ namespace Durin
 			Private::FMoveOnlyTaskFunction& FunctionOwner,
 			Private::FTaskCompletionFunction&& CompletionFunction,
 			const FTaskLaunchOptions& Options,
-			ETaskTarget Target = ETaskTarget::AnyWorker,
+			Tasks::ETaskThread Target = Tasks::ETaskThread::Worker,
 			ETaskPriority Priority = ETaskPriority::Normal,
 			uint64 EstimatedPayloadBytes = 0,
 			uint64 AdditionalStorageBytes = 0,
@@ -1185,9 +1185,9 @@ namespace Durin
 					for (size_t Index = 0; Index < Count; ++Index) Prerequisites[Index]->ReleaseDependentReservation();
 				}
 			} Reservations{PrerequisiteStates, ReservedDependencyCount};
-			if ((Options.ConcurrencyLimiter && (Options.Pipe || Target != ETaskTarget::AnyWorker || Init.bIndependentCPU))
-				|| (Options.Pipe && (Target != ETaskTarget::AnyWorker || Init.bIndependentCPU))
-				|| (Init.bIndependentCPU && Target != ETaskTarget::AnyWorker))
+			if ((Options.ConcurrencyLimiter && (Options.Pipe || Target != Tasks::ETaskThread::Worker || Init.bIndependentCPU))
+				|| (Options.Pipe && (Target != Tasks::ETaskThread::Worker || Init.bIndependentCPU))
+				|| (Init.bIndependentCPU && Target != Tasks::ETaskThread::Worker))
 				Tasks::Detail::FailConstruction({Tasks::ETaskConstructionErrorCode::InvalidExecutionContract});
 			PrerequisiteStates.reserve(Options.Prerequisites.size());
 			std::unordered_set<FTaskStateData*> SeenPrerequisites;
@@ -1225,7 +1225,7 @@ namespace Durin
 				try
 				{
 					ActiveTasks.emplace(State->GetTaskId(), State);
-					if (Target == ETaskTarget::BlockingIO) ++BlockingIOTrackedTasks;
+					if (Target == Tasks::ETaskThread::BlockingIO) ++BlockingIOTrackedTasks;
 				}
 				catch (...)
 				{
@@ -1243,7 +1243,7 @@ namespace Durin
 				Storage.CurrentBytes += State->GetSchedulerStorageBytes();
 				Storage.PeakNodes = std::max(Storage.PeakNodes, Storage.CurrentNodes);
 				Storage.PeakBytes = std::max(Storage.PeakBytes, Storage.CurrentBytes);
-				const uint64 Threshold = Target == ETaskTarget::BlockingIO ? BlockingIOWarningThreshold : TaskWarningThreshold;
+				const uint64 Threshold = Target == Tasks::ETaskThread::BlockingIO ? BlockingIOWarningThreshold : TaskWarningThreshold;
 				if (Storage.CurrentNodes == Threshold + 1)
 				{
 					const uint64 Crossings = ++Storage.OverloadCrossings;
@@ -1285,7 +1285,7 @@ namespace Durin
 		{
 			std::lock_guard PriorityLock(State->PriorityMutex);
 			State->Priority = Value;
-			auto& ExecutionPool = State->GetTarget() == ETaskTarget::BlockingIO ? BlockingIOPool : Pool;
+			auto& ExecutionPool = State->GetTarget() == Tasks::ETaskThread::BlockingIO ? BlockingIOPool : Pool;
 			ExecutionPool.SetPriorityNode(State, static_cast<EQueuedWorkPriority>(Value));
 		}
 		auto QueueTask(const std::shared_ptr<FTaskStateData>& State) -> void
@@ -1299,7 +1299,7 @@ namespace Durin
 				if (!State->EnterPipe()) { State->NotifyStateChanged(); return; }
 				if (!State->EnterConcurrencyLimiter()) { State->NotifyStateChanged(); return; }
 				if (State->GetPipe() || State->GetConcurrencyLimiter()) State->MarkDispatched();
-				if (State->GetTarget() == ETaskTarget::GameThreadDeferred)
+				if (State->GetTarget() == Tasks::ETaskThread::GameThread)
 				{
 					if (!DispatchGameThreadDeferredTask(State))
 					{
@@ -1311,7 +1311,7 @@ namespace Durin
 					return;
 				}
 
-				auto& ExecutionPool = State->GetTarget() == ETaskTarget::BlockingIO ? BlockingIOPool : Pool;
+				auto& ExecutionPool = State->GetTarget() == Tasks::ETaskThread::BlockingIO ? BlockingIOPool : Pool;
 				bool bAccepted;
 				{ std::lock_guard PriorityLock(State->PriorityMutex); bAccepted = ExecutionPool.EnqueueNode(State, static_cast<EQueuedWorkPriority>(State->GetPriority())); }
 				if (bAccepted) State->NotifyStateChanged();
@@ -1354,7 +1354,7 @@ namespace Durin
 			FTaskStateData* PreviousTaskState = GCurrentTaskState;
 			FTaskScheduler* PreviousTaskScheduler = GCurrentTaskScheduler;
 			const bool PreviousBlockingIOPool = GExecutingBlockingIOPool;
-			GExecutingBlockingIOPool = PreviousBlockingIOPool || State->GetTarget() == ETaskTarget::BlockingIO;
+			GExecutingBlockingIOPool = PreviousBlockingIOPool || State->GetTarget() == Tasks::ETaskThread::BlockingIO;
 			GCurrentTaskState = State.get();
 			GCurrentTaskScheduler = this;
 			bool bBodyStorageReleased = false;
@@ -1468,7 +1468,7 @@ namespace Durin
 			}
 
 			std::lock_guard Lock(Mutex);
-			if (State->GetTarget() == ETaskTarget::BlockingIO) { require(BlockingIOTrackedTasks > 0); --BlockingIOTrackedTasks; }
+			if (State->GetTarget() == Tasks::ETaskThread::BlockingIO) { require(BlockingIOTrackedTasks > 0); --BlockingIOTrackedTasks; }
 			auto& Storage = ExecutorStorage[static_cast<size_t>(State->GetTarget())];
 			if (Task.ExecutionState != ETaskState::Running)
 			{
@@ -1504,8 +1504,8 @@ namespace Durin
 		auto RetractTaskBody(const std::shared_ptr<FTaskStateData>& Task) -> void
 		{
 			if (Task->PinScheduler().get() != this) return;
-			if (Task->GetTarget() == ETaskTarget::AnyWorker) Pool.TryExecuteNode(Task);
-			else if (Task->GetTarget() == ETaskTarget::BlockingIO && GExecutingBlockingIOPool) BlockingIOPool.TryExecuteNode(Task);
+			if (Task->GetTarget() == Tasks::ETaskThread::Worker) Pool.TryExecuteNode(Task);
+			else if (Task->GetTarget() == Tasks::ETaskThread::BlockingIO && GExecutingBlockingIOPool) BlockingIOPool.TryExecuteNode(Task);
 		}
 
 		auto RetractTask(const std::shared_ptr<FTaskStateData>& Target, const FTaskWaitDeadline& Deadline,
@@ -1700,7 +1700,7 @@ namespace Durin
 
 	auto FTaskStateData::Execute() -> void
 	{
-		if (auto Owner = PinScheduler()) Owner->ExecuteTask(shared_from_this(), GetTarget() == ETaskTarget::AnyWorker);
+		if (auto Owner = PinScheduler()) Owner->ExecuteTask(shared_from_this(), GetTarget() == Tasks::ETaskThread::Worker);
 		else Discard();
 	}
 
@@ -1962,14 +1962,14 @@ namespace Durin
 		bool bPumping = false;
 	};
 
-	static auto ValidateTaskExecution(ETaskTarget Target, ETaskPriority Priority)
+	static auto ValidateTaskExecution(Tasks::ETaskThread Target, ETaskPriority Priority)
 		-> std::optional<Tasks::FTaskConstructionError>
 	{
 		using ECode = Tasks::ETaskConstructionErrorCode;
-		if ((Target != ETaskTarget::AnyWorker && Target != ETaskTarget::GameThreadDeferred && Target != ETaskTarget::BlockingIO)
+		if ((Target != Tasks::ETaskThread::Worker && Target != Tasks::ETaskThread::GameThread && Target != Tasks::ETaskThread::BlockingIO)
 			|| (Priority != ETaskPriority::High && Priority != ETaskPriority::Normal && Priority != ETaskPriority::Low))
 			return Tasks::FTaskConstructionError{ECode::UnsupportedExecutor};
-		if (Target == ETaskTarget::AnyWorker || Target == ETaskTarget::BlockingIO) return {};
+		if (Target == Tasks::ETaskThread::Worker || Target == Tasks::ETaskThread::BlockingIO) return {};
 		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
 		{
 			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
