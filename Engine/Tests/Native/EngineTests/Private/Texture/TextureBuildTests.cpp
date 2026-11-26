@@ -3,6 +3,7 @@
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "DObject/PropertyChange.h"
+#include "PropertyEditor/PropertyHandle.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "../DerivedDataBuildTestSupport.h"
 #include "../AssetCacheLogTestSupport.h"
@@ -3030,23 +3031,35 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.4f);
 
 	Error.clear();
-	EXPECT_FALSE(SubmitUsage(static_cast<Durin::ETextureUsage>(255)));
-	EXPECT_FALSE(Error.empty());
-	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
-	EXPECT_FALSE(Texture->IsSRGB());
-	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
-	Error.clear();
-	EXPECT_FALSE(SubmitCompressionQuality(static_cast<Durin::ETextureCompressionQuality>(255)));
-	EXPECT_FALSE(Error.empty());
-	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::High);
-	Error.clear();
-	EXPECT_FALSE(SubmitAlphaMipMode(static_cast<Durin::ETextureAlphaMipMode>(255)));
-	EXPECT_FALSE(Error.empty());
-	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::PreserveCoverage);
-	Error.clear();
-	EXPECT_FALSE(SubmitAlphaCoverageThreshold(1.0f));
-	EXPECT_FALSE(Error.empty());
+	ASSERT_TRUE(SubmitUsage(static_cast<Durin::ETextureUsage>(255))) << Error;
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
+	EXPECT_TRUE(Texture->IsSRGB());
+	ASSERT_TRUE(SubmitCompressionQuality(static_cast<Durin::ETextureCompressionQuality>(255))) << Error;
+	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::Normal);
+	ASSERT_TRUE(SubmitAlphaMipMode(static_cast<Durin::ETextureAlphaMipMode>(255))) << Error;
+	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::Average);
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+	const auto LastBuild = [&] { return Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).RequestId; };
+	const auto BeforeGesture = LastBuild();
+	Durin::PropertyEditor::FPropertyEdit Gesture;
+	ASSERT_TRUE(Gesture.Begin(Durin::FPropertyEditTarget::ForMember(Texture, AlphaCoverageThresholdProperty),
+		"Edit alpha coverage", *Transactions));
+	ASSERT_TRUE(Gesture.SetValue(1.0f));
+	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.5f);
+	Durin::FPropertyValueSnapshot Corrected;
+	ASSERT_TRUE(Durin::CapturePropertyValue(AlphaCoverageThresholdProperty, Texture, 0, Corrected));
+	EXPECT_EQ(Gesture.GetCurrentValue(), Corrected.GetPayload());
+	EXPECT_EQ(LastBuild(), BeforeGesture);
+	ASSERT_TRUE(Gesture.Commit());
+	EXPECT_NE(LastBuild(), BeforeGesture);
+	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.5f);
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.4f);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.5f);
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 
 	Transactions->Reset();
 	Durin::FPackagePath AssetPath;

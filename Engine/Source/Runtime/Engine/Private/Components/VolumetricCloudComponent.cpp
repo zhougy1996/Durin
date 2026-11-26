@@ -169,7 +169,7 @@ namespace Durin
 	) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit)) return;
+		if (!Event.MemberProperty) return;
 		MarkRenderStateDirty();
 	}
 

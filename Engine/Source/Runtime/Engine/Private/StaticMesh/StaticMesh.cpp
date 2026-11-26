@@ -618,7 +618,7 @@ namespace Durin
 			NotifyCollisionSourceChanged(true);
 			return;
 		}
-		if (Event.MemberProperty || Event.Phase != EPropertyChangePhase::Committed || IsTemplateObject()
+		if (Event.MemberProperty || (Event.ChangeType & EPropertyChangeType::Interactive) || IsTemplateObject()
 			|| GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
 		if (const auto Admitted = Build(EStaticMeshBuildMode::Asynchronous, {.bMarkPackageDirty = false}); !Admitted)
 			DURIN_ERROR("StaticMesh build admission failed for {}: {}", GetObjectPath(), Admitted.error());

@@ -124,11 +124,30 @@ namespace Durin
 			.AlphaCoverageThreshold = AlphaCoverageThreshold, .MaxResolution = MaxResolution, .bSRGB = bSRGB};
 	}
 
-	auto DTexture2D::OnBuildSettingsEdited(bool bResetSRGB) -> void
+	auto DTexture2D::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
+		// Replay ends with one full-object update after all recorded fields are restored.
+		if (Event.MemberProperty)
+		{
+			Super::PostEditChangeProperty(Event);
+			if (Event.Origin != EPropertyChangeOrigin::Edit) return;
+			const FName Name = Event.MemberProperty->NamePrivate;
+			if (Name != FName("Usage") && Name != FName("bSRGB") && Name != FName("MaxResolution")
+				&& Name != FName("CompressionQuality") && Name != FName("AlphaMipMode")
+				&& Name != FName("AlphaCoverageThreshold")) return;
+		}
+		else DObject::PostEditChangeProperty(Event);
+
 		CheckGameThread();
-		if (IsPendingKill() || IsTemplateObject() || GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
-		if (bResetSRGB) bSRGB = GetDefaultTextureSRGB(Usage);
+		const FTexture2DBuildSettings Defaults;
+		if (!IsValidTextureUsage(Usage)) Usage = Defaults.Usage;
+		if (!IsValidTextureCompressionQuality(CompressionQuality)) CompressionQuality = Defaults.CompressionQuality;
+		if (!IsValidTextureAlphaMipMode(AlphaMipMode)) AlphaMipMode = Defaults.AlphaMipMode;
+		if (!IsValidTextureAlphaCoverageThreshold(AlphaCoverageThreshold)) AlphaCoverageThreshold = Defaults.AlphaCoverageThreshold;
+		if ((Event.ChangeType & EPropertyChangeType::Interactive) || IsPendingKill()
+			|| IsTemplateObject() || GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Usage"))
+			bSRGB = GetDefaultTextureSRGB(Usage);
 		InvalidateAuthoredBuild(true);
 		auto Request = CreateBuildRequest(GetBuildSettings());
 		if (!Request)
@@ -140,17 +159,6 @@ namespace Durin
 			.ResultApplication = {.bMarkPackageDirty = false, .AuthoredBuildRevision = GetAuthoredBuildRevision()},
 			.Priority = ETexture2DCompilationPriority::Interactive}); !Submitted)
 			DURIN_ERROR("Texture2D '{}': {}", GetObjectPath(), FormatTextureBuildOperationError(Submitted.error()));
-	}
-
-	auto DTexture2D::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
-	{
-		if (!Event.MemberProperty && Event.Phase == EPropertyChangePhase::Committed)
-		{
-			DObject::PostEditChangeProperty(Event);
-			OnBuildSettingsEdited(false);
-			return;
-		}
-		Super::PostEditChangeProperty(Event);
 	}
 
 	auto DTexture2D::PrepareCookedPlatformData(FCookedPlatformData& Preparation) const -> void

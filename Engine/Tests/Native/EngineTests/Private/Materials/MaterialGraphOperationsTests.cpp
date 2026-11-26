@@ -4413,10 +4413,6 @@ TEST(FMaterialGraphOperationsTests, SharedScalarParameterWritesBothDeclarationsO
 	PropertyEditor::FPropertyEdit Edit;
 	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *History));
 	EXPECT_TRUE(History->IsActive());
-	std::vector<EPropertyChangePhase> Phases;
-	const auto Observer = RegisterPropertyEditExtension({.PostEdit = [&](DObject& Object, const FPropertyChangedEvent& Event, bool) {
-		if (Object.IsA(DMaterialEditorPreviewParameter::StaticClass())) Phases.push_back(Event.Phase);
-	}});
 	const auto Applied = Edit.SetValue(.75f);
 	EXPECT_TRUE(Applied);
 	CheckDeclarations(.25f);
@@ -4430,10 +4426,8 @@ TEST(FMaterialGraphOperationsTests, SharedScalarParameterWritesBothDeclarationsO
 	});
 	const auto Committed = Edit.Commit();
 	Material->GetGraphChanges().Unsubscribe(Refresh);
-	UnregisterPropertyEditExtension(Observer);
 	ASSERT_TRUE(Committed);
 	EXPECT_EQ(Publications, 1);
-	EXPECT_EQ(Phases, (std::vector{EPropertyChangePhase::Interactive, EPropertyChangePhase::Committed}));
 	CheckDeclarations(.75f);
 	ASSERT_EQ(History->GetQueueLength(), 1u);
 	EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 3u);

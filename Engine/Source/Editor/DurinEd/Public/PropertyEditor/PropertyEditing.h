@@ -17,18 +17,6 @@ namespace Durin
 
 namespace Durin
 {
-	struct FPropertyEditExtension
-	{
-		std::function<std::expected<void, FObjectValidationError>(DObject&, FPropertyEditProposal&)> PreEdit;
-		std::function<void(DObject&, const FPropertyChangedEvent&, bool bValueChanged)> PostEdit;
-	};
-
-	using FPropertyEditExtensionHandle = uint64;
-
-	DURINED_API auto RegisterPropertyEditExtension(FPropertyEditExtension Extension)
-		-> FPropertyEditExtensionHandle;
-	DURINED_API auto UnregisterPropertyEditExtension(FPropertyEditExtensionHandle Handle) -> void;
-
 	// Identifies one stable traversal step from a reflected member to a nested value.
 	struct FPropertyEditPathSegment
 	{
@@ -111,7 +99,7 @@ namespace Durin
 		// Logical identity distinguishes independently edited values that intentionally
 		// share one stable snapshot root, such as GUID-addressed array entries.
 		FByteBuffer LogicalIdentity;
-		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
+		EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet;
 
 		DURINED_API auto Validate() const -> std::expected<void, FPropertyEditPathError>;
 		DURINED_API static auto ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex = 0) -> FPropertyEditTarget;

@@ -105,7 +105,7 @@ namespace Durin::PropertyEditor
 			if (OutChanged) *OutChanged = false;
 			return true;
 		}
-		return ApplyDraft(Draft, OutError, OutChanged, EPropertyChangePhase::Interactive);
+		return ApplyDraft(Draft, OutError, OutChanged);
 	}
 
 	auto FPropertyEdit::SetValue(const FPropertyControlValue& Value, std::string* OutError) -> bool
@@ -278,27 +278,21 @@ namespace Durin::PropertyEditor
 		FPropertyValueDraft Draft(Target, &Before);
 		FPropertyValueSnapshotPayload Proposed;
 		const bool bInteractive = (Flags & EPropertyValueSetFlags::InteractiveChange) != 0;
-		const auto Phase = bInteractive ? EPropertyChangePhase::Interactive : EPropertyChangePhase::Committed;
-		const auto RejectWrite = [&] {
-			if ((bInteractive || bInteractiveChangeInProgress) && Owner.IsValid())
-				NotifyMutation(Target, EPropertyChangePhase::Cancelled);
-			return FPropertyAccess::Fail;
-		};
-		if (!PrepareTypedValue(Target, Value, Draft, Proposed, &LastError)) return RejectWrite();
+		if (!PrepareTypedValue(Target, Value, Draft, Proposed, &LastError)) return FPropertyAccess::Fail;
 		const bool bProposedChange = Proposed != Before;
 		bool bChanged = false;
 		if (bProposedChange)
 		{
-			auto Result = WriteValidatedValue(Target, Draft, Phase, Before);
+			auto Result = WriteValidatedValue(Target, Draft, Flags, Before);
 			if (!Result)
 			{
 				LastError = std::move(Result.error());
-				return RejectWrite();
+				return FPropertyAccess::Fail;
 			}
 			bChanged = *Result;
 		}
-		if (bInteractive ? bChanged : bProposedChange || bInteractiveChangeInProgress)
-			NotifyMutation(Target, Phase, bProposedChange);
+		if (bChanged || (!bInteractive && bInteractiveChangeInProgress))
+			NotifyMutation(Target, Flags);
 		Scope.reset();
 		if (bChanged || !bInteractive) bInteractiveChangeInProgress = bInteractive;
 		return FPropertyAccess::Success;

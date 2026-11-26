@@ -4,7 +4,6 @@
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "ContentBrowser/TextureCubeDetails.h"
-#include "Texture2DPropertyEditing.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
@@ -45,7 +44,6 @@ namespace Durin
 
 	auto FTextureEditorModule::StartupModule() -> void
 	{
-		require(TextureEditor::RegisterTexture2DPropertyEditing());
 		DetailCustomizationRegistration = FDetailCustomizationRegistry::Get().RegisterDetailCustomization(
 			DTexture2D::StaticClass(), TextureEditor::CreateTextureBuildSettingsDetails());
 		require(static_cast<bool>(DetailCustomizationRegistration));
@@ -58,7 +56,6 @@ namespace Durin
 		UnregisterContributions();
 		FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
 		DetailCustomizationRegistration = {};
-		TextureEditor::UnregisterTexture2DPropertyEditing();
 	}
 
 	auto FTextureEditorModule::RegisterContributions(DThumbnailManager& ThumbnailManager) -> bool

@@ -118,14 +118,20 @@ namespace
 
 		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal) -> std::expected<void, Durin::FObjectValidationError> override
 		{
-			if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled) ++RestoreAttempts;
-			if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled && !bAllowRestore)
+			if (Proposal.Flags == Durin::PropertyEditor::EPropertyValueSetFlags::DefaultFlags) ++RestoreAttempts;
+			if (Proposal.Flags == Durin::PropertyEditor::EPropertyValueSetFlags::DefaultFlags && !bAllowRestore)
 			{
 				return Durin::RejectPropertyEdit(*this, Proposal, Durin::EPropertyEditRejection::Rejected);
 			}
 			return {};
 		}
 
+		void PostEditChangeProperty(const Durin::FPropertyChangedEvent& Event) override
+		{
+			ChangeTypes.push_back(Event.ChangeType);
+		}
+
+		std::vector<Durin::EPropertyChangeType::Type> ChangeTypes;
 		int32 Value = 5;
 		Durin::FVector3f FloatVector{0.0f};
 		FSoftObjectViewValue SoftValues[2];
@@ -1061,14 +1067,7 @@ TEST(FReflectedPropertyViewTests, ReflectedIntegerHandleReadsAndWritesInOneTrans
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Object->Value, 8);
 	Transactions->Reset();
-	std::vector<EPropertyChangePhase> Phases;
-	struct FObserver
-	{
-		FPropertyEditExtensionHandle Handle;
-		~FObserver() { UnregisterPropertyEditExtension(Handle); }
-	} Observer{RegisterPropertyEditExtension({.PostEdit = [&](DObject& Owner, const FPropertyChangedEvent& Event, bool) {
-		if (&Owner == Object.Get()) Phases.push_back(Event.Phase);
-	}})};
+	Object->ChangeTypes.clear();
 	ASSERT_EQ(Handle.SetValue(1, EPropertyValueSetFlags::NotTransactable), Durin::PropertyEditor::FPropertyAccess::Success);
 	EXPECT_FALSE(Transactions->CanUndo());
 	{
@@ -1080,8 +1079,8 @@ TEST(FReflectedPropertyViewTests, ReflectedIntegerHandleReadsAndWritesInOneTrans
 		ASSERT_EQ(Handle.SetValue(2), FPropertyAccess::Success);
 		float IncompatibleValue = 0;
 		EXPECT_EQ(Handle.GetValue(IncompatibleValue), FPropertyAccess::Fail);
-		EXPECT_EQ(Phases, (std::vector{EPropertyChangePhase::Committed, EPropertyChangePhase::Interactive,
-			EPropertyChangePhase::Committed}));
+		EXPECT_EQ(Object->ChangeTypes, (std::vector{EPropertyChangeType::ValueSet, EPropertyChangeType::Interactive,
+			EPropertyChangeType::ValueSet}));
 	}
 	ASSERT_EQ(Transactions->GetQueueLength(), 1u);
 	ASSERT_TRUE(Transactions->Undo());
@@ -1356,67 +1355,6 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 	EXPECT_FALSE(Transactions.Get()->Undo());
 }
 
-TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAllowsRetry)
-{
-	Durin::Testing::InitializeAssetSystemForTests();
-	using namespace Durin;
-	using namespace Durin;
-	auto& Reflection = GetPropertyViewHostTestReflection();
-	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedExtensionEdit");
-	TStrongObjectPtr<DObject> Root(Object);
-	FPropertyViewTestTransactorOwner Transactions;
-	FPropertyView View;
-	std::string Message;
-	const FPropertyViewContext Context{
-		.ReportPropertyError = [&](std::string Text) { Message = std::move(Text); }};
-	bool Reject = true;
-	uint32 PostCount = 0;
-	uint32 CancelCount = 0;
-	FObjectValidationError Retained;
-	struct FExtensionScope
-	{
-		FPropertyEditExtensionHandle Handle = 0;
-		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
-	} Extension;
-	Extension.Handle = RegisterPropertyEditExtension({
-		.PreEdit = [&](DObject& Target, FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
-			if (&Target != Object || !Reject) return {};
-			auto Result = RejectPropertyEdit(Target, Proposal, EPropertyEditRejection::IncompleteDraft);
-			Retained = Result.error();
-			return Result;
-		},
-		.PostEdit = [&](DObject& Target, const FPropertyChangedEvent& Event, bool) {
-			if (&Target != Object) return;
-			if (Event.Phase == EPropertyChangePhase::Cancelled) ++CancelCount;
-			else ++PostCount;
-		}});
-	ASSERT_NE(Extension.Handle, 0u);
-	auto Edit = [&] {
-		return View.SubmitPropertyValueEdit(Context,
-			FPropertyEditTarget::ForMember(Object, Reflection.Property),
-			[](FProperty* Property, void* Container, uint32 Index) {
-				*Property->ContainerPtrToValuePtr<int32>(Container, Index) = 6;
-			}, false);
-	};
-	EXPECT_FALSE(Edit());
-	EXPECT_EQ(Object->Value, 5);
-	EXPECT_EQ(PostCount, 0u);
-	EXPECT_EQ(CancelCount, 1u);
-	EXPECT_FALSE(Transactions.Get()->Undo());
-	EXPECT_EQ(Retained.Code, EObjectValidationError::PropertyRejected);
-	EXPECT_EQ(Retained.PropertyReason, EPropertyEditRejection::IncompleteDraft);
-	EXPECT_EQ(Retained.PropertyName, Reflection.Property->NamePrivate.ToString());
-	EXPECT_EQ(Retained.ObjectPath, Object->GetObjectPath());
-	EXPECT_FALSE(Message.empty());
-	Reject = false;
-	EXPECT_TRUE(Edit());
-	EXPECT_EQ(Object->Value, 6);
-	EXPECT_GT(PostCount, 0u);
-	EXPECT_EQ(Retained.PropertyReason, EPropertyEditRejection::IncompleteDraft);
-	ASSERT_TRUE(Transactions.Get()->Undo());
-	EXPECT_EQ(Object->Value, 5);
-}
-
 TEST(FReflectedPropertyViewTests, TargetValidationOwnsRejectedPathAndBounds)
 {
 	using namespace Durin;
@@ -1504,57 +1442,6 @@ TEST(FReflectedPropertyViewTests, DraftRetainsInitializationAndRestoreCausesAcro
 	EXPECT_TRUE(Draft.Capture(Snapshot));
 	EXPECT_EQ(Rejected.error().SnapshotCause->Code, EPropertySnapshotError::IncompatibleType);
 	EXPECT_EQ(Rejected.error().Root, Reflection.Property->NamePrivate.ToString());
-	EXPECT_EQ(Object->Value, 5);
-}
-
-TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidation)
-{
-	Durin::Testing::InitializeAssetSystemForTests();
-	using namespace Durin;
-	using namespace Durin;
-	auto& Reflection = GetPropertyViewHostTestReflection();
-	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedObjectRecord");
-	FTransaction History(42, {.Description = "Historical property state"});
-	ASSERT_TRUE(History.BeginOperation());
-	History.SaveObject(Object);
-	TStrongObjectPtr<DObject> Root(Object);
-	struct FRecordAccess : FTransaction
-	{
-		using Record = FWholeObjectData;
-		static auto Capture(DObject& Object) { return FWholeObjectData::CaptureWhole(Object); }
-	};
-	auto Captured = FRecordAccess::Capture(*Object);
-	ASSERT_TRUE(Captured);
-	auto Record = std::move(*Captured);
-	Object->Value = 6;
-	Record.CaptureAfter();
-	ASSERT_TRUE(Record.Validate());
-	bool Reject = true;
-	struct FExtensionScope
-	{
-		FPropertyEditExtensionHandle Handle = 0;
-		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
-	} Extension;
-	Extension.Handle = RegisterPropertyEditExtension({
-		.PreEdit = [&](DObject& Owner, FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
-			if (&Owner != Object || !Reject) return {};
-			return RejectPropertyEdit(Owner, Proposal, EPropertyEditRejection::IncompleteDraft);
-		}});
-	Record.CaptureInverse();
-	Record.Apply(EPropertyChangeOrigin::Undo);
-	EXPECT_EQ(Object->Value, 5);
-	Record.CaptureInverse();
-	Record.Apply(EPropertyChangeOrigin::Redo);
-	EXPECT_EQ(Object->Value, 6);
-	History.Finalize();
-	ASSERT_TRUE(History.EndOperation());
-	History.Apply();
-	EXPECT_EQ(Object->Value, 5);
-	History.Apply();
-	EXPECT_EQ(Object->Value, 6);
-	Reject = false;
-	Record.CaptureInverse();
-	Record.Apply(EPropertyChangeOrigin::Undo);
 	EXPECT_EQ(Object->Value, 5);
 }
 

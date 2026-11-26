@@ -46,7 +46,7 @@ namespace Durin
 	auto DSkyBoxComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit)) return;
+		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("TextureCube") || Name == FName("Tint") || Name == FName("Intensity") || Name == FName("MaterialOverride"))
 			MarkRenderStateDirty();

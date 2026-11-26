@@ -156,7 +156,7 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 		// Named-property edits have their own validation/application path. Its
 		// completion must not reopen compilation after applying the product.
-		if (Event.MemberProperty || Event.Phase != EPropertyChangePhase::Committed || IsTemplateObject()
+		if (Event.MemberProperty || (Event.ChangeType & EPropertyChangeType::Interactive) || IsTemplateObject()
 			|| GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
 		BlockOnAnyAsyncBuild();
 		if (IsPendingKill()) return;

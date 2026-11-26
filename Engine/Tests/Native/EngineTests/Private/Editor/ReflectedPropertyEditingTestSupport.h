@@ -69,8 +69,7 @@ namespace
 
 	struct FCapturedChange
 	{
-		Durin::EPropertyChangePhase Phase = Durin::EPropertyChangePhase::Committed;
-		Durin::EPropertyChangeKind Kind = Durin::EPropertyChangeKind::ValueSet;
+		Durin::EPropertyChangeType::Type ChangeType = Durin::EPropertyChangeType::ValueSet;
 		Durin::EPropertyChangeOrigin Origin = Durin::EPropertyChangeOrigin::Edit;
 		const Durin::FProperty* MemberProperty = nullptr;
 		const Durin::FProperty* LeafProperty = nullptr;
@@ -90,15 +89,14 @@ namespace
 		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal) -> std::expected<void, Durin::FObjectValidationError> override
 		{
 			++PreChangeCount;
-			LastProposalPhase = Proposal.Phase;
+			LastProposalFlags = Proposal.Flags;
 			return PreChange ? PreChange(Proposal) : std::expected<void, Durin::FObjectValidationError>{};
 		}
 
 		auto PostEditChangeProperty(const Durin::FPropertyChangedEvent& Event) -> void override
 		{
 			FCapturedChange& Change = Changes.emplace_back();
-			Change.Phase = Event.Phase;
-			Change.Kind = Event.Kind;
+			Change.ChangeType = Event.ChangeType;
 			Change.Origin = Event.Origin;
 			Change.MemberProperty = Event.MemberProperty;
 			Change.LeafProperty = Event.LeafProperty;
@@ -130,7 +128,7 @@ namespace
 		std::vector<FCapturedChange> Changes;
 		std::function<std::expected<void, Durin::FObjectValidationError>(Durin::FPropertyEditProposal&)> PreChange;
 		uint32 PreChangeCount = 0;
-		Durin::EPropertyChangePhase LastProposalPhase = Durin::EPropertyChangePhase::Interactive;
+		Durin::PropertyEditor::EPropertyValueSetFlags::Type LastProposalFlags = Durin::PropertyEditor::EPropertyValueSetFlags::DefaultFlags;
 	};
 
 	class DReflectedTransactionTestObject final : public DEditObserver

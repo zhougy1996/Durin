@@ -68,7 +68,7 @@ namespace Durin::PythonFixtures
         int32 Fixed[3] = {1, 2, 3};
         DPROPERTY(Edit, ScriptReadWrite)
         bool bEnabled = false;
-        std::vector<EPropertyChangePhase> Changes;
+        std::vector<EPropertyChangeType::Type> Changes;
         uint32 Validations = 0;
         std::function<void()> BeforePublication;
         auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override
@@ -84,7 +84,7 @@ namespace Durin::PythonFixtures
             return Super::PreEditChangeProperty(Proposal);
         }
         auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override
-        { Changes.push_back(Event.Phase); Super::PostEditChangeProperty(Event); }
+        { Changes.push_back(Event.ChangeType); Super::PostEditChangeProperty(Event); }
     };
     // Exercises native preparation callbacks through the production script adapter.
     DCLASS(ScriptType, NoClassDefaultObject)

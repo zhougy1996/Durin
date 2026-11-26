@@ -38,20 +38,21 @@ namespace Durin::MaterialEditor
 
 	auto DMaterialEditorPreviewParameter::CanEditChange(const FProperty* Property) const -> bool
 	{
-		return Super::CanEditChange(Property) && Property->NamePrivate == Member && Collection && Collection->Material.Get();
+		const auto* Owner = Collection ? Collection->Material.Get() : nullptr;
+		const auto* Definition = Owner ? Owner->FindParameterDefinition(ParameterId) : nullptr;
+		return Super::CanEditChange(Property) && Property->NamePrivate == Member && Definition && Definition->Type == Type;
 	}
 
 	auto DMaterialEditorPreviewParameter::PreEditChangeProperty(FPropertyEditProposal& Proposal)
 		-> std::expected<void, FObjectValidationError>
 	{
 		if (auto Base = Super::PreEditChangeProperty(Proposal); !Base) return Base;
-		if (Proposal.Phase == EPropertyChangePhase::Cancelled) return {};
 		if (!Proposal.DraftRootProperty || !Proposal.DraftRootContainer || Proposal.DraftRootProperty->NamePrivate != Member)
 			return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::Rejected);
 		auto* Material = Collection ? Collection->Material.Get() : nullptr;
 		const auto* Definition = Material ? Material->FindParameterDefinition(ParameterId) : nullptr;
-		if (!Definition || Definition->Type != Type) return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::PropertyRejected,
-			.Message = "The material parameter changed during the edit."});
+		// An open session can still restore its local value after the proxy is detached.
+		if (!Definition || Definition->Type != Type) return {};
 		auto Candidate = *Definition;
 		const auto* Storage = Proposal.DraftRootProperty->GetValuePtr(Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 		switch (Candidate.Type)
@@ -77,9 +78,10 @@ namespace Durin::MaterialEditor
 	auto DMaterialEditorPreviewParameter::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (Event.Phase != EPropertyChangePhase::Committed || Event.Origin != EPropertyChangeOrigin::Edit) return;
+		if ((Event.ChangeType & EPropertyChangeType::Interactive) || Event.Origin != EPropertyChangeOrigin::Edit) return;
 		const TStrongObjectPtr<DMaterial> Owner(Collection ? Collection->Material.Get() : nullptr);
-		if (!Owner) return;
+		const auto* Definition = Owner ? Owner->FindParameterDefinition(ParameterId) : nullptr;
+		if (!Definition || Definition->Type != Type || Definition->Value == GetValue()) return;
 		FScopedMaterialGraphChange Batch(*Owner);
 		CopyToSourceInstance();
 		Owner->PostEditChangeProperty(Event);

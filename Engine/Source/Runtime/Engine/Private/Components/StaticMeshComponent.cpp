@@ -139,8 +139,7 @@ namespace Durin
 	auto DStaticMeshComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed
-			&& Event.Origin == EPropertyChangeOrigin::Edit)) return;
+		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("StaticMesh"))
 		{

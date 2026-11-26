@@ -55,7 +55,7 @@ namespace Durin::MaterialEditor
 			DObject* Object,
 			FArrayProperty* Property,
 			const FGuid& ParameterId,
-			EPropertyChangeKind Kind,
+			EPropertyChangeType::Type ChangeType,
 			bool bContinuous,
 			const std::function<void(const FArrayProperty&, void*, uint32)>& Mutate
 		) -> bool
@@ -64,7 +64,7 @@ namespace Durin::MaterialEditor
 			FPropertyEditTarget Target = FPropertyEditTarget::ForMember(Object, Property);
 			Target.LogicalIdentity.resize(sizeof(ParameterId));
 			std::memcpy(Target.LogicalIdentity.data(), &ParameterId, sizeof(ParameterId));
-			Target.Kind = Kind;
+			Target.ChangeType = ChangeType;
 			const auto Assign = [Mutate](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 					Mutate(*static_cast<FArrayProperty*>(ScratchProperty), ScratchContainer, ScratchArrayIndex);
 				};
@@ -269,7 +269,7 @@ namespace Durin::MaterialEditor
 		return VisitMaterialParameterValueType(Entry.Definition->Type, [&]<typename TRecord>() {
 			FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
 			return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
-				bEnabled ? EPropertyChangeKind::ArrayAdd : EPropertyChangeKind::ArrayRemove, false,
+				bEnabled ? EPropertyChangeType::ArrayAdd : EPropertyChangeType::ArrayRemove, false,
 				[Id = Entry.ParameterId, Value = CanonicalizeValue(*Entry.Definition, Entry.Value), bEnabled](
 					const FArrayProperty& ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 					if (bEnabled)
@@ -299,7 +299,7 @@ namespace Durin::MaterialEditor
 		return VisitMaterialParameterValueType(Override.GetType(), [&]<typename TRecord>() {
 			FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
 			return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
-				EPropertyChangeKind::ArrayRemove, false,
+				EPropertyChangeType::ArrayRemove, false,
 				[Id = Entry.ParameterId](const FArrayProperty& ScratchProperty,
 					void* ScratchContainer, uint32 ScratchArrayIndex) {
 					RemoveScratchOverride<TRecord>(ScratchProperty, ScratchContainer, ScratchArrayIndex, Id);

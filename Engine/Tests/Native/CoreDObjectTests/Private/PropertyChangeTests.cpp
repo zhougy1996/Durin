@@ -21,8 +21,7 @@ namespace
 			++CallCount;
 			MemberProperty = Event.MemberProperty;
 			LeafProperty = Event.LeafProperty;
-			Phase = Event.Phase;
-			Kind = Event.Kind;
+			ChangeType = Event.ChangeType;
 			Origin = Event.Origin;
 			Path.clear();
 			Path.reserve(Event.Path.size());
@@ -40,8 +39,7 @@ namespace
 		uint32 CallCount = 0;
 		const Durin::FProperty* MemberProperty = nullptr;
 		const Durin::FProperty* LeafProperty = nullptr;
-		Durin::EPropertyChangePhase Phase = Durin::EPropertyChangePhase::Committed;
-		Durin::EPropertyChangeKind Kind = Durin::EPropertyChangeKind::ValueSet;
+		Durin::EPropertyChangeType::Type ChangeType = Durin::EPropertyChangeType::ValueSet;
 		Durin::EPropertyChangeOrigin Origin = Durin::EPropertyChangeOrigin::Edit;
 		std::vector<FCapturedPropertyPathSegment> Path;
 	};
@@ -68,8 +66,7 @@ TEST(FPropertyChangeEventTests, VirtualHookReceivesScalarPath)
 		ValueProperty.Get(),
 		ValueProperty.Get(),
 		Path,
-		Durin::EPropertyChangePhase::Committed,
-		Durin::EPropertyChangeKind::ValueSet,
+		Durin::EPropertyChangeType::ValueSet,
 		Durin::EPropertyChangeOrigin::Edit
 	};
 
@@ -80,8 +77,7 @@ TEST(FPropertyChangeEventTests, VirtualHookReceivesScalarPath)
 	EXPECT_EQ(Observer.CallCount, 1u);
 	EXPECT_EQ(Observer.MemberProperty, ValueProperty.Get());
 	EXPECT_EQ(Observer.LeafProperty, ValueProperty.Get());
-	EXPECT_EQ(Observer.Phase, Durin::EPropertyChangePhase::Committed);
-	EXPECT_EQ(Observer.Kind, Durin::EPropertyChangeKind::ValueSet);
+	EXPECT_EQ(Observer.ChangeType, Durin::EPropertyChangeType::ValueSet);
 	EXPECT_EQ(Observer.Origin, Durin::EPropertyChangeOrigin::Edit);
 	ASSERT_EQ(Observer.Path.size(), 1u);
 	EXPECT_EQ(Observer.Path[0].Property, ValueProperty.Get());
@@ -104,8 +100,7 @@ TEST(FPropertyChangeEventTests, PreservesNestedContainerSelectors)
 		MapProperty.Get(),
 		LeafProperty.Get(),
 		Path,
-		Durin::EPropertyChangePhase::Interactive,
-		Durin::EPropertyChangeKind::ValueSet,
+		Durin::EPropertyChangeType::Interactive,
 		Durin::EPropertyChangeOrigin::Redo
 	};
 
@@ -114,7 +109,7 @@ TEST(FPropertyChangeEventTests, PreservesNestedContainerSelectors)
 
 	EXPECT_EQ(Observer.MemberProperty, MapProperty.Get());
 	EXPECT_EQ(Observer.LeafProperty, LeafProperty.Get());
-	EXPECT_EQ(Observer.Phase, Durin::EPropertyChangePhase::Interactive);
+	EXPECT_EQ(Observer.ChangeType, Durin::EPropertyChangeType::Interactive);
 	EXPECT_EQ(Observer.Origin, Durin::EPropertyChangeOrigin::Redo);
 	ASSERT_EQ(Observer.Path.size(), 3u);
 	EXPECT_EQ(Observer.Path[0].Selector, Durin::EPropertyPathSelector::MapKey);

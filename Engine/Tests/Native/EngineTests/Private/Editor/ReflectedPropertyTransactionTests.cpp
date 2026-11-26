@@ -217,9 +217,9 @@ TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTrans
 	EXPECT_FALSE(Transactions.Get()->CanUndo());
 	EXPECT_TRUE(Transactions.Get()->CanRedo());
 	ASSERT_EQ(Object->Changes.size(), 4u);
-	EXPECT_EQ(Object->Changes[2].Phase, Durin::EPropertyChangePhase::Committed);
+	EXPECT_EQ(Object->Changes[2].ChangeType, Durin::EPropertyChangeType::ValueSet);
 	EXPECT_EQ(Object->Changes[2].Origin, Durin::EPropertyChangeOrigin::Edit);
-	EXPECT_EQ(Object->Changes[3].Phase, Durin::EPropertyChangePhase::Committed);
+	EXPECT_EQ(Object->Changes[3].ChangeType, Durin::EPropertyChangeType::ValueSet);
 	EXPECT_EQ(Object->Changes[3].Origin, Durin::EPropertyChangeOrigin::Undo);
 
 	ASSERT_TRUE(Transactions.Get()->Redo());
@@ -327,7 +327,7 @@ TEST(FReflectedPropertyEditSessionTests, DirtyStartsAtValidatedWriteAndSurvivesG
 	EXPECT_EQ(Object->Value, 19);
 }
 
-TEST(FReflectedPropertyEditSessionTests, StandaloneWriteAllowsCollectionOfReplacedReferenceDuringNotification)
+TEST(FReflectedPropertyEditSessionTests, StandaloneWriteReleasesReplacedReference)
 {
 	using namespace Durin;
 	using namespace Durin::PropertyEditor;
@@ -337,17 +337,9 @@ TEST(FReflectedPropertyEditSessionTests, StandaloneWriteAllowsCollectionOfReplac
 	TWeakObjectPtr<FNode> Previous(NewObject<FNode>(nullptr, "PreviousInput"));
 	Owner->BaseColor.Expression = Previous.Get();
 	FReflectedPropertyHandle Handle(*Owner, "BaseColor");
-	bool bNotified = false;
-	const auto Observer = RegisterPropertyEditExtension({.PostEdit = [&](DObject& Object, const FPropertyChangedEvent&, bool) {
-		if (&Object != Owner.Get()) return;
-		bNotified = true;
-		CollectGarbage(EObjectFlags::Standalone);
-		EXPECT_FALSE(Previous.IsValid());
-	}});
-	const auto Result = Handle.SetValue(FMaterialExpressionInput{}, EPropertyValueSetFlags::NotTransactable);
-	UnregisterPropertyEditExtension(Observer);
-	EXPECT_EQ(Result, FPropertyAccess::Success) << Handle.GetLastError();
-	EXPECT_TRUE(bNotified);
+	ASSERT_EQ(Handle.SetValue(FMaterialExpressionInput{}, EPropertyValueSetFlags::NotTransactable), FPropertyAccess::Success);
+	CollectGarbage(EObjectFlags::Standalone);
+	EXPECT_FALSE(Previous.IsValid());
 }
 
 TEST(FReflectedPropertyEditSessionTests, CancellingRecordingDuringModifyPublishesWithoutUndo)
@@ -367,13 +359,13 @@ TEST(FReflectedPropertyEditSessionTests, CancellingRecordingDuringModifyPublishe
 	OnAssetPackagesChanged().Remove(Listener);
 	EXPECT_EQ(Result, FPropertyAccess::Success);
 	ASSERT_EQ(Object->Changes.size(), 1u);
-	EXPECT_EQ(Object->Changes.front().Phase, EPropertyChangePhase::Committed);
+	EXPECT_EQ(Object->Changes.front().ChangeType, EPropertyChangeType::ValueSet);
 	EXPECT_EQ(Object->Value, 19);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(Transactions.Get()->CanUndo());
 }
 
-TEST(FReflectedPropertyEditSessionTests, RetiringTargetInPreEditExtensionSkipsRemainingHooks)
+TEST(FReflectedPropertyEditSessionTests, RetiringTargetInPreEditRejectsWrite)
 {
 	using namespace Durin;
 	using namespace Durin::PropertyEditor;
@@ -382,24 +374,12 @@ TEST(FReflectedPropertyEditSessionTests, RetiringTargetInPreEditExtensionSkipsRe
 	Object->Value = 7;
 	FReflectedPropertyHandle Handle(*Object, "Value");
 	Package->ClearDirty();
-	int Calls = 0;
-	FPropertyEditExtension Extension{.PreEdit = [&](DObject& Target, FPropertyEditProposal&) -> std::expected<void, FObjectValidationError> {
-		if (&Target == Object)
-		{
-			++Calls;
-			MarkAsGarbage(&Target);
-		}
+	Object->PreChange = [&](FPropertyEditProposal&) -> std::expected<void, FObjectValidationError> {
+		MarkAsGarbage(Object);
 		return {};
-	}};
-	const auto First = RegisterPropertyEditExtension(Extension);
-	const auto Second = RegisterPropertyEditExtension(Extension);
-	const auto Result = Handle.SetValue(19, EPropertyValueSetFlags::NotTransactable);
-	UnregisterPropertyEditExtension(Second);
-	UnregisterPropertyEditExtension(First);
-
-	EXPECT_EQ(Result, FPropertyAccess::Fail);
-	EXPECT_EQ(Calls, 1);
-	EXPECT_EQ(Object->PreChangeCount, 0u);
+	};
+	EXPECT_EQ(Handle.SetValue(19, EPropertyValueSetFlags::NotTransactable), FPropertyAccess::Fail);
+	EXPECT_EQ(Object->PreChangeCount, 1u);
 	EXPECT_TRUE(Object->Changes.empty());
 	EXPECT_EQ(Object->Value, 7);
 	EXPECT_FALSE(Package->IsDirty());
@@ -438,10 +418,11 @@ TEST(FReflectedPropertyEditSessionTests, ShutdownRequestDuringProposalAllowsPend
 	};
 	FReflectedPropertyHandle Handle(*Object, "Value");
 	EXPECT_EQ(Handle.SetValue(19, EPropertyValueSetFlags::NotTransactable), FPropertyAccess::Success);
+	EXPECT_EQ(Object->LastProposalFlags, EPropertyValueSetFlags::NotTransactable);
 	EXPECT_EQ(Handle.SetValue(23, EPropertyValueSetFlags::NotTransactable), FPropertyAccess::Fail);
 	EXPECT_EQ(Object->Value, 19);
 	ASSERT_EQ(Object->Changes.size(), 1u);
-	EXPECT_EQ(Object->Changes.front().Phase, EPropertyChangePhase::Committed);
+	EXPECT_EQ(Object->Changes.front().ChangeType, EPropertyChangeType::ValueSet);
 }
 
 TEST(FReflectedPropertyEditSessionTests, ClosingPreviewDuringModifyCompletesWriteWithoutAnotherPreviewEvent)
@@ -460,7 +441,7 @@ TEST(FReflectedPropertyEditSessionTests, ClosingPreviewDuringModifyCompletesWrit
 	EXPECT_TRUE(Edit.HasChanges());
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_EQ(Object->Changes.size(), 1u);
-	EXPECT_EQ(Object->Changes.front().Phase, EPropertyChangePhase::Interactive);
+	EXPECT_EQ(Object->Changes.front().ChangeType, EPropertyChangeType::Interactive);
 
 	const auto Listener = OnAssetPackagesChanged().AddLambda([&] {
 		if (Package->IsDirty() && Edit.IsActive()) EXPECT_TRUE(Edit.Commit());
@@ -472,7 +453,7 @@ TEST(FReflectedPropertyEditSessionTests, ClosingPreviewDuringModifyCompletesWrit
 	EXPECT_EQ(Object->Value, 19);
 	EXPECT_FALSE(Edit.GetCurrentValue().IsValid());
 	ASSERT_EQ(Object->Changes.size(), 2u);
-	EXPECT_EQ(Object->Changes.back().Phase, EPropertyChangePhase::Committed);
+	EXPECT_EQ(Object->Changes.back().ChangeType, EPropertyChangeType::ValueSet);
 }
 
 TEST(FReflectedPropertyEditSessionTests, RecordedEditEnrollsOrdinaryTargetAndRestoresInitialPackageDirtyState)

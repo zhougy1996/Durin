@@ -231,14 +231,14 @@ namespace Durin::LevelEditor
 
 	auto FStaticMeshMaterialSlotDetailsModel::SubmitOverrideEdit(FPropertyView& PropertyView,
 		const FPropertyViewContext& Context, uint32 SlotIndex, DMaterialInterface* Material,
-		EPropertyChangeKind Kind, bool bContinuous) const -> bool
+		EPropertyChangeType::Type ChangeType, bool bContinuous) const -> bool
 	{
 		FArrayProperty* Property = FindOverridesProperty(Component);
 		if (!Component || !Property) return false;
 		FPropertyEditTarget Target = FPropertyEditTarget::ForMember(Component, Property);
 		Target.LogicalIdentity.resize(sizeof(SlotIndex));
 		std::memcpy(Target.LogicalIdentity.data(), &SlotIndex, sizeof(SlotIndex));
-		Target.Kind = Kind;
+		Target.ChangeType = ChangeType;
 		return PropertyView.SubmitPropertyValueEdit(Context, Target,
 			[SlotIndex, Material](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 				auto& Array = *static_cast<FArrayProperty*>(ScratchProperty);
@@ -261,14 +261,14 @@ namespace Durin::LevelEditor
 	{
 		if (!Material || !Component || Entry.SlotIndex >= Component->GetNumMaterials()) return false;
 		return SubmitOverrideEdit(PropertyView, Context, Entry.SlotIndex, Material,
-			Entry.bHasOverride ? EPropertyChangeKind::ValueSet : EPropertyChangeKind::ArrayAdd, bContinuous);
+			Entry.bHasOverride ? EPropertyChangeType::ValueSet : EPropertyChangeType::ArrayAdd, bContinuous);
 	}
 
 	auto FStaticMeshMaterialSlotDetailsModel::ResetOverride(FPropertyView& PropertyView,
 		const FPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry) const -> bool
 	{
 		if (!Entry.bHasOverride) return false;
-		return SubmitOverrideEdit(PropertyView, Context, Entry.SlotIndex, nullptr, EPropertyChangeKind::ArrayRemove);
+		return SubmitOverrideEdit(PropertyView, Context, Entry.SlotIndex, nullptr, EPropertyChangeType::ArrayRemove);
 	}
 
 	auto FStaticMeshMaterialSlotDetailsModel::ClearOverrides(FPropertyView& PropertyView,
@@ -277,7 +277,7 @@ namespace Durin::LevelEditor
 		FArrayProperty* Property = FindOverridesProperty(Component);
 		if (!Component || !Property || !bHasStoredOverrides) return false;
 		FPropertyEditTarget Target = FPropertyEditTarget::ForMember(Component, Property);
-		Target.Kind = EPropertyChangeKind::ArrayRemove;
+		Target.ChangeType = EPropertyChangeType::ArrayRemove;
 		return PropertyView.SubmitPropertyValueEdit(Context, Target,
 			[](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 				const auto Resized = static_cast<FArrayProperty*>(ScratchProperty)->Resize(ScratchContainer, 0, ScratchArrayIndex);

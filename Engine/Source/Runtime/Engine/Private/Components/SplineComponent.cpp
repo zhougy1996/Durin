@@ -392,7 +392,7 @@ namespace Durin
 			ESplineChangeFlags Flags = ESplineChangeFlags::Geometry | ESplineChangeFlags::Build;
 			const FProperty* Points = FSplineCurve::StaticStruct()->FindPropertyByName("Points");
 			const FProperty* ClosedLoop = FSplineCurve::StaticStruct()->FindPropertyByName("bClosedLoop");
-			if (Event.Kind != EPropertyChangeKind::ValueSet || !Event.LeafProperty
+			if ((Event.ChangeType & (EPropertyChangeType::ArrayAdd | EPropertyChangeType::ArrayRemove)) || !Event.LeafProperty
 				|| Event.LeafProperty == Event.MemberProperty || Event.LeafProperty == Points || Event.LeafProperty == ClosedLoop)
 				Flags |= ESplineChangeFlags::Topology;
 			UpdateSplineForHistory(Flags, Event.Origin == EPropertyChangeOrigin::Edit

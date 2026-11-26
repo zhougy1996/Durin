@@ -74,7 +74,6 @@ namespace Durin
 		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
 			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
 			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void;
-		ENGINE_API auto OnBuildSettingsEdited(bool bResetSRGB) -> void;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 		// GameThread only. Validates the candidate, completes prior compilation, then commits

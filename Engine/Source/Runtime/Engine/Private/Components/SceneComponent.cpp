@@ -36,11 +36,6 @@ namespace Durin
 
 	namespace
 	{
-		auto IsAppliedChange(const FPropertyChangedEvent& Event) -> bool
-		{
-			return Event.Phase != EPropertyChangePhase::Committed || Event.Origin != EPropertyChangeOrigin::Edit;
-		}
-
 		auto AreTransformsEqual(const FTransform& Left, const FTransform& Right) -> bool
 		{
 			return Left.Translation == Right.Translation
@@ -80,7 +75,7 @@ namespace Durin
 	auto DSceneComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (!bAttachmentUndoPending && IsAppliedChange(Event) && Event.MemberProperty
+		if (!bAttachmentUndoPending && Event.MemberProperty
 			&& Event.MemberProperty->NamePrivate == FName("RelativeTransform")) UpdateComponentToWorld();
 	}
 

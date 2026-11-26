@@ -228,7 +228,7 @@ namespace Durin
 			{
 				const FPropertyPathSegment Path{Member};
 				Object->PostEditChangeProperty({.MemberProperty = Member, .LeafProperty = Member,
-					.Path = {&Path, 1}, .Phase = EPropertyChangePhase::Committed, .Origin = Origin});
+					.Path = {&Path, 1}, .ChangeType = EPropertyChangeType::ValueSet, .Origin = Origin});
 			}
 		Object->MarkPackageDirty();
 		SerializedObject.swap(SerializedObjectFlip);

@@ -206,24 +206,24 @@ TEST(FReflectedPropertyEditSessionTests, ArrayStructuralKindsPublishCommittedEle
 	FManagedEditObserver Object;
 	Durin::FPropertyEditTarget Target = Durin::FPropertyEditTarget::ForMember(Object.Get(), Array.get());
 	Target.SnapshotContainer = &Container;
-	auto CommitValues = [&](std::vector<int32> Values, Durin::EPropertyChangeKind Kind) {
-		Target.Kind = Kind;
+	auto CommitValues = [&](std::vector<int32> Values, Durin::EPropertyChangeType::Type ChangeType) {
+		Target.ChangeType = ChangeType;
 		FArrayValueContainer Proposed{std::move(Values)};
 		Durin::FPropertyValueSnapshot Snapshot;
 		EXPECT_TRUE(Durin::CapturePropertyValue(Array.get(), &Proposed, 0, Snapshot));
 		Durin::PropertyEditor::FPropertyEdit Session;
 		ASSERT_TRUE(Session.Begin(Target, "Edit Array Structure", false));
-		EXPECT_TRUE(Session.Apply(Snapshot));
+		ASSERT_TRUE(Session.Apply(Snapshot));
+		ASSERT_FALSE(Object.Changes.empty());
+		EXPECT_EQ(Object.Changes.back().ChangeType, ChangeType | Durin::EPropertyChangeType::Interactive);
 		EXPECT_TRUE(Session.Commit());
-		EXPECT_EQ(Object.Changes.back().Kind, Kind);
+		EXPECT_EQ(Object.Changes.back().ChangeType, ChangeType);
 	};
 
-	CommitValues({4, 8, 15, 16}, Durin::EPropertyChangeKind::ArrayAdd);
+	CommitValues({4, 8, 15, 16}, Durin::EPropertyChangeType::ArrayAdd);
 	EXPECT_EQ(Container.Values.size(), 4u);
-	CommitValues({4, 8}, Durin::EPropertyChangeKind::ArrayRemove);
+	CommitValues({4, 8}, Durin::EPropertyChangeType::ArrayRemove);
 	EXPECT_EQ(Container.Values, (std::vector<int32>{4, 8}));
-	CommitValues({4}, Durin::EPropertyChangeKind::ArrayResize);
-	EXPECT_EQ(Container.Values, (std::vector<int32>{4}));
 }
 
 TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStructuralKinds)
@@ -256,11 +256,11 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 	EXPECT_EQ(Object.Changes.back().MapKeyData, KeySnapshot.GetBytes());
 	EXPECT_EQ(Container.Values.at("Alpha"), 9);
 
-	auto CommitMap = [&](FStringIntMap Values, Durin::EPropertyChangeKind Kind, const std::string& PathKey) {
+	auto CommitMap = [&](FStringIntMap Values, Durin::EPropertyChangeType::Type ChangeType, const std::string& PathKey) {
 		Durin::FPropertyValueSnapshot StableKey;
 		ASSERT_TRUE(Durin::CapturePropertyValue(&KeyProperty, &PathKey, 0, StableKey));
 		Durin::FPropertyEditTarget Target = MapTarget;
-		Target.Kind = Kind;
+		Target.ChangeType = ChangeType;
 		Target.Path.back().Selector = Durin::EPropertyPathSelector::MapKey;
 		Target.Path.back().MapKeyData = StableKey.GetBytes();
 		FMapValueContainer Proposed{std::move(Values)};
@@ -270,20 +270,20 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 		ASSERT_TRUE(Session.Begin(Target, "Edit Map Structure", false));
 		ASSERT_TRUE(Session.Apply(Snapshot));
 		ASSERT_TRUE(Session.Commit());
-		EXPECT_EQ(Object.Changes.back().Kind, Kind);
+		EXPECT_EQ(Object.Changes.back().ChangeType, ChangeType);
 		EXPECT_EQ(Object.Changes.back().MapKeyData, StableKey.GetBytes());
 	};
 
-	CommitMap({{"Alpha", 1}, {"Beta", 2}, {"Gamma", 3}}, Durin::EPropertyChangeKind::MapInsert, "Gamma");
+	CommitMap({{"Alpha", 1}, {"Beta", 2}, {"Gamma", 3}}, Durin::EPropertyChangeType::ArrayAdd, "Gamma");
 	EXPECT_TRUE(Container.Values.contains("Gamma"));
-	CommitMap({{"Beta", 2}}, Durin::EPropertyChangeKind::MapRemove, "Alpha");
+	CommitMap({{"Beta", 2}}, Durin::EPropertyChangeType::ArrayRemove, "Alpha");
 	EXPECT_FALSE(Container.Values.contains("Alpha"));
 
 	Container.Values = {{"Alpha", 1}, {"Beta", 2}};
 	std::string EditedKey = "Alpha";
 	Durin::FPropertyEditTarget RenameTarget = MapTarget.ForMapEntry(
 		&KeyProperty, KeySnapshot, KeySnapshot.GetBytes());
-	RenameTarget.Kind = Durin::EPropertyChangeKind::MapKeyRename;
+
 	Durin::PropertyEditor::FPropertyEdit RenameSession;
 	ASSERT_TRUE(RenameSession.Begin(RenameTarget, "Rename Map Key", false));
 	FMapValueContainer FirstRename{{{"Renamed", 1}, {"Beta", 2}}};
@@ -297,7 +297,7 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 	ASSERT_TRUE(Durin::CapturePropertyValue(&KeyProperty, &Renamed, 0, RenamedKeySnapshot));
 	Durin::FPropertyEditTarget ContinuedRename = MapTarget.ForMapEntry(
 		&KeyProperty, RenamedKeySnapshot, RenamedKeySnapshot.GetBytes());
-	ContinuedRename.Kind = Durin::EPropertyChangeKind::MapKeyRename;
+
 	EXPECT_TRUE(RenameSession.MatchesTarget(ContinuedRename));
 	FMapValueContainer FinalRename{{{"Final", 1}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot FinalRenameSnapshot;

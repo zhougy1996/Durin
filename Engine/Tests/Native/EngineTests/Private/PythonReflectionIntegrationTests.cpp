@@ -507,7 +507,7 @@ assert a.value == 100 and a.get_editor_property('value') == 100
 )");
         EXPECT_EQ(EditActor->Value, 100);
         EXPECT_EQ(EditActor->Validations, 1);
-        EXPECT_EQ(EditActor->Changes, (std::vector{EPropertyChangePhase::Interactive, EPropertyChangePhase::Committed}));
+        EXPECT_EQ(EditActor->Changes, (std::vector{EPropertyChangeType::Interactive, EPropertyChangeType::ValueSet}));
         EXPECT_TRUE(ScenePackage->IsDirty());
         ASSERT_TRUE(Host->GetTransactor()->CanUndo());
         EXPECT_TRUE(Host->GetTransactor()->Undo()); EXPECT_EQ(EditActor->Value, 1);

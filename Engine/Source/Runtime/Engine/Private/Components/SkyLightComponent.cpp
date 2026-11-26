@@ -196,7 +196,6 @@ namespace Durin
 	auto DSkyLightComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit) return;
 		if (Event.MemberProperty && (Event.MemberProperty->NamePrivate == FName("SourceMode")
 			|| Event.MemberProperty->NamePrivate == FName("TextureCube"))) ++SourceEpoch;
 		Publish();

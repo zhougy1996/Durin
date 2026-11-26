@@ -18,15 +18,6 @@ namespace Durin::PropertyEditor
 		enum Result { MultipleValues, Fail, Success };
 	}
 
-	// Flags for one property write. The caller can own the surrounding gesture transaction.
-	namespace EPropertyValueSetFlags
-	{
-		using Type = uint32;
-		inline constexpr Type DefaultFlags = 0;
-		inline constexpr Type NotTransactable = 1 << 0;
-		inline constexpr Type InteractiveChange = 1 << 1;
-	}
-
 	using FPropertyControlValue = std::variant<int32, float, FVector4, FLinearColor>;
 
 	// Coalesces continuous widget changes into one reflected-property transaction.
@@ -72,10 +63,9 @@ namespace Durin::PropertyEditor
 		friend class ::Durin::DEditorEngine;
 		friend class ::Durin::FPropertyView;
 		friend class FPropertyControlFrame;
-		auto NotifyCommitted(bool bChanged) -> void;
-		auto ApplyDraft(FPropertyValueDraft& Draft, std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase) -> bool;
+		auto ApplyDraft(FPropertyValueDraft& Draft, std::string* OutError, bool* OutChanged, bool bRestoring = false) -> bool;
 		auto ApplyInternal(const FPropertyValueSnapshotPayload& ProposedValue,
-			std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase = EPropertyChangePhase::Interactive) -> bool;
+			std::string* OutError, bool* OutChanged, bool bRestoring = false) -> bool;
 		auto Reset(bool bCancelRecording = true) -> void;
 
 		auto WriteControlValue(const FPropertyControlValue& Value, std::string* OutError, bool* OutChanged) -> bool;
@@ -89,6 +79,7 @@ namespace Durin::PropertyEditor
 		std::optional<FScopedTransaction> TransactionScope;
 		bool bActive = false;
 		bool bCommitting = false;
+		bool bInteractiveChangeInProgress = false;
 		bool bOwnsRecording = false;
 	};
 

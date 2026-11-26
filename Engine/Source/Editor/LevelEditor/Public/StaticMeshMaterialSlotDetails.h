@@ -58,7 +58,7 @@ namespace Durin::LevelEditor
 
 	private:
 		LEVELEDITOR_API auto SubmitOverrideEdit(FPropertyView& PropertyView, const FPropertyViewContext& Context,
-			uint32 SlotIndex, DMaterialInterface* Material, EPropertyChangeKind Kind, bool bContinuous = false) const -> bool;
+			uint32 SlotIndex, DMaterialInterface* Material, EPropertyChangeType::Type ChangeType, bool bContinuous = false) const -> bool;
 
 		// Non-owning component whose current slot state is snapshotted by this model.
 		DStaticMeshComponent* Component = nullptr;

@@ -404,8 +404,7 @@ namespace Durin::RoadNet
 	auto DRoadNet::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Definition")
-			&& !(Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit))
+		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Definition"))
 			NotifyMutation();
 	}
 

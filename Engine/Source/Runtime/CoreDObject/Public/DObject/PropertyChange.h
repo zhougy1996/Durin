@@ -9,25 +9,22 @@ namespace Durin
 {
 	class FProperty;
 
-	// Distinguishes preview, accepted, and abandoned reflected edits.
-	enum class EPropertyChangePhase : uint8
+	namespace EPropertyChangeType
 	{
-		Interactive,
-		Committed,
-		Cancelled,
-	};
+		using Type = uint32;
+		inline constexpr Type ArrayAdd = 1 << 1;
+		inline constexpr Type ArrayRemove = 1 << 2;
+		inline constexpr Type ValueSet = 1 << 4;
+		inline constexpr Type Interactive = 1 << 6;
+	}
 
-	// Identifies the structural operation performed at the edited property leaf.
-	enum class EPropertyChangeKind : uint8
+	namespace PropertyEditor::EPropertyValueSetFlags
 	{
-		ValueSet,
-		ArrayAdd,
-		ArrayRemove,
-		ArrayResize,
-		MapInsert,
-		MapRemove,
-		MapKeyRename,
-	};
+		using Type = uint32;
+		inline constexpr Type DefaultFlags = 0;
+		inline constexpr Type NotTransactable = 1 << 0;
+		inline constexpr Type InteractiveChange = 1 << 1;
+	}
 
 	// Identifies whether an edit originated directly or through transaction history.
 	enum class EPropertyChangeOrigin : uint8
@@ -65,8 +62,7 @@ namespace Durin
 		// Paths run from the object-owned member to the edited leaf. The path and
 		// map-key byte spans are borrowed for this synchronous notification only.
 		std::span<const FPropertyPathSegment> Path;
-		EPropertyChangePhase Phase = EPropertyChangePhase::Committed;
-		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
+		EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet;
 		EPropertyChangeOrigin Origin = EPropertyChangeOrigin::Edit;
 	};
 
@@ -79,7 +75,7 @@ namespace Durin
 	{
 		const FProperty* MemberProperty = nullptr;
 		const FProperty* LeafProperty = nullptr;
-		EPropertyChangePhase Phase = EPropertyChangePhase::Interactive;
+		PropertyEditor::EPropertyValueSetFlags::Type Flags = PropertyEditor::EPropertyValueSetFlags::DefaultFlags;
 		const FProperty* DraftRootProperty = nullptr;
 		void* DraftRootContainer = nullptr;
 		uint32 DraftRootArrayIndex = 0;

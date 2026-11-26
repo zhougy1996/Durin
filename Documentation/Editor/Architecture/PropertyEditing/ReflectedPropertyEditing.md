@@ -31,11 +31,11 @@ and its collector edges.
 `DObject::PreEditChangeProperty(FPropertyEditProposal&)` returns
 `std::expected<void, FObjectValidationError>` for synchronous validation and
 normalization. The proposal contains the complete mutable detached snapshot root,
-the edited member, the edit phase, and the leaf when it resolves. The post-change
-event carries the path, change kind, and origin.
+the edited member, the write flags, and the leaf when it resolves. The post-change
+event carries the path, change type, and origin.
 Failure rejects the candidate before live storage changes. Errors own the
 object/property identity, reason, and any module-owned typed cause.
-`FPropertyEditExtension::PreEdit` uses the same typed result. The write path formats the original failure for the caller.
+The write path formats the original failure for the caller.
 
 Map removal and key rename may have no leaf in the candidate; in that case the
 leaf container is null and the full draft root remains available.
@@ -68,11 +68,11 @@ the package dirty. Actor property edits and full-object completion notifications
 refresh component visibility from canonical storage after native reconstruction;
 they never overwrite a primitive component's independent `bVisible` state.
 
-`FPropertyChangedEvent` separates three independent dimensions:
-
-- `Phase`: `Interactive`, `Committed`, or `Cancelled`;
-- `Kind`: value assignment or an explicit array/map structural operation; and
-- `Origin`: normal editing, Undo, or Redo.
+`FPropertyChangedEvent::ChangeType` reports `ValueSet` for assignment, including
+a map key rename. Container insertions and removals use `ArrayAdd` and
+`ArrayRemove` for both arrays and maps. Interactive scalar writes report
+`Interactive`; interactive structural writes combine that bit with the container
+operation. `Origin` identifies direct editing, Undo, or Redo.
 
 The event carries both:
 
@@ -143,14 +143,17 @@ live storage as it stands. The session then invalidates its cached value so
 explicit cancellation can still restore the gesture's original snapshot. A rejected proposal leaves
 the cached value intact. Same-target nested edits from a hook are rejected.
 
-Canonical values reside in reflected object storage. Object hooks and registered
-property-edit extensions supply validation and reactions; custom widgets submit
-detached proposals through the same execution path.
+Object hooks own validation and reactions. A post-edit hook can correct the
+authored value. An active interactive session reads back that value for its next
+comparison and for cancellation.
 
-Proposal validation, publication, and transaction recording are synchronous.
-Domain systems own asynchronous work triggered by a committed edit. Texture2D
-build settings, for example, schedule derived-data work after synchronous
-validation and publication of the authored values.
+Texture2D corrects invalid usage, compression quality, alpha mip mode, and
+alpha coverage threshold to their build defaults after a reflected write.
+Interactive updates defer the build. A final settings notification schedules
+one build, and a direct usage change selects its default sRGB setting.
+Undo and Redo rebuild once from the complete restored object, including its
+recorded sRGB override. Explicit build and import requests validate their input
+at admission.
 
 With an active `FScopedEditorScriptCall`, interactive publication
 rechecks target admission and authoritative editability after proposal hooks,
@@ -166,7 +169,7 @@ member or nested path on the current object generation. `SetValue` completes
 a standalone write synchronously. It seeds the draft and compares values using a payload of serialized data and object keys.
 Only the target is pinned by the handle during the call. A cross-frame session also
 retains hard references from the original value for cancellation. A rejected
-standalone write returns `Fail` without a `Cancelled` notification. The view
+standalone write returns `Fail` without a property notification. The view
 and its frame-settled controls retain an `FPropertyEdit` for
 interactive writes. Both paths validate detached drafts and use the active
 editor's history. Editor shutdown restores unfinished previews and releases
@@ -212,23 +215,21 @@ Apply(proposal)
 
 Commit()
   check the object's CanEditChange for the edited member
-  notify Committed
+  notify the final change type if a preview was published
   end the scoped record
 
 Cancel()
-  if changed, restore through the same generic hook path
+  if changed, restore through the generic hook path and notify ValueSet for the restored member
   discard an owned recording or close the nested scope
-  notify Cancelled
   create no transaction
 ```
 
 Checkboxes, selections, and structural buttons normally begin and commit in one
 frame. Drag, text, vector, and transform widgets keep the session active
 until deactivation. Repeated `Apply()` calls therefore produce preview events
-but only one transaction. Escape restores the original value. A successful commit emits one Committed notification even when the last
-interactive update already supplied the final value. Cancellation emits Cancelled.
-If a proxy rejects its committed write, restoration emits Cancelled and the
-caller receives the write failure. An unchanged edit leaves history and package
+but only one transaction. Escape restores the original value. A session that published a preview emits one final change on commit, including
+when the gesture returned to its original value. A session with no preview closes silently. Cancellation that writes the
+original value emits an ordinary `ValueSet`. Cancellation without a write is silent. An unchanged edit leaves history and package
 dirtiness untouched.
 
 Reflected color values use the picker popup as the edit boundary. Opening the
@@ -290,8 +291,7 @@ matches the last interactive update. A subsequent identical write is silent. A f
 retried at most once per ImGui frame, and an unchanged error is reported once per
 interaction. Cancellation remains pending across failed retries.
 
-`CancelUnchanged()` closes an active unchanged session, emits Cancelled for a
-live target, and ends its transaction scope. It preserves an enclosing
+`CancelUnchanged()` closes an active unchanged session and ends its transaction scope silently. It preserves an enclosing
 recording and earlier edits when a proposal is rejected. Sessions with applied
 changes use the ordinary restoration and cancellation path.
 
@@ -322,7 +322,7 @@ value while preserving any dirty bit set during the gesture.
 Recorded sessions enroll ordinary targets with the Transactional object flag.
 Template targets follow runtime eligibility. The first accepted write captures the whole object before publication. Later
 writes to the same object in that transaction reuse its original snapshot.
-Commit ends the scope after the Committed notification and records the applied
+Commit ends the scope after the final change notification and records the applied
 value. An unchanged nested commit ends its action without canceling an enclosing
 recording. Cancellation discards a recording owned by the session; preview restoration
 remains the edit session's separate responsibility.

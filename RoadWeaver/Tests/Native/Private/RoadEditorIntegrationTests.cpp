@@ -184,7 +184,7 @@ namespace
 		Durin::PropertyEditor::FPropertyEdit Session;
 		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Asset, Property), "Reject duplicate lane", *Transactor));
 		EXPECT_FALSE(Session.Apply(Capture(Invalid)));
-		EXPECT_TRUE(Session.Commit());
+		EXPECT_TRUE(Session.CancelUnchanged());
 		ExpectPreview(Original);
 		EXPECT_EQ(Actor->GetAlignments().front(), Before);
 		EXPECT_FALSE(Package->IsDirty());

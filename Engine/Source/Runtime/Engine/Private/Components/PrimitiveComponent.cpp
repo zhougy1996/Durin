@@ -448,7 +448,6 @@ namespace Durin
 		const bool bProfileNameChanged = Event.LeafProperty
 										 && Event.LeafProperty->NamePrivate == FName("CollisionProfileName");
 		const bool bRestoredSettings = Event.Origin != EPropertyChangeOrigin::Edit
-			|| Event.Phase == EPropertyChangePhase::Cancelled
 			|| !Event.LeafProperty || Event.LeafProperty == Event.MemberProperty;
 		if (bProfileNameChanged || bRestoredSettings)
 		{

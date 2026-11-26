@@ -524,24 +524,14 @@ TEST(FMaterialParameterPanelModelTests, SwitchingOverridesAfterFailedCancelDoesN
 		return Value;
 	};
 	const auto BeforeAlpha = Read(Alpha), BeforeBeta = Read(Beta);
-	bool bAllowRestore = false;
-	struct FExtensionScope
-	{
-		FPropertyEditExtensionHandle Handle;
-		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
-	} Extension{RegisterPropertyEditExtension({.PreEdit = [&](DObject& Object, FPropertyEditProposal& Proposal)
-		-> std::expected<void, FObjectValidationError> {
-		if (&Object == Instance.Get() && Proposal.Phase == EPropertyChangePhase::Cancelled && !bAllowRestore)
-			return RejectPropertyEdit(Object, Proposal, EPropertyEditRejection::Rejected);
-		return {};
-	}})};
 	const auto Edited = FMaterialParameterValue::MakeScalar(.123f);
 	ASSERT_TRUE(Model.SubmitValueEdit(View, Context, *FindEntry(Model, Alpha), Edited, true)) << Error;
+	FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
 	ASSERT_FALSE(View.FinishActiveEdit(&Context, true));
 	EXPECT_FALSE(Model.SubmitValueEdit(View, Context, *FindEntry(Model, Alpha), Edited, false));
 	EXPECT_FALSE(Model.SubmitValueEdit(View, Context, *FindEntry(Model, Beta), Edited, false));
 	EXPECT_EQ(Read(Beta), BeforeBeta);
-	bAllowRestore = true;
+	FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	ASSERT_TRUE(Model.SubmitValueEdit(View, Context, *FindEntry(Model, Beta), Edited, false));
 	EXPECT_EQ(Read(Alpha), BeforeAlpha);
 	EXPECT_EQ(Read(Beta), Edited);

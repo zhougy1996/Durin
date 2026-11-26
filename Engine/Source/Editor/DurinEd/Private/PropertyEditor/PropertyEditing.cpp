@@ -18,21 +18,6 @@ namespace Durin
 {
 	namespace
 	{
-		std::mutex GPropertyEditExtensionsMutex;
-		std::unordered_map<FPropertyEditExtensionHandle, FPropertyEditExtension>
-			GPropertyEditExtensions;
-		FPropertyEditExtensionHandle GNextPropertyEditExtensionHandle = 1;
-
-		auto SnapshotPropertyEditExtensions() -> std::vector<FPropertyEditExtension>
-		{
-			std::lock_guard Lock(GPropertyEditExtensionsMutex);
-			std::vector<FPropertyEditExtension> Extensions;
-			Extensions.reserve(GPropertyEditExtensions.size());
-			for (const auto& [Handle, Extension] : GPropertyEditExtensions)
-				Extensions.push_back(Extension);
-			return Extensions;
-		}
-
 		struct FResolveMapEntryContext
 		{
 			FProperty* KeyProperty = nullptr;
@@ -137,16 +122,17 @@ namespace Durin
 
 	auto PropertyEditor::NotifyMutation(
 		const FPropertyEditTarget& Target,
-		EPropertyChangePhase Phase,
-		bool bValueChanged
+		EPropertyValueSetFlags::Type Flags
 	) -> void
 	{
 		const TStrongObjectPtr<DObject> Owner(Target.Object);
 		const auto Path = MakeEventPath(Target);
-		const FPropertyChangedEvent Event{Target.MemberProperty, Target.LeafProperty, Path, Phase, Target.Kind, EPropertyChangeOrigin::Edit};
+		auto ChangeType = Target.ChangeType;
+		if (Flags & EPropertyValueSetFlags::InteractiveChange)
+			ChangeType = ChangeType == EPropertyChangeType::ValueSet
+				? EPropertyChangeType::Interactive : ChangeType | EPropertyChangeType::Interactive;
+		const FPropertyChangedEvent Event{Target.MemberProperty, Target.LeafProperty, Path, ChangeType};
 		Owner->PostEditChangeProperty(Event);
-		for (const FPropertyEditExtension& Extension : SnapshotPropertyEditExtensions())
-			if (Extension.PostEdit) Extension.PostEdit(*Owner, Event, bValueChanged);
 	}
 
 	auto FormatPropertyValueDraftError(const FPropertyValueDraftError& Error) -> std::string
@@ -163,23 +149,6 @@ namespace Durin
 		case EPropertyValueDraftError::RootMismatch: return "The edit target does not match its reflected property draft root.";
 		default: return "The reflected property draft operation failed.";
 		}
-	}
-
-	auto RegisterPropertyEditExtension(FPropertyEditExtension Extension)
-		-> FPropertyEditExtensionHandle
-	{
-		if (!Extension.PreEdit && !Extension.PostEdit) return 0;
-		std::lock_guard Lock(GPropertyEditExtensionsMutex);
-		const FPropertyEditExtensionHandle Handle = GNextPropertyEditExtensionHandle++;
-		GPropertyEditExtensions.emplace(Handle, std::move(Extension));
-		return Handle;
-	}
-
-	auto UnregisterPropertyEditExtension(FPropertyEditExtensionHandle Handle) -> void
-	{
-		if (Handle == 0) return;
-		std::lock_guard Lock(GPropertyEditExtensionsMutex);
-		GPropertyEditExtensions.erase(Handle);
 	}
 
 	auto FPropertyEditTarget::Validate() const -> std::expected<void, FPropertyEditPathError> { return ValidateTarget(*this); }
@@ -320,7 +289,7 @@ namespace Durin
 			Property && Property->GetArrayDim() > 1 ? EPropertyPathSelector::StaticArrayIndex : EPropertyPathSelector::None,
 			ArrayIndex
 		});
-		Target.Kind = EPropertyChangeKind::ValueSet;
+		Target.ChangeType = EPropertyChangeType::ValueSet;
 		return Target;
 	}
 
@@ -334,7 +303,7 @@ namespace Durin
 			Target.Path.back().Index = ElementIndex;
 		}
 		Target.Path.push_back({ElementProperty});
-		Target.Kind = EPropertyChangeKind::ValueSet;
+		Target.ChangeType = EPropertyChangeType::ValueSet;
 		return Target;
 	}
 
@@ -355,7 +324,7 @@ namespace Durin
 			Target.Path.back().MapKey = std::move(KeySnapshot);
 		}
 		Target.Path.push_back({EntryProperty});
-		Target.Kind = EPropertyChangeKind::ValueSet;
+		Target.ChangeType = EPropertyChangeType::ValueSet;
 		return Target;
 	}
 
@@ -400,20 +369,31 @@ namespace Durin
 		return true;
 	}
 
+	namespace
+	{
+		auto IsMapKeyTarget(const FPropertyEditTarget& Target) -> bool
+		{
+			if (Target.Path.size() < 2) return false;
+			const auto& Parent = Target.Path[Target.Path.size() - 2];
+			return Parent.Selector == EPropertyPathSelector::MapKey && Parent.Property
+				&& Parent.Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Map
+				&& static_cast<const FMapProperty*>(Parent.Property)->GetKeyProp() == Target.LeafProperty;
+		}
+	}
+
 	auto FPropertyEditTarget::MatchesContinuousEdit(const FPropertyEditTarget& Other) const -> bool
 	{
 		if (Object != Other.Object || MemberProperty != Other.MemberProperty
 			|| LeafProperty != Other.LeafProperty || SnapshotProperty != Other.SnapshotProperty
 			|| SnapshotContainer != Other.SnapshotContainer || SnapshotArrayIndex != Other.SnapshotArrayIndex
-			|| Kind != Other.Kind || LogicalIdentity != Other.LogicalIdentity
+			|| ChangeType != Other.ChangeType || LogicalIdentity != Other.LogicalIdentity
 			|| Path.size() != Other.Path.size()) return false;
 		for (size_t Index = 0; Index < Path.size(); ++Index)
 		{
 			const FPropertyEditPathSegment& Left = Path[Index];
 			const FPropertyEditPathSegment& Right = Other.Path[Index];
 			if (Left.Property != Right.Property || Left.Selector != Right.Selector || Left.Index != Right.Index) return false;
-			const bool bContinuousKeyRename = Kind == EPropertyChangeKind::MapKeyRename
-				&& Left.Selector == EPropertyPathSelector::MapKey;
+			const bool bContinuousKeyRename = Index + 2 == Path.size() && IsMapKeyTarget(*this);
 			if (!bContinuousKeyRename && (Left.MapKeyData != Right.MapKeyData || Left.MapKey != Right.MapKey)) return false;
 		}
 		return true;
@@ -548,8 +528,8 @@ namespace Durin
 	}
 
 	auto PropertyEditor::WriteValidatedValue(const FPropertyEditTarget& WriteTarget,
-		FPropertyValueDraft& Draft, EPropertyChangePhase Phase,
-		FPropertyValueSnapshotPayload& LiveValue) -> std::expected<bool, std::string>
+		FPropertyValueDraft& Draft, EPropertyValueSetFlags::Type Flags,
+		FPropertyValueSnapshotPayload& LiveValue, bool bRestoring) -> std::expected<bool, std::string>
 	{
 		if (std::ranges::any_of(GActiveGenericMutations, [&](const auto* Active) { return Active->IsSameMutationTarget(WriteTarget); }))
 			return std::unexpected("A reflected property hook cannot start a nested edit of the same target.");
@@ -560,14 +540,15 @@ namespace Durin
 		FResolvedPropertyValue DraftLeaf;
 		const auto LeafResult = Draft.Resolve(WriteTarget, DraftLeaf.Property, DraftLeaf.Container, DraftLeaf.ArrayIndex);
 		const bool bResolvedLeaf = static_cast<bool>(LeafResult);
-		if (!bResolvedLeaf && WriteTarget.Kind != EPropertyChangeKind::MapKeyRename
-			&& WriteTarget.Kind != EPropertyChangeKind::MapRemove)
+		if (!bResolvedLeaf && !IsMapKeyTarget(WriteTarget)
+			&& !(WriteTarget.ChangeType == EPropertyChangeType::ArrayRemove && !WriteTarget.Path.empty()
+				&& WriteTarget.Path.back().Selector == EPropertyPathSelector::MapKey))
 			return std::unexpected(FormatPropertyValueDraftError(LeafResult.error()));
 
 		FPropertyEditProposal Proposal{
 			WriteTarget.MemberProperty,
 			WriteTarget.LeafProperty,
-			Phase,
+			Flags,
 			Draft.GetRootProperty(),
 			Draft.GetRootContainer(),
 			Draft.GetRootArrayIndex(),
@@ -576,14 +557,6 @@ namespace Durin
 		};
 		const TWeakObjectPtr<DObject> TargetObject(WriteTarget.Object);
 		constexpr auto Unavailable = "The property edit target is unavailable.";
-		for (const FPropertyEditExtension& Extension : SnapshotPropertyEditExtensions())
-		{
-			if (!Extension.PreEdit) continue;
-			DObject* Object = TargetObject.Get();
-			if (!Object) return std::unexpected(Unavailable);
-			if (const auto Validation = Extension.PreEdit(*Object, Proposal); !Validation)
-				return std::unexpected(ToString(Validation.error()));
-		}
 		DObject* Object = TargetObject.Get();
 		if (!Object) return std::unexpected(Unavailable);
 		if (const auto Validation = Object->PreEditChangeProperty(Proposal); !Validation)
@@ -596,7 +569,7 @@ namespace Durin
 		if (!Object) return std::unexpected(Unavailable);
 		// Proposal hooks can retire a document, target or endpoint. Check live authority
 		// at the publication boundary, after all synchronous normalization callbacks.
-		if (Phase != EPropertyChangePhase::Cancelled)
+		if (!bRestoring)
 			if (auto* Script = FScopedEditorScriptCall::Current(); Script
 				&& Script->ResolveEditAccess(*Object) != EEditorScriptTargetAccess::Writable)
 			{
@@ -604,7 +577,7 @@ namespace Durin
 				return std::unexpected("Script property publication lost target admission.");
 			}
 		if (Normalized == LiveValue) return false;
-		if (Phase != EPropertyChangePhase::Cancelled)
+		if (!bRestoring)
 		{
 			if (WriteTarget.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional))
 				Object->MarkPackageDirty();
@@ -629,21 +602,17 @@ namespace Durin
 	}
 
 	auto PropertyEditor::FPropertyEdit::ApplyInternal(
-		const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase) -> bool
+		const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError, bool* OutChanged, bool bRestoring) -> bool
 	{
 		if (OutChanged) *OutChanged = false;
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
-		if (ProposedValue == CurrentValue)
-		{
-			if (Phase == EPropertyChangePhase::Committed) NotifyCommitted(false);
-			return true;
-		}
+		if (ProposedValue == CurrentValue) return true;
 		FPropertyValueDraft Draft(Target, &ProposedValue);
-		return ApplyDraft(Draft, OutError, OutChanged, Phase);
+		return ApplyDraft(Draft, OutError, OutChanged, bRestoring);
 	}
 
 	auto PropertyEditor::FPropertyEdit::ApplyDraft(FPropertyValueDraft& Draft,
-		std::string* OutError, bool* OutChanged, EPropertyChangePhase Phase) -> bool
+		std::string* OutError, bool* OutChanged, bool bRestoring) -> bool
 	{
 		if (OutChanged) *OutChanged = false;
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
@@ -652,7 +621,8 @@ namespace Durin
 		FPropertyValueSnapshotPayload LiveValue;
 		if (auto Capture = CaptureTargetValue(WriteTarget, LiveValue); !Capture)
 			return FailPropertyEdit(OutError, ToString(Capture.error()));
-		const auto Result = WriteValidatedValue(WriteTarget, Draft, Phase, LiveValue);
+		const auto Flags = bRestoring ? EPropertyValueSetFlags::DefaultFlags : EPropertyValueSetFlags::InteractiveChange;
+		const auto Result = WriteValidatedValue(WriteTarget, Draft, Flags, LiveValue, bRestoring);
 		if (!Result)
 		{
 			if (IsEditingObject(WriteTarget.Object) && !LiveValue.IsValid()) CurrentValue = {};
@@ -665,8 +635,22 @@ namespace Durin
 		}
 		const bool bChanged = CurrentValue != LiveValue;
 		CurrentValue = std::move(LiveValue);
-		if (Phase != EPropertyChangePhase::Interactive || bChanged)
-			NotifyMutation(WriteTarget, Phase);
+		if (bRestoring && *Result)
+			NotifyMutation(FPropertyEditTarget::ForMember(WriteTarget.Object, WriteTarget.MemberProperty, WriteTarget.SnapshotArrayIndex), Flags);
+		else if (!bRestoring && bChanged)
+		{
+			bInteractiveChangeInProgress = true;
+			NotifyMutation(WriteTarget, Flags);
+			// A post-edit hook can correct the authored value or close this session.
+			if (IsEditingObject(Owner.Get()) && MatchesTarget(WriteTarget))
+			{
+				if (const auto Capture = CaptureTargetValue(WriteTarget, CurrentValue); !Capture)
+				{
+					CurrentValue = {};
+					return FailPropertyEdit(OutError, ToString(Capture.error()));
+				}
+			}
+		}
 		if (OutChanged) *OutChanged = bChanged;
 		return true;
 	}
@@ -674,11 +658,6 @@ namespace Durin
 	auto PropertyEditor::FPropertyEdit::MatchesTarget(const FPropertyEditTarget& Other) const -> bool
 	{
 		return bActive && Target.MatchesContinuousEdit(Other);
-	}
-
-	auto PropertyEditor::FPropertyEdit::NotifyCommitted(bool bChanged) -> void
-	{
-		NotifyMutation(Target, EPropertyChangePhase::Committed, bChanged);
 	}
 
 	auto PropertyEditor::FPropertyEdit::Commit(std::string* OutError) -> bool
@@ -696,9 +675,8 @@ namespace Durin
 			if (!Cancel(OutError)) return false;
 			return FailPropertyEdit(OutError, "The property is no longer editable.");
 		}
-		const bool bChanged = HasChanges();
 		bCommitting = true;
-		NotifyCommitted(bChanged);
+		if (bInteractiveChangeInProgress) NotifyMutation(Target, EPropertyValueSetFlags::DefaultFlags);
 		bCommitting = false;
 		if (!bActive) return FailPropertyEdit(OutError, "The property edit closed during publication.");
 		Reset(false);
@@ -709,8 +687,6 @@ namespace Durin
 	{
 		if (!bActive || HasChanges())
 			return FailPropertyEdit(OutError, "Unchanged cancellation requires an active unchanged edit.");
-		if (IsValid(Target.Object))
-			NotifyMutation(Target, EPropertyChangePhase::Cancelled);
 		Reset(false);
 		return true;
 	}
@@ -723,9 +699,8 @@ namespace Durin
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
 		if (HasChanges())
 		{
-			if (!ApplyInternal(GetOriginalValue(), OutError, nullptr, EPropertyChangePhase::Cancelled)) return false;
+			if (!ApplyInternal(GetOriginalValue(), OutError, nullptr, true)) return false;
 		}
-		else NotifyMutation(Target, EPropertyChangePhase::Cancelled);
 		Reset();
 		return true;
 	}
@@ -737,6 +712,7 @@ namespace Durin
 		if (bCancelRecording && bOwnsRecording && TransactionScope) TransactionScope->Cancel();
 		TransactionScope.reset();
 		bOwnsRecording = false;
+		bInteractiveChangeInProgress = false;
 		Target = {};
 		TargetObject.Reset();
 		OriginalValue = {};

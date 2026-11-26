@@ -1081,9 +1081,9 @@ namespace Durin
 		ImGui::TableSetColumnIndex(1);
 		if (bReadOnly) ImGui::BeginDisabled();
 		bool bChanged = false;
-		auto SubmitStructure = [&](EPropertyChangeKind Kind, auto&& Mutation) -> bool {
+		auto SubmitStructure = [&](EPropertyChangeType::Type ChangeType, auto&& Mutation) -> bool {
 			FPropertyEditTarget StructuralTarget = EditTarget;
-			StructuralTarget.Kind = Kind;
+			StructuralTarget.ChangeType = ChangeType;
 			if (!PreparePropertyWrite(Context, StructuralTarget)) return false;
 			FPropertyValueSnapshot Proposed;
 			if (const auto Captured = CaptureProposedPropertyValue(StructuralTarget,
@@ -1101,7 +1101,7 @@ namespace Durin
 		};
 		if (ImGui::SmallButton("+"))
 		{
-			bChanged = SubmitStructure(EPropertyChangeKind::ArrayAdd,
+			bChanged = SubmitStructure(EPropertyChangeType::ArrayAdd,
 				[&](const FArrayProperty& DraftProperty, void* DraftContainer, uint32 DraftArrayIndex) {
 					return DraftProperty.Resize(DraftContainer, Num + 1, DraftArrayIndex);
 				});
@@ -1111,7 +1111,7 @@ namespace Durin
 		if (Num == 0) ImGui::BeginDisabled();
 		if (ImGui::SmallButton("-") && Num > 0)
 		{
-			bChanged = SubmitStructure(EPropertyChangeKind::ArrayRemove,
+			bChanged = SubmitStructure(EPropertyChangeType::ArrayRemove,
 				[&](const FArrayProperty& DraftProperty, void* DraftContainer, uint32 DraftArrayIndex) {
 					return DraftProperty.Resize(DraftContainer, Num - 1, DraftArrayIndex);
 				});
@@ -1182,9 +1182,9 @@ namespace Durin
 		ImGui::TableSetColumnIndex(1);
 		if (bReadOnly) ImGui::BeginDisabled();
 		bool bChanged = false;
-		auto SubmitStructure = [&](FPropertyEditTarget StructuralTarget, EPropertyChangeKind Kind, auto&& Mutation,
+		auto SubmitStructure = [&](FPropertyEditTarget StructuralTarget, EPropertyChangeType::Type ChangeType, auto&& Mutation,
 			bool bContinuous = false, const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr) -> bool {
-			StructuralTarget.Kind = Kind;
+			StructuralTarget.ChangeType = ChangeType;
 			if (!PreparePropertyWrite(Context, StructuralTarget, Interaction)) return false;
 			FPropertyValueSnapshot Proposed;
 			if (const auto Captured = CaptureProposedPropertyValue(StructuralTarget,
@@ -1291,7 +1291,7 @@ namespace Durin
 							InsertTarget.Path.back().Selector = EPropertyPathSelector::MapKey;
 							InsertTarget.Path.back().MapKeyData = CaptureMapPathKey(Property->GetKeyProp(), DraftKey);
 							InsertTarget.Path.back().MapKey = MapInsertDraft.Key.GetPayload();
-							bChanged = SubmitStructure(std::move(InsertTarget), EPropertyChangeKind::MapInsert,
+							bChanged = SubmitStructure(std::move(InsertTarget), EPropertyChangeType::ArrayAdd,
 								[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&) -> std::expected<void, std::string> {
 									auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
 									const EContainerOpResult Result = DraftProperty->InsertChecked(
@@ -1333,9 +1333,10 @@ namespace Durin
 
 				FPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(
 					Property->GetKeyProp(), KeySnapshot, SerializedKey);
-				KeyTarget.Kind = EPropertyChangeKind::MapKeyRename;
+
 				const bool bCurrentKey = IsEditingTarget(KeyTarget) && MapKeyInteraction.Value == KeySnapshot;
-				const ImGuiID KeyId = bCurrentKey ? MapKeyInteraction.Id : ImGui::GetID(Key);
+				const ImGuiID KeyId = bCurrentKey ? MapKeyInteraction.Id
+					: ImHashData(SerializedKey.data(), SerializedKey.size(), ImGui::GetID("MapEntry"));
 				ImGui::PushOverrideID(KeyId);
 				ImGui::PushID("Key");
 				const FPropertyWidgetEditResult KeyEdit = EditPropertyWidget(
@@ -1376,7 +1377,7 @@ namespace Durin
 					RemoveTarget.Path.back().Selector = EPropertyPathSelector::MapKey;
 					RemoveTarget.Path.back().MapKeyData = SerializedKey;
 					RemoveTarget.Path.back().MapKey = KeySnapshot.GetPayload();
-					bChanged |= SubmitStructure(std::move(RemoveTarget), EPropertyChangeKind::MapRemove,
+					bChanged |= SubmitStructure(std::move(RemoveTarget), EPropertyChangeType::ArrayRemove,
 						[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&) -> std::expected<void, std::string> {
 							auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
 							const EContainerOpResult Result = DraftProperty->RemoveChecked(
@@ -1412,7 +1413,7 @@ namespace Durin
 						}
 						else
 						{
-							const bool bRenamed = SubmitStructure(KeyTarget, EPropertyChangeKind::MapKeyRename,
+							const bool bRenamed = SubmitStructure(KeyTarget, EPropertyChangeType::ValueSet,
 								[&](const FResolvedPropertyValue&, FPropertyValueDraft& Draft) -> std::expected<void, std::string> {
 									const FProperty* DraftProperty = nullptr;
 									void* DraftContainer = nullptr;

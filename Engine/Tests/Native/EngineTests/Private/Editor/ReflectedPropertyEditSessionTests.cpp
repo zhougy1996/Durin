@@ -42,10 +42,10 @@ TEST(FReflectedPropertyEditSessionTests, AppliesInteractiveValuesAndCommitsOnce)
 	EXPECT_EQ(Container.Value, 19);
 	EXPECT_TRUE(Session.Apply(Proposed));
 	ASSERT_EQ(Object.Changes.size(), 1u);
-	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Interactive);
+	EXPECT_EQ(Object.Changes[0].ChangeType, Durin::EPropertyChangeType::Interactive);
 	EXPECT_TRUE(Session.Commit());
 	ASSERT_EQ(Object.Changes.size(), 2u);
-	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Committed);
+	EXPECT_EQ(Object.Changes[1].ChangeType, Durin::EPropertyChangeType::ValueSet);
 	EXPECT_FALSE(Session.IsActive());
 }
 
@@ -88,7 +88,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsAndNormalizesDetached
 	EXPECT_TRUE(Session.Commit());
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object->Value, 7);
-	EXPECT_EQ(Object->LastProposalPhase, Durin::EPropertyChangePhase::Interactive);
+	EXPECT_EQ(Object->LastProposalFlags, Durin::PropertyEditor::EPropertyValueSetFlags::InteractiveChange);
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object->Value, 10);
 }
@@ -141,8 +141,7 @@ TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValid
 	ASSERT_TRUE(EditResult5) << Error;
 	EXPECT_EQ(Session.GetDescription(), "Edit Value");
 	EXPECT_TRUE(Session.Cancel());
-	ASSERT_EQ(Object.Changes.size(), 1u);
-	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Cancelled);
+	EXPECT_TRUE(Object.Changes.empty());
 }
 
 TEST(FReflectedPropertyEditSessionTests, CancelRestoresOriginalValueAndOwnedPathData)
@@ -162,7 +161,7 @@ TEST(FReflectedPropertyEditSessionTests, CancelRestoresOriginalValueAndOwnedPath
 	ASSERT_EQ(Object.Changes.size(), 2u);
 	ASSERT_EQ(Object.Changes[0].Indices.size(), 1u);
 	EXPECT_EQ(Object.Changes[0].Indices[0], 3u);
-	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Cancelled);
+	EXPECT_EQ(Object.Changes[1].ChangeType, Durin::EPropertyChangeType::ValueSet);
 }
 
 TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifying)
@@ -183,8 +182,7 @@ TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifyi
 	EXPECT_EQ(Container.Value, 5);
 	EXPECT_TRUE(Object.Changes.empty());
 	EXPECT_TRUE(Session.Commit());
-	ASSERT_EQ(Object.Changes.size(), 1u);
-	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Committed);
+	EXPECT_TRUE(Object.Changes.empty());
 }
 
 TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForRetry)
@@ -194,7 +192,7 @@ TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForR
 	FManagedEditObserver Object;
 	bool bAllowRestore = false;
 	Object.PreChange = [&](Durin::FPropertyEditProposal& Proposal) -> std::expected<void, Durin::FObjectValidationError> {
-		if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled && !bAllowRestore)
+		if (Proposal.Flags == Durin::PropertyEditor::EPropertyValueSetFlags::DefaultFlags && !bAllowRestore)
 		{
 			return std::unexpected(Durin::FObjectValidationError{.Code = Durin::EObjectValidationError::PropertyRejected, .PropertyReason = Durin::EPropertyEditRejection::Rejected});
 		}
@@ -216,8 +214,8 @@ TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForR
 	EXPECT_FALSE(Session.IsActive());
 	EXPECT_EQ(Container.Value, 5);
 	ASSERT_EQ(Object.Changes.size(), 2u);
-	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Interactive);
-	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Cancelled);
+	EXPECT_EQ(Object.Changes[0].ChangeType, Durin::EPropertyChangeType::Interactive);
+	EXPECT_EQ(Object.Changes[1].ChangeType, Durin::EPropertyChangeType::ValueSet);
 }
 
 TEST(FReflectedPropertyEditSessionTests, EmitsTerminalEventAfterReturningToOriginalValue)
@@ -232,9 +230,9 @@ TEST(FReflectedPropertyEditSessionTests, EmitsTerminalEventAfterReturningToOrigi
 
 	EXPECT_TRUE(Session.Commit());
 	ASSERT_EQ(Object.Changes.size(), 3u);
-	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Interactive);
-	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Interactive);
-	EXPECT_EQ(Object.Changes[2].Phase, Durin::EPropertyChangePhase::Committed);
+	EXPECT_EQ(Object.Changes[0].ChangeType, Durin::EPropertyChangeType::Interactive);
+	EXPECT_EQ(Object.Changes[1].ChangeType, Durin::EPropertyChangeType::Interactive);
+	EXPECT_EQ(Object.Changes[2].ChangeType, Durin::EPropertyChangeType::ValueSet);
 }
 
 TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAbandonPreviewState)
@@ -246,8 +244,7 @@ TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAba
 		Durin::PropertyEditor::FPropertyEdit Session;
 		ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "No-op Edit", false));
 		EXPECT_TRUE(Session.Commit());
-		ASSERT_EQ(Object.Changes.size(), 1u);
-		EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Committed);
+		EXPECT_TRUE(Object.Changes.empty());
 	}
 
 	{
@@ -257,7 +254,7 @@ TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAba
 		EXPECT_EQ(Container.Value, 27);
 	}
 	EXPECT_EQ(Container.Value, 13);
-	ASSERT_EQ(Object.Changes.size(), 3u);
-	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Interactive);
-	EXPECT_EQ(Object.Changes[2].Phase, Durin::EPropertyChangePhase::Cancelled);
+	ASSERT_EQ(Object.Changes.size(), 2u);
+	EXPECT_EQ(Object.Changes[0].ChangeType, Durin::EPropertyChangeType::Interactive);
+	EXPECT_EQ(Object.Changes[1].ChangeType, Durin::EPropertyChangeType::ValueSet);
 }

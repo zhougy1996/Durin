@@ -108,8 +108,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, DirectFilterEditsLeaveThePrevious
 		Durin::FPropertyPathSegment{EnabledProperty}
 	};
 	Component->PostEditChangeProperty({
-		BodyProperty, EnabledProperty, Path, Durin::EPropertyChangePhase::Committed,
-		Durin::EPropertyChangeKind::ValueSet, Durin::EPropertyChangeOrigin::Edit
+		BodyProperty, EnabledProperty, Path, Durin::EPropertyChangeType::ValueSet, Durin::EPropertyChangeOrigin::Edit
 	});
 
 	EXPECT_EQ(Component->GetCollisionEnabled(), Durin::ECollisionEnabled::QueryOnly);
@@ -130,13 +129,10 @@ TEST(FPrimitiveComponentCollisionEditingTests, RestoringSettingsDoesNotConvertPr
 	for (const auto Origin : {EPropertyChangeOrigin::Undo, EPropertyChangeOrigin::Redo})
 	{
 		ASSERT_TRUE(Box->SetCollisionProfileName(CollisionProfile::Trigger));
-		Box->PostEditChangeProperty({Property, Enabled, {}, EPropertyChangePhase::Committed,
-			EPropertyChangeKind::ValueSet, Origin});
+		Box->PostEditChangeProperty({Property, Enabled, {}, EPropertyChangeType::ValueSet, Origin});
 		EXPECT_EQ(Box->GetCollisionProfileName(), CollisionProfile::Trigger);
 	}
-	Box->PostEditChangeProperty({Property, Enabled, {}, EPropertyChangePhase::Cancelled});
-	EXPECT_EQ(Box->GetCollisionProfileName(), CollisionProfile::Trigger);
-	Box->PostEditChangeProperty({Property, Property, {}, EPropertyChangePhase::Committed});
+	Box->PostEditChangeProperty({Property, Property, {}, EPropertyChangeType::ValueSet});
 	EXPECT_EQ(Box->GetCollisionProfileName(), CollisionProfile::Trigger);
 	MarkObjectHierarchyAsGarbage(Box);
 	CollectGarbage(Durin::EObjectFlags::Standalone);

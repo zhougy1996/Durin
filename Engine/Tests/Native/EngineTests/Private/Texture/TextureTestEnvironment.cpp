@@ -1,6 +1,5 @@
 #include "TextureTestSupport.h"
 #include "Modules/ModuleManager.h"
-#include "Texture2DPropertyEditing.h"
 
 namespace
 {
@@ -13,12 +12,10 @@ namespace
 			InitializeDObjectSystem();
 			ASSERT_TRUE(EnsureTextureCompilingManager());
 			Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-			ASSERT_TRUE(Durin::TextureEditor::RegisterTexture2DPropertyEditing());
 		}
 
 		auto TearDown() -> void override
 		{
-			Durin::TextureEditor::UnregisterTexture2DPropertyEditing();
 			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 			EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetNumRemainingAssets(), 0u);
 			Durin::ShutdownAssetCompilingManager();

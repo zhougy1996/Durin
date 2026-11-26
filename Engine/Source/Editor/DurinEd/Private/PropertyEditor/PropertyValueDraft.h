@@ -147,7 +147,7 @@ namespace Durin::PropertyEditor
 		DTransactor& Transactor, bool bOpenScope, std::optional<FScopedTransaction>& Scope)
 		-> std::expected<void, std::string>;
 
-	auto WriteValidatedValue(const FPropertyEditTarget& Target, FPropertyValueDraft& Draft, EPropertyChangePhase Phase,
-		FPropertyValueSnapshotPayload& LiveValue) -> std::expected<bool, std::string>;
-	auto NotifyMutation(const FPropertyEditTarget& Target, EPropertyChangePhase Phase, bool bValueChanged = true) -> void;
+	auto WriteValidatedValue(const FPropertyEditTarget& Target, FPropertyValueDraft& Draft, EPropertyValueSetFlags::Type Flags,
+		FPropertyValueSnapshotPayload& LiveValue, bool bRestoring = false) -> std::expected<bool, std::string>;
+	auto NotifyMutation(const FPropertyEditTarget& Target, EPropertyValueSetFlags::Type Flags) -> void;
 }

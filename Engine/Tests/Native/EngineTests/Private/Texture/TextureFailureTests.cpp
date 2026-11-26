@@ -232,9 +232,13 @@ TEST(FTexture2DTests, PostEditChangeUsesObjectQueriesAndManagerNotification)
 	const auto RequestId = AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).RequestId;
 	const auto* UsageProperty = Texture->GetClass()->FindPropertyByName("Usage");
 	ASSERT_NE(UsageProperty, nullptr);
-	Texture->PostEditChangeProperty({.MemberProperty = UsageProperty});
+	Texture->PostEditChangeProperty({.MemberProperty = UsageProperty, .ChangeType = EPropertyChangeType::Interactive});
 	EXPECT_TRUE(Texture->IsAsyncCacheComplete());
 	EXPECT_EQ(AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).RequestId, RequestId);
+	Texture->PostEditChangeProperty({.MemberProperty = UsageProperty});
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+	EXPECT_NE(AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).RequestId, RequestId);
+	EXPECT_EQ(Notifications, 2u);
 	AssetPrivate::SetTexture2DCompilationPhaseHookForTests([](uint64, ETexture2DCompilationPhase Phase) {
 		if (Phase == ETexture2DCompilationPhase::Building) throw std::runtime_error("Injected PostEdit build failure");
 	});
@@ -242,14 +246,14 @@ TEST(FTexture2DTests, PostEditChangeUsesObjectQueriesAndManagerNotification)
 	EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_TRUE(Texture->IsAsyncCacheComplete());
 	EXPECT_EQ(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).Phase, ETexture2DCompilationPhase::Failed);
-	EXPECT_EQ(Notifications, 1u);
+	EXPECT_EQ(Notifications, 2u);
 	AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
 	Texture->PostEditChange();
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Texture);
 	EXPECT_TRUE(Texture->IsAsyncCacheComplete());
 	EXPECT_EQ(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).Phase, ETexture2DCompilationPhase::Canceled);
-	EXPECT_EQ(Notifications, 1u);
+	EXPECT_EQ(Notifications, 2u);
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), SourceIdentity);
 	EXPECT_EQ(Texture->GetAssetImportData()->GetState(), Metadata);
 	EXPECT_TRUE(UnloadPackage(Texture->GetPackage()));

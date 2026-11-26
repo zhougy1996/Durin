@@ -223,8 +223,8 @@ namespace Durin
 		const FProperty* Root = StructPath.empty() ? Member : StructPath.front();
 		const FPropertyPathSegment Path{Root};
 		Object->PostEditChangeProperty({.MemberProperty = Root, .LeafProperty = Root, .Path = {&Path, 1},
-			.Phase = EPropertyChangePhase::Committed, .Kind = Oper == 0 ? EPropertyChangeKind::ValueSet
-				: Oper == 1 ? EPropertyChangeKind::ArrayRemove : EPropertyChangeKind::ArrayAdd, .Origin = Origin});
+			.ChangeType = Oper == 0 ? EPropertyChangeType::ValueSet
+				: Oper == 1 ? EPropertyChangeType::ArrayRemove : EPropertyChangeType::ArrayAdd, .Origin = Origin});
 		Object->MarkPackageDirty();
 		Data = std::move(*Inverse);
 		Annotation = std::move(InverseAnnotation);
