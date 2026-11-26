@@ -1051,7 +1051,6 @@ namespace Durin
 		EXPECT_EQ(Stats.PendingBatchCount, 0u);
 		EXPECT_EQ(Stats.LastSubmittedSerial, Stats.CompletedSerial);
 		EXPECT_GT(Stats.PeakQueueEntryCount, 0u);
-		EXPECT_LE(Stats.PeakQueueEntryCount, 8u);
 	}
 
 	TEST(FRHICommandListTests, ThreadedReplayMatchesInlineOrderedEvents)
@@ -1555,13 +1554,11 @@ namespace Durin
 	}
 
 	TEST(FRHICommandListTests,
-		OwnedBufferAndTexturePayloadsSubmitBeyondQueueByteThreshold)
+		OwnedBufferAndTexturePayloadsContributeToQueuePeak)
 	{
 		FRecordingCommandContext Context;
-		FRHIThreadQueueLimits Limits;
-		Limits.MaxPayloadBytes = 1024;
 		FRHIThread RHIThread;
-		ASSERT_TRUE(RHIThread.Start(Limits));
+		ASSERT_TRUE(RHIThread.Start());
 		FRHICommandListExecutor Executor(Context, RHIThread);
 
 		TRefCountPtr<FTestBuffer> Buffer = MakeRefCount<FTestBuffer>(2048);

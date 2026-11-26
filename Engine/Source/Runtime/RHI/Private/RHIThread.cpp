@@ -37,16 +37,14 @@ namespace Durin
 		std::deque<FRHIThreadQueueEntry> Queue;
 		uint64 LastSubmittedSerial = 0;
 		uint64 CompletedSerial = 0;
-		uint32 OutstandingEntryCount = 0;
-		uint32 OutstandingBatchCount = 0;
+		uint64 OutstandingEntryCount = 0;
+		uint64 OutstandingBatchCount = 0;
 		uint32 OutstandingFrameCount = 0;
 		uint64 OutstandingPayloadBytes = 0;
-		uint32 PeakOutstandingEntryCount = 0;
-		uint32 PeakOutstandingBatchCount = 0;
+		uint64 PeakOutstandingEntryCount = 0;
+		uint64 PeakOutstandingBatchCount = 0;
 		uint32 PeakOutstandingFrameCount = 0;
 		uint64 PeakOutstandingPayloadBytes = 0;
-		uint64 BackpressureWaitCount = 0;
-		uint64 BackpressureWaitNanoseconds = 0;
 		uint64 FramePressureWaitCount = 0;
 		uint64 FramePressureWaitNanoseconds = 0;
 		bool bConsumerReady = false;
@@ -159,9 +157,7 @@ namespace Durin
 
 	auto FRHIThread::Start(const FRHIThreadQueueLimits& InLimits) -> bool
 	{
-		check(InLimits.MaxEntries > 0);
-		check(InLimits.MaxBatches > 0);
-		check(InLimits.MaxPayloadBytes > 0 && InLimits.MaxFrames > 0);
+		check(InLimits.MaxFrames > 0);
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->AdmissionState != ERHIThreadAdmissionState::Stopped
@@ -179,8 +175,6 @@ namespace Durin
 			State->PeakOutstandingEntryCount = 0;
 			State->PeakOutstandingBatchCount = 0;
 			State->PeakOutstandingPayloadBytes = 0;
-			State->BackpressureWaitCount = 0;
-			State->BackpressureWaitNanoseconds = 0;
 			State->OutstandingFrameCount = 0;
 			State->PeakOutstandingFrameCount = 0;
 			State->FramePressureWaitCount = 0;
@@ -257,32 +251,23 @@ namespace Durin
 			RHITerminateOnFailure("RHI queue", "Oversized");
 		}
 
-		auto HasCapacity = [this, &Work]() {
-			return Work.FrameCount <= State->Limits.MaxFrames - State->OutstandingFrameCount
-				&& State->OutstandingEntryCount < State->Limits.MaxEntries
-				&& (State->OutstandingEntryCount == 0
-					|| (State->OutstandingBatchCount <= State->Limits.MaxBatches
-						&& Work.BatchCount <= State->Limits.MaxBatches - State->OutstandingBatchCount
-						&& State->OutstandingPayloadBytes <= State->Limits.MaxPayloadBytes
-						&& Work.PayloadBytes <= State->Limits.MaxPayloadBytes - State->OutstandingPayloadBytes));
+		auto HasFrameCapacity = [&]() {
+			return Work.FrameCount <= State->Limits.MaxFrames - State->OutstandingFrameCount;
 		};
-		if (State->AdmissionState == ERHIThreadAdmissionState::Running && !HasCapacity())
+		if (State->AdmissionState == ERHIThreadAdmissionState::Running && !HasFrameCapacity())
 		{
 			const auto WaitStart = std::chrono::steady_clock::now();
-			const bool bFramePressure = Work.FrameCount > State->Limits.MaxFrames - State->OutstandingFrameCount;
-			if (bFramePressure) ++State->FramePressureWaitCount;
-			++State->BackpressureWaitCount;
+			++State->FramePressureWaitCount;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Enqueue.BackpressureWait");
-				State->CompletionCV.wait(Lock, [this, &HasCapacity]() {
-					return HasCapacity()
+				State->CompletionCV.wait(Lock, [this, &HasFrameCapacity]() {
+					return HasFrameCapacity()
 						|| State->AdmissionState != ERHIThreadAdmissionState::Running;
 				});
 			}
 			const auto WaitNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				std::chrono::steady_clock::now() - WaitStart).count());
-			State->BackpressureWaitNanoseconds += WaitNanoseconds;
-			if (bFramePressure) State->FramePressureWaitNanoseconds += WaitNanoseconds;
+			State->FramePressureWaitNanoseconds += WaitNanoseconds;
 		}
 		if (State->AdmissionState != ERHIThreadAdmissionState::Running)
 		{
@@ -294,6 +279,8 @@ namespace Durin
 		}
 
 		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Enqueue.Admit");
+		require(Work.PayloadBytes <= std::numeric_limits<uint64>::max() - State->OutstandingPayloadBytes);
+		require(Work.BatchCount <= std::numeric_limits<uint64>::max() - State->OutstandingBatchCount);
 		const uint64 Serial = ++State->LastSubmittedSerial;
 		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} queuedEntries={} batches={} payloadBytes={}", Serial, State->Queue.size(), Work.BatchCount, Work.PayloadBytes));
 		++State->OutstandingEntryCount;
@@ -361,8 +348,8 @@ namespace Durin
 			.PeakOutstandingBatchCount = State->PeakOutstandingBatchCount,
 			.PeakOutstandingFrameCount = State->PeakOutstandingFrameCount,
 			.PeakOutstandingPayloadBytes = State->PeakOutstandingPayloadBytes,
-			.BackpressureWaitCount = State->BackpressureWaitCount,
-			.BackpressureWaitNanoseconds = State->BackpressureWaitNanoseconds,
+			.BackpressureWaitCount = State->FramePressureWaitCount,
+			.BackpressureWaitNanoseconds = State->FramePressureWaitNanoseconds,
 			.FramePressureWaitCount = State->FramePressureWaitCount,
 			.FramePressureWaitNanoseconds = State->FramePressureWaitNanoseconds,
 		};

@@ -118,8 +118,7 @@ follow the current immediate segment in argument order.
 
 `FRHICommandListImmediate::DispatchToRHIThread()` explicitly dispatches the
 pending ordered prefix and returns its executor serial. It requests neither a
-completion wait nor native GPU submission. Threaded queue admission may apply
-backpressure; inline executors replay on the caller. `IsRHIThreadEnabled()`
+completion wait nor native GPU submission. This dispatch consumes zero frame slots. Inline executors replay on the caller. `IsRHIThreadEnabled()`
 queries the owning executor mode without collecting statistics.
 `CanDispatchToRHIThread()` checks for open render passes, diagnostic/timing
 scopes, buffer locks, and GPU submissions before an opportunistic dispatch. Queueing a
@@ -178,20 +177,19 @@ transfers its exact state and storage and leaves the source inert.
 ## Submission And Completion
 
 The executor groups pending immediate segments and admitted regular lists. In
-threaded mode the bounded FIFO queue assigns each accepted group a monotonically
+threaded mode the FIFO queue assigns each accepted group a monotonically
 increasing nonzero serial while holding the queue lock; empty flushes and fences
 capture that same queue-owned last-accepted serial. Inline mode preserves the
 same serial and completion behavior locally. Empty work without an ordered
 event does not manufacture a serial or backend submission.
 
-The queue admits at most 8 queued-or-active entries and 3 frame-end boundaries,
-with backpressure budgets of 16 batches and 32 MiB of owned payload. A single
-indivisible submission above either budget waits for an empty queue and runs alone;
-later work waits for its completion. Each submission carrying `EndFrame`
-charges one frame until replay finishes. This is a CPU
-queue latency limit, independent of Vulkan's two-slot GPU pacing. A producer
-that would cross a bound waits for capacity and wakes
-on completion or admission close. Admission is explicit
+The queue allows three outstanding frame-end markers by default. Each submission
+carrying `EndFrame` charges one frame through execution and capture retirement.
+Another frame end waits for frame capacity. Ordinary submissions can enter while
+the frame quota is full. Entry count, batch count and owned payload bytes are
+tracked for peak diagnostics. Workloads with long gaps between frame ends can
+accumulate queued work and retained payloads. Vulkan's two-slot GPU pacing
+operates independently. Admission is explicit
 `Stopped -> Running -> Draining -> Stopped`. Once stopped, a thread object
 cannot start again. A new RHI lifecycle creates a fresh thread and serial space.
 A producer still waiting for capacity when admission closes reports a fatal lifecycle error. The RHI thread is the sole runtime owner of command-context
@@ -413,9 +411,8 @@ At `BeginFrame`, Vulkan polls completion, waits the exact prerequisites of its
 selected pacing slot, and prepares a completion-eligible descriptor pool batch.
 The render thread dispatches this boundary asynchronously through
 `DispatchToRHIThread`; it can prepare later frames while the RHI lane waits.
-The `RHI.BeginFrame.Dispatch` scope measures dispatch, including bounded queue
-pressure when applicable. Queue statistics expose current/peak queued frames
-and frame-pressure wait count/duration separately from generic backpressure.
+The `RHI.BeginFrame.Dispatch` scope measures dispatch, which consumes zero frame slots. Queue statistics expose
+current and peak outstanding frame ends, frame-pressure waits, and wait duration.
 Uniform objects own pending initial bytes and a backend allocation; updates
 copy payloads into commands and replace the allocation on ordered replay.
 Storage retains a mutable CPU copy for partial updates and directly owns its

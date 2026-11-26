@@ -26,11 +26,6 @@ namespace Durin
 
 	struct FRHIThreadQueueLimits
 	{
-		uint32 MaxEntries = 8;
-		// Batch and byte budgets apply across outstanding work; an oversized
-		// indivisible submission is admitted only when it can run alone.
-		uint32 MaxBatches = 16;
-		uint64 MaxPayloadBytes = 32ull * 1024ull * 1024ull;
 		uint32 ThreadStackSize = 0;
 		uint32 MaxFrames = 3;
 	};
@@ -55,12 +50,12 @@ namespace Durin
 		ERHIThreadAdmissionState AdmissionState = ERHIThreadAdmissionState::Stopped;
 		uint64 LastSubmittedSerial = 0;
 		uint64 CompletedSerial = 0;
-		uint32 OutstandingEntryCount = 0;
-		uint32 OutstandingBatchCount = 0;
+		uint64 OutstandingEntryCount = 0;
+		uint64 OutstandingBatchCount = 0;
 		uint32 OutstandingFrameCount = 0;
 		uint64 OutstandingPayloadBytes = 0;
-		uint32 PeakOutstandingEntryCount = 0;
-		uint32 PeakOutstandingBatchCount = 0;
+		uint64 PeakOutstandingEntryCount = 0;
+		uint64 PeakOutstandingBatchCount = 0;
 		uint32 PeakOutstandingFrameCount = 0;
 		uint64 PeakOutstandingPayloadBytes = 0;
 		uint64 BackpressureWaitCount = 0;

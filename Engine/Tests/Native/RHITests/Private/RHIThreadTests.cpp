@@ -209,7 +209,7 @@ namespace Durin
 		EXPECT_EQ((std::vector<int>{1, 2}), Order);
 	}
 
-	TEST(FRHIThreadTests, ThreeFrameLimitAllowsOverlapAndBlocksOnlyAtCapacity)
+	TEST(FRHIThreadTests, FullFrameQuotaAllowsOrdinaryWorkWhileNextEndFrameWaits)
 	{
 		FRHIThread Thread;
 		FRHIThreadTestGuard Guard(Thread);
@@ -218,7 +218,7 @@ namespace Durin
 		struct FReleaseOnExit { FThreadEvent& Event; ~FReleaseOnExit() { Event.Trigger(); } } ReleaseGuard{Release};
 		FRHIThreadWork First;
 		First.FrameCount = 1;
-		First.Execute = [&] { Started.Trigger(); Release.Wait(); };
+		First.Execute = [&] { Started.Trigger(); EXPECT_TRUE(Release.WaitFor(5.0)); };
 		ASSERT_TRUE(Thread.Enqueue(std::move(First)));
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		for (int Index = 0; Index < 2; ++Index)
@@ -241,6 +241,21 @@ namespace Durin
 		while (!Thread.GetStats().FramePressureWaitCount && std::chrono::steady_clock::now() < Deadline)
 			std::this_thread::yield();
 		EXPECT_EQ(Thread.GetStats().FramePressureWaitCount, 1u);
+		constexpr uint64 PayloadPerEntry = 5ull * 1024 * 1024;
+		for (int Index = 0; Index < 8; ++Index)
+		{
+			FRHIThreadWork Ordinary;
+			Ordinary.BatchCount = 3;
+			Ordinary.PayloadBytes = PayloadPerEntry;
+			Ordinary.Execute = [] {};
+			Thread.Enqueue(std::move(Ordinary));
+		}
+		const auto Stats = Thread.GetStats();
+		EXPECT_EQ(Stats.PeakOutstandingEntryCount, 11u);
+		EXPECT_EQ(Stats.PeakOutstandingBatchCount, 24u);
+		EXPECT_EQ(Stats.PeakOutstandingPayloadBytes, 8 * PayloadPerEntry);
+		EXPECT_EQ(Stats.OutstandingFrameCount, 3u);
+		EXPECT_EQ(Stats.BackpressureWaitCount, 1u);
 		EXPECT_FALSE(Accepted.load());
 		Release.Trigger();
 		Producer.join();
@@ -251,125 +266,11 @@ namespace Durin
 		EXPECT_GT(Thread.GetStats().FramePressureWaitNanoseconds, 0u);
 	}
 
-	TEST(FRHIThreadTests, BoundedCapacityBlocksProducerAndWakesAfterCompletion)
-	{
-		FRHIThread Thread;
-		FRHIThreadTestGuard Guard(Thread);
-		FRHIThreadQueueLimits Limits;
-		Limits.MaxEntries = 1;
-		Limits.MaxBatches = 1;
-		Limits.MaxPayloadBytes = 64;
-		ASSERT_TRUE(Thread.Start(Limits));
-		FThreadEvent FirstStarted;
-		FThreadEvent ReleaseFirst;
-
-		FRHIThreadWork First;
-		First.BatchCount = 1;
-		First.PayloadBytes = 64;
-		First.Execute = [&]() {
-			FirstStarted.Trigger();
-			ReleaseFirst.Wait();
-		};
-		ASSERT_TRUE(Thread.Enqueue(std::move(First)));
-		if (!FirstStarted.WaitFor(1.0))
-		{
-			ReleaseFirst.Trigger();
-			FAIL() << "first work item did not start";
-		}
-
-		std::atomic<bool> bSecondAccepted = false;
-		FRHIThreadWork Second;
-		Second.BatchCount = 1;
-		Second.PayloadBytes = 64;
-		Second.Execute = []() {};
-		std::thread Producer([&]() {
-			bSecondAccepted.store(
-				Thread.Enqueue(std::move(Second)), std::memory_order::release);
-		});
-		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-		while (Thread.GetStats().BackpressureWaitCount == 0
-			&& std::chrono::steady_clock::now() < Deadline)
-		{
-			std::this_thread::yield();
-		}
-		EXPECT_EQ(1u, Thread.GetStats().BackpressureWaitCount);
-		EXPECT_FALSE(bSecondAccepted.load(std::memory_order::acquire));
-
-		ReleaseFirst.Trigger();
-		Producer.join();
-		EXPECT_TRUE(bSecondAccepted.load(std::memory_order::acquire));
-		Thread.Flush();
-		const FRHIThreadStats Stats = Thread.GetStats();
-		EXPECT_GT(Stats.BackpressureWaitNanoseconds, 0u);
-		EXPECT_EQ(Stats.PeakOutstandingEntryCount, 1u);
-		EXPECT_EQ(Stats.PeakOutstandingBatchCount, 1u);
-		EXPECT_EQ(Stats.PeakOutstandingPayloadBytes, 64u);
-	}
-
-	TEST(FRHIThreadTests, OversizedPayloadOrBatchCountRunsAloneAndBlocksLaterWork)
-	{
-		for (const bool bOversizedBatches : {false, true})
-		{
-			FRHIThread Thread;
-			FRHIThreadTestGuard Guard(Thread);
-			FRHIThreadQueueLimits Limits;
-			Limits.MaxEntries = 2;
-			Limits.MaxBatches = 2;
-			Limits.MaxPayloadBytes = 64;
-			ASSERT_TRUE(Thread.Start(Limits));
-			FThreadEvent FirstStarted;
-			FThreadEvent ReleaseFirst;
-
-			FRHIThreadWork First;
-			First.BatchCount = bOversizedBatches ? 3 : 1;
-			First.PayloadBytes = bOversizedBatches ? 64 : 128;
-			First.Execute = [&]() {
-				FirstStarted.Trigger();
-				ReleaseFirst.Wait();
-			};
-			ASSERT_TRUE(Thread.Enqueue(std::move(First)));
-			if (!FirstStarted.WaitFor(1.0))
-			{
-				ReleaseFirst.Trigger();
-				FAIL() << "first work item did not start";
-			}
-
-			std::atomic<bool> bSecondAccepted = false;
-			FRHIThreadWork Second;
-			Second.BatchCount = 1;
-			Second.PayloadBytes = 64;
-			Second.Execute = []() {};
-			std::thread Producer([&]() {
-				bSecondAccepted.store(
-					Thread.Enqueue(std::move(Second)), std::memory_order::release);
-			});
-			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-			while (Thread.GetStats().BackpressureWaitCount == 0
-				&& std::chrono::steady_clock::now() < Deadline)
-			{
-				std::this_thread::yield();
-			}
-			EXPECT_EQ(1u, Thread.GetStats().BackpressureWaitCount);
-			EXPECT_FALSE(bSecondAccepted.load(std::memory_order::acquire));
-
-			ReleaseFirst.Trigger();
-			Producer.join();
-			EXPECT_TRUE(bSecondAccepted.load(std::memory_order::acquire));
-			Thread.Flush();
-			const FRHIThreadStats Stats = Thread.GetStats();
-			EXPECT_GT(Stats.BackpressureWaitNanoseconds, 0u);
-			EXPECT_EQ(Stats.PeakOutstandingEntryCount, 1u);
-			EXPECT_EQ(Stats.PeakOutstandingBatchCount, bOversizedBatches ? 3u : 1u);
-			EXPECT_EQ(Stats.PeakOutstandingPayloadBytes, bOversizedBatches ? 64u : 128u);
-		}
-	}
-
 	TEST(FRHIThreadTests, OversizedAndLateSubmissionsAreFatal)
 	{
 		FRHIThread Thread;
 		FRHIThreadTestGuard Guard(Thread);
 		FRHIThreadQueueLimits Limits;
-		Limits.MaxPayloadBytes = 8;
 		ASSERT_TRUE(Thread.Start(Limits));
 
 		FRHIThreadWork Oversized;
@@ -389,18 +290,20 @@ namespace Durin
 		EXPECT_DEATH(([] {
 			FRHIThread Thread;
 			FRHIThreadQueueLimits Limits;
-			Limits.MaxEntries = 1;
+			Limits.MaxFrames = 1;
 			require(Thread.Start(Limits));
 			FThreadEvent HoldCapacity;
 			FRHIThreadWork First;
+			First.FrameCount = 1;
 			First.Execute = [&] { require(HoldCapacity.WaitFor(5.0)); };
 			Thread.Enqueue(std::move(First));
 
 			FRHIThreadWork Blocked;
+			Blocked.FrameCount = 1;
 			Blocked.Execute = [] {};
 			std::thread Producer([&] { Thread.Enqueue(std::move(Blocked)); });
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-			while (Thread.GetStats().BackpressureWaitCount == 0)
+			while (Thread.GetStats().FramePressureWaitCount == 0)
 			{
 				require(std::chrono::steady_clock::now() < Deadline);
 				std::this_thread::yield();
@@ -416,9 +319,7 @@ namespace Durin
 	{
 		FRHIThread Thread;
 		FRHIThreadTestGuard Guard(Thread);
-		FRHIThreadQueueLimits Limits;
-		Limits.MaxPayloadBytes = 8;
-		ASSERT_TRUE(Thread.Start(Limits));
+		ASSERT_TRUE(Thread.Start());
 		std::atomic<uint32> AcceptedDestroyedCount = 0;
 
 		struct FTrackedCapture

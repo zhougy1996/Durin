@@ -336,7 +336,7 @@ namespace Durin
 		RHI_API auto QueueCommandList(FRHICommandList&& CommandList) -> void;
 		// Preserve a closed submission boundary for dependency-gated replay.
 		// Hands recorded work to the RHI executor without a completion wait or GPU flush.
-		// Bounded queue admission can apply backpressure; inline mode replays locally.
+		// This dispatch consumes zero frame slots. Inline mode replays locally.
 		RHI_API auto DispatchToRHIThread() -> uint64;
 		RHI_API auto IsRHIThreadEnabled() const -> bool;
 		// False while a render pass, diagnostic/timing scope, buffer lock, or GPU submission is open.
@@ -419,7 +419,7 @@ namespace Durin
 		// Runs one ordered operation on the active replay owner. Threaded callers
 		// block for the exact queue serial; inline diagnostics execute locally.
 		// Callers report heap storage exclusively owned by the queued callback so
-		// the bounded RHI queue accounts it together with command payloads.
+		// the RHI queue accounts it together with command payloads.
 		RHI_API auto ExecuteSynchronousOperation(
 			bool bFlushRecordedCommands,
 			std::function<void()> Operation,

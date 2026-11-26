@@ -158,9 +158,8 @@ and `WriteBuffer` return void. Invalid ranges, resource types,
 or cyclic Uniform resource ownership violate enforced preconditions. Native creation
 uses the [required-success contract](RHICommandExecution.md#required-success-resource-creation).
 Native allocation failures and OOM terminate, including deferred allocations
-during consuming replay. Executor backpressure remains
-at the submission boundary; a single payload beyond the queue byte threshold
-runs alone.
+during consuming replay. Queue diagnostics count the owned upload bytes through replay
+and capture retirement.
 
 ## Binding and Attachment Ownership
 

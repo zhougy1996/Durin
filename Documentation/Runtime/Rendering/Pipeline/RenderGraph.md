@@ -364,8 +364,7 @@ releases close. An open outer timing/diagnostic scope or buffer lock defers it
 to a later safe boundary. Whole-view GPU timing therefore delays dispatch until
 the renderer closes that query after graph recording. `RDG.DispatchRecordedBatches` reports each dispatch boundary.
 This hands commands to the RHI thread without forcing native GPU submission or
-waiting for replay completion; bounded queue admission can still backpressure
-the producer. Inline and context-free recording retain their deferred behavior.
+waiting for replay completion. Intra-frame dispatch consumes zero frame slots. Inline and context-free recording retain their deferred behavior.
 A later recording failure does not undo an already dispatched prefix.
 
 Immediate-only `AddPass` callbacks remain supported. Barriers,
