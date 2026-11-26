@@ -44,6 +44,8 @@ namespace Durin
 		-> ERHIExecutionMode;
 
 	RHI_API auto RHIInit(FRHIInitializationContext Context) -> bool;
+	// Published by successful RHI initialization before the rendering thread starts.
+	RHI_API auto IsRHIInitialized() -> bool;
 	RHI_API auto RHIExit() -> void;
 	// Broadcast before the command-list flush and backend shutdown so upper
 	// layers can drop device-backed references while the RHI is still valid.

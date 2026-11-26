@@ -10,6 +10,7 @@
 namespace Durin
 {
 	static std::unique_ptr<FRHIThread> RHIThreadOwner;
+	static std::atomic<bool> GRHIInitialized{false};
 	static const char* GOwnedBackendModuleName = nullptr;
 	static FRHIReleaseResourcesDelegate RHIReleaseResourcesDelegate;
 	static std::atomic<bool> GSampleGPUTiming{!DURIN_BUILD_SHIPPING};
@@ -155,6 +156,7 @@ namespace Durin
 			// The command list exists before the backend; bind its default pipeline
 			// only after the context is valid.
 			FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::Graphics);
+			GRHIInitialized.store(true, std::memory_order_release);
 			DURIN_DEBUG("RHI initialized");
 			return true;
 		}
@@ -264,6 +266,11 @@ namespace Durin
 			std::move(Context));
 	}
 
+	auto IsRHIInitialized() -> bool
+	{
+		return GRHIInitialized.load(std::memory_order_acquire);
+	}
+
 	auto RHIExit() -> void
 	{
 		requiref(GIsGameThreadIdInitialized && IsInGameThread(),
@@ -286,6 +293,7 @@ namespace Durin
 		// Final replay and cache destruction can both release the last resource reference.
 		Cache.reset();
 		RHIFlushDeferredResources();
+		GRHIInitialized.store(false, std::memory_order_release);
 		GDynamicRHI->Shutdown();
 		delete GDynamicRHI;
 		GDynamicRHI = nullptr;

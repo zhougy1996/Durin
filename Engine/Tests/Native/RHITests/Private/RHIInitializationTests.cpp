@@ -201,6 +201,7 @@ namespace Durin
 			FRHIInitializationContext::Headless()));
 
 		EXPECT_EQ(GDynamicRHI, nullptr);
+		EXPECT_FALSE(IsRHIInitialized());
 		EXPECT_EQ(Observation.InitCount, 0u);
 		EXPECT_EQ(Observation.ShutdownCount, 0u);
 		EXPECT_EQ(Observation.DestructionCount, 1u);
@@ -253,6 +254,7 @@ namespace Durin
 			ASSERT_TRUE(RHIInitWithBackendForTests(
 				new FFailingDynamicRHI(Observation, false), bThreaded, false,
 				FRHIInitializationContext::Headless()));
+			EXPECT_TRUE(IsRHIInitialized());
 			EXPECT_TRUE(Observation.bInitExecutionAllowed);
 			EXPECT_EQ(IsInRHIExecutionThread(), !bThreaded);
 			bool bExecuted = false;
@@ -293,6 +295,7 @@ namespace Durin
 				EXPECT_TRUE(Held);
 			}, 0);
 			RHIExit();
+			EXPECT_FALSE(IsRHIInitialized());
 			EXPECT_EQ(Deleted, 2u);
 			EXPECT_EQ(Observation.ShutdownCount, 1u);
 			EXPECT_FALSE(Observation.bShutdownOnRHIThread);

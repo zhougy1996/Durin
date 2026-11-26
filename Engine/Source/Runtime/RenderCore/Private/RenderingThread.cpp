@@ -5,6 +5,7 @@
 #include "Threading/Task.h"
 
 #include "RHICommandList.h"
+#include "RHIGlobals.h"
 #include "RenderResource.h"
 #include "Profiling/Profiling.h"
 
@@ -194,7 +195,7 @@ namespace Durin
 				if (Fence)
 				{
 					// The CPU fence covers native submission when a backend is active.
-					const auto Flags = GDynamicRHI ? ERHISubmitFlags::SubmitToGPU : ERHISubmitFlags::None;
+					const auto Flags = IsRHIInitialized() ? ERHISubmitFlags::SubmitToGPU : ERHISubmitFlags::None;
 					const uint64 Serial = GCommandListExecutor.Submit({}, Flags);
 					*Fence = GCommandListExecutor.CreateFence(Serial);
 				}

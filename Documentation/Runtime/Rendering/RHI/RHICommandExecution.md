@@ -485,8 +485,9 @@ See [runtime shutdown](../../Application/RuntimeLifecycle.md).
 `FFrameSync::Sync(EndFrame)` limits GameThread lead over the rendering thread to
 one frame and lead over RHI CPU submission to two frames. Each frame inserts
 a render fence and an RHI fence. The game thread waits for the render fence
-from frame N-1 and the RHI fence from frame N-2. With a backend active,
-the RHI fence covers submission of pending native commands. `Threads` and `FlushRenderingCommands()` synchronize accepted work
+from frame N-1 and the RHI fence from frame N-2. After successful RHI initialization,
+the RHI fence covers submission of pending native commands. Before initialization
+it fences CPU command replay only. `Threads` and `FlushRenderingCommands()` synchronize accepted work
 through the exact RHI serial captured on the rendering thread.
 Final render shutdown also drains cleanup queued behind the fence.
 `FlushRenderingCommands()` is a GameThread no-op when the rendering thread is
