@@ -646,7 +646,7 @@ namespace Durin
 		FThreadEvent WorkerFreed, ReleaseChild;
 		Tasks::FTask ChildObservation;
 		auto Parent = Tasks::LaunchTask("DirectNestedParent", [&]() {
-			auto Child = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [&] { ReleaseChild.Wait(); });
+			auto Child = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] { ReleaseChild.Wait(); }, Tasks::ETaskThread::BlockingIO);
 			ChildObservation = Child;
 			Tasks::AddNested(Child);
 			auto Marker = Tasks::LaunchTask("AfterParentBody", [&] { WorkerFreed.Trigger(); });
@@ -1027,12 +1027,12 @@ namespace Durin
 		FThreadEvent CpuStarted, IoStarted, Release;
 		struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } Resume{Release};
 		auto CpuBlocker = Tasks::LaunchTask("ExternalCpuBlocker", [&] { CpuStarted.Trigger(); Release.Wait(); });
-		auto IoBlocker = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [&] { IoStarted.Trigger(); Release.Wait(); });
+		auto IoBlocker = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] { IoStarted.Trigger(); Release.Wait(); }, Tasks::ETaskThread::BlockingIO);
 		ASSERT_TRUE(CpuStarted.WaitFor(2)); ASSERT_TRUE(IoStarted.WaitFor(2));
 		std::atomic<uint32> CpuRuns = 0, IoRuns = 0;
 		auto Cpu = Tasks::LaunchTask("ExternalCpuPrerequisite", [&] { ++CpuRuns; });
 		const auto Dependencies = Tasks::Prerequisites(Cpu);
-		auto Io = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [&] { ++IoRuns; }, {.Prerequisites = {Dependencies.begin(), Dependencies.end()}});
+		auto Io = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] { ++IoRuns; }, Dependencies, Tasks::ETaskThread::BlockingIO);
 		FTaskWaitResult Result;
 		std::thread Caller([&] { Result = Io.WaitDetailed(0.02); });
 		Caller.join();
@@ -1099,11 +1099,11 @@ namespace Durin
 		FThreadEvent Waiting, AllowNested;
 		std::atomic<uint32> ChildRuns = 0;
 		auto Parent = Tasks::LaunchTask("CrossExecutorWaiter", [&] {
-			auto Io = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [&] {
+			auto Io = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] {
 				AllowNested.WaitFor(2);
 				auto Child = Tasks::LaunchTask("LateCpuNestedChild", [&] { ++ChildRuns; });
 				Tasks::AddNested(Child);
-			});
+			}, Tasks::ETaskThread::BlockingIO);
 			EXPECT_EQ(Io.WaitDetailed(0.003).WaitStatus, ETaskWaitStatus::TimedOut);
 			Waiting.Trigger();
 			EXPECT_EQ(Io.WaitDetailed(2).TaskState, ETaskState::Succeeded);
@@ -1510,11 +1510,11 @@ namespace Durin
 			std::atomic<bool> Retired = false;
 			auto Handoff = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] { ++Calls; }, Signal, Tasks::ETaskThread::GameThread);
 			struct FOwner { std::atomic<bool>& Flag; ~FOwner() { Flag = true; } };
-			auto Producer = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION,
+			auto Producer = Tasks::LaunchTask(DURIN_SOURCE_LOCATION,
 				[Signal, Owner = std::shared_ptr<FOwner>(new FOwner{Retired})]() mutable {
 					while (IsTaskSchedulerRunning()) std::this_thread::yield();
 					Signal.Trigger();
-				});
+				}, Tasks::ETaskThread::BlockingIO);
 			Producer = {}; // Scheduler drain must retain the actual producer, not just its signal.
 			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 			EXPECT_TRUE(Retired.load());
@@ -1820,17 +1820,17 @@ namespace Durin
 		for (bool Drain : {true, false})
 		{
 			ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .NumBlockingIOThreads = 1}));
-			auto Parent = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [] {
-				auto Child = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [] { return 11; });
+			auto Parent = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {
+				auto Child = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] { return 11; }, Tasks::ETaskThread::BlockingIO);
 				Tasks::AddNested(Child);
 
 				auto Task = std::move(Child);
 				EXPECT_EQ(ETaskState::Succeeded, Task.WaitDetailed().TaskState);
-			});
+			}, Tasks::ETaskThread::BlockingIO);
 			auto ParentTask = std::move(Parent);
 			EXPECT_EQ(ETaskState::Succeeded, ParentTask.WaitDetailed().TaskState);
 			FThreadEvent Started, Release;
-			auto IO = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [&] { Started.Trigger(); Release.Wait(); return 3; });
+			auto IO = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] { Started.Trigger(); Release.Wait(); return 3; }, Tasks::ETaskThread::BlockingIO);
 			auto Task = std::move(IO);
 			auto Edge = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [Task]() {
 			auto Value = Task.GetResult(); return Value + 1; }, Task);
@@ -1870,9 +1870,9 @@ namespace Durin
 		FThreadEvent CpuBlocked, ReleaseCpu, Finished;
 		auto Blocker = Durin::Tasks::FTask(Tasks::LaunchTask("HoldCpu", [&] { CpuBlocked.Trigger(); ReleaseCpu.Wait(); }));
 		ASSERT_TRUE(CpuBlocked.WaitFor(1.0));
-		auto Parent = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [&] {
+		auto Parent = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] {
 			auto Child = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {
-				auto IO = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [] {});
+				auto IO = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, Tasks::ETaskThread::BlockingIO);
 				Tasks::AddNested(IO);
 				auto Task = std::move(IO);
 				EXPECT_EQ(ETaskState::Succeeded, Task.WaitDetailed().TaskState);
@@ -1881,7 +1881,7 @@ namespace Durin
 			auto Task = std::move(Child);
 			EXPECT_EQ(ETaskState::Succeeded, Task.WaitDetailed().TaskState);
 			Finished.Trigger();
-		});
+		}, Tasks::ETaskThread::BlockingIO);
 		const bool CompletedWhileCpuBlocked = Finished.WaitFor(1.0);
 		ReleaseCpu.Trigger();
 		EXPECT_TRUE(CompletedWhileCpuBlocked);
@@ -2002,11 +2002,11 @@ namespace Durin
 			for (const auto& Input : Inputs) Values.push_back(Input.GetResult());
 			return Values;
 		}, Inputs);
-		auto Io = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [] {
-			auto Child = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [] { return 9; });
+		auto Io = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {
+			auto Child = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] { return 9; }, Tasks::ETaskThread::BlockingIO);
 			Tasks::AddNested(Child);
 			return std::move(Child.GetResult());
-		});
+		}, Tasks::ETaskThread::BlockingIO);
 		Gate.Trigger();
 		EXPECT_EQ(9, std::move(Io.GetResult()));
 		auto Values = std::move(All.GetResult());

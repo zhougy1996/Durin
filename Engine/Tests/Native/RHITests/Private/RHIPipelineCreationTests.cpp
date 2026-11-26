@@ -294,13 +294,11 @@ namespace Durin
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
-		for (bool BlockingIO : {false, true})
+		for (auto Thread : {Tasks::ETaskThread::Worker, Tasks::ETaskThread::BlockingIO})
 		{
-			auto RequestPipeline = [&] {
+			auto Task = Tasks::LaunchTask("direct queue admission", [&] {
 				return Owner.RequestCompute(Initializer, "task PSO");
-			};
-			auto Task = BlockingIO ? Tasks::LaunchBlockingIO("direct queue admission", RequestPipeline)
-				: Tasks::LaunchTask("direct queue admission", RequestPipeline);
+			}, Thread);
 			ASSERT_TRUE(Task.Wait(5));
 			const auto& Request = Task.GetResult();
 			ASSERT_TRUE(Request.IsValid());

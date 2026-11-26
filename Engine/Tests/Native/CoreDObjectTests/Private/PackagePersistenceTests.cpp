@@ -321,10 +321,10 @@ TEST_F(FPackagePersistenceTests, RejectedPublicationDoesNotWaitForOccupiedIoWork
 		~FRelease() { Event.Trigger(); for (const auto& Task : Tasks) Task.Wait(); }
 	} Resume{Release, Blockers};
 	for (uint32 Index = 0; Index < WorkerCount; ++Index)
-		Blockers.push_back(Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [&] {
+		Blockers.push_back(Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [&] {
 			if (Entered.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
 			Release.Wait();
-		}));
+		}, Tasks::ETaskThread::BlockingIO));
 	ASSERT_TRUE(Started.WaitFor(5));
 	PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::RejectAdmission);
 	bool ReturnedWithoutIoProgress = false;

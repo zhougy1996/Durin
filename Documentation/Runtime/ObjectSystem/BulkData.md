@@ -198,7 +198,7 @@ retaining task state. Rejected waits remain caller-local errors and preserve the
 live request outcome. Runtime/editor Bulk adapters translate failures into their own
 domain; mesh/source adapters retain only the failed read error, never its full result.
 
-Loose-file range reads use `Tasks::LaunchBlockingIO`. Owned and prepared snapshot
+Loose-file range reads use `Tasks::LaunchTask` with `Tasks::ETaskThread::BlockingIO`. Owned and prepared snapshot
 reads return completed requests holding views of the resident bytes.
 Transforms launch ordinary Worker tasks with the input task as a completion
 prerequisite. Their bodies inspect the input state and convert predecessor

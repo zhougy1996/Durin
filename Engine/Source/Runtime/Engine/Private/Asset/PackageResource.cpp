@@ -647,12 +647,12 @@ namespace Durin
 		Tasks::FTaskExecutionOptions Options;
 
 		Options.Attribution = PackageResourceAttribution();
-		State->Bind(Tasks::LaunchBlockingIO("PackageResource.ReadRange",
+		State->Bind(Tasks::LaunchTask("PackageResource.ReadRange",
 			[Self = std::move(Self), State, Offset, Size]() {
 				if (State->bCancelled.load(std::memory_order_acquire))
 					return Result(EPackageResourceReadStatus::Cancelled, {.Message = "Package range request was cancelled."});
 				return Self->ReadRangeImpl(Offset, Size, State->bCancelled);
-			}, Options));
+			}, Tasks::ETaskThread::BlockingIO, Options));
 		return FPackageResourceRequest(std::move(State));
 	}
 

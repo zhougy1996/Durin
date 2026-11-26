@@ -622,10 +622,10 @@ namespace Durin
 						if (Asset.IsRedirector()) Paths.push_back(Asset.RedirectDestination.GetPackagePath());
 					Sources.push_back(*Entry);
 				}
-				Job->Read = Tasks::LaunchBlockingIO("Asset.PackageRead",
+				Job->Read = Tasks::LaunchTask("Asset.PackageRead",
 					[Sources = std::move(Sources), Job]() mutable {
 						return ReadInputs(std::move(Sources), Job->Cancellation);
-					});
+					}, Tasks::ETaskThread::BlockingIO);
 				State.State = EAssetLoadState::Loading;
 				Jobs.push_back(std::move(Job));
 			}

@@ -43,8 +43,8 @@ namespace Durin::DerivedData
 				// The DDC owner owns work lifetime; queue pumps must not donate their Core scope.
 				Options.Priority = Params.Priority == ERequestPriority::High ? ETaskPriority::High
 					: Params.Priority == ERequestPriority::Low ? ETaskPriority::Low : ETaskPriority::Normal;
-				Scheduled->Task = IO ? Tasks::LaunchBlockingIO(Name.c_str(), std::move(Work), Options)
-					: Tasks::LaunchTask(Name.c_str(), std::move(Work), Options);
+				const auto Thread = IO ? Tasks::ETaskThread::BlockingIO : Tasks::ETaskThread::Worker;
+				Scheduled->Task = Tasks::LaunchTask(Name.c_str(), std::move(Work), Thread, Options);
 				return Scheduled;
 			}
 		private:

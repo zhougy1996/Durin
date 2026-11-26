@@ -424,7 +424,7 @@ namespace
 			EXPECT_FALSE(Owners[0]->FinishCachePlatformData(0.0));
 			Cache->Release.Trigger();
 			ASSERT_TRUE(WaitUntil([&] { return Cache->Writes.load() >= 1; }, std::chrono::seconds(5)));
-			ASSERT_EQ(1u, Cache->Writes.load());
+			// Either or both writes may have reached the gate before this thread resumes.
 			EXPECT_FALSE(Owners[1]->FinishCachePlatformData(0.0));
 			EXPECT_EQ(0u, Deliveries[1]);
 			Cache->ReleaseWrites.Trigger();

@@ -337,7 +337,7 @@ namespace Durin
 	{
 		FTaskSchedulerQualificationGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
-		for (auto Target : {ETaskTarget::AnyWorker, ETaskTarget::BlockingIO})
+		for (auto Target : {Tasks::ETaskThread::Worker, Tasks::ETaskThread::BlockingIO})
 		{
 
 			std::vector<double> Samples;
@@ -346,7 +346,7 @@ namespace Durin
 				FThreadEvent StartedA, StartedB, Release, CpuDone;
 				auto LaunchBlocker = [&](const char* Name, FThreadEvent& Started) {
 					auto Block = [&] { Started.Trigger(); Release.Wait(); };
-					return Target == ETaskTarget::BlockingIO ? Tasks::LaunchBlockingIO(Name, Block) : Tasks::LaunchTask(Name, Block);
+					return Tasks::LaunchTask(Name, Block, Target);
 				};
 				auto A = Durin::Tasks::FTask(LaunchBlocker("MixedBlockA", StartedA));
 				auto B = Durin::Tasks::FTask(LaunchBlocker("MixedBlockB", StartedB));
@@ -360,7 +360,7 @@ namespace Durin
 				}));
 				const bool RanWhileBlocked = CpuDone.WaitFor(0.01);
 				Release.Trigger();
-				EXPECT_EQ(Target == ETaskTarget::BlockingIO, RanWhileBlocked);
+				EXPECT_EQ(Target == Tasks::ETaskThread::BlockingIO, RanWhileBlocked);
 				EXPECT_EQ(ETaskState::Succeeded, A.WaitDetailed().TaskState);
 				EXPECT_EQ(ETaskState::Succeeded, B.WaitDetailed().TaskState);
 				EXPECT_EQ(ETaskState::Succeeded, CPU.WaitDetailed().TaskState);

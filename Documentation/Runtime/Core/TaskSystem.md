@@ -21,7 +21,7 @@ lifetime. Ordinary resource owners keep
 their task handles and completion events, stop their own producer admission,
 then cancel/wait the accepted work before releasing captures or resource state.
 There is no general task-group or group-join facade.
-`LaunchBlockingIO` submits blocking work to the internal I/O pool.
+Pass `ETaskThread::BlockingIO` to `LaunchTask` to run blocking work on the internal I/O pool.
 Pass `ETaskThread::GameThread` to `LaunchTask` after the callable or its prerequisites,
 before any options, to enqueue a callback for the next eligible GameThread pump.
 Nested submissions record the executing parent identity.

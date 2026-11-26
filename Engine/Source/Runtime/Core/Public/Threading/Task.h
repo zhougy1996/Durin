@@ -270,12 +270,17 @@ namespace Durin::Tasks
 	}
 
 	// GameThread submissions run when the deferred queue is pumped.
-	enum class ETaskThread : uint8 { Worker, GameThread };
+	enum class ETaskThread : uint8
+	{
+		Worker = static_cast<uint8>(ETaskTarget::AnyWorker),
+		GameThread = static_cast<uint8>(ETaskTarget::GameThreadDeferred),
+		BlockingIO = static_cast<uint8>(ETaskTarget::BlockingIO),
+	};
 
 	template<typename F>
 	auto LaunchTask(const char* Name, F&& Function, ETaskThread Thread, const FTaskExecutionOptions& Options = {})
 	{
-		const auto Target = Thread == ETaskThread::GameThread ? ETaskTarget::GameThreadDeferred : ETaskTarget::AnyWorker;
+		const auto Target = static_cast<ETaskTarget>(Thread);
 		return Detail::LaunchTaskImpl(Name, Target, Options, std::forward<F>(Function));
 	}
 
@@ -311,24 +316,6 @@ namespace Durin::Tasks
 	requires (Detail::CTaskDependency<R> || Detail::CTaskDependencyCollection<R>)
 	auto LaunchTask(const char* Name, F&& Function, const R& Inputs, FTaskExecutionOptions Options = {})
 	{ return LaunchTask(Name, std::forward<F>(Function), Inputs, ETaskThread::Worker, std::move(Options)); }
-
-	template<typename F>
-	auto LaunchBlockingIO(const char* Name, F&& Function, const FTaskExecutionOptions& Options = {})
-	{
-		return Detail::LaunchTaskImpl(Name, ETaskTarget::BlockingIO, Options, std::forward<F>(Function));
-	}
-
-	template<typename F, Detail::CTaskDependencyCollection R>
-	auto LaunchBlockingIO(const char* Name, F&& Function, const R& Inputs,
-		FTaskExecutionOptions Options = {})
-	{
-		return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {
-			return LaunchBlockingIO(Name, std::forward<F>(Function), BoundOptions);
-		});
-	}
-	template<typename F, Detail::CTaskDependency T>
-	auto LaunchBlockingIO(const char* Name, F&& Function, const T& Input, FTaskExecutionOptions Options = {})
-	{ return LaunchBlockingIO(Name, std::forward<F>(Function), Prerequisites(Input), Options); }
 
 	// Declares an independent CPU graph: unfinished prerequisites/nested work must
 	// also be independent CPU tasks; completed inputs impose no progress requirements. Children
