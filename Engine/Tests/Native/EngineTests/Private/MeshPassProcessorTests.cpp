@@ -51,25 +51,27 @@ TEST(FRendererSceneContractTests, MeshPassProcessorsSelectPassShaders)
 {
 	using namespace Durin; using namespace RendererPrivate;
 	std::unordered_set<uint8> Registered;
-	for (const auto Pass : FPassProcessorManager::GetRegisteredPasses())
+	for (const auto Pass : FPassProcessorManager::GetRegisteredPasses(EShadingPath::Deferred))
 	{
-		const auto* Processor = &FPassProcessorManager::GetMeshPassProcessor(Pass);
+		const auto* Processor = &FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, Pass);
+		EXPECT_EQ(EnumHasAnyFlags(FPassProcessorManager::GetPassFlags(EShadingPath::Deferred, Pass), EMeshPassFlags::CachedMeshCommands),
+			Pass != EMeshPipelinePass::HitProxy);
 		EXPECT_TRUE(Registered.insert(static_cast<uint8>(Processor->GetPass())).second);
-		EXPECT_EQ(&FPassProcessorManager::GetMeshPassProcessor(Processor->GetPass()), Processor);
+		EXPECT_EQ(&FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, Processor->GetPass()), Processor);
 		EXPECT_NE(Processor->GetFragmentShader(EMaterialBlendMode::Opaque).Type, nullptr);
 	}
-	const auto& Shadow = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::ShadowDepth);
+	const auto& Shadow = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::ShadowDepth);
 	EXPECT_EQ(Shadow.GetVertexFactoryPass(), MaterialMeshPassShadow);
 	EXPECT_NE(Shadow.GetFragmentShader(EMaterialBlendMode::Opaque).Type, Shadow.GetFragmentShader(EMaterialBlendMode::Masked).Type);
 	EXPECT_NE(Shadow.GetFragmentShader(EMaterialBlendMode::Masked).Type,
-		FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::Forward).GetFragmentShader(EMaterialBlendMode::Masked).Type);
-	EXPECT_EQ(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass(), MaterialMeshPassGBuffer);
-	const auto& Water = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::SingleLayerWater);
+		FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::Forward).GetFragmentShader(EMaterialBlendMode::Masked).Type);
+	EXPECT_EQ(FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::GBuffer).GetVertexFactoryPass(), MaterialMeshPassGBuffer);
+	const auto& Water = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::SingleLayerWater);
 	EXPECT_FALSE(Water.IsMeshRelevant({}));
 	FMaterialPlanningPassIdentity WaterMaterial;
 	WaterMaterial.ShaderMap.ShadingModel = EMaterialShadingModel::SingleLayerWater;
 	EXPECT_TRUE(Water.IsMeshRelevant(WaterMaterial));
-	EXPECT_FALSE(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::HybridRetainedForward).IsMeshRelevant(WaterMaterial));
+	EXPECT_FALSE(FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::HybridRetainedForward).IsMeshRelevant(WaterMaterial));
 	const auto Pipeline = Water.DescribeMeshDraw(MakeMeshPipelineState(WaterMaterial, {}),
 		FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList, EMaterialBlendMode::Opaque, false);
 	EXPECT_EQ(Pipeline.RenderTargets.NumColorRenderTargets, 3u);
@@ -83,10 +85,10 @@ TEST(FRendererSceneContractTests, MeshPassCollectorsCoverEffectiveDrawRasterStat
 	using namespace Durin; using namespace RendererPrivate;
 	FSceneRenderPreparationConfig Config;
 	for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
-		for (const auto Pass : FPassProcessorManager::GetRegisteredPasses())
+		for (const auto Pass : FPassProcessorManager::GetRegisteredPasses(EShadingPath::Deferred))
 			for (uint8 Bits = 0; Bits < 16; ++Bits)
 			{
-				const auto* Processor = &FPassProcessorManager::GetMeshPassProcessor(Pass);
+				const auto* Processor = &FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, Pass);
 				FMaterialPlanningPassIdentity Material;
 				Material.ShaderMap.BlendMode = Blend;
 				FPSOPrecacheParams Params;
@@ -107,35 +109,61 @@ TEST(FRendererSceneContractTests, MeshPassCollectorsCoverEffectiveDrawRasterStat
 
 TEST(FRendererSceneContractTests, PassProcessorRegistrationRejectsInvalidFactoriesWithoutReplacingLivePasses)
 {
-	using namespace Durin::RendererPrivate;
+	using namespace Durin; using namespace RendererPrivate;
 	const auto Pass = EMeshPipelinePass::Forward;
-	const auto* Original = &FPassProcessorManager::GetMeshPassProcessor(Pass);
+	const auto* Original = &FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, Pass);
 	const auto UnexpectedCreate = +[](int32) -> std::unique_ptr<FMeshPassProcessor> {
 		ADD_FAILURE() << "A duplicate factory must not be invoked.";
 		return {};
 	};
 	{
-		FRegisterPassProcessorCreateFunction Duplicate(UnexpectedCreate, Pass);
+		FRegisterPassProcessorCreateFunction Duplicate(UnexpectedCreate, EShadingPath::Deferred, Pass, EMeshPassFlags::None);
 		EXPECT_FALSE(Duplicate.IsRegistered());
-		EXPECT_EQ(&FPassProcessorManager::GetMeshPassProcessor(Pass), Original);
+		EXPECT_EQ(&FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, Pass), Original);
 	}
-	EXPECT_TRUE(FPassProcessorManager::IsRegistered(Pass));
-	EXPECT_EQ(&FPassProcessorManager::GetMeshPassProcessor(Pass), Original);
-	const auto First = FPassProcessorManager::CreateMeshPassProcessor(Pass);
-	const auto Second = FPassProcessorManager::CreateMeshPassProcessor(Pass);
+	EXPECT_TRUE(FPassProcessorManager::IsRegistered(EShadingPath::Deferred, Pass));
+	EXPECT_EQ(&FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, Pass), Original);
+	const auto First = FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Deferred, Pass);
+	const auto Second = FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Deferred, Pass);
 	ASSERT_TRUE(First && Second);
 	EXPECT_NE(First.get(), Second.get());
 	EXPECT_EQ(First->GetPass(), Pass);
 	EXPECT_EQ(Second->GetPass(), Pass);
 
-	FRegisterPassProcessorCreateFunction Null(nullptr, EMeshPipelinePass::Forward);
+	FRegisterPassProcessorCreateFunction Null(nullptr, EShadingPath::Deferred, EMeshPipelinePass::Forward, EMeshPassFlags::None);
 	EXPECT_FALSE(Null.IsRegistered());
 	const auto Invalid = static_cast<EMeshPipelinePass>(255);
 	const auto Create = +[](int32) -> std::unique_ptr<FMeshPassProcessor> { return {}; };
-	FRegisterPassProcessorCreateFunction Registration(Create, Invalid);
+	FRegisterPassProcessorCreateFunction Registration(Create, EShadingPath::Deferred, Invalid, EMeshPassFlags::None);
 	EXPECT_FALSE(Registration.IsRegistered());
-	EXPECT_FALSE(FPassProcessorManager::IsRegistered(Invalid));
-	EXPECT_FALSE(FPassProcessorManager::CreateMeshPassProcessor(Invalid));
+	EXPECT_FALSE(FPassProcessorManager::IsRegistered(EShadingPath::Deferred, Invalid));
+	EXPECT_FALSE(FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Deferred, Invalid));
+}
+
+TEST(FRendererSceneContractTests, MeshPassRegistrationsAreScopedToShadingPath)
+{
+	using namespace Durin; using namespace RendererPrivate;
+	constexpr auto Pass = EMeshPipelinePass::HitProxy;
+	const auto DesktopIndex = FPassProcessorManager::GetPSOCollectorIndex(EShadingPath::Deferred, Pass);
+	ASSERT_GE(DesktopIndex, 0);
+	const auto Create = +[](int32 Index) {
+		EXPECT_EQ(Index, 17);
+		return FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Deferred, Pass);
+	};
+	{
+		FRegisterPassProcessorCreateFunction Mobile(Create, EShadingPath::Mobile, Pass, EMeshPassFlags::CachedMeshCommands, 17);
+		ASSERT_TRUE(Mobile.IsRegistered());
+		EXPECT_EQ(FPassProcessorManager::GetPassFlags(EShadingPath::Mobile, Pass), EMeshPassFlags::CachedMeshCommands);
+		EXPECT_EQ(FPassProcessorManager::GetPassFlags(EShadingPath::Deferred, Pass), EMeshPassFlags::None);
+		EXPECT_EQ(FPassProcessorManager::GetPSOCollectorIndex(EShadingPath::Mobile, Pass), 17);
+		EXPECT_TRUE(FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Mobile, Pass));
+		EXPECT_NE(&FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Mobile, Pass),
+			&FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, Pass));
+	}
+	EXPECT_FALSE(FPassProcessorManager::IsRegistered(EShadingPath::Mobile, Pass));
+	EXPECT_EQ(FPassProcessorManager::GetPassFlags(EShadingPath::Mobile, Pass), EMeshPassFlags::None);
+	EXPECT_EQ(FPassProcessorManager::GetPSOCollectorIndex(EShadingPath::Mobile, Pass), -1);
+	EXPECT_EQ(FPassProcessorManager::GetPSOCollectorIndex(EShadingPath::Deferred, Pass), DesktopIndex);
 }
 
 TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrCommands)
@@ -150,7 +178,7 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
         for (bool Main : {false, true})
         for (bool Shadow : {false, true})
         for (bool GBuffer : {false, true})
-        for (const auto Pass : FPassProcessorManager::GetRegisteredPasses()) {
+        for (const auto Pass : FPassProcessorManager::GetRegisteredPasses(EShadingPath::Deferred)) {
             FMaterialPlanningPassIdentity Material;
             Material.ShaderMap.BlendMode = Blend; Material.ShaderMap.ShadingModel = Shading;
             const bool Translucent = Blend == EMaterialBlendMode::Translucent;
@@ -165,7 +193,7 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
             const FMeshPassProcessorBatch Batch{Material, *Factory, {}, EGeometryTopology::TriangleList, {Shadow, Main}, GBuffer};
             FMeshPassShaders Empty;
             FGraphicsPipelineStateInitializer Initializer;
-            auto ProcessorInstance = FPassProcessorManager::CreateMeshPassProcessor(Pass); auto& Processor = *ProcessorInstance;
+            auto ProcessorInstance = FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Deferred, Pass); auto& Processor = *ProcessorInstance;
             const auto Preparation = Processor.BuildPSOInitializer(Batch, Empty, nullptr, Initializer);
             FPreparedStaticMeshPrimitive Primitive; FPreparedStaticMeshDraw Draw;
             FResolvedStaticMeshView::FMaterialUniform Uniform;
@@ -174,7 +202,7 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
             FDynamicMeshDrawCommandStorage Storage; FParallelMeshDrawCommandPass Published({Pass});
             FDynamicPassMeshDrawListContext Context(Storage, Published, Cache);
             Processor.SetDrawListContext(&Context);
-            const auto Result = Processor.AddMeshBatch(Batch, Input);
+            const auto Result = Processor.BuildMeshDrawCommands(Batch, Input);
             // Preparation and draw building share eligibility, with no RHI resources needed for exclusion.
             const auto Expected = Relevant ? EShaderBuildStatus::Error : EShaderBuildStatus::Canceled;
             EXPECT_EQ(Preparation.Status, Expected); EXPECT_EQ(Result.Status, Expected);
@@ -202,11 +230,11 @@ TEST(FRendererSceneContractTests, CachedAndDynamicMeshContextsRejectUnpreparedPa
         FMeshDrawCommandBindingCache Cache;
         const FMeshPassProcessorBatch Batch{Description->Material.PlanningPassIdentity, *Factory,
             {Description->PipelineKey.Rasterizer, Description->PipelineKey.Depth, Description->PipelineKey.ColorBlend}, Description->PipelineKey.Topology, {}};
-        auto ProcessorInstance = FPassProcessorManager::CreateMeshPassProcessor(EMeshPipelinePass::Forward); auto& Processor = *ProcessorInstance;
+        auto ProcessorInstance = FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::Forward); auto& Processor = *ProcessorInstance;
         FCachedMeshDrawCommandStorage Persistent;
         FCachedPassMeshDrawListContext Cached(Persistent, {EMeshPipelinePass::Forward}, Cache);
         Processor.SetDrawListContext(&Cached);
-        const auto CachedResult = Processor.AddMeshBatch(Batch, Input);
+        const auto CachedResult = Processor.BuildMeshDrawCommands(Batch, Input);
         EXPECT_EQ(CachedResult.Status, EShaderBuildStatus::Error); EXPECT_EQ(Persistent.Num(), 0u);
         Input.Pipeline = std::make_shared<const FMeshPassPipeline>(FMeshPassPipelineInitializer{.Pass = EMeshPipelinePass::Forward});
         FDynamicMeshDrawCommandStorage Frame;
@@ -216,13 +244,13 @@ TEST(FRendererSceneContractTests, CachedAndDynamicMeshContextsRejectUnpreparedPa
         // Reuse one destination across failed batches; neither failure publishes a command.
         for (uint32 Index = 0; Index < 2; ++Index) {
             Draw.ResolvedIndex = Index;
-            EXPECT_EQ(Processor.AddMeshBatch(Batch, Input).Status, EShaderBuildStatus::Error);
+            EXPECT_EQ(Processor.BuildMeshDrawCommands(Batch, Input).Status, EShaderBuildStatus::Error);
             EXPECT_TRUE(Pass.GetMeshDrawCommands().empty());
         }
         Processor.SetDrawListContext(nullptr);
-        EXPECT_NE(Processor.AddMeshBatch(Batch, Input).Error.find("local draw-list context"), std::string::npos);
-        const auto& Prototype = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::Forward);
-        EXPECT_NE(Prototype.AddMeshBatch(Batch, Input).Error.find("local draw-list context"), std::string::npos);
+        EXPECT_NE(Processor.BuildMeshDrawCommands(Batch, Input).Error.find("local draw-list context"), std::string::npos);
+        const auto& Prototype = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::Forward);
+        EXPECT_NE(Prototype.BuildMeshDrawCommands(Batch, Input).Error.find("local draw-list context"), std::string::npos);
     });
     FlushRenderingCommands();
 }
@@ -558,11 +586,11 @@ namespace
     struct FStoredCommandSource
     {
         std::shared_ptr<const Durin::RendererPrivate::FMeshPassPipeline> Pipeline;
-        Durin::FMeshDrawDescription Description;
+        Durin::FPreparedStaticMeshDraw Draw{.Command = std::make_shared<Durin::FMeshDrawDescription>()};
         explicit FStoredCommandSource(Durin::RendererPrivate::FMeshPassKey Pass)
             : Pipeline(std::make_shared<const Durin::RendererPrivate::FMeshPassPipeline>(Durin::RendererPrivate::FMeshPassPipelineInitializer{.Pass = Pass.Pass})) {}
         auto Key(uint64 Batch) const -> Durin::RendererPrivate::FCachedMeshDrawCommandStorage::FKey
-        { return Durin::RendererPrivate::FCachedMeshDrawCommandStorage::MakeKey(&Description, Durin::InvalidPrimitiveComponentId, Batch, *Pipeline); }
+        { return Durin::RendererPrivate::FCachedMeshDrawCommandStorage::MakeKey(Draw, {.BatchId = Batch}, *Pipeline); }
         auto MakeCommand(uint64, bool Cached) const -> Durin::RendererPrivate::FMeshDrawCommand
         {
             using namespace Durin; using namespace RendererPrivate;
@@ -953,7 +981,7 @@ TEST(FRendererSceneContractTests, CachedStateBucketOwnsPipelineUntilSourceInvali
     const std::weak_ptr<const FMeshPassPipeline> Lifetime = Pipeline;
     FCachedMeshDrawCommandStorage Scene;
     auto Draw = DrawSource.MakeCommand(1, true); Draw.Pipeline = Pipeline.get();
-    const auto Key = FCachedMeshDrawCommandStorage::MakeKey(&DrawSource.Description, InvalidPrimitiveComponentId, 1, *Pipeline);
+    const auto Key = FCachedMeshDrawCommandStorage::MakeKey(DrawSource.Draw, {.BatchId = 1}, *Pipeline);
     const auto Entry = Scene.Publish(Key, std::move(Draw), *Source, Pipeline, nullptr, {}).Command;
     const auto Selected = Scene.FindCachedCommand(Key, *Source);
     const auto& Info = Selected.Info;

@@ -219,10 +219,17 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
-			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
-				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
-			{ return BuildMeshDrawCommands(Batch, Input, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::ShadowDepth; }
+			auto AddMeshBatch(const FMeshBatch& MeshBatch, uint64 BatchElementMask,
+				const FPrimitiveSceneProxy* PrimitiveSceneProxy, int32 StaticMeshId) -> void override
+			{
+				if (MeshBatch.CastShadow)
+					ProcessStaticMeshBatch(MeshBatch, BatchElementMask, PrimitiveSceneProxy, StaticMeshId, EMeshCollectionPurpose::Shadow);
+			}
+			auto IsMaterialRelevant(const FMaterialPlanningPassIdentity& Material, bool bSupportsGBuffer) const -> bool override
+			{
+				return Material.ShaderMap.BlendMode != EMaterialBlendMode::Translucent;
+			}
 			auto IsEnabled(const FSceneRenderPreparationConfig&) const -> bool override { return true; }
 			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassShadow; }
 			auto GetFragmentShader(FMaterialShaderBlendModeKey Blend) const -> FMeshPassFragmentShader override
@@ -247,7 +254,7 @@ namespace Durin::RendererPrivate
 		auto CreateShadowDepthPSOCollector(ERHIFeatureLevel) -> std::unique_ptr<IPSOCollector>
 		{ return CreateShadowMeshPassProcessor(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, "ShadowDepth")); }
 		const FRegisterPSOCollectorCreateFunction RegisterShadowDepthPSO(&CreateShadowDepthPSOCollector, EShadingPath::Deferred, "ShadowDepth");
-		const FRegisterPassProcessorCreateFunction RegisterShadowMeshPass(&CreateShadowMeshPassProcessor, EMeshPipelinePass::ShadowDepth);
+		const FRegisterPassProcessorCreateFunction RegisterShadowMeshPass(&CreateShadowMeshPassProcessor, EShadingPath::Deferred, EMeshPipelinePass::ShadowDepth, EMeshPassFlags::CachedMeshCommands, RegisterShadowDepthPSO.GetIndex());
 
 	}
 }

@@ -250,8 +250,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests, RecordsDisjointViewCacheChu
 		Options.bEnableGPUCulling = false;
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			std::unordered_set<uint64> GeometryIds;
-			std::unordered_set<const FStaticMeshBatchInputs*> StaticInputs;
-			FStaticMeshBatchCaptureContext Capture;
+			std::unordered_set<const FStaticMeshBatch*> StaticMeshes;
 			for (size_t Index = 0; Index < Views.size(); ++Index)
 			{
 				auto& View = Views[Index];
@@ -270,12 +269,12 @@ TEST(FStaticMeshRenderPreparationQualificationTests, RecordsDisjointViewCacheChu
 				{
 					ASSERT_GT(Info->GetId().Value, Index * KeysPerView);
 					ASSERT_LE(Info->GetId().Value, (Index + 1) * KeysPerView);
-					const auto Batch = Info->GetProxy().DrawStaticElements(Capture);
-					ASSERT_TRUE(Batch && Batch->LODs.size() == 1 && Batch->LODs.front());
-					const auto& Inputs = Batch->LODs.front();
-					ASSERT_EQ(Inputs->Geometry->GetElements().size(), 1u);
-					ASSERT_TRUE(GeometryIds.insert(Inputs->Geometry->GetRecordId()).second);
-					ASSERT_TRUE(StaticInputs.insert(Inputs.get()).second);
+					const auto& List = Info->GetStaticMeshes();
+					ASSERT_TRUE(List && List->Meshes.size() == 1);
+					const auto& StaticMesh = List->Meshes.front();
+					ASSERT_EQ(StaticMesh.GetNumElements(), 1u);
+					ASSERT_TRUE(GeometryIds.insert(StaticMesh.GeometryRecord->GetRecordId()).second);
+					ASSERT_TRUE(StaticMeshes.insert(&StaticMesh).second);
 				}
 			}
 

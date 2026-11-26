@@ -199,7 +199,7 @@ namespace Durin
 		FDynamicMeshDrawCommandStorage DrawCommands;
 		FParallelMeshDrawCommandPass CommandPass({EMeshPipelinePass::HitProxy});
 		FDynamicPassMeshDrawListContext BindingContext(DrawCommands, CommandPass, BindingCache);
-		auto LocalProcessor = FPassProcessorManager::CreateMeshPassProcessor(EMeshPipelinePass::HitProxy, &BindingContext);
+		auto LocalProcessor = FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::HitProxy, &BindingContext);
 		ForEachBasePassBucket(Prepared, [&](const auto& Bucket, EMeshBasePass) {
 			for (const auto& Draw : Bucket)
 			{
@@ -212,7 +212,7 @@ namespace Durin
 				if (!Item.Primitive || !Factory
 					|| !ResolvePreparedMaterialBinding(Draw.Command->Material, Binding, "HitProxyMaterial")) { bReady = false; break; }
 				const auto Program = Draw.Command->Material.CompiledProgram;
-				const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::HitProxy);
+				const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::HitProxy);
 				const auto* VertexType = Factory->UsesGeneratedMaterialVertexStage(Processor.GetVertexFactoryPass())
 					? Factory->GetShaderType(Processor.GetVertexFactoryPass()) : nullptr;
 				// Only this pass's coverage and selected vertex evaluation can make
@@ -259,7 +259,7 @@ namespace Durin
                 const auto& GPU = SceneData.GPUScenePrimitives[Draw.PrimitiveIndex];
                 if (Factory->SupportsGPUScene() && GPU.Buffers)
                 { Input.GPUScene = GPU.Buffers->GetShaderParameters(); Input.InstanceIdOffset = GPU.InstanceIdOffset; }
-				if (!LocalProcessor->AddMeshBatch(Batch, Input)) { bReady = false; break; }
+				if (!LocalProcessor->BuildMeshDrawCommands(Batch, Input)) { bReady = false; break; }
 				Item.Command = CommandPass.GetMeshDrawCommands().back().Command;
 				Draws.push_back(std::move(Item));
 			}
@@ -377,9 +377,6 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
-			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
-				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
-			{ return BuildMeshDrawCommands(Batch, Input, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::HitProxy; }
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override { return Config.Settings.bHitProxy; }
 			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassForward; }
@@ -408,7 +405,7 @@ namespace Durin::RendererPrivate
 		auto CreateHitProxyPSOCollector(ERHIFeatureLevel) -> std::unique_ptr<IPSOCollector>
 		{ return CreatePickingMeshPassProcessor(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, "HitProxy")); }
 		const FRegisterPSOCollectorCreateFunction RegisterHitProxyPSO(&CreateHitProxyPSOCollector, EShadingPath::Deferred, "HitProxy");
-		const FRegisterPassProcessorCreateFunction RegisterPickingMeshPass(&CreatePickingMeshPassProcessor, EMeshPipelinePass::HitProxy);
+		const FRegisterPassProcessorCreateFunction RegisterPickingMeshPass(&CreatePickingMeshPassProcessor, EShadingPath::Deferred, EMeshPipelinePass::HitProxy, EMeshPassFlags::None, RegisterHitProxyPSO.GetIndex());
 
 	}
 }

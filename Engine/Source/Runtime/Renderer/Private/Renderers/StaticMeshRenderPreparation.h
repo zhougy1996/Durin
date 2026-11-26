@@ -88,11 +88,12 @@ namespace Durin
 			return StaticElements ? (*StaticElements)[Index] : Elements[Index];
 		}
 	};
+	struct FStaticMeshBatchList;
 	struct FMeshViewPreparationInput
 	{
 		FBox WorldBounds;
 		std::optional<FMeshLODSelectionSnapshot> LODs;
-		FStaticMeshBatchPublication::FRef StaticBatches;
+		std::shared_ptr<const FStaticMeshBatchList> StaticBatches;
 	};
 	struct FMeshViewPreparationFact
 	{
@@ -132,8 +133,8 @@ namespace Durin
 		};
 		struct FStaticPrimitive
 		{
-			FStaticMeshBatchPublication::FRef Publication;
-			std::vector<size_t> AdmittedLODs;
+			std::shared_ptr<const FStaticMeshBatchList> Publication;
+			std::vector<size_t> AdmittedBatchIndices;
 		};
 		// Scene/proxy inputs are stable for this single receiver/cascade submission.
 		struct FStaticCollection
@@ -201,7 +202,7 @@ namespace Durin
 		FMatrix4f NormalToWorld{1.0f};
 		FMatrix WorldToLocal{1.0};
 		FVector3 BoundsCenter{0.0};
-		bool bRetainedStaticMesh = false;
+		std::shared_ptr<const FStaticMeshBatchList> StaticMeshes;
 		FPrimitiveSceneInfoRef SceneInfo;
 	};
 
@@ -212,7 +213,7 @@ namespace Durin
 		FGeometryDrawRange Geometry;
 		FGeometryBufferView Vertices;
 		FGeometryBufferView Indices;
-		uint32 MaterialSlotDiagnostic = 0;
+		uint32 MaterialSlotIndex = 0;
 		bool bSupportsGBuffer = true;
 		FMaterialRenderData Material;
 		EMeshBasePass Pass = EMeshBasePass::Opaque;
@@ -286,6 +287,7 @@ namespace Durin
 		FVisibleMeshDrawSortKey SortKey;
 		std::optional<std::array<float, 3>> RasterBias;
 		uint32 ResolvedIndex = 0;
+		uint32 StaticMeshIndex = INDEX_NONE_U32;
 		uint32 PrimitiveIndex = 0;
 		uint32 MaterialUniformIndex = UINT32_MAX;
 		double TranslucentSortDepth = 0.0;
@@ -477,6 +479,7 @@ namespace Durin
 		struct FBatch
 		{
 			std::variant<FStaticMeshPreparationCache::FAdmittedBatch, FMeshBatch> Source;
+			uint32 StaticMeshIndex = INDEX_NONE_U32;
 			// Views can request different LODs and select the same admitted fallback.
 			uint32 RequestedLOD = 0;
 			auto GetBatch() const -> const FMeshBatch&
@@ -504,7 +507,7 @@ namespace Durin
 			ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 			bool bPresent = false;
 			bool bSplineMesh = false;
-			bool bRetainedStaticMesh = false;
+			std::shared_ptr<const FStaticMeshBatchList> StaticMeshes;
 			// Empty when projection can run on the immutable preparation snapshot after admission.
 			std::optional<EProjectedScreenSizeStatus> ProjectionStatus = EProjectedScreenSizeStatus::Valid;
 			FBox WorldBounds;
@@ -536,10 +539,10 @@ namespace Durin
 		{
 			std::vector<FBatch> Batches;
 			bool bSourceAvailable = true;
-			std::shared_ptr<const FBatch> StaticShadowBatch;
+			std::vector<std::shared_ptr<const FBatch>> SharedShadowBatches;
 			auto GetBatch(size_t Index) const -> const FBatch&
 			{
-				return StaticShadowBatch ? *StaticShadowBatch : Batches[Index];
+				return SharedShadowBatches.empty() ? Batches[Index] : *SharedShadowBatches[Index];
 			}
 		};
 		std::vector<FPrimitive> Primitives;
@@ -609,10 +612,6 @@ namespace Durin
 		const FSceneView& View, ERasterMode RasterMode, ERenderPreparationMode Mode,
 		FStaticMeshPreparationCache* SharedCache = nullptr) -> FStaticMeshPreparationWork;
 	RENDERER_API auto FinishStaticMeshView(FStaticMeshPreparationWork Work) -> FPreparedStaticMeshView;
-
-	auto PrepareStaticMeshCommandBatches(const FRHICommandListImmediate& Commands,
-		std::span<const FPrimitiveSceneInfo* const> Dirty, const FSceneView& Policy, ERenderPreparationMode Mode,
-		FStaticMeshPreparationCache& Cache) -> FPreparedStaticMeshView;
 
 	RENDERER_API auto PrepareStaticMeshView_RenderThread(
 		const FRHICommandListImmediate& CommandList,

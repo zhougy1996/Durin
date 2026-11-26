@@ -211,9 +211,12 @@ namespace Durin
 		std::ranges::sort(Parameters.VectorParameters, {}, &FMaterialVectorParameterValue::ParameterId);
 		std::ranges::sort(Parameters.TextureParameters, {}, &FMaterialTextureParameterValue::ParameterId);
 		if (ParameterValues == Parameters) return;
+		const bool bCheckDepth = !SceneReferences.empty() && !bProgramUsesWPO && !bCompiling;
+		const bool bHadStableDepth = bCheckDepth && HasStableOpaqueDepth_RenderThread();
 		ParameterValues = std::move(Parameters);
 		InvalidateUniformExpressionCache_RenderThread(false);
 		InvalidateOcclusionHistory_RenderThread();
+		if (bCheckDepth && HasStableOpaqueDepth_RenderThread() != bHadStableDepth) InvalidateStaticDrawLists_RenderThread();
 		GMaterialRenderProxyCounters.ParameterUpdateCount.fetch_add(1);
 	}
 	auto FMaterialRenderProxy::UpdateParameter_GameThread(const FGuid& Id, const FMaterialParameterValue& Value) -> void
@@ -231,9 +234,12 @@ namespace Durin
 		FMaterialParameterValue Current;
 		if (ParameterValues.GetParameterValue(Id, Current) && Current == Value) return;
 		const bool bPreserveOcclusion = CanPreserveOcclusionForParameter(Id, Value);
+		const bool bCheckDepth = !bPreserveOcclusion && !SceneReferences.empty() && !bProgramUsesWPO && !bCompiling;
+		const bool bHadStableDepth = bCheckDepth && HasStableOpaqueDepth_RenderThread();
 		ParameterValues.SetParameter(Id, Value);
 		InvalidateUniformExpressionCache_RenderThread(false);
 		if (!bPreserveOcclusion) InvalidateOcclusionHistory_RenderThread();
+		if (bCheckDepth && HasStableOpaqueDepth_RenderThread() != bHadStableDepth) InvalidateStaticDrawLists_RenderThread();
 		GMaterialRenderProxyCounters.ParameterUpdateCount.fetch_add(1);
 	}
 
@@ -261,6 +267,7 @@ namespace Durin
 	{
 		RecordUpdate_RenderThread();
 		if (bCompiling == Compiling) return;
+		InvalidateStaticDrawLists_RenderThread();
 		bCompiling = Compiling;
 		bHasResolvedData = false;
 		InvalidateOcclusionHistory_RenderThread();

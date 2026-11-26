@@ -23,7 +23,7 @@ namespace Durin
 	struct FStaticMeshRenderObservations;
 	struct FPreparedStaticMeshView;
 	struct FResolvedStaticMeshView;
-	namespace RendererPrivate { struct FMeshPassPipeline; }
+	namespace RendererPrivate { struct FMeshPassPipeline; class FMeshPassProcessor; }
 	struct FResolvedMeshDrawRecord;
 	struct FPreparedStaticMeshDraw;
 	struct FPreparedStaticMeshPrimitive;
@@ -88,9 +88,11 @@ namespace Durin
 		auto PrepareUniforms_RenderThread(FRHICommandListImmediate& CommandList,
 			FScene* Scene, const FSceneView& View, const FPreparedStaticMeshView& PreparedView,
 			FResolvedStaticMeshView& ResolvedView, std::vector<RendererPrivate::FStaticMeshCommandBuildRequest>& CacheRequests, bool bProductionDeferred,
-			bool bGBuffer, bool bShadow = false, bool bAllowPartial = false, bool bSceneUpdate = false) -> bool;
+			bool bGBuffer, bool bShadow = false, bool bAllowPartial = false) -> bool;
 
 	private:
+		friend class FPrimitiveSceneInfo;
+		friend class RendererPrivate::FMeshPassProcessor;
 		auto PrepareSectionResources_RenderThread(const FPreparedStaticMeshPrimitive* Primitive,
 			const FPreparedStaticMeshDraw& Draw, FResolvedMeshDrawRecord& Record,
 			EStaticMeshSectionResourcePolicy Policy, FStaticMeshSectionResourceContext* ResourceContext) -> bool;
@@ -102,7 +104,7 @@ namespace Durin
 			const FPreparedStaticMeshDraw& Item,
 			const FMaterialRenderBinding& MaterialBinding,
 			std::shared_ptr<const RendererPrivate::FMeshPassPipeline>& OutPipeline,
-			RendererPrivate::FMeshPassKey Pass
+			const RendererPrivate::FMeshPassProcessor& Processor
 		) -> bool;
 		struct FState;
 

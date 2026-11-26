@@ -32,8 +32,7 @@ namespace Durin
 		const FMeshCollectionContext& Context, FMeshBatchCollector& Collector) -> void
 	{
 		CheckRenderingThread();
-		if (!RenderData || RenderData->LODResources.empty()
-			|| RenderData->LODVertexFactories.size() != RenderData->LODResources.size())
+		if (!RenderData || !RenderData->HasValidLODLayout())
 		{
 			Collector.RecordOutcome(EGeometrySubmissionOutcome::ResourceFailure);
 			return;
@@ -89,7 +88,7 @@ namespace Durin
 		Batch.PublishedMaterials.reserve(Record->GetElements().size());
 		for (const auto& Geometry : Record->GetElements())
 		{
-			Batch.PublishedMaterials.push_back(QueryMeshMaterial_RenderThread(Proxy.GetMaterialRenderProxy(Geometry.MaterialSlotDiagnostic)));
+			Batch.PublishedMaterials.push_back(QueryMeshMaterial_RenderThread(Proxy.GetMaterialRenderProxy(Geometry.MaterialSlotIndex)));
 		}
 		Collector.Add(std::move(Batch));
 	}

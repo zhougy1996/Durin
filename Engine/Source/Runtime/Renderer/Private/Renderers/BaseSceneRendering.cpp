@@ -1,3 +1,4 @@
+#include "Renderers/MeshPassRelevance.h"
 #include "Renderers/BaseSceneRendering.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Renderers/MeshRendererShared.h"
@@ -310,10 +311,18 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
-			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
-				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
-			{ return BuildMeshDrawCommands(Batch, Input, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return Pass; }
+			auto IsMaterialRelevant(const FMaterialPlanningPassIdentity& Material, bool bSupportsGBuffer) const -> bool override
+			{
+				const bool bTranslucent = Material.ShaderMap.BlendMode == EMaterialBlendMode::Translucent;
+				const bool bWater = Material.ShaderMap.ShadingModel == EMaterialShadingModel::SingleLayerWater;
+				if constexpr (Pass == EMeshPipelinePass::SortedTranslucency) return bTranslucent;
+				if constexpr (Pass == EMeshPipelinePass::HybridRetainedForward)
+					return !bTranslucent && !bWater && !UsesGBuffer(Material, bSupportsGBuffer);
+				if constexpr (Pass == EMeshPipelinePass::SingleLayerWater || Pass == EMeshPipelinePass::SingleLayerWaterDepth)
+					return bWater && !bTranslucent;
+				return true;
+			}
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override
 			{ return Pass == EMeshPipelinePass::Forward ? Config.Settings.bForward : Config.Settings.bHybrid; }
 			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassForward; }
@@ -368,10 +377,10 @@ namespace Durin::RendererPrivate
 		const FRegisterPSOCollectorCreateFunction RegisterSortedPSO(&CreateBasePSOCollector<EMeshPipelinePass::SortedTranslucency>, EShadingPath::Deferred, "SortedTranslucency");
 		const FRegisterPSOCollectorCreateFunction RegisterWaterPSO(&CreateBasePSOCollector<EMeshPipelinePass::SingleLayerWater>, EShadingPath::Deferred, "SingleLayerWater");
 		const FRegisterPSOCollectorCreateFunction RegisterWaterDepthPSO(&CreateBasePSOCollector<EMeshPipelinePass::SingleLayerWaterDepth>, EShadingPath::Deferred, "SingleLayerWaterDepth");
-		const FRegisterPassProcessorCreateFunction RegisterForwardBasePass(&CreateBasePassMeshProcessor<EMeshPipelinePass::Forward>, EMeshPipelinePass::Forward);
-		const FRegisterPassProcessorCreateFunction RegisterHybridRetainedForward(&CreateBasePassMeshProcessor<EMeshPipelinePass::HybridRetainedForward>, EMeshPipelinePass::HybridRetainedForward);
-		const FRegisterPassProcessorCreateFunction RegisterSortedTranslucency(&CreateBasePassMeshProcessor<EMeshPipelinePass::SortedTranslucency>, EMeshPipelinePass::SortedTranslucency);
-		const FRegisterPassProcessorCreateFunction RegisterWater(&CreateBasePassMeshProcessor<EMeshPipelinePass::SingleLayerWater>, EMeshPipelinePass::SingleLayerWater);
-		const FRegisterPassProcessorCreateFunction RegisterWaterDepth(&CreateBasePassMeshProcessor<EMeshPipelinePass::SingleLayerWaterDepth>, EMeshPipelinePass::SingleLayerWaterDepth);
+		const FRegisterPassProcessorCreateFunction RegisterForwardBasePass(&CreateBasePassMeshProcessor<EMeshPipelinePass::Forward>, EShadingPath::Deferred, EMeshPipelinePass::Forward, EMeshPassFlags::CachedMeshCommands, RegisterForwardPSO.GetIndex());
+		const FRegisterPassProcessorCreateFunction RegisterHybridRetainedForward(&CreateBasePassMeshProcessor<EMeshPipelinePass::HybridRetainedForward>, EShadingPath::Deferred, EMeshPipelinePass::HybridRetainedForward, EMeshPassFlags::CachedMeshCommands, RegisterHybridPSO.GetIndex());
+		const FRegisterPassProcessorCreateFunction RegisterSortedTranslucency(&CreateBasePassMeshProcessor<EMeshPipelinePass::SortedTranslucency>, EShadingPath::Deferred, EMeshPipelinePass::SortedTranslucency, EMeshPassFlags::CachedMeshCommands, RegisterSortedPSO.GetIndex());
+		const FRegisterPassProcessorCreateFunction RegisterWater(&CreateBasePassMeshProcessor<EMeshPipelinePass::SingleLayerWater>, EShadingPath::Deferred, EMeshPipelinePass::SingleLayerWater, EMeshPassFlags::CachedMeshCommands, RegisterWaterPSO.GetIndex());
+		const FRegisterPassProcessorCreateFunction RegisterWaterDepth(&CreateBasePassMeshProcessor<EMeshPipelinePass::SingleLayerWaterDepth>, EShadingPath::Deferred, EMeshPipelinePass::SingleLayerWaterDepth, EMeshPassFlags::CachedMeshCommands, RegisterWaterDepthPSO.GetIndex());
 	}
 }

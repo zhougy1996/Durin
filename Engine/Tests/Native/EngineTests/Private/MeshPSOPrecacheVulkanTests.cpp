@@ -238,7 +238,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
         } ReleaseCases{Cases, Aggregate, IndependentAggregate, ReusableCollector};
         // Full raster/topology matrix plus focused participation/configuration cases.
         for (uint8 Scenario = 0; Scenario < 19; ++Scenario)
-        for (const auto Pass : FPassProcessorManager::GetRegisteredPasses())
+        for (const auto Pass : FPassProcessorManager::GetRegisteredPasses(EShadingPath::Deferred))
         {
             if (Scenario == 18 && Pass != EMeshPipelinePass::Forward) continue;
             FCase Case{Pass, InitialConfig, {}, Resource, Scenario < 15 || Scenario == 18 ? Factory : LimitedFactories[Scenario - 15], Scenario};
@@ -268,7 +268,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                 for (auto& Case : Cases) {
                     if (Case.Ready) continue;
                     if (!Case.Processor) {
-                        Case.Processor = Case.Scenario == 18 && ReusableCollector ? std::move(ReusableCollector) : FPassProcessorManager::CreateMeshPassProcessor(Case.Pass);
+                        Case.Processor = Case.Scenario == 18 && ReusableCollector ? std::move(ReusableCollector) : FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Deferred, Case.Pass);
                         auto& Params = Case.RequestParams;
                         Params = AggregateParams;
                         Params.Material.bTwoSided = Case.Material.GetStaticProperties().bTwoSided;

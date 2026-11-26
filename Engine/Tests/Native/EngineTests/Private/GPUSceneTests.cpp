@@ -1127,9 +1127,11 @@ namespace
 			auto SourceA = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
 			auto SourceB = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
 			FCachedMeshDrawCommandStorage Cache;
-			FMeshDrawDescription Description;
-			const auto KeyA = Cache.MakeKey(&Description, FPrimitiveComponentId{1}, 1, *A);
-			const auto KeyB = Cache.MakeKey(&Description, FPrimitiveComponentId{2}, 1, *B);
+			FPreparedStaticMeshDraw Draw{.Command = std::make_shared<FMeshDrawDescription>()};
+			const FPreparedStaticMeshPrimitive PrimitiveA{.PrimitiveId = FPrimitiveComponentId{1}, .BatchId = 1};
+			const FPreparedStaticMeshPrimitive PrimitiveB{.PrimitiveId = FPrimitiveComponentId{2}, .BatchId = 1};
+			const auto KeyA = Cache.MakeKey(Draw, PrimitiveA, *A);
+			const auto KeyB = Cache.MakeKey(Draw, PrimitiveB, *B);
 			EXPECT_EQ(*KeyA.Pipeline, *KeyB.Pipeline);
 			EXPECT_EQ(A->GetIdentity(), A->GetIdentity());
 			EXPECT_EQ(KeyA.Pipeline, A->GetIdentity());
@@ -1140,7 +1142,7 @@ namespace
 			EXPECT_NE(*KeyA.Pipeline, *FMeshPassPipeline(Initializer).GetIdentity());
 			auto ChangedState = B->GetInitializer(); ChangedState.LayoutKey = FXxHash64{123};
 			EXPECT_NE(*KeyA.Pipeline, *FMeshPassPipeline(ChangedState).GetIdentity());
-			EXPECT_EQ(Cache.MakeKey(&Description, FPrimitiveComponentId{1}, 1, *B).Pipeline, KeyB.Pipeline);
+			EXPECT_EQ(Cache.MakeKey(Draw, PrimitiveA, *B).Pipeline, KeyB.Pipeline);
 			auto MakeCommand = [](const FMeshPassPipeline* Pipeline) {
 				FMeshDrawCommand Command; Command.Pipeline = Pipeline;
 				Command.bFinalized = true; Command.bCached = true;

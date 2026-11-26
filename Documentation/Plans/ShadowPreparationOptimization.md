@@ -2,12 +2,16 @@
 
 Summary: Reduce repeated StaticMesh collection, resource resolution and command-hit work across directional shadow cascades while preserving dynamic validation and resource lifetime.
 
-Last reviewed: 2026-11-24
+Last reviewed: 2026-11-26
 
 Status: Active
 Completed:
 
 ## Current Status
+
+Retained draw selection uses the submitted batch index and the pass variant. Replacing the list retires its command slots before the new indices become visible. Win64 Debug validation passed 180 scene contract cases, 29 isolated Vulkan preparation cases, five water rendering cases and the directional shadow baseline. The preparation regression covers independent sections, simultaneous depth variants and reuse of a numeric mesh index after list replacement.
+
+The proxy builds section and unified shadow mesh elements from published LOD resources. Scene-owned static batches extend the submitted mesh batch directly. The Win64 Debug build, StaticMeshTests, RendererSceneContractTests and all 29 isolated StaticMeshRenderPreparationVulkanTests cases passed. The single-process Vulkan suite exited with an access violation. A debugger run stopped in an NVIDIA driver thread during repeated device initialization.
 
 Ordinary static meshes now share admitted batches between the receiver and its
 cascades. See [render-thread alignment Stage 2](UERenderThreadMechanismAlignment.md#stage-2-build-a-dependency-driven-preparation-pipeline)
@@ -28,6 +32,20 @@ ordinary static mesh commands before visibility. The scene update covers
 each ready retained LOD, both receiver depth conventions, supported GBuffer
 layouts and shadow depth. Geometry notifications retire affected source slots
 and queue their replacement even when a primitive is hidden.
+Primitive scene infos retain proxy-submitted static batches for cache construction
+and view selection. Pass registration declares cached-command support. Drawing and PSO collection
+use the same processor-owned material eligibility rules. Cached processors receive
+each submitted batch directly, before view collection or LOD selection.
+The scene-owned batch change based on `98a88dc53` passed the Windows Debug
+editor all-target build, 180 scene contract tests, 29 static mesh Vulkan tests,
+and the mixed-geometry and disjoint-view preparation qualifications.
+The mesh pass registry scopes factories, flags and collector indices to the
+shading path. The desktop routes share Deferred registrations.
+The path-scoped change based on `693c38eba` passed 180 renderer scene contract
+tests and 29 static mesh Vulkan tests on the Windows Debug editor preset.
+The registry-driven change based on `8ff350a09` passed the Windows Debug editor
+all-target build, 179 renderer scene contract tests, 29 static mesh Vulkan tests
+including PSO collection, and the directional shadow sub-texel motion qualification.
 The pre-visibility update based on `1bc3b2cad` passed the Windows Debug editor
 all-target build, 179 scene contract tests, 29 Vulkan static mesh tests and the
 directional shadow behavior/sub-texel motion qualification case. The hidden
@@ -875,6 +893,7 @@ the Stage 0 guardrails without moving cost into another phase.
 Depends on Stage 1 evidence. Outcome: shared dependencies are checked at the
 appropriate primitive/material boundary and views reference compact frame facts.
 
+- [x] Dispatch retained batches directly to each enabled cached pass processor.
 - [x] Reprofile optimized preparation with separate receiver/shadow scopes and
   cache hit/build counts; record UE-informed priorities and remove probes.
 - [x] Split Collector.Add checks/moves/insertion and optimize command-local entry
@@ -892,6 +911,12 @@ appropriate primitive/material boundary and views reference compact frame facts.
   directly from the cached draw-list context.
 - [x] Schedule ordinary static mesh command publication from scene registration
   and invalidation before visibility, including geometry and LOD transitions.
+- [x] Select cached passes through shading-path registrations and verify that
+  registering and removing the same pass on another path preserves desktop state.
+- [x] Retain proxy-submitted static batches on each scene primitive and use the
+  same list for cache construction, receivers and shadows.
+- [x] Index retained command variants through per-batch relevance and reject draws from replaced batch lists.
+- [x] Submit ordinary static mesh sections individually and combine compatible LOD shadow ranges into one shadow-only batch. Keep mesh element construction on the proxy and range merging in LOD resource publication.
 - [ ] Separate current primitive-state validation from shared material/resource
   validation; reuse each within a command without losing current-value checks.
 - [ ] Reduce repeated complete Batch/Record construction, owner copies and small

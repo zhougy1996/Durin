@@ -16,7 +16,7 @@ namespace Durin
 		FGeometryBufferView Indices;
 		std::vector<FGeometryBufferView> InstanceStreams;
 		FBox LocalBounds;
-		uint32 MaterialSlotDiagnostic = 0;
+		uint32 MaterialSlotIndex = 0;
 	};
 
 	// Shared by dynamic admission and immutable publication; neither path trusts

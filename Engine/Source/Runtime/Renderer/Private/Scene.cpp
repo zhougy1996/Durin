@@ -413,6 +413,50 @@ namespace Durin
 		return static_cast<const FSpotLightSceneProxy&>(*Proxy);
 	}
 
+	auto FStaticMeshBatch::CaptureMeshBatch(const FPrimitiveSceneInfo& SceneInfo, FStaticMeshBatchCaptureContext& Capture) const -> FMeshBatch
+	{
+		FMeshBatch Batch = *this;
+		Batch.StaticInputs = CaptureMaterialInputs(Capture);
+		Batch.PrimitiveId = SceneInfo.GetId();
+		Batch.CustomPrimitiveData = SceneInfo.GetProxy().GetCustomPrimitiveData();
+		Batch.CustomInstanceData = SceneInfo.GetProxy().GetDefaultInstanceCustomData();
+		Batch.LocalToWorld = SceneInfo.GetProxy().GetLocalToWorld();
+		Batch.WorldBounds = SceneInfo.GetWorldBounds();
+		return Batch;
+	}
+
+	auto FStaticMeshBatch::CaptureMaterialInputs(FStaticMeshBatchCaptureContext& Context) const
+		-> std::shared_ptr<const FStaticMeshBatchInputs>
+	{
+		CheckRenderingThread();
+		const auto& Material = Context.ResolveMaterial(MaterialRenderProxy);
+		if (!MaterialInputs || MaterialInputs->Material.Representation.GetRecordId() != Material.Representation.GetRecordId())
+			MaterialInputs = std::make_shared<const FStaticMeshBatchInputs>(GeometryRecord, SegmentIndex, Material);
+		return MaterialInputs;
+	}
+
+	auto FPrimitiveSceneInfo::AddStaticMeshes() -> void
+	{
+		struct FBatchingSPDI final : FStaticPrimitiveDrawInterface
+		{
+			FStaticMeshBatchList List;
+			auto DrawMesh(const FMeshBatch& Mesh, float ScreenSize) -> void override
+			{
+				require(Mesh.GeometryRecord && Mesh.SegmentIndex < Mesh.GeometryRecord->GetElements().size() && Mesh.SelectedLOD < Mesh.LODCount);
+				if (List.LODs.size() < Mesh.LODCount) List.LODs.resize(Mesh.LODCount);
+				List.LODs[Mesh.SelectedLOD].ScreenSize = ScreenSize;
+				List.LODs[Mesh.SelectedLOD].bReadyForRendering = true;
+				List.Meshes.emplace_back(Mesh);
+			}
+		} PDI;
+		Proxy->DrawStaticElements(&PDI);
+		if (StaticMeshes || !PDI.List.Meshes.empty()) RemoveCachedMeshDrawCommands();
+		StaticMeshRelevances.resize(PDI.List.Meshes.size());
+		if (PDI.List.Meshes.empty()) { StaticMeshes.reset(); return; }
+		if (auto LODs = Proxy->CaptureLODSelection_RenderThread()) PDI.List.LODs = std::move(*LODs);
+		StaticMeshes = std::make_shared<const FStaticMeshBatchList>(std::move(PDI.List));
+	}
+
 	FPrimitiveSceneInfo::FPrimitiveSceneInfo(FPrimitiveComponentId InId,
 		std::shared_ptr<FPrimitiveSceneProxy> InProxy,
 		const FMatrix& InTransform, FScene* InScene)
@@ -425,6 +469,7 @@ namespace Durin
 		Proxy->SetTransform(InTransform);
 		if (Scene)
 		{
+			AddStaticMeshes();
 			for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->AddSceneReference(*Scene);
 			if (const auto* Mesh = dynamic_cast<const FStaticMeshSceneProxy*>(Proxy.get()); Mesh && Mesh->GetRenderData())
 				Mesh->GetRenderData()->AddSceneReference(*Scene);
@@ -443,6 +488,9 @@ namespace Durin
 		if (DrawLists) DrawLists->Detach(*this);
 		if (Scene)
 		{
+			if (bNeedsStaticMeshUpdate) std::erase(Scene->PrimitivesNeedingStaticMeshUpdate, this);
+			StaticMeshRelevances.clear();
+			StaticMeshes.reset();
 			for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->RemoveSceneReference(*Scene);
 			if (const auto* Mesh = dynamic_cast<const FStaticMeshSceneProxy*>(Proxy.get()); Mesh && Mesh->GetRenderData())
 				Mesh->GetRenderData()->RemoveSceneReference(*Scene);
@@ -461,7 +509,12 @@ namespace Durin
 		for (auto* Primitive : PrimitiveSceneInfos)
 			if (std::ranges::any_of(Primitive->GetProxy().GetUsedMaterials(), [&](const auto& Material) {
 				return std::ranges::find(Materials, Material.GetReference()) != Materials.end();
-			})) { Primitive->BeginDeferredUpdateStaticMeshes(); Updated = true; }
+			}))
+			{
+				Primitive->bNeedsStaticMeshResubmission = true;
+				Primitive->BeginDeferredUpdateStaticMeshes();
+				Updated = true;
+			}
 		if (Updated) ++HitProxyRevision;
 	}
 	auto FPrimitiveSceneInfo::BeginDeferredUpdateStaticMeshes() -> void
@@ -472,7 +525,7 @@ namespace Durin
 	}
 	auto FPrimitiveSceneInfo::RequestStaticMeshUpdate() -> void
 	{
-		if (!Scene || bNeedsStaticMeshUpdate || Kind != EPrimitiveSceneProxyKind::StaticMesh) return;
+		if (!Scene || bNeedsStaticMeshUpdate || !StaticMeshes) return;
 		bNeedsStaticMeshUpdate = true;
 		Scene->PrimitivesNeedingStaticMeshUpdate.push_back(this);
 	}
@@ -486,7 +539,11 @@ namespace Durin
 		}
 		std::vector<FPrimitiveSceneInfo*> Dirty;
 		Dirty.swap(PrimitivesNeedingStaticMeshUpdate);
-		for (auto* Primitive : Dirty) Primitive->bNeedsStaticMeshUpdate = false;
+		for (auto* Primitive : Dirty)
+		{
+			Primitive->bNeedsStaticMeshUpdate = false;
+			if (std::exchange(Primitive->bNeedsStaticMeshResubmission, false)) Primitive->AddStaticMeshes();
+		}
 		return Dirty;
 	}
 	auto FPrimitiveSceneInfo::GetSplineMeshProxy() const -> FSplineMeshSceneProxy&
@@ -512,6 +569,7 @@ namespace Durin
 		BeginDeferredUpdateStaticMeshes();
 		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->RemoveSceneReference(*Scene);
 		const bool Updated = Proxy->UpdateMaterialBinding_RenderThread(Update);
+		if (Updated) AddStaticMeshes();
 		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->AddSceneReference(*Scene);
 		if (Updated && Scene) Scene->InvalidateOcclusionHistory_RenderThread();
 		return Updated;
@@ -535,7 +593,6 @@ namespace Durin
 		InvalidateMeshPreparation();
 		GPUScene->RemovePrimitive(Info);
 		Info.DetachFromScene();
-		std::erase(PrimitivesNeedingStaticMeshUpdate, &Info);
 		std::erase(PrimitiveSceneInfos, &Info);
 
 	}
@@ -567,7 +624,11 @@ namespace Durin
 		for (auto* Primitive : PrimitiveSceneInfos)
 		{
 			const auto* Proxy = dynamic_cast<const FStaticMeshSceneProxy*>(&Primitive->GetProxy());
-			if (Proxy && Proxy->GetRenderData() == &Mesh) Primitive->BeginDeferredUpdateStaticMeshes();
+			if (Proxy && Proxy->GetRenderData() == &Mesh)
+			{
+				Primitive->AddStaticMeshes();
+				Primitive->BeginDeferredUpdateStaticMeshes();
+			}
 		}
 		++HitProxyRevision;
 		InvalidateOcclusionHistory_RenderThread();
@@ -688,6 +749,7 @@ namespace Durin
 				++OcclusionRevision;
 				InvalidateMeshPreparation();
 				Found->second->RefreshBounds();
+				Found->second->AddStaticMeshes();
 				Found->second->RequestStaticMeshUpdate();
 				Found->second->RequestGPUSceneUpdate(EGPUSceneDirtyState::InstanceData);
 			}

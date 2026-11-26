@@ -697,7 +697,7 @@ TEST(FPSOPrecacheTests, ShadowPSORequirementsUseTheNormalizedDrawingState)
     Params.PrecachePSOParams.bReversedZ = true;
     FSceneRenderPreparationConfig Config;
     Config.bSupportsWireframe = false;
-    const auto Plan = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::ShadowDepth).GetPSOPrecacheVariants(Config, Params.PrecachePSOParams);
+    const auto Plan = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::ShadowDepth).GetPSOPrecacheVariants(Config, Params.PrecachePSOParams);
     ASSERT_EQ(Plan.size(), 2u);
     for (const auto& Entry : Plan) {
         EXPECT_TRUE(Entry.bRequired);
@@ -774,9 +774,9 @@ TEST(FPSOPrecacheTests, VertexFactoryRouteEligibilityUsesTheSharedPassFilter)
     Params.Material.ShaderMap.ShadingModel = EMaterialShadingModel::DefaultLit;
     const FLimitedFactory NoShadow(*Local, MaterialMeshPassShadow);
     EXPECT_FALSE(NoShadow.Supports(MaterialMeshPassShadow, {}));
-    const auto& Shadow = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::ShadowDepth);
-    const auto& Forward = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::Forward);
-    const auto& GBuffer = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer);
+    const auto& Shadow = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::ShadowDepth);
+    const auto& Forward = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::Forward);
+    const auto& GBuffer = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::GBuffer);
     EXPECT_FALSE(Shadow.SupportsVertexFactory(NoShadow));
     EXPECT_TRUE(Forward.SupportsVertexFactory(NoShadow));
     const FLimitedFactory NoReceiver(*Local, MaterialMeshPassForward);
@@ -786,7 +786,7 @@ TEST(FPSOPrecacheTests, VertexFactoryRouteEligibilityUsesTheSharedPassFilter)
     const FLimitedFactory NoGBuffer(*Local, MaterialMeshPassGBuffer);
     EXPECT_FALSE(GBuffer.SupportsVertexFactory(NoGBuffer));
     EXPECT_TRUE(Forward.SupportsVertexFactory(NoGBuffer));
-    EXPECT_TRUE(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::HybridRetainedForward)
+    EXPECT_TRUE(FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::HybridRetainedForward)
         .IsMeshRelevant(Params.Material, Params.PrecachePSOParams.Participation, false));
 }
 

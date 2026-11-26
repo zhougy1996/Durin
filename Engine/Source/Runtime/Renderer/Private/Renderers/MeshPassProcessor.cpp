@@ -8,7 +8,6 @@
 #include "CoreGlobals.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialShaderMap.h"
-#include "Renderers/MeshPassRelevance.h"
 #include "Renderers/MeshRenderingCommon.h"
 #include "Renderers/MeshRendererShared.h"
 #include "RenderPipelineCreation.h"
@@ -118,14 +117,25 @@ namespace Durin::RendererPrivate
 		: Initializer(std::move(InInitializer))
 		, Identity(ShareMeshPipelineIdentity(GetMeshPipelineIdentity(Initializer)))
 	{}
-	auto FCachedMeshDrawCommandStorage::MakeKey(const FMeshDrawDescription* Description, FPrimitiveComponentId PrimitiveId,
-		uint64 BatchId, const FMeshPassPipeline& Pipeline, const FRHIResource* MaterialUniform) -> FKey
+	auto FCachedMeshDrawCommandStorage::MakeKey(const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshPrimitive& Primitive,
+		const FMeshPassPipeline& Pipeline, const FRHIResource* MaterialUniform) -> FKey
 	{
-		return {{reinterpret_cast<uint64>(Description->GeometryOwner ? static_cast<const void*>(Description->GeometryOwner.get()) : Description),
-			Description->SectionIndex, PrimitiveId.Value, BatchId, static_cast<uint64>(Pipeline.GetInitializer().Pass),
-			static_cast<uint64>(Pipeline.GetInitializer().Description.Depth.CompareOp), Pipeline.GetInitializer().Description.RenderTargets.NumColorRenderTargets},
-			{static_cast<bool>(Description->Material.UniformExpressionCache),
-			MaterialUniform ? reinterpret_cast<uint64>(MaterialUniform) : Description->Material.UniformExpressionCache ? reinterpret_cast<uint64>(Description->Material.UniformExpressionCache.get()) : Description->Material.Representation.GetRecordId()}, Pipeline.GetIdentity()};
+		const auto& Initializer = Pipeline.GetInitializer();
+		const auto& Description = *Draw.Command;
+		const FStaticMeshCommandVariant Variant{Initializer.Pass, Initializer.Description.Depth.CompareOp,
+			Initializer.Description.RenderTargets.NumColorRenderTargets};
+		FKey Key;
+		if (Primitive.StaticMeshes)
+			Key.Mesh = FStaticMeshLocation{Primitive.StaticMeshes, Draw.StaticMeshIndex, Variant};
+		else
+			Key.Mesh = FDynamicMeshKey{reinterpret_cast<uint64>(Description.GeometryOwner ? static_cast<const void*>(Description.GeometryOwner.get()) : &Description),
+				Description.SectionIndex, Primitive.PrimitiveId.Value, Primitive.BatchId, static_cast<uint64>(Variant.Pass),
+				static_cast<uint64>(Variant.DepthCompare), Variant.NumColorRenderTargets};
+		const auto& Material = Description.Material;
+		Key.Bindings = {static_cast<bool>(Material.UniformExpressionCache),
+			MaterialUniform ? reinterpret_cast<uint64>(MaterialUniform) : Material.UniformExpressionCache ? reinterpret_cast<uint64>(Material.UniformExpressionCache.get()) : Material.Representation.GetRecordId()};
+		Key.Pipeline = Pipeline.GetIdentity();
+		return Key;
 	}
 	FCachedMeshDrawCommandStorage::~FCachedMeshDrawCommandStorage()
 	{
@@ -156,13 +166,18 @@ namespace Durin::RendererPrivate
 	}
 	auto FCachedMeshDrawCommandStorage::RemovePrimitive(FPrimitiveSceneInfo& Owner) -> void
 	{
-		for (const auto& [Key, Info] : Owner.StaticMeshCommandInfos)
+		const auto ReleaseIndex = [&](int32 Index) {
+			require(Index >= 0 && static_cast<size_t>(Index) < Entries.size() && Entries[Index]);
+			RemoveEntry(Index);
+			FreeIndices.push_back(Index);
+		};
+		for (auto& Relevance : Owner.StaticMeshRelevances)
 		{
-			const auto Index = Info->CommandIndex;
-			require(Index < Entries.size() && Entries[Index]);
-			RemoveEntry(Index); FreeIndices.push_back(Index);
+			for (const auto& Slot : Relevance.CommandInfos) ReleaseIndex(Slot.CommandIndex);
+			Relevance.CommandInfos.clear();
 		}
-		Owner.StaticMeshCommandInfos.clear();
+		for (const auto& [Key, Index] : Owner.DynamicMeshCommandIndices) ReleaseIndex(Index);
+		Owner.DynamicMeshCommandIndices.clear();
 	}
 	auto FCachedMeshDrawCommandStorage::Detach(FPrimitiveSceneInfo& Owner) -> void
 	{ RemovePrimitive(Owner); Sources.erase(&Owner); Owner.DrawLists = nullptr; }
@@ -176,9 +191,22 @@ namespace Durin::RendererPrivate
 	auto FCachedMeshDrawCommandStorage::FindEntry(const FKey& Key, const FPrimitiveSceneInfo& Owner) const -> const FEntry*
 	{
 		if (Owner.DrawLists != this) return nullptr;
-		const auto Found = Owner.StaticMeshCommandInfos.find(Key.Mesh);
-		if (Found == Owner.StaticMeshCommandInfos.end()) return nullptr;
-		const auto& Entry = Entries[Found->second->CommandIndex];
+		int32 Index;
+		if (const auto* Static = std::get_if<FStaticMeshLocation>(&Key.Mesh))
+		{
+			if (Static->List != Owner.StaticMeshes || Static->MeshIndex >= Owner.StaticMeshRelevances.size()) return nullptr;
+			const auto& Slots = Owner.StaticMeshRelevances[Static->MeshIndex].CommandInfos;
+			const auto Slot = std::ranges::find(Slots, Static->Variant, &FStaticMeshBatchRelevance::FCommandSlot::Variant);
+			if (Slot == Slots.end()) return nullptr;
+			Index = Slot->CommandIndex;
+		}
+		else
+		{
+			const auto Found = Owner.DynamicMeshCommandIndices.find(std::get<FDynamicMeshKey>(Key.Mesh));
+			if (Found == Owner.DynamicMeshCommandIndices.end()) return nullptr;
+			Index = Found->second;
+		}
+		const auto& Entry = Entries[Index];
 		return Entry && Entry->Bindings == Key.Bindings && (Entry->Pipeline == Key.Pipeline || *Entry->Pipeline == *Key.Pipeline) ? Entry.get() : nullptr;
 	}
 	auto FCachedMeshDrawCommandStorage::FindCachedCommand(const FKey& Key, const FPrimitiveSceneInfo& Owner,
@@ -195,22 +223,36 @@ namespace Durin::RendererPrivate
 	{
 		require(Command.bFinalized && Command.bCached && Pipeline && Command.Pipeline == Pipeline.get());
 		RequireWritable();
+		const auto* Static = std::get_if<FStaticMeshLocation>(&Key.Mesh);
+		if (Static && (Static->List != Owner.StaticMeshes || Static->MeshIndex >= Owner.StaticMeshRelevances.size())) return {};
 		Attach(Owner);
 		if (IsInRenderingThread() && !IsInitialized()) InitResource(FRHICommandListImmediate::Get());
-		auto [Location, Added] = Owner.StaticMeshCommandInfos.try_emplace(Key.Mesh);
+		int32* CommandIndex;
+		if (Static)
+		{
+			auto& Slots = Owner.StaticMeshRelevances[Static->MeshIndex].CommandInfos;
+			const auto Slot = std::ranges::find(Slots, Static->Variant, &FStaticMeshBatchRelevance::FCommandSlot::Variant);
+			CommandIndex = Slot == Slots.end() ? &Slots.emplace_back(Static->Variant, INDEX_NONE).CommandIndex : &Slot->CommandIndex;
+		}
+		else
+			CommandIndex = &Owner.DynamicMeshCommandIndices.try_emplace(std::get<FDynamicMeshKey>(Key.Mesh), INDEX_NONE).first->second;
 		size_t Index;
-		if (Added)
+		if (*CommandIndex == INDEX_NONE)
 		{
 			if (FreeIndices.empty()) { Index = Entries.size(); Entries.emplace_back(); }
 			else { Index = FreeIndices.back(); FreeIndices.pop_back(); }
+			require(Index < static_cast<size_t>(INT32_MAX));
+			*CommandIndex = static_cast<int32>(Index);
 		}
-		else Index = Location->second->CommandIndex;
-		if (Entries[Index]) RemoveEntry(Index);
+		else
+		{
+			Index = *CommandIndex;
+			RemoveEntry(Index);
+		}
 		auto Info = std::make_shared<FCachedMeshDrawCommandInfo>();
 		Info->Storage = this;
-		require(Index < static_cast<size_t>(INT32_MAX));
-		Info->CommandIndex = static_cast<int32>(Index); Info->MeshPass = Command.Pipeline->GetPassKey();
-		Location->second = Info;
+		Info->CommandIndex = *CommandIndex;
+		Info->MeshPass = Command.Pipeline->GetPassKey();
 		Material.Uniform.ResourceOwner = {};
 		for (auto& Range : Material.CollectionUniforms) Range.ResourceOwner = {};
 		auto Entry = std::make_unique<FEntry>();
@@ -308,8 +350,7 @@ namespace Durin::RendererPrivate
 		require(!Command.bFinalized && Command.bCached && Command.Pipeline && Command.Pipeline->GetPassKey() == Pass);
 		Command.bFinalized = true;
 		const auto Owner = Input.Primitive.SceneInfo.Resolve(); require(Owner);
-		CommandInfo = Storage.Publish(FCachedMeshDrawCommandStorage::MakeKey(Input.Draw.Command.get(), Input.Primitive.PrimitiveId,
-			Input.Primitive.BatchId, *Input.Pipeline, Input.Material.Uniform.Buffer), std::move(Command), *Owner, Input.Pipeline, Input.Primitive.CollectedBinding.get(), Input.Material);
+		CommandInfo = Storage.Publish(FCachedMeshDrawCommandStorage::MakeKey(Input.Draw, Input.Primitive, *Input.Pipeline, Input.Material.Uniform.Buffer), std::move(Command), *Owner, Input.Pipeline, Input.Primitive.CollectedBinding.get(), Input.Material);
 	}
 	auto FDynamicPassMeshDrawListContext::AddCommand(FMeshDrawCommand& Initializer) -> FMeshDrawCommand&
 	{
@@ -405,8 +446,7 @@ namespace Durin::RendererPrivate
 		else { auto Args = std::get<FRHIDrawArguments>(Geometry.DrawParameters); if (SceneArgs.PrimitiveIdOffset != INDEX_NONE_U32) Args.FirstInstance = SceneArgs.PrimitiveIdOffset; if (SceneArgs.NumInstances) Args.InstanceCount = SceneArgs.NumInstances; Commands.Draw(Args); }
 		++Cache.DrawCalls;
 		if (PSOPrecacheValidation::IsEnabled()) {
-			static constexpr std::array Names{"Forward", "HybridRetainedForward", "SortedTranslucency", "ShadowDepth", "GBuffer", "HitProxy"};
-			const auto Index = FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, Names[static_cast<size_t>(Pipeline->GetInitializer().Pass)]);
+			const auto Index = FPassProcessorManager::GetPSOCollectorIndex(EShadingPath::Deferred, Pipeline->GetInitializer().Pass);
 			const auto Initializer = Pipeline->GetInitializer().Description.MakeInitializer(Pipeline->GetInitializer().VertexShader->GetRHIShader(false),
 				Pipeline->GetInitializer().FragmentShader, Pipeline->GetInitializer().VertexDeclaration, Pipeline->GetInitializer().ShaderMap.GetPipelineLayout());
 			const auto Factory = FindMeshVertexFactory(Pipeline->GetInitializer().FactoryKey);
@@ -687,32 +727,36 @@ namespace Durin::RendererPrivate
 		constexpr size_t MeshPassSlotCount = static_cast<size_t>(EMeshPipelinePass::SingleLayerWaterDepth) + 1;
 		struct FPassProcessorEntry
 		{
+			int32 PSOCollectorIndex = -1;
+			EMeshPassFlags Flags = EMeshPassFlags::None;
 			PassProcessorCreateFunction Create = nullptr;
 			std::unique_ptr<FMeshPassProcessor> Prototype;
 		};
 		struct FPassProcessorRegistry
 		{
 			std::mutex Mutex;
-			std::array<FPassProcessorEntry, MeshPassSlotCount> Entries;
+			std::array<std::array<FPassProcessorEntry, MeshPassSlotCount>, static_cast<size_t>(EShadingPath::Num)> Entries;
 		};
 		auto PassProcessorRegistry() -> FPassProcessorRegistry&
 		{
 			static FPassProcessorRegistry Registry;
 			return Registry;
 		}
-		auto IsValidMeshPass(EMeshPipelinePass Pass) -> bool
-		{ return static_cast<size_t>(Pass) < MeshPassSlotCount; }
+		auto IsValidMeshPass(EShadingPath ShadingPath, EMeshPipelinePass Pass) -> bool
+		{ return ShadingPath < EShadingPath::Num && static_cast<size_t>(Pass) < MeshPassSlotCount; }
 	}
 
 	FRegisterPassProcessorCreateFunction::FRegisterPassProcessorCreateFunction(
-		PassProcessorCreateFunction InCreateFunction, EMeshPipelinePass InPass)
-		: CreateFunction(InCreateFunction), Pass(InPass)
+		PassProcessorCreateFunction InCreateFunction, EShadingPath InShadingPath, EMeshPipelinePass InPass, EMeshPassFlags Flags, int32 PSOCollectorIndex)
+		: CreateFunction(InCreateFunction), ShadingPath(InShadingPath), Pass(InPass)
 	{
-		if (!CreateFunction || !IsValidMeshPass(Pass)) return;
+		if (!CreateFunction || !IsValidMeshPass(ShadingPath, Pass)) return;
 		auto& Registry = PassProcessorRegistry();
 		std::lock_guard Lock(Registry.Mutex);
-		auto& Entry = Registry.Entries[static_cast<size_t>(Pass)];
+		auto& Entry = Registry.Entries[static_cast<size_t>(ShadingPath)][static_cast<size_t>(Pass)];
 		if (Entry.Create) return;
+		Entry.Flags = Flags;
+		Entry.PSOCollectorIndex = PSOCollectorIndex;
 		Entry.Create = CreateFunction;
 		bRegistered = true;
 	}
@@ -723,37 +767,57 @@ namespace Durin::RendererPrivate
 		{
 			auto& Registry = PassProcessorRegistry();
 			std::lock_guard Lock(Registry.Mutex);
-			auto& Entry = Registry.Entries[static_cast<size_t>(Pass)];
+			auto& Entry = Registry.Entries[static_cast<size_t>(ShadingPath)][static_cast<size_t>(Pass)];
 			if (Entry.Create != CreateFunction) return;
 			Retired = std::move(Entry.Prototype);
 			Entry.Create = nullptr;
+			Entry.Flags = EMeshPassFlags::None;
+			Entry.PSOCollectorIndex = -1;
 		}
 	}
-	auto FPassProcessorManager::IsRegistered(EMeshPipelinePass Pass) -> bool
+	auto FPassProcessorManager::GetPassFlags(EShadingPath ShadingPath, EMeshPipelinePass Pass) -> EMeshPassFlags
 	{
-		if (!IsValidMeshPass(Pass)) return false;
+		if (!IsValidMeshPass(ShadingPath, Pass)) return EMeshPassFlags::None;
 		auto& Registry = PassProcessorRegistry();
 		std::lock_guard Lock(Registry.Mutex);
-		return Registry.Entries[static_cast<size_t>(Pass)].Create != nullptr;
+		return Registry.Entries[static_cast<size_t>(ShadingPath)][static_cast<size_t>(Pass)].Flags;
 	}
-	auto FPassProcessorManager::GetRegisteredPasses() -> std::vector<EMeshPipelinePass>
+	auto FPassProcessorManager::GetPSOCollectorIndex(EShadingPath ShadingPath, EMeshPipelinePass Pass) -> int32
+	{
+		if (!IsValidMeshPass(ShadingPath, Pass)) return -1;
+		auto& Registry = PassProcessorRegistry();
+		std::lock_guard Lock(Registry.Mutex);
+		return Registry.Entries[static_cast<size_t>(ShadingPath)][static_cast<size_t>(Pass)].PSOCollectorIndex;
+	}
+	auto FPassProcessorManager::IsRegistered(EShadingPath ShadingPath, EMeshPipelinePass Pass) -> bool
+	{
+		if (!IsValidMeshPass(ShadingPath, Pass)) return false;
+		auto& Registry = PassProcessorRegistry();
+		std::lock_guard Lock(Registry.Mutex);
+		return Registry.Entries[static_cast<size_t>(ShadingPath)][static_cast<size_t>(Pass)].Create != nullptr;
+	}
+	auto FPassProcessorManager::GetRegisteredPasses(EShadingPath ShadingPath) -> std::vector<EMeshPipelinePass>
 	{
 		auto& Registry = PassProcessorRegistry();
 		std::lock_guard Lock(Registry.Mutex);
 		std::vector<EMeshPipelinePass> Passes;
-		for (size_t Index = 0; Index < Registry.Entries.size(); ++Index)
-			if (Registry.Entries[Index].Create) Passes.push_back(static_cast<EMeshPipelinePass>(Index));
+		if (ShadingPath >= EShadingPath::Num) return Passes;
+		for (size_t Index = 0; Index < MeshPassSlotCount; ++Index)
+			if (Registry.Entries[static_cast<size_t>(ShadingPath)][Index].Create) Passes.push_back(static_cast<EMeshPipelinePass>(Index));
 		return Passes;
 	}
-	auto FPassProcessorManager::CreateMeshPassProcessor(EMeshPipelinePass Pass, FMeshPassDrawListContext* Context, int32 PSOCollectorIndex)
+	auto FPassProcessorManager::CreateMeshPassProcessor(EShadingPath ShadingPath, EMeshPipelinePass Pass, FMeshPassDrawListContext* Context)
 		-> std::unique_ptr<FMeshPassProcessor>
 	{
-		if (!IsValidMeshPass(Pass)) return {};
+		if (!IsValidMeshPass(ShadingPath, Pass)) return {};
 		PassProcessorCreateFunction Create = nullptr;
+		int32 PSOCollectorIndex = -1;
 		{
 			auto& Registry = PassProcessorRegistry();
 			std::lock_guard Lock(Registry.Mutex);
-			Create = Registry.Entries[static_cast<size_t>(Pass)].Create;
+			const auto& Entry = Registry.Entries[static_cast<size_t>(ShadingPath)][static_cast<size_t>(Pass)];
+			Create = Entry.Create;
+			PSOCollectorIndex = Entry.PSOCollectorIndex;
 		}
 		// Factories can query other passes; never invoke them under the registry lock.
 		auto Processor = Create ? Create(PSOCollectorIndex) : nullptr;
@@ -761,22 +825,24 @@ namespace Durin::RendererPrivate
 		if (Processor) Processor->SetDrawListContext(Context);
 		return Processor;
 	}
-	auto FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass Pass) -> const FMeshPassProcessor&
+	auto FPassProcessorManager::GetMeshPassProcessor(EShadingPath ShadingPath, EMeshPipelinePass Pass) -> const FMeshPassProcessor&
 	{
-		requiref(IsValidMeshPass(Pass), "Invalid mesh pass processor index.");
+		requiref(IsValidMeshPass(ShadingPath, Pass), "Invalid mesh pass processor index.");
 		auto& Registry = PassProcessorRegistry();
 		PassProcessorCreateFunction Create = nullptr;
+		int32 PSOCollectorIndex = -1;
 		{
 			std::lock_guard Lock(Registry.Mutex);
-			const auto& Entry = Registry.Entries[static_cast<size_t>(Pass)];
+			const auto& Entry = Registry.Entries[static_cast<size_t>(ShadingPath)][static_cast<size_t>(Pass)];
 			if (Entry.Prototype) return *Entry.Prototype;
 			Create = Entry.Create;
+			PSOCollectorIndex = Entry.PSOCollectorIndex;
 		}
 		requiref(Create != nullptr, "Unregistered mesh pass processor.");
-		auto Prototype = Create(-1);
+		auto Prototype = Create(PSOCollectorIndex);
 		requiref(Prototype && Prototype->GetPass() == Pass, "Mesh pass factory returned an incompatible processor.");
 		std::lock_guard Lock(Registry.Mutex);
-		auto& Entry = Registry.Entries[static_cast<size_t>(Pass)];
+		auto& Entry = Registry.Entries[static_cast<size_t>(ShadingPath)][static_cast<size_t>(Pass)];
 		requiref(Entry.Create == Create, "Mesh pass registration changed during lookup.");
 		if (!Entry.Prototype) Entry.Prototype = std::move(Prototype);
 		return *Entry.Prototype;
@@ -801,7 +867,10 @@ namespace Durin::RendererPrivate
 	FMeshPassProcessor::~FMeshPassProcessor() = default;
 	auto FMeshPassProcessor::IsMeshRelevant(const FMaterialPlanningPassIdentity& Material,
 		const FPrimitiveRenderParticipation& Participation, bool bSupportsGBuffer) const -> bool
-	{ return IsMeshPassRelevant(GetPass(), Material, Participation, bSupportsGBuffer); }
+	{
+		const auto Purpose = GetPass() == EMeshPipelinePass::ShadowDepth ? EMeshCollectionPurpose::Shadow : EMeshCollectionPurpose::Receiver;
+		return Participation.IsRelevant(Purpose) && IsMaterialRelevant(Material, bSupportsGBuffer);
+	}
 	auto FMeshPassProcessor::SupportsVertexFactory(const FMeshVertexFactoryImplementation& Factory) const -> bool
 	{
 		// Receivers are collected through Forward before GBuffer routing; shadows
@@ -894,7 +963,7 @@ namespace Durin
 		struct FPass
 		{
 			FPass(FCachedMeshDrawCommandStorage& Storage, FMeshPassKey Key, FMeshDrawCommandBindingCache& Bindings)
-				: Context(Storage, Key, Bindings), Processor(FPassProcessorManager::CreateMeshPassProcessor(Key.Pass, &Context)) {}
+				: Context(Storage, Key, Bindings), Processor(FPassProcessorManager::CreateMeshPassProcessor(EShadingPath::Deferred, Key.Pass, &Context)) {}
 			FCachedPassMeshDrawListContext Context;
 			std::unique_ptr<FMeshPassProcessor> Processor;
 		};
@@ -908,7 +977,7 @@ namespace Durin
 			if (!Factory) continue;
 			const auto Key = Input.Pipeline->GetPassKey();
 			auto& Pass = Passes.try_emplace(Key, *Scene.CachedDrawLists, Key, Bindings).first->second;
-			const auto Built = Pass.Processor->AddMeshBatch(MakeMeshPassProcessorBatch(Input, *Factory), Input);
+			const auto Built = Pass.Processor->BuildMeshDrawCommands(MakeMeshPassProcessorBatch(Input, *Factory), Input);
 			if (Built) Request.Result = Pass.Context.GetCommandInfoAndReset();
 			else DURIN_ERROR("Static mesh command cache build failed: pass={}, error={}", static_cast<uint8>(Key.Pass), Built.Error);
 		}

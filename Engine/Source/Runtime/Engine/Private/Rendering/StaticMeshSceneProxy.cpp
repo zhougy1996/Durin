@@ -1,5 +1,6 @@
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "Rendering/StaticMeshBatchCollection.h"
+#include "Materials/MaterialShaderMap.h"
 #include "InstanceUniformShaderParameters.h"
 
 #include "StaticMesh/StaticMeshResources.h"
@@ -30,7 +31,6 @@ namespace Durin
 					RenderData ? RenderData->LocalBounds : FBox{}, Instance.CustomData});
 			InstanceSceneData = std::move(Snapshot);
 		}
-		StaticBatches.reset();
 		return true;
 	}
 
@@ -72,7 +72,6 @@ namespace Durin
 		CheckRenderingThread();
 		if (Update.SlotIndex >= Materials.size()) return false;
 		Materials[Update.SlotIndex] = Update.MaterialProxy;
-		StaticBatches.reset();
 		RecordMaterialBindingUpdate();
 		return true;
 	}
@@ -89,107 +88,87 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		if (typeid(*this) != typeid(FStaticMeshSceneProxy) || !RenderData) return false;
-		const auto Geometry = RenderData->CaptureBatchGeometry_RenderThread();
-		return Geometry->bValidLayout && std::ranges::all_of(Geometry->ReferencedMaterialSlots, [&](uint32 Slot) {
-			return Slot < Materials.size() && Materials[Slot] && Materials[Slot]->HasStableOpaqueDepth_RenderThread();
+		return RenderData->HasValidLODLayout() && std::ranges::all_of(RenderData->GetReferencedMaterialSlots_RenderThread(), [&](uint32 MaterialSlotIndex) {
+			const auto& MaterialProxy = GetMaterialRenderProxy(MaterialSlotIndex);
+			return MaterialProxy && MaterialProxy->HasStableOpaqueDepth_RenderThread();
 		});
 	}
 
-	auto FStaticMeshBatchCaptureContext::CaptureGeometry(const FStaticMeshRenderData& RenderData)
-		-> const std::shared_ptr<const FStaticMeshBatchGeometry>&
+	namespace
 	{
-		auto [Entry, Inserted] = Geometry.try_emplace(&RenderData);
-		if (Inserted) Entry->second = RenderData.CaptureBatchGeometry_RenderThread();
-		return Entry->second;
+		auto SupportsUnifiedShadowMesh(const FMaterialRenderProxyRef& MaterialProxy, ERHIFeatureLevel FeatureLevel) -> bool
+		{
+			if (!MaterialProxy || !MaterialProxy->HasStableOpaqueDepth_RenderThread()) return false;
+			const auto& Material = *MaterialProxy->GetMaterialNoFallback();
+			const auto& ShaderMap = Material.CompiledProgram->GetShaderMap();
+			constexpr uint8 LocalVertexFactoryUsage = 1;
+			constexpr uint8 ShadowPassUsage = 4;
+			return Material.CompiledProgram->FeatureLevel == FeatureLevel
+				&& ShaderMap.Domain == EMaterialDomain::Surface
+				&& !Material.PlanningPassIdentity.bTwoSided
+				&& Material.PlanningPassIdentity.ShaderMap.ShadingModel != EMaterialShadingModel::SingleLayerWater
+				&& (ShaderMap.StaticProperties.GeometryUsage & LocalVertexFactoryUsage) != 0
+				&& (ShaderMap.StaticProperties.PassUsage & ShadowPassUsage) != 0;
+		}
+
+		auto SetStaticMeshBatchGeometry(FMeshBatch& MeshBatch, const FMeshGeometryRecord::FRef& Geometry,
+			uint32 SegmentIndex, uint32 LODIndex, uint32 LODCount) -> void
+		{
+			MeshBatch.GeometryRecord = Geometry;
+			MeshBatch.Binding = Geometry->GetBinding();
+			MeshBatch.FactoryKey = MeshBatch.Binding->GetFactoryKey();
+			MeshBatch.LayoutKey = MeshBatch.Binding->GetLayoutKey();
+			MeshBatch.SegmentIndex = SegmentIndex;
+			MeshBatch.RequestedLOD = MeshBatch.SelectedLOD = LODIndex;
+			MeshBatch.LODCount = LODCount;
+			MeshBatch.PrimitiveIdMode = EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo;
+		}
 	}
 
-	auto FStaticMeshSceneProxy::DrawStaticElements(FStaticMeshBatchCaptureContext& Context) const
-		-> FStaticMeshBatchPublication::FRef
+	auto FStaticMeshSceneProxy::GetMeshElement(uint32 LODIndex, uint32 SectionIndex, FMeshBatch& OutMeshBatch) const -> void
+	{
+		const auto& Geometry = RenderData->LODResources[LODIndex].GeometryRecord;
+		SetStaticMeshBatchGeometry(OutMeshBatch, Geometry, SectionIndex, LODIndex, static_cast<uint32>(RenderData->LODResources.size()));
+		OutMeshBatch.MaterialRenderProxy = GetMaterialRenderProxy(Geometry->GetElements()[SectionIndex].MaterialSlotIndex);
+		OutMeshBatch.CastShadow = GetRenderParticipation().bCastShadow;
+	}
+
+	auto FStaticMeshSceneProxy::GetShadowMeshElement(uint32 LODIndex, FMeshBatch& OutMeshBatch) const -> bool
+	{
+		const auto& LOD = RenderData->LODResources[LODIndex];
+		if (!GetRenderParticipation().bCastShadow || !LOD.ShadowGeometryRecord) return false;
+		for (const auto& Section : LOD.GeometryRecord->GetElements())
+		{
+			if (!SupportsUnifiedShadowMesh(GetMaterialRenderProxy(Section.MaterialSlotIndex), GetFeatureLevel()))
+				return false;
+		}
+		SetStaticMeshBatchGeometry(OutMeshBatch, LOD.ShadowGeometryRecord, 0, LODIndex, static_cast<uint32>(RenderData->LODResources.size()));
+		OutMeshBatch.MaterialRenderProxy = GetMaterialRenderProxy(LOD.ShadowGeometryRecord->GetElements().front().MaterialSlotIndex);
+		OutMeshBatch.bUseForMaterial = false;
+		OutMeshBatch.CastShadow = true;
+		return true;
+	}
+
+	auto FStaticMeshSceneProxy::DrawStaticElements(FStaticPrimitiveDrawInterface* PDI) const -> void
 	{
 		CheckRenderingThread();
-		if (Instances || !RenderData) return {};
-		const auto& Geometry = Context.CaptureGeometry(*RenderData);
-		if (!Geometry->bValidLayout) return {};
-		bool bCurrent = StaticBatches && StaticBatches->Geometry == Geometry
-			&& StaticBatches->MaterialRecords.size() == Materials.size();
-		for (size_t Index = 0; Index < Materials.size(); ++Index)
+		if (Instances || !RenderData || !RenderData->HasValidLODLayout()) return;
+		for (uint32 LODIndex = 0; LODIndex < RenderData->LODResources.size(); ++LODIndex)
 		{
-			const auto& Material = Context.ResolveMaterial(Materials[Index]);
-			if (bCurrent && StaticBatches->MaterialRecords[Index] != Material.Representation.GetRecordId()) bCurrent = false;
-		}
-		if (bCurrent && StaticBatches->bUsesFallbackMaterial)
-			bCurrent = StaticBatches->FallbackMaterialRecord == Context.ResolveMaterial({}).Representation.GetRecordId();
-		if (!bCurrent)
-		{
-			auto Candidate = std::make_shared<FStaticMeshBatchPublication>();
-			Candidate->Geometry = Geometry;
-			Candidate->MaterialRecords.reserve(Materials.size());
-			for (const auto& Material : Materials)
-				Candidate->MaterialRecords.push_back(Context.ResolveMaterial(Material).Representation.GetRecordId());
-			Candidate->LODs.reserve(Geometry->Geometry.size());
-			for (const auto& Record : Geometry->Geometry)
+			const auto& LOD = RenderData->LODResources[LODIndex];
+			if (!LOD.IsReadyForRendering() || !LOD.GeometryRecord) continue;
+			FMeshBatch ShadowMeshBatch;
+			const bool bUseUnifiedMeshForShadow = GetShadowMeshElement(LODIndex, ShadowMeshBatch);
+			if (bUseUnifiedMeshForShadow) PDI->DrawMesh(ShadowMeshBatch, LOD.ScreenSize);
+
+			for (uint32 SectionIndex = 0; SectionIndex < LOD.GeometryRecord->GetElements().size(); ++SectionIndex)
 			{
-				if (!Record) { Candidate->LODs.push_back(nullptr); continue; }
-				auto Inputs = std::make_shared<FStaticMeshBatchInputs>();
-				Inputs->Geometry = Record;
-				Inputs->Materials.reserve(Record->GetElements().size());
-				for (const auto& Element : Record->GetElements())
-				{
-					const auto& Proxy = GetMaterialRenderProxy(Element.MaterialSlotDiagnostic);
-					const auto& Material = Context.ResolveMaterial(Proxy);
-					Inputs->Materials.push_back(Material);
-					if (!Proxy)
-					{
-						Candidate->bUsesFallbackMaterial = true;
-						Candidate->FallbackMaterialRecord = Material.Representation.GetRecordId();
-					}
-				}
-				Candidate->LODs.push_back(std::move(Inputs));
+				FMeshBatch MeshBatch;
+				GetMeshElement(LODIndex, SectionIndex, MeshBatch);
+				MeshBatch.CastShadow &= !bUseUnifiedMeshForShadow;
+				PDI->DrawMesh(MeshBatch, LOD.ScreenSize);
 			}
-			StaticBatches = std::move(Candidate);
 		}
-		return StaticBatches;
-	}
-
-	auto BuildPublishedStaticMeshBatch(const FStaticMeshBatchPublication& Publication,
-		const FMeshCollectionContext& Context) -> std::expected<FMeshBatch, EGeometrySubmissionOutcome>
-	{
-		if (!Publication.Geometry || !Publication.Geometry->bValidLayout)
-			return std::unexpected(EGeometrySubmissionOutcome::ResourceFailure);
-		const auto& LODs = Publication.Geometry->LODs;
-		const uint32 Requested = Context.PreparedLOD ? Context.PreparedLOD->Requested
-			: Context.bForceLOD0 ? 0u : SelectStaticMeshLOD(Context.NormalizedScreenSize, LODs);
-		const uint32 Selected = Context.PreparedLOD ? Context.PreparedLOD->Selected : ResolveAvailableStaticMeshLOD(Requested, LODs);
-		if (Requested >= LODs.size() || Selected >= LODs.size() || !LODs[Selected].bReadyForRendering
-			|| Selected >= Publication.LODs.size() || !Publication.LODs[Selected] || !Publication.LODs[Selected]->Geometry)
-			return std::unexpected(EGeometrySubmissionOutcome::ResourceFailure);
-		FMeshBatch Batch;
-		Batch.StaticInputs = Publication.LODs[Selected];
-		Batch.GeometryRecord = Batch.StaticInputs->Geometry;
-		Batch.Binding = Batch.GeometryRecord->GetBinding();
-		Batch.FactoryKey = Batch.Binding->GetFactoryKey();
-		Batch.LayoutKey = Batch.Binding->GetLayoutKey();
-		Batch.PrimitiveId = Context.PrimitiveId;
-		Batch.BatchId = Context.BatchId;
-		Batch.PrimitiveIdMode = EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo;
-		Batch.InstanceSceneDataId = Context.InstanceSceneDataId;
-		Batch.LocalToWorld = Context.LocalToWorld;
-		Batch.WorldBounds = Context.WorldBounds;
-		Batch.CustomPrimitiveData = Context.CustomPrimitiveData;
-		Batch.CustomInstanceData = Context.CustomInstanceData;
-		Batch.RequestedLOD = Requested;
-		Batch.SelectedLOD = Selected;
-		Batch.LODCount = static_cast<uint32>(LODs.size());
-		return Batch;
-	}
-
-	auto CollectPublishedStaticMeshBatch(const FStaticMeshBatchPublication& Publication,
-		const FMeshCollectionContext& Context, FMeshBatchCollector& Collector) -> void
-	{
-		CheckRenderingThread();
-		auto Batch = BuildPublishedStaticMeshBatch(Publication, Context);
-		if (Batch) Collector.Add(std::move(*Batch));
-		else Collector.RecordOutcome(Batch.error());
 	}
 
 	auto FStaticMeshSceneProxy::CollectMeshBatches(const FMeshCollectionContext& Context,

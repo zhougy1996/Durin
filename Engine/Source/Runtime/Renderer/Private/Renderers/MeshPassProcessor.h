@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "PipelineStateCache.h"
+#include "Misc/EnumClassFlags.h"
 #include "Renderers/MeshDrawCommandSubmission.h"
 #include "Renderers/MeshDrawCommandStats.h"
 #include "PSOPrecacheMaterial.h"
@@ -27,6 +28,7 @@ namespace Durin
 
 namespace Durin::RendererPrivate
 {
+	struct FStaticMeshCommandBuildContext;
 	class FMeshVertexFactoryImplementation;
 	class FMeshVertexShaderBinding;
 	class FCompiledSurfaceBindingLayout;
@@ -309,14 +311,20 @@ namespace Durin::RendererPrivate
 	class FCachedMeshDrawCommandStorage final : public FRenderResource
 	{
 	public:
+		struct FStaticMeshLocation
+		{
+			std::shared_ptr<const FStaticMeshBatchList> List;
+			uint32 MeshIndex;
+			FStaticMeshCommandVariant Variant;
+		};
+		using FDynamicMeshKey = std::array<uint64, 7>;
 		struct FKey
 		{
-			std::array<uint64, 7> Mesh;
+			std::variant<FStaticMeshLocation, FDynamicMeshKey> Mesh;
 			std::array<uint64, 2> Bindings;
 			std::shared_ptr<const FMeshPipelineIdentity> Pipeline;
 		};
-		RENDERER_API static auto MakeKey(const FMeshDrawDescription* Description, FPrimitiveComponentId PrimitiveId,
-			uint64 BatchId, const FMeshPassPipeline& Pipeline, const FRHIResource* MaterialUniform = nullptr) -> FKey;
+		RENDERER_API static auto MakeKey(const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshPrimitive& Primitive, const FMeshPassPipeline& Pipeline, const FRHIResource* MaterialUniform = nullptr) -> FKey;
 		FCachedMeshDrawCommandStorage() = default;
 		RENDERER_API auto ReleaseRHI() -> void override;
 		RENDERER_API static auto ReleaseRHIForAllResources() -> void;
@@ -387,7 +395,8 @@ namespace Durin::RendererPrivate
 	{
 	public:
 		virtual ~FMeshPassDrawListContext() = default;
-		explicit FMeshPassDrawListContext(FMeshDrawCommandBindingCache& InCache) : Cache(InCache) {}
+		explicit FMeshPassDrawListContext(FMeshDrawCommandBindingCache& InCache, FStaticMeshCommandBuildContext* InStaticContext = nullptr)
+			: Cache(InCache), StaticContext(InStaticContext) {}
 		FMeshPassDrawListContext(const FMeshPassDrawListContext&) = delete;
 		auto operator=(const FMeshPassDrawListContext&) -> FMeshPassDrawListContext& = delete;
 		// Add selects writable build storage; Finalize publishes that command once.
@@ -398,13 +407,14 @@ namespace Durin::RendererPrivate
 	private:
 		friend class FMeshPassProcessor;
 		FMeshDrawCommandBindingCache& Cache;
+		FStaticMeshCommandBuildContext* StaticContext;
 	};
 	class FCachedPassMeshDrawListContext final : public FMeshPassDrawListContext
 	{
 	public:
-		FCachedPassMeshDrawListContext(FCachedMeshDrawCommandStorage& InStorage, FMeshPassKey InPass, FMeshDrawCommandBindingCache& Cache)
-			: FMeshPassDrawListContext(Cache), Storage(InStorage), Pass(InPass) {}
-		// Each Durin batch contributes one command, matching UE's single-element path.
+		FCachedPassMeshDrawListContext(FCachedMeshDrawCommandStorage& InStorage, FMeshPassKey InPass, FMeshDrawCommandBindingCache& Cache, FStaticMeshCommandBuildContext* StaticContext = nullptr)
+			: FMeshPassDrawListContext(Cache, StaticContext), Storage(InStorage), Pass(InPass) {}
+		// Each accepted pipeline variant finalizes one command for this pass.
 		auto AddCommand(FMeshDrawCommand& Initializer) -> FMeshDrawCommand& override { Initializer.bFinalized = false; return Initializer; }
 		RENDERER_API auto FinalizeCommand(const FMeshDrawCommandBuildInput& Input, FMeshDrawCommand& Command) -> void override;
 		auto IsCached() const -> bool override { return true; }
@@ -439,8 +449,10 @@ namespace Durin::RendererPrivate
 		// The caller owns the context and keeps it alive for all AddMeshBatch calls.
 		auto SetDrawListContext(FMeshPassDrawListContext* Context) -> void { DrawListContext = Context; }
 		virtual auto GetPass() const -> EMeshPipelinePass = 0;
-		virtual auto AddMeshBatch(const FMeshPassProcessorBatch& MeshBatch, const FMeshDrawCommandBuildInput& Input,
-			std::shared_ptr<const FMeshDrawCommand> Existing = {}) const -> FShaderCompletion = 0;
+		RENDERER_API virtual auto AddMeshBatch(const FMeshBatch& MeshBatch, uint64 BatchElementMask,
+			const FPrimitiveSceneProxy* PrimitiveSceneProxy, int32 StaticMeshId = INDEX_NONE) -> void;
+		RENDERER_API auto BuildMeshDrawCommands(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
+			std::shared_ptr<const FMeshDrawCommand> Existing = {}) const -> FShaderCompletion;
 		RENDERER_API auto PrepareShaders(const FMeshPassProcessorBatch& Batch,
 			const FMaterialProgram* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
 			ERenderResourceCreateErrorCategory* FailureCategory = nullptr) const -> FShaderMapQueryResult;
@@ -454,6 +466,7 @@ namespace Durin::RendererPrivate
 		RENDERER_API auto PreparePassBindings(const FMeshDrawCommandBuildInput& Input,
 			FMeshDrawCommandBindingCache& Cache, FMeshPassBindings& Out) const -> FShaderCompletion;
 
+		virtual auto IsMaterialRelevant(const FMaterialPlanningPassIdentity&, bool) const -> bool { return true; }
 		virtual auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool = 0;
 		RENDERER_API auto IsMeshRelevant(const FMaterialPlanningPassIdentity& Material,
 			const FPrimitiveRenderParticipation& Participation = {}, bool bSupportsGBuffer = true) const -> bool;
@@ -473,8 +486,8 @@ namespace Durin::RendererPrivate
 			const FPSOPrecacheParams& PrecacheParams, FPSOPrecacheDataArray& PSOInitializers) -> void override;
 
 	protected:
-		RENDERER_API auto BuildMeshDrawCommands(const FMeshPassProcessorBatch& MeshBatch, const FMeshDrawCommandBuildInput& Input,
-			std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion;
+		auto ProcessStaticMeshBatch(const FMeshBatch& MeshBatch, uint64 BatchElementMask,
+			const FPrimitiveSceneProxy* PrimitiveSceneProxy, int32 StaticMeshId, EMeshCollectionPurpose Purpose) const -> void;
 		RENDERER_API static auto RasterVariants(const FSceneRenderPreparationConfig& Config,
 			const FPSOPrecacheParams& Params, uint8 Count, bool bShadow = false, bool bPicking = false)
 			-> std::vector<FMeshPSOPrecacheVariant>;
@@ -497,27 +510,35 @@ namespace Durin::RendererPrivate
 
 	// Registration is module-initialization owned; removal requires quiescent users.
 	// No concrete pass implementation or creation switch belongs to this manager.
+	enum class EMeshPassFlags : uint8 { None = 0, CachedMeshCommands = 1 };
+
+	ENUM_CLASS_FLAGS(EMeshPassFlags)
+
 	class FPassProcessorManager
 	{
 	public:
-		RENDERER_API static auto IsRegistered(EMeshPipelinePass Pass) -> bool;
-		RENDERER_API static auto GetRegisteredPasses() -> std::vector<EMeshPipelinePass>;
-		RENDERER_API static auto GetMeshPassProcessor(EMeshPipelinePass Pass) -> const FMeshPassProcessor&;
+		RENDERER_API static auto GetPassFlags(EShadingPath ShadingPath, EMeshPipelinePass Pass) -> EMeshPassFlags;
+		RENDERER_API static auto GetPSOCollectorIndex(EShadingPath ShadingPath, EMeshPipelinePass Pass) -> int32;
+		RENDERER_API static auto IsRegistered(EShadingPath ShadingPath, EMeshPipelinePass Pass) -> bool;
+		RENDERER_API static auto GetRegisteredPasses(EShadingPath ShadingPath) -> std::vector<EMeshPipelinePass>;
+		RENDERER_API static auto GetMeshPassProcessor(EShadingPath ShadingPath, EMeshPipelinePass Pass) -> const FMeshPassProcessor&;
 		// Each collection request owns a fresh instance and its asynchronous state.
-		RENDERER_API static auto CreateMeshPassProcessor(EMeshPipelinePass Pass, FMeshPassDrawListContext* Context = nullptr, int32 PSOCollectorIndex = -1)
+		RENDERER_API static auto CreateMeshPassProcessor(EShadingPath ShadingPath, EMeshPipelinePass Pass, FMeshPassDrawListContext* Context = nullptr)
 			-> std::unique_ptr<FMeshPassProcessor>;
 	};
 
 	class FRegisterPassProcessorCreateFunction
 	{
 	public:
-		RENDERER_API FRegisterPassProcessorCreateFunction(PassProcessorCreateFunction CreateFunction, EMeshPipelinePass Pass);
+		RENDERER_API FRegisterPassProcessorCreateFunction(PassProcessorCreateFunction CreateFunction, EShadingPath ShadingPath, EMeshPipelinePass Pass,
+			EMeshPassFlags Flags, int32 PSOCollectorIndex = -1);
 		RENDERER_API ~FRegisterPassProcessorCreateFunction();
 		FRegisterPassProcessorCreateFunction(const FRegisterPassProcessorCreateFunction&) = delete;
 		auto operator=(const FRegisterPassProcessorCreateFunction&) -> FRegisterPassProcessorCreateFunction& = delete;
 		auto IsRegistered() const -> bool { return bRegistered; }
 	private:
 		PassProcessorCreateFunction CreateFunction;
+		EShadingPath ShadingPath;
 		EMeshPipelinePass Pass;
 		bool bRegistered = false;
 	};

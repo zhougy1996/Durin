@@ -145,7 +145,7 @@ namespace Durin::Tests
 				Batch.Binding = Geometry.Binding;
 				Batch.FactoryKey = Geometry.Binding->GetFactoryKey();
 				Batch.LayoutKey = Geometry.Binding->GetLayoutKey();
-				Batch.bShadowCaster = Index == 0;
+				Batch.CastShadow = Index == 0;
 				if (Publications[Index])
 				{
 					Batch.GeometryRecord = Publications[Index];

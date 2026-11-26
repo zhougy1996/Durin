@@ -6,7 +6,6 @@
 #include "Rendering/MeshGeometryRecord.h"
 #include "Rendering/SceneInterface.h"
 #include "Rendering/StaticMeshBatchBinding.h"
-#include "Rendering/StaticMeshBatchPublication.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -355,6 +354,29 @@ namespace Durin
 					});
 			return bValidStreams && bValidIndices && bValidSections;
 		}
+
+		auto BuildUnifiedShadowGeometry(const FStaticMeshBatchBinding& Binding, std::span<const FMeshGeometryElement> Sections)
+			-> FMeshGeometryRecord::FRef
+		{
+			if (Sections.size() < 2 || Sections.front().Draw.ElementCount == 0) return {};
+			auto ShadowElement = Sections.front();
+			auto& ShadowRange = ShadowElement.Draw;
+			for (const auto& Section : Sections.subspan(1))
+			{
+				const auto& SectionRange = Section.Draw;
+				const uint64 NextIndex = uint64(ShadowRange.FirstElement) + ShadowRange.ElementCount;
+				const uint64 TotalIndexCount = uint64(ShadowRange.ElementCount) + SectionRange.ElementCount;
+				if (SectionRange.ElementCount == 0 || NextIndex != SectionRange.FirstElement || TotalIndexCount > UINT32_MAX)
+					return {};
+				ShadowRange.ElementCount = static_cast<uint32>(TotalIndexCount);
+				ShadowRange.MinVertexIndex = std::min(ShadowRange.MinVertexIndex, SectionRange.MinVertexIndex);
+				ShadowRange.MaxVertexIndex = std::max(ShadowRange.MaxVertexIndex, SectionRange.MaxVertexIndex);
+				ShadowElement.LocalBounds.AddPoint(Section.LocalBounds.Min);
+				ShadowElement.LocalBounds.AddPoint(Section.LocalBounds.Max);
+			}
+			auto ShadowGeometry = FMeshGeometryRecord::Publish(std::make_unique<FStaticMeshBatchBinding>(Binding), {std::move(ShadowElement)});
+			return ShadowGeometry.value_or(nullptr);
+		}
 	}
 
 	auto FStaticMeshRenderData::InitResources(FRHICommandListImmediate& RHICmdList) -> bool
@@ -364,8 +386,7 @@ namespace Durin
 		{
 			LODVertexFactories.resize(LODResources.size());
 		}
-		if (LODResources.empty()
-			|| LODVertexFactories.size() != LODResources.size())
+		if (!HasValidLODLayout())
 		{
 			ReleaseResources();
 			return false;
@@ -457,7 +478,7 @@ namespace Durin
 				FMeshGeometryElement Element;
 				Element.ElementId = SectionIndex;
 				Element.LocalBounds = Section.LocalBounds;
-				Element.MaterialSlotDiagnostic = Section.MaterialSlotIndex;
+				Element.MaterialSlotIndex = Section.MaterialSlotIndex;
 				Element.Draw.ElementCount = Section.IndexCount;
 				Element.Draw.FirstElement = Section.FirstIndex;
 				Element.Draw.MinVertexIndex = Section.MinVertexIndex;
@@ -470,6 +491,7 @@ namespace Durin
 					0, sizeof(uint32), sizeof(uint32)};
 				Elements.push_back(std::move(Element));
 			}
+			LOD.ShadowGeometryRecord = BuildUnifiedShadowGeometry(*Binding, Elements);
 			auto Record = FMeshGeometryRecord::Publish(std::move(Binding), std::move(Elements));
 			if (!Record)
 			{
@@ -513,44 +535,37 @@ namespace Durin
 		NotifyGeometryChanged_RenderThread();
 	}
 
-	auto FStaticMeshRenderData::CaptureBatchGeometry_RenderThread() const -> std::shared_ptr<const FStaticMeshBatchGeometry>
+	auto FStaticMeshRenderData::GetReferencedMaterialSlots_RenderThread() const -> std::span<const uint32>
 	{
-		check(IsInRenderingThread());
-		const bool bValidLayout = !LODResources.empty() && LODVertexFactories.size() == LODResources.size();
-		bool bCurrent = BatchGeometry && BatchGeometry->bValidLayout == bValidLayout
-			&& BatchGeometry->LODs.size() == LODResources.size();
-		for (size_t Index = 0; bCurrent && Index < LODResources.size(); ++Index)
-		{
-			const auto& LOD = LODResources[Index];
-			bCurrent = BatchGeometry->LODs[Index].ScreenSize == LOD.ScreenSize
-				&& BatchGeometry->LODs[Index].bReadyForRendering == LOD.bReadyForRendering
-				&& BatchGeometry->Geometry[Index] == LOD.GeometryRecord;
-		}
-		if (bCurrent) return BatchGeometry;
-		auto Candidate = std::make_shared<FStaticMeshBatchGeometry>();
-		Candidate->bValidLayout = bValidLayout;
-		Candidate->LODs = CaptureStaticMeshLODSelection(LODResources);
-		Candidate->Geometry.reserve(LODResources.size());
+		CheckRenderingThread();
+		const auto GeometryId = [](const FStaticMeshLODResources& LOD) -> uint64 {
+			return LOD.GeometryRecord ? LOD.GeometryRecord->GetRecordId() : 0;
+		};
+		if (std::ranges::equal(LODResources, MaterialSlotGeometryIds, {}, GeometryId))
+			return ReferencedMaterialSlots;
+
+		MaterialSlotGeometryIds.clear();
+		ReferencedMaterialSlots.clear();
 		for (const auto& LOD : LODResources)
 		{
-			Candidate->Geometry.push_back(LOD.GeometryRecord);
-			if (LOD.GeometryRecord)
-				for (const auto& Element : LOD.GeometryRecord->GetElements())
-					Candidate->ReferencedMaterialSlots.push_back(Element.MaterialSlotDiagnostic);
+			MaterialSlotGeometryIds.push_back(GeometryId(LOD));
+			if (!LOD.GeometryRecord) continue;
+			for (const auto& Section : LOD.GeometryRecord->GetElements())
+				ReferencedMaterialSlots.push_back(Section.MaterialSlotIndex);
 		}
-		auto& Slots = Candidate->ReferencedMaterialSlots;
-		std::ranges::sort(Slots);
-		Slots.erase(std::ranges::unique(Slots).begin(), Slots.end());
-		BatchGeometry = std::move(Candidate);
-		return BatchGeometry;
+		std::ranges::sort(ReferencedMaterialSlots);
+		ReferencedMaterialSlots.erase(std::ranges::unique(ReferencedMaterialSlots).begin(), ReferencedMaterialSlots.end());
+		return ReferencedMaterialSlots;
 	}
 
 	auto FStaticMeshRenderData::ReleaseResources() -> void
 	{
 		check(IsInRenderingThread());
-		if (std::ranges::any_of(LODResources, [](const auto& LOD) { return LOD.GeometryRecord != nullptr; }))
-			NotifyGeometryChanged_RenderThread();
-		BatchGeometry.reset();
+		const bool bHadGeometry = std::ranges::any_of(LODResources, [](const auto& LOD) { return LOD.GeometryRecord != nullptr; });
+		for (auto& LOD : LODResources) LOD.bReadyForRendering = false;
+		if (bHadGeometry) NotifyGeometryChanged_RenderThread();
+		MaterialSlotGeometryIds.clear();
+		ReferencedMaterialSlots.clear();
 		for (FStaticMeshVertexFactories& Factories
 			: LODVertexFactories | std::views::reverse)
 		{
@@ -559,7 +574,7 @@ namespace Durin
 		for (FStaticMeshLODResources& LOD
 			: LODResources | std::views::reverse)
 		{
-			LOD.bReadyForRendering = false;
+			LOD.ShadowGeometryRecord.reset();
 			LOD.GeometryRecord.reset();
 			ReleaseStaticMeshResource(LOD.IndexBuffer);
 			LOD.VertexBuffers.ReleaseResources();

@@ -381,7 +381,7 @@ namespace Durin::RendererPrivate
 	{
 		const auto Elements = Primitive.CollectedBinding != nullptr ? Primitive.CollectedBinding->DeclarationElements : FVertexDeclarationElementList{};
 		const std::array<uint32, 6> Geometry{Draw.Geometry.FirstElement, Draw.Geometry.ElementCount,
-			Draw.Geometry.MinVertexIndex, Draw.Geometry.MaxVertexIndex, Draw.MaterialSlotDiagnostic,
+			Draw.Geometry.MinVertexIndex, Draw.Geometry.MaxVertexIndex, Draw.MaterialSlotIndex,
 			Draw.Indices.Range.Stride ? static_cast<uint32>(Draw.Indices.Range.BufferBytes / Draw.Indices.Range.Stride) : 0u};
 		return MakeMeshDrawSortKey(Draw.Pass, Draw.PipelineKey, Draw.Material.Representation, Primitive.CollectedBinding != nullptr ? Primitive.CollectedBinding->NumVertices : 0u, Elements, Geometry, Primitive.PrimitiveId.Value, Primitive.SelectedLODIndex, Draw.SectionIndex, Primitive.BatchId);
 	}

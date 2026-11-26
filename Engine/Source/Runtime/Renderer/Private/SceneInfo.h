@@ -3,9 +3,11 @@
 #include "CoreMinimal.h"
 
 #include "RendererAPI.h"
+#include "Renderers/MeshPipelineDescription.h"
 #include "GPUScene.h"
 
 #include "Rendering/PrimitiveComponentId.h"
+#include "Rendering/MeshBatch.h"
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Rendering/LightSceneProxy.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
@@ -18,6 +20,31 @@ namespace Durin
 	class FSceneRenderingService;
 	class FSplineMeshSceneProxy;
 	struct FSplineMeshRenderDynamicData;
+
+	class FPrimitiveSceneInfo;
+	struct FStaticMeshBatch : FMeshBatch
+	{
+		explicit FStaticMeshBatch(const FMeshBatch& MeshBatch) : FMeshBatch(MeshBatch) {}
+		mutable std::shared_ptr<const FStaticMeshBatchInputs> MaterialInputs;
+		auto CaptureMeshBatch(const FPrimitiveSceneInfo& SceneInfo, FStaticMeshBatchCaptureContext& Capture) const -> FMeshBatch;
+		auto CaptureMaterialInputs(FStaticMeshBatchCaptureContext& Context) const -> std::shared_ptr<const FStaticMeshBatchInputs>;
+	};
+
+	struct FStaticMeshBatchRelevance
+	{
+		struct FCommandSlot
+		{
+			RendererPrivate::FStaticMeshCommandVariant Variant;
+			int32 CommandIndex;
+		};
+		std::vector<FCommandSlot> CommandInfos;
+	};
+
+	struct FStaticMeshBatchList
+	{
+		FMeshLODSelectionSnapshot LODs;
+		std::vector<FStaticMeshBatch> Meshes;
+	};
 
 	// Owns one primitive proxy and its renderer-managed bounds.
 	class FPrimitiveSceneInfo final
@@ -45,6 +72,7 @@ namespace Durin
 		RENDERER_API auto GetPrimitiveUniformBuffer(uint64 Batch) -> FUniformBuffer&;
 		RENDERER_API auto RetainPrimitiveUniformBuffers(std::span<const uint64> Batches) -> void;
 		RENDERER_API auto GetSceneInfoRef() const -> FPrimitiveSceneInfoRef;
+		auto GetStaticMeshes() const -> const std::shared_ptr<const FStaticMeshBatchList>& { return StaticMeshes; }
 		auto GetKind() const -> EPrimitiveSceneProxyKind { return Kind; }
 		auto GetLocalBounds() const -> const FBox& { return LocalBounds; }
 		auto GetWorldBounds() const -> const FBox& { return WorldBounds; }
@@ -70,10 +98,14 @@ namespace Durin
 		friend class RendererPrivate::FCachedMeshDrawCommandStorage;
 		RENDERER_API auto DetachFromScene() -> void;
 		RendererPrivate::FCachedMeshDrawCommandStorage* DrawLists = nullptr;
-		std::map<std::array<uint64, 7>, std::shared_ptr<RendererPrivate::FCachedMeshDrawCommandInfo>> StaticMeshCommandInfos;
+		std::vector<FStaticMeshBatchRelevance> StaticMeshRelevances;
+		std::map<std::array<uint64, 7>, int32> DynamicMeshCommandIndices;
 		std::map<uint64, std::shared_ptr<FUniformBuffer>> PrimitiveUniformBuffers;
 		FScene* Scene = nullptr;
+		auto AddStaticMeshes() -> void;
+		std::shared_ptr<const FStaticMeshBatchList> StaticMeshes;
 		bool bNeedsStaticMeshUpdate = false;
+		bool bNeedsStaticMeshResubmission = false;
 		bool bCanBeOccluded = false;
 		FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
 		std::shared_ptr<FPrimitiveSceneProxy> Proxy;

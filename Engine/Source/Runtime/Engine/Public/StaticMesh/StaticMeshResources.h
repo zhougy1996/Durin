@@ -12,7 +12,6 @@
 namespace Durin
 {
 	class FMeshGeometryRecord;
-	struct FStaticMeshBatchGeometry;
 	// Stores one normalized 16-bit tangent frame in the tangent stream.
 	struct FStaticMeshPackedTangentBasis
 	{
@@ -381,6 +380,7 @@ namespace Durin
 		uint8 NumTexCoords = 0;
 		bool bHasColorVertexData = false;
 		std::shared_ptr<const FMeshGeometryRecord> GeometryRecord;
+		std::shared_ptr<const FMeshGeometryRecord> ShadowGeometryRecord;
 
 		auto GetNumVertices() const -> uint32
 		{
@@ -409,15 +409,13 @@ namespace Durin
 	// Owns all renderable LODs, material slots, and bounds for a static mesh.
 	struct FStaticMeshRenderData
 	{
-		// Render-thread-owned immutable publication; capture detects LOD policy,
-		// readiness and geometry replacement even for direct native producers.
-		mutable std::shared_ptr<const FStaticMeshBatchGeometry> BatchGeometry;
-		ENGINE_API auto CaptureBatchGeometry_RenderThread() const -> std::shared_ptr<const FStaticMeshBatchGeometry>;
 		std::vector<FStaticMeshLODResources> LODResources;
 		std::vector<FStaticMeshVertexFactories> LODVertexFactories;
 		std::vector<FStaticMeshMaterialSlot> MaterialSlots;
 		FBox LocalBounds;
 
+		auto HasValidLODLayout() const -> bool { return !LODResources.empty() && LODVertexFactories.size() == LODResources.size(); }
+		ENGINE_API auto GetReferencedMaterialSlots_RenderThread() const -> std::span<const uint32>;
 		ENGINE_API auto InitResources(FRHICommandListImmediate& RHICmdList) -> bool;
 		ENGINE_API auto ReleaseResources() -> void;
 		ENGINE_API auto SetLODReady_RenderThread(uint32 LODIndex, bool bReady) -> void;
@@ -430,6 +428,8 @@ namespace Durin
 		ENGINE_API auto IsReadyForRendering(uint32 LODIndex = 0) const -> bool;
 		ENGINE_API auto RecalculateBounds() -> void;
 	private:
+		mutable std::vector<uint64> MaterialSlotGeometryIds;
+		mutable std::vector<uint32> ReferencedMaterialSlots;
 		auto NotifyGeometryChanged_RenderThread() const -> void;
 		mutable std::unordered_map<FSceneInterface*, size_t> SceneReferences;
 	};

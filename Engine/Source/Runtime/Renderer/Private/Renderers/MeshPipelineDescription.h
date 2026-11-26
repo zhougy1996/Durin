@@ -51,6 +51,15 @@ namespace Durin::RendererPrivate
 		auto operator<=>(const FMeshPassKey&) const = default;
 	};
 
+	// Variants of a pass that may be published simultaneously for one static mesh.
+	struct FStaticMeshCommandVariant
+	{
+		EMeshPipelinePass Pass;
+		ERHIDepthCompareOp DepthCompare;
+		uint8 NumColorRenderTargets;
+		auto operator==(const FStaticMeshCommandVariant&) const -> bool = default;
+	};
+
 	// Value-only pass description: no scene, visibility, shader map, native shader,
 	// vertex buffers or command list is needed to collect it. Shader selection and
 	// vertex declaration preparation remain with their respective owners.

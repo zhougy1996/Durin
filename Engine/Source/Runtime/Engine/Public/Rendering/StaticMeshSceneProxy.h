@@ -8,6 +8,7 @@
 namespace Durin
 {
 	struct FStaticMeshRenderData;
+	struct FMeshBatch;
 
 	// Couples static-mesh render resources with ordered per-slot material bindings.
 	class FStaticMeshSceneProxy : public FPrimitiveSceneProxy
@@ -21,10 +22,7 @@ namespace Durin
 		auto GetInstanceSceneDataBuffers() const -> std::shared_ptr<const FInstanceSceneDataBuffers> override { return InstanceSceneData; }
 
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
-		// Explicit retained capability for ordinary, non-instanced StaticMesh.
-		// Callers retain the returned owner, not this proxy or its RenderData borrow.
-		ENGINE_API auto DrawStaticElements(FStaticMeshBatchCaptureContext& Context) const
-			-> FStaticMeshBatchPublication::FRef override;
+		ENGINE_API auto DrawStaticElements(FStaticPrimitiveDrawInterface* PDI) const -> void override;
 		auto GetKind() const -> EPrimitiveSceneProxyKind override { return EPrimitiveSceneProxyKind::StaticMesh; }
 		ENGINE_API auto GetLocalBounds() const -> FBox override;
 		ENGINE_API auto CanBeOccluded() const -> bool override;
@@ -40,13 +38,15 @@ namespace Durin
 			FMeshBatchCollector& Collector) const -> void override;
 
 	private:
+		auto GetMeshElement(uint32 LODIndex, uint32 SectionIndex, FMeshBatch& OutMeshBatch) const -> void;
+		auto GetShadowMeshElement(uint32 LODIndex, FMeshBatch& OutMeshBatch) const -> bool;
+
 		// Non-owning borrow bounded by the component render-state lifetime. The
 		// component removes this proxy before the asset retires the render data.
 		const FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<FMaterialRenderProxyRef> Materials;
 		FStaticMeshRenderInstances Instances;
 		std::shared_ptr<const FInstanceSceneDataBuffers> InstanceSceneData;
-		mutable FStaticMeshBatchPublication::FRef StaticBatches;
 
 	};
 }

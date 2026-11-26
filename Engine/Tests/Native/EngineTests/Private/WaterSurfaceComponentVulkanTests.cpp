@@ -110,7 +110,7 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 			const auto View = CollectStaticMeshView_RenderThread(Commands, Scene->GetPrimitiveSceneInfos(),
 				FSceneView{}, ERasterMode::Solid, ERenderPreparationMode::Full);
 			ASSERT_EQ(View->Primitives.size(), 1u);
-			EXPECT_TRUE(View->Primitives.front().bRetainedStaticMesh);
+			EXPECT_TRUE(View->Primitives.front().StaticMeshes);
 		});
 		FlushRenderingCommands();
 		FDirectionalLightSceneData Light; Light.Intensity = 3;

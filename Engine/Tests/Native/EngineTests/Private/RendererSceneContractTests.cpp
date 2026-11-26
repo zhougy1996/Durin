@@ -2466,9 +2466,9 @@ TEST(FRendererSceneContractTests, CollectsIndependentGeometrySnapshotsTransactio
 		Batch.LayoutKey = {999};
 		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
 		Batch.LayoutKey = Binding->GetLayoutKey();
-		Batch.bReceiver = false;
+		Batch.bUseForMaterial = false;
 		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::Excluded);
-		Batch.bReceiver = true;
+		Batch.bUseForMaterial = true;
 		Batch.LocalToWorld = FMatrix(0.0);
 		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
 		Batch.LocalToWorld = FMatrix(1.0);

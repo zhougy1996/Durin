@@ -110,7 +110,7 @@ namespace Durin
 			const uint8 Family = Draw.Command->PipelineKey.VertexDomain == EVertexDeformationDomain::Spline ? 1 : 0;
 			Meshes.GBufferSourceFamilies[Draw.ResolvedIndex] = Family;
 			if (Index >= Prepared.Opaque.size() + Prepared.Masked.size()
-				|| !RendererPrivate::FPassProcessorManager::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::GBuffer)
+				|| !RendererPrivate::FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, RendererPrivate::EMeshPipelinePass::GBuffer)
 					.IsMeshRelevant(Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer))
 				++Meshes.GBufferSkippedSources[Family];
 		}

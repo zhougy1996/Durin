@@ -65,7 +65,7 @@ namespace Durin
 		std::vector<FGeometryBufferView> InstanceStreams;
 		FMaterialRenderData Material;
 		FBox LocalBounds;
-		uint32 MaterialSlotDiagnostic = 0;
+		uint32 MaterialSlotIndex = 0;
 	};
 
 	struct FMeshBatchElementView
@@ -77,7 +77,7 @@ namespace Durin
 		std::span<const FGeometryBufferView> InstanceStreams;
 		const FMaterialRenderData& Material;
 		const FBox& LocalBounds;
-		uint32 MaterialSlotDiagnostic;
+		uint32 MaterialSlotIndex;
 	};
 
 	// Value snapshots and retained bindings survive provider updates. Borrowed
@@ -88,6 +88,8 @@ namespace Durin
 		FPrimitiveCustomData CustomInstanceData;
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		uint64 BatchId = 0;
+		FMaterialRenderProxyRef MaterialRenderProxy;
+		uint32 SegmentIndex = INDEX_NONE_U32;
 		EPrimitiveIdMode PrimitiveIdMode = EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData;
 		FPrimitiveInstanceId InstanceSceneDataId;
 		FMatrix LocalToWorld{1.0};
@@ -96,13 +98,12 @@ namespace Durin
 		FXxHash64 LayoutKey;
 		std::shared_ptr<const FVertexFactoryBinding> Binding;
 		FMeshGeometryRecord::FRef GeometryRecord;
-		bool bReceiver = true;
-		bool bShadowCaster = true;
+		bool bUseForMaterial = true;
+		bool CastShadow = true;
 		std::vector<FMeshBatchElement> Elements;
 		// Exactly one material per published element. Dynamic batches use Elements.
 		std::vector<FMaterialRenderData> PublishedMaterials;
-		// Ordinary StaticMesh uses an immutable owner instead of rebuilding the
-		// per-section material array for every primitive/view/cascade.
+		// Retained static batches share one geometry segment and one captured material across views.
 		std::shared_ptr<const FStaticMeshBatchInputs> StaticInputs;
 		// Optional provider diagnostics; execution never dereferences an asset LOD.
 		uint32 RequestedLOD = 0;
@@ -113,30 +114,35 @@ namespace Durin
 
 		auto GetNumElements() const -> size_t
 		{
-			return GeometryRecord ? GeometryRecord->GetElements().size() : Elements.size();
+			if (!GeometryRecord) return Elements.size();
+			return SegmentIndex == INDEX_NONE_U32 ? GeometryRecord->GetElements().size() : 1;
 		}
 		auto GetPublishedMaterials() const -> std::span<const FMaterialRenderData>
 		{
-			return StaticInputs ? std::span<const FMaterialRenderData>(StaticInputs->Materials)
+			return StaticInputs ? std::span<const FMaterialRenderData>(&StaticInputs->Material, 1)
 				: std::span<const FMaterialRenderData>(PublishedMaterials);
 		}
 		auto GetElement(size_t Index) const -> FMeshBatchElementView
 		{
 			if (GeometryRecord)
 			{
-				const auto& Element = GeometryRecord->GetElements()[Index];
+				const auto& Element = GeometryRecord->GetElements()[SegmentIndex == INDEX_NONE_U32 ? Index : SegmentIndex];
 				return {Element.ElementId, Element.Draw, Element.Vertices, Element.Indices,
-					Element.InstanceStreams, GetPublishedMaterials()[Index], Element.LocalBounds, Element.MaterialSlotDiagnostic};
+					Element.InstanceStreams, GetPublishedMaterials()[Index], Element.LocalBounds, Element.MaterialSlotIndex};
 			}
 			const auto& Element = Elements[Index];
 			return {Element.ElementId, Element.Draw, Element.Vertices, Element.Indices,
-				Element.InstanceStreams, Element.Material, Element.LocalBounds, Element.MaterialSlotDiagnostic};
+				Element.InstanceStreams, Element.Material, Element.LocalBounds, Element.MaterialSlotIndex};
 		}
 	};
 
-	// Materializes a batch from immutable publication data. Admission is separate.
-	ENGINE_API auto BuildPublishedStaticMeshBatch(const FStaticMeshBatchPublication& Publication,
-		const FMeshCollectionContext& Context) -> std::expected<FMeshBatch, EGeometrySubmissionOutcome>;
+	// Scene registration collects static batches and their LOD screen sizes.
+	class FStaticPrimitiveDrawInterface
+	{
+	public:
+		virtual ~FStaticPrimitiveDrawInterface() = default;
+		virtual auto DrawMesh(const FMeshBatch& Mesh, float ScreenSize) -> void = 0;
+	};
 
 	// Owns admitted snapshots. A rejected batch cannot partially enter the frame.
 	class FMeshBatchCollector
@@ -170,10 +176,13 @@ namespace Durin
 		// Check admission against the collected batches without taking ownership.
 		auto Validate(const FMeshBatch& Batch, const FPrimitiveSceneTransform* PrimitiveTransform = nullptr) const -> EGeometrySubmissionOutcome
 		{
-			if ((Purpose == EMeshCollectionPurpose::Receiver && !Batch.bReceiver)
-				|| (Purpose == EMeshCollectionPurpose::Shadow && !Batch.bShadowCaster))
+			if ((Purpose == EMeshCollectionPurpose::Receiver && !Batch.bUseForMaterial)
+				|| (Purpose == EMeshCollectionPurpose::Shadow && !Batch.CastShadow))
 				return EGeometrySubmissionOutcome::Excluded;
+			if (Batch.SegmentIndex != INDEX_NONE_U32 && (!Batch.GeometryRecord || Batch.SegmentIndex >= Batch.GeometryRecord->GetElements().size()))
+				return EGeometrySubmissionOutcome::InvalidSubmission;
 			if ((Batch.StaticInputs && (!Batch.GeometryRecord || !Batch.PublishedMaterials.empty()
+					|| Batch.SegmentIndex == INDEX_NONE_U32 || Batch.StaticInputs->SegmentIndex != Batch.SegmentIndex
 					|| Batch.StaticInputs->Geometry != Batch.GeometryRecord))
 				|| (Batch.GeometryRecord && (!Batch.Elements.empty()
 				|| Batch.GetPublishedMaterials().size() != Batch.GetNumElements()

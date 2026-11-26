@@ -3,25 +3,43 @@
 Summary: Ordinary StaticMesh publishes immutable geometry and material inputs and shares admitted batches across views of the same submission.
 Modules: Engine, Renderer
 
-Last reviewed: 2026-11-22
+Last reviewed: 2026-11-26
 
 ## Publication boundary
 
-`FPrimitiveSceneProxy::DrawStaticElements` returns an optional immutable
-publication on the render thread. Ordinary StaticMesh and Water publish inputs
-for all LODs. Each view selects its own LOD and filters batches for its pass.
-An empty publication selects per-view `CollectMeshBatches`. This is the default
-for primitive proxies and the path for explicit instances and invalid layouts.
-StaticMesh subclasses that customize batch collection must also override
-`DrawStaticElements` to return matching inputs or an empty publication.
+On registration, `FPrimitiveSceneInfo` calls the proxy's `DrawStaticElements`
+on the render thread. The proxy submits one material batch per section of each ready LOD through
+`FStaticPrimitiveDrawInterface::DrawMesh`. The scene info owns their geometry,
+vertex bindings, material proxy, section index and LOD selection data for each batch. Command
+caching traverses this list before visibility. For each enabled pass registered with
+`CachedMeshCommands`, the scene calls the processor’s `AddMeshBatch` with the
+submitted batch, all local elements, the proxy and the batch’s list index. The
+processor checks batch usage, material and vertex factory support before building
+its pipeline variants. Several commands or no commands can result from one call.
+Each receiver or shadow view selects the entries for its LOD. Proxies that submit no static meshes use
+`CollectMeshBatches`, including explicit render instances.
 
-The asset shares `FStaticMeshBatchGeometry`: LOD policy/readiness, strong
-`FMeshGeometryRecord` owners and the distinct material slots referenced by
-published geometry. Each proxy retains per-LOD
-`FStaticMeshBatchInputs`, containing geometry and resolved immutable material
-snapshots in section order. `FMeshBatch::StaticInputs` references that owner;
-its legacy material vector remains empty. Both paths pass through the same
-collector admission and renderer capability/resource validation.
+A prepared static draw carries its index in the submitted list. The primitive
+retains that list while the view uses it. At command selection, the scene info
+checks that the list is still current, then indexes `StaticMeshRelevances` by
+that mesh index. Each batch records the command slots actually published for
+its pass, depth comparison and color attachment count. Hits still validate the
+pipeline, material bindings and vertex input. Resubmission retires the slots
+before installing the replacement list, including when the count stays the same.
+
+For a shadow-casting LOD with multiple contiguous section index ranges, the proxy
+can also submit a single shadow-only batch. Every section must support opaque,
+single-sided shadow depth at the scene feature level without vertex displacement.
+Water, masked, translucent or unavailable materials keep section-level shadow
+draws. The combined batch reuses the LOD index buffer and the first compatible
+section's material proxy. It sets `bUseForMaterial` to false. The section batches
+then set `CastShadow` to false.
+
+Each selected batch captures its current material values in a shared
+`FStaticMeshBatchInputs`. Earlier submissions retain their snapshots while
+later submissions can resolve newer values from the same material proxies.
+Both static and dynamic batches use the collector admission and renderer
+capability checks.
 
 Persistent instance source snapshots are published independently through
 `FInstanceSceneDataBuffers`; they are not copied into geometry capability tables.
@@ -31,7 +49,7 @@ them on visible commands; see [GPUScene submission](GPUScene.md).
 
 Transforms, world bounds, primitive/batch IDs, custom numeric data, selected
 LOD and view/pass state are collected separately. Updating these values does
-not rebuild stable material arrays. See [material numeric data](../Materials/MaterialCustomData.md)
+not rebuild stable material snapshots. See [material numeric data](../Materials/MaterialCustomData.md)
 for the independent instance-data contract. The renderer may additionally retain the view-independent Section preparation
 described below. Visibility results, final RHI bindings, PSOs and shadow-map
 contents are not part of these input publications.
@@ -41,9 +59,8 @@ contents are not part of these input publications.
 `FStaticMeshBatchCaptureContext` belongs to one render preparation command.
 Receiver collection and shadow cascades share it. No scene, material, geometry
 or readiness mutations may occur between uses. A new command must create a fresh
-context. Each asset's geometry publication is validated on its first capture
-and shared for later uses in that context. Material proxies resolve once per
-context. Raw asset and proxy keys stay on the render thread.
+context. Scene registration and geometry notifications capture asset geometry. Material
+proxies resolve once per preparation context on the render thread.
 Views that select the same LOD of a primitive can retain the same immutable
 admitted batch. Each view records its requested LOD and selects the section
 facts for its pass.
@@ -57,17 +74,17 @@ bounds. Changes to those bounds follow the scene proxy publication path.
 
 | Change | Next capture behavior |
 | --- | --- |
-| No input change | Reuse the publication and per-LOD material arrays |
-| Material publication on the same proxy, including inherited changes | Resolve current representation record IDs and rebuild affected proxy inputs |
-| Material slot replacement | Invalidate proxy publication immediately |
+| No input change | Reuse the publication and per-batch material snapshots |
+| Material publication on the same proxy, including inherited changes | Resolve current representation record IDs and refresh the selected batch material snapshot |
+| Material shader or compilation state changes | Resubmit static meshes before command caching to reevaluate unified shadows |
+| Material slot replacement | Resubmit the primitive’s static meshes with the new proxy |
 | Missing material or out-of-range slot | Retain the error-material snapshot and track its representation ID |
-| LOD screen size, readiness, count, layout or geometry record replacement | Replace asset geometry publication; dependent proxies rebuild on capture |
+| LOD screen size, readiness, count, layout or geometry record replacement | Resubmit affected primitives when the resource change is published |
 | Transform, bounds or custom numeric data | Capture fresh instance overlay; retain stable inputs |
-| Explicit render-instance array installed | Invalidate publication and use dynamic collection |
+| Explicit render-instance array installed | Remove retained batches and use dynamic collection |
 | Resources released | Reset asset publication and release asset references through the existing retirement path |
 
-Geometry checks compare the current asset fields even for native producers
-that do not use an asset revision API. Section and binding changes must publish
+Resource changes reach scene lists through render-data notifications. Section and binding changes must publish
 a replacement immutable geometry record. Mutable edits to an already published
 record are outside the geometry contract. LOD selection still runs separately
 for each receiver/shadow view and preserves unavailable-LOD fallback.
@@ -76,18 +93,17 @@ for each receiver/shadow view and preserves unavailable-LOD fallback.
 
 For ordinary StaticMesh with the exact `FStaticMeshBatchBinding` local factory,
 `FMeshDrawDescriptionCache` retains two immutable renderer-owned tables. One
-stores binding compatibility and per-section capabilities per published LOD.
+stores binding compatibility and capabilities per submitted batch.
 Receiver preparation checks Forward and GBuffer support. Shadow preparation
 checks ShadowDepth support. The other stores the Section draw
-descriptions for that LOD and pass policy. A miss builds the selected table
+descriptions for that batch and pass policy. A miss builds the selected table
 lazily; warmed views select it without repeating per-section capability and
 command-description lookups. Dynamic providers, render instances, derived
 bindings and custom vertex factories retain the existing preparation path.
 
 The table identity includes the immutable `FStaticMeshBatchInputs` owner and
 pass policy: Full/Shadow preparation, raster mode, depth convention and mirrored
-winding. Input owners already encode geometry/binding and every material
-representation. LOD selection and readiness checks still run for each view;
+winding. Each input owner identifies its geometry, binding, segment and material representation. LOD selection and readiness checks still run for each view;
 tables contain no requested/selected LOD indices or visibility decisions.
 
 | Dependency/change | Section preparation response |

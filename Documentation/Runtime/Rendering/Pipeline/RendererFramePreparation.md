@@ -2,7 +2,7 @@
 
 Summary: Define submission ownership, CPU preparation, resource resolution, graph execution and transactional output.
 Modules: Engine, Renderer, RenderCore, RHI
-Last reviewed: 2026-11-24
+Last reviewed: 2026-11-26
 
 ## Ownership Boundary
 
@@ -38,7 +38,7 @@ Geometry preparation has three boundaries:
    rounding could change the near-plane status or the float used for LOD
    selection, they use the same eight-corner calculation as perspective views.
    Within a submission the receiver and cascades share the admitted ordinary
-   static batch for each primitive and selected LOD. Each view keeps its own
+   static batches for each primitive and selected LOD, subject to their material and shadow flags. Each view keeps its own
    requested LOD, purpose filter and pass-specific section facts. After a static
    section cache hit, sibling shadow cascades can reference the same immutable
    resolved transform and sections through the admitted batch index. Reuse
@@ -123,9 +123,14 @@ continues to report logical chunks. Join time measures the completion wait.
   borrow retained commands/bindings. Recording performs no shader/reflection work,
   pipeline-cache lookup, material traversal or deformation allocation inside a pass.
 - Before frustum and occlusion selection, the scene drains newly registered
-  and dirty ordinary static meshes. It enumerates the ready LODs in each
-  retained publication, including those of hidden primitives, and caches solid
-  receiver and shadow commands for the enabled renderer routes. Receiver depth
+  and dirty ordinary static meshes. It traverses each primitive's submitted
+  static batches, including those of hidden primitives, and caches solid
+  commands for enabled passes registered with `EMeshPassFlags::CachedMeshCommands`.
+  The shading path and mesh pass identify the registration, including its factory,
+  flags and PSO collector index. Desktop Forward and Hybrid use the Deferred
+  shading path at all supported feature levels.
+  Each pass processor checks the material and vertex factory and emits eligible
+  commands through its cached draw-list context. Receiver depth
   conventions and GBuffer attachment counts occupy distinct cache slots.
   Geometry release and LOD readiness changes retire the affected primitives'
   slots. Shader work still pending can be retried on a subsequent scene update.

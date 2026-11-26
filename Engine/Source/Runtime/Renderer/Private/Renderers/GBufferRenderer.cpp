@@ -1,3 +1,4 @@
+#include "Renderers/MeshPassRelevance.h"
 #include "Renderers/SurfaceMaterial.h"
 #include "Renderers/GBufferRenderer.h"
 #include "RHICapabilities.h"
@@ -94,7 +95,7 @@ namespace Durin
 		if (Request.bModelData && (!Caps || Caps->MaxColorAttachments < 5)) return nullptr;
 		const auto Factory = RendererPrivate::FindMeshVertexFactory(Request.FactoryKey);
 		if (!Factory || Factory->GetLayoutKey() != Request.LayoutKey) return nullptr;
-		const auto& Processor = RendererPrivate::FPassProcessorManager::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::GBuffer);
+		const auto& Processor = RendererPrivate::FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, RendererPrivate::EMeshPipelinePass::GBuffer);
 		const RendererPrivate::FMeshPassProcessorBatch Batch{Request.Material, *Factory, {Request.Rasterizer, Request.Depth, {}, Request.bModelData}, Request.Topology, {}, true};
 		const FGBufferShaderMapKey ShaderKey{
 			.Material = Request.Material.ShaderMap,
@@ -140,10 +141,11 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
-			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
-				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
-			{ return BuildMeshDrawCommands(Batch, Input, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::GBuffer; }
+			auto IsMaterialRelevant(const FMaterialPlanningPassIdentity& Material, bool bSupportsGBuffer) const -> bool override
+			{
+				return UsesGBuffer(Material, bSupportsGBuffer);
+			}
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override { return Config.Settings.bHybrid; }
 			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassGBuffer; }
 			auto GetFragmentShader(FMaterialShaderBlendModeKey) const -> FMeshPassFragmentShader override {
@@ -173,7 +175,7 @@ namespace Durin::RendererPrivate
 		auto CreateGBufferPSOCollector(ERHIFeatureLevel) -> std::unique_ptr<IPSOCollector>
 		{ return CreateGBufferMeshPassProcessor(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, "GBuffer")); }
 		const FRegisterPSOCollectorCreateFunction RegisterGBufferPSO(&CreateGBufferPSOCollector, EShadingPath::Deferred, "GBuffer");
-		const FRegisterPassProcessorCreateFunction RegisterGBufferMeshPass(&CreateGBufferMeshPassProcessor, EMeshPipelinePass::GBuffer);
+		const FRegisterPassProcessorCreateFunction RegisterGBufferMeshPass(&CreateGBufferMeshPassProcessor, EShadingPath::Deferred, EMeshPipelinePass::GBuffer, EMeshPassFlags::CachedMeshCommands, RegisterGBufferPSO.GetIndex());
 
 	}
 }
