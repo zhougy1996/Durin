@@ -89,7 +89,9 @@ namespace Durin::PropertyEditor
 		std::optional<FPropertyEditTarget> PathTarget;
 	};
 
-	// Coalesces continuous widget changes into one reflected-property transaction.
+	// Pair a successful Begin with Commit or cancellation while the edit is active.
+	// Finish nested scopes inside-out and outside protected transaction operations.
+	// Destruction cancels an active edit under the same timing constraint.
 	class FPropertyEdit
 	{
 	public:

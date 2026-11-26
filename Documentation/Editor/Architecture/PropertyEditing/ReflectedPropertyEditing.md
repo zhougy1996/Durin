@@ -291,11 +291,13 @@ recording and earlier edits when a proposal is rejected. Sessions with applied
 changes restore the saved snapshot directly. Restoration skips proposal validation,
 normalization, and `Modify()`.
 
-Finishing a current property scope during a protected transaction operation
-is illegal reentry. Commit and both cancellation paths issue a fatal diagnostic
-before publishing the final notification, restoring the preview, or releasing
-the scope. A `PreTransactionFinalized` listener can open and finish its own
-nested edit within the callback.
+The caller pairs a successful `Begin()` with `Commit()`, `Cancel()`, or
+`CancelUnchanged()` while the edit is active. Close nested scopes from the
+inside out. A `PreTransactionFinalized` listener may open its own nested edit
+and finish it before returning. Callers must finish a current recording scope
+outside protected transaction operations, including when destruction cancels
+an active edit. An always-on assertion checks for illegal reentry before final
+notification, preview restoration, or scope release.
 
 Cancellation attempts restoration once, discards an owned recording or ends its nested scope,
 and releases the session even if restoration fails. A failed restore returns

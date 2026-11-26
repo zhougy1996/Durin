@@ -11,7 +11,7 @@
 #include "DObject/Property.h"
 #include "DObject/TransactionObjectReference.h"
 #include "Logging/LogMacros.h"
-#include "Misc/Assertion.h"
+#include "Misc/AssertionMacros.h"
 #include "Tools/EditorScriptCall.h"
 
 namespace Durin
@@ -414,8 +414,8 @@ namespace Durin
 	{
 		void CheckPropertyEditFinish(const std::optional<FScopedTransaction>& Scope, std::string_view Operation)
 		{
-			if (Scope && Scope->IsRecordingCurrent() && !GEditor->GetTransactor()->CanTransact())
-				Private::ReportFormattedAssertionFailure("Illegal property edit reentry", std::source_location::current(),
+			if (Scope && Scope->IsRecordingCurrent())
+				requiref(GEditor->GetTransactor()->CanTransact(),
 					"FPropertyEdit::{} cannot finish transaction {} during a protected transaction operation.",
 					Operation, GUndo->GetContext().TransactionId);
 		}
