@@ -641,6 +641,22 @@ TEST(FPackageResourceTests, BlockingReadsLeaveCpuAvailableAndTransformsShareTerm
 	auto Second = SecondResource->ReadRangeAsync(0, 4);
 	ASSERT_TRUE(FirstResource->Started.WaitFor(1.0));
 	ASSERT_TRUE(SecondResource->Started.WaitFor(1.0));
+	// Both I/O workers are occupied. An owned range must already be readable.
+	FByteBuffer Segment(EditorBulkDataExternalThreshold + 1, std::byte{0x42});
+	const FPackageBulkDataEntry Entry{
+		.FieldIndex = 1, .Placement = EPackageBulkDataPlacement::External,
+		.LogicalSize = Segment.size(), .StoredSize = Segment.size(),
+		.Alignment = EditorBulkDataExternalAlignment, .ContentId = FXxHash128::HashBuffer(Segment)};
+	auto Owned = CreateOwnedPackageResource({Segment.size(), Entry.ContentId}, std::span{&Entry, 1}, Segment);
+	EXPECT_TRUE(Owned);
+	if (Owned)
+	{
+		auto Range = (*Owned)->ReadRangeAsync(1, 4);
+		EXPECT_TRUE(Range.IsReady());
+		const auto View = Range.Wait(0.0);
+		EXPECT_TRUE(View);
+		if (View) EXPECT_EQ(View->GetSize(), 4u);
+	}
 	const auto TimedOut = First.Wait(0.01);
 	EXPECT_FALSE(TimedOut);
 	EXPECT_FALSE(First.IsReady()); // Timeout is caller-local, not request failure/cancellation.

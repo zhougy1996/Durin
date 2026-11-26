@@ -344,9 +344,12 @@ namespace Durin
 			for (int Sample = -3; Sample < 30; ++Sample)
 			{
 				FThreadEvent StartedA, StartedB, Release, CpuDone;
-				const auto Executor = Target == ETaskTarget::BlockingIO ? Tasks::ETaskExecutor::BlockingIO : Tasks::ETaskExecutor::Worker;
-				auto A = Durin::Tasks::FTask(Tasks::LaunchTask("MixedBlockA", [&] { StartedA.Trigger(); Release.Wait(); }, {.Executor = Executor}));
-				auto B = Durin::Tasks::FTask(Tasks::LaunchTask("MixedBlockB", [&] { StartedB.Trigger(); Release.Wait(); }, {.Executor = Executor}));
+				auto LaunchBlocker = [&](const char* Name, FThreadEvent& Started) {
+					auto Block = [&] { Started.Trigger(); Release.Wait(); };
+					return Target == ETaskTarget::BlockingIO ? Tasks::LaunchBlockingIO(Name, Block) : Tasks::LaunchTask(Name, Block);
+				};
+				auto A = Durin::Tasks::FTask(LaunchBlocker("MixedBlockA", StartedA));
+				auto B = Durin::Tasks::FTask(LaunchBlocker("MixedBlockB", StartedB));
 				ASSERT_TRUE(StartedA.WaitFor(1.0));
 				ASSERT_TRUE(StartedB.WaitFor(1.0));
 				double Latency = 0;

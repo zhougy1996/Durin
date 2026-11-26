@@ -90,14 +90,14 @@ namespace Durin
 			Tasks::FTaskEvent Gate("Package.SaveAdmission");
 			try
 			{
-				Save->Disk = Tasks::LaunchTask("Package.SaveIO", [Save, WriteBody] {
+				Save->Disk = Tasks::LaunchBlockingIO("Package.SaveIO", [Save, WriteBody] {
 						if (!Save->bAdmitted) {
 							Private::FTaskRuntimeAccess::SetCurrentCanceledOutcome();
 							return;
 						}
 						auto Invoke = std::exchange(*WriteBody, {});
 						Invoke();
-					}, Gate, {.Executor = Tasks::ETaskExecutor::BlockingIO});
+					}, Gate);
 				if (PublicationFault == EPublicationFault::RejectAdmission)
 				{
 					*WriteBody = {}; Save->Cleanup = {};
@@ -293,7 +293,7 @@ namespace Durin
 		{
 			if (!IsTaskSchedulerRunning())
 			{ if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::ShuttingDown, "Scheduler stopped during preparation."}; return {}; }
-			Data.Worker = Tasks::LaunchTask("Package.SaveStaging", [&Data] { Data.Stage(); }, {.Executor = Tasks::ETaskExecutor::BlockingIO});
+			Data.Worker = Tasks::LaunchBlockingIO("Package.SaveStaging", [&Data] { Data.Stage(); });
 		}
 		else if (!bDeferStaging) Data.Stage();
 		return Operation;

@@ -747,8 +747,8 @@ namespace Durin
 
 		Tasks::FTaskEvent Pending("IndependentUnknownGate"), KnownSignal("IndependentKnownSignal", false);
 		auto Ordinary = Tasks::LaunchTask("UnmarkedWorker", [] {}, KnownSignal);
-		auto Io = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, KnownSignal, {.Executor = Tasks::ETaskExecutor::BlockingIO});
-		auto Deferred = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, KnownSignal, {.Executor = Tasks::ETaskExecutor::GameThreadDeferred});
+		auto Io = Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [] {}, KnownSignal);
+		auto Deferred = Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, [] {}, KnownSignal);
 		for (const auto& Input : Tasks::Prerequisites(Pending, KnownSignal, Ordinary, Io, Deferred))
 		{
 			FTaskLaunchOptions Options;
@@ -765,11 +765,12 @@ namespace Durin
 			});
 			EXPECT_EQ(Task.GetResult(), ETaskWaitStatus::UnsupportedThread);
 		}
-		for (auto Executor : {Tasks::ETaskExecutor::BlockingIO, Tasks::ETaskExecutor::GameThreadDeferred})
+		for (bool BlockingIO : {true, false})
 		{
 			EXPECT_DEATH({
 				auto Invalid = Tasks::LaunchIndependentTask("ForbiddenChildParent", [&] {
-					(void)Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, {.Executor = Executor});
+					if (BlockingIO) (void)Tasks::LaunchBlockingIO(DURIN_SOURCE_LOCATION, [] {});
+					else (void)Tasks::LaunchGameThreadDeferred(DURIN_SOURCE_LOCATION, [] {});
 				});
 				Invalid.Wait();
 			}, "Task construction failed");
@@ -841,7 +842,7 @@ namespace Durin
 		Signal.Trigger();
 		auto Ordinary = Tasks::LaunchTask("CompletedOrdinaryCPUInput", [] { return 17; });
 		constexpr const char* IoName = DURIN_SOURCE_LOCATION;
-		auto Io = Tasks::LaunchTask(IoName, [] { return 25; }, {.Executor = Tasks::ETaskExecutor::BlockingIO});
+		auto Io = Tasks::LaunchBlockingIO(IoName, [] { return 25; });
 		EXPECT_STREQ(Io.GetDebugName(), IoName);
 		ASSERT_TRUE(Ordinary.Wait());
 		ASSERT_TRUE(Io.Wait());

@@ -166,6 +166,8 @@ namespace Durin
 				: FPackageResource(InBytes.GetSize()), Bytes(std::move(InBytes)) {}
 
 		private:
+			auto IsMemoryResident() const -> bool override { return true; }
+
 			auto ReadRangeImpl(uint64 Offset, uint64 Size, const std::atomic_bool& bCancelled)
 				-> FPackageResourceReadResult override
 			{
@@ -233,23 +235,6 @@ namespace Durin
 			}
 
 			std::filesystem::path SegmentPath;
-		};
-
-		class FSnapshotPackageResource final : public FPackageResource
-		{
-		public:
-			explicit FSnapshotPackageResource(FSharedByteBuffer InBytes)
-				: FPackageResource(InBytes.GetSize()), Bytes(std::move(InBytes)) {}
-
-		private:
-			auto ReadRangeImpl(uint64 Offset, uint64 Size, const std::atomic_bool& bCancelled)
-				-> FPackageResourceReadResult override
-			{
-				if (bCancelled.load(std::memory_order_acquire))
-					return Result(EPackageResourceReadStatus::Cancelled);
-				return Bytes.MakeView(Offset, Size);
-			}
-			FSharedByteBuffer Bytes;
 		};
 
 		using EPreparedStatus = EPreparedPackageResourceError;
@@ -458,7 +443,7 @@ namespace Durin
 				if (auto Validation = ValidatePackageBulkDataSegment(Summary, Entries, Bytes); !Validation)
 					return PreparationFailed(EPreparedStatus::InvalidClosure,
 						std::format("{} Path: {}.", FormatBulkFailure(Validation.error()), PackagePath.generic_string()));
-				Candidate.BulkResource = std::make_shared<FSnapshotPackageResource>(
+				Candidate.BulkResource = std::make_shared<FOwnedPackageResource>(
 					FSharedByteBuffer::Take(std::move(Bytes)));
 			}
 			if (auto Check = Candidate.Revalidate(IsCancelled); !Check) return std::unexpected(std::move(Check.error()));
@@ -641,7 +626,7 @@ namespace Durin
 			return FPackageResourceRequest::Completed(Result(
 				EPackageResourceReadStatus::InvalidRange, {.Message = std::format("Package resource range is invalid. Offset: {}. Size: {}. Extent: {}.", Offset, Size, SegmentExtent)}));
 
-		auto State = std::make_shared<AssetPrivate::FPackageResourceRequestState>(true);
+		std::shared_ptr<AssetPrivate::FPackageResourceRequestState> State;
 		{
 			std::lock_guard Lock(Mutex);
 			if (bRetired) return CompleteRetired();
@@ -650,13 +635,19 @@ namespace Durin
 				> std::numeric_limits<uint64>::max() - ReadStats.RequestedBytes
 				? std::numeric_limits<uint64>::max()
 				: ReadStats.RequestedBytes + Size;
+			if (IsMemoryResident())
+			{
+				const std::atomic_bool Cancelled{false};
+				return FPackageResourceRequest::Completed(ReadRangeImpl(Offset, Size, Cancelled));
+			}
+			State = std::make_shared<AssetPrivate::FPackageResourceRequestState>(true);
 			Requests.push_back(State);
 		}
 		auto Self = shared_from_this();
 		Tasks::FTaskExecutionOptions Options;
-		Options.Executor = Tasks::ETaskExecutor::BlockingIO;
+
 		Options.Attribution = PackageResourceAttribution();
-		State->Bind(Tasks::LaunchTask("PackageResource.ReadRange",
+		State->Bind(Tasks::LaunchBlockingIO("PackageResource.ReadRange",
 			[Self = std::move(Self), State, Offset, Size]() {
 				if (State->bCancelled.load(std::memory_order_acquire))
 					return Result(EPackageResourceReadStatus::Cancelled, {.Message = "Package range request was cancelled."});

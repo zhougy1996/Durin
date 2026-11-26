@@ -17,9 +17,6 @@ namespace Durin::Tasks
 		[[noreturn]] CORE_API auto FailConstruction(FTaskConstructionError Error) -> void;
 	}
 
-	// Executor choice is shared by roots and every composition edge.
-	enum class ETaskExecutor : uint8 { Worker, BlockingIO, GameThreadDeferred };
-
 	namespace Detail
 	{
 		// Result access requires both a supported wait and successful execution in every build.
@@ -33,18 +30,9 @@ namespace Durin::Tasks
 	// Execution and owner identity; scheduler storage accounting is internal.
 	struct FTaskExecutionOptions
 	{
-		ETaskExecutor Executor = ETaskExecutor::Worker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		FTaskAttribution Attribution;
 		// Owns ordering dependencies so saved options never borrow a temporary collection.
-		std::vector<FTask> Prerequisites;
-	};
-
-	// Pipes and independent CPU work always run on workers.
-	struct FWorkerTaskOptions
-	{
-		ETaskPriority Priority = ETaskPriority::Normal;
-		FTaskAttribution Attribution;
 		std::vector<FTask> Prerequisites;
 	};
 
@@ -202,13 +190,6 @@ namespace Durin::Tasks
 			}
 
 		};
-		inline auto Target(ETaskExecutor Executor) -> ETaskTarget
-		{
-			if (Executor == ETaskExecutor::Worker) return ETaskTarget::AnyWorker;
-			if (Executor == ETaskExecutor::BlockingIO) return ETaskTarget::BlockingIO;
-			if (Executor == ETaskExecutor::GameThreadDeferred) return ETaskTarget::GameThreadDeferred;
-			return static_cast<ETaskTarget>(255);
-		}
 		template<typename T>
 		auto MakeResultState() -> Detail::TResultState<T>
 		{
@@ -259,7 +240,7 @@ namespace Durin::Tasks
 	{
 	template<typename F, typename T = std::invoke_result_t<std::decay_t<F>&>>
 	requires (!std::is_reference_v<T>)
-	auto LaunchTaskImpl(const char* Name, ETaskExecutor Executor, const auto& Options, F&& Function, bool bIndependentCPU = false, FPipe* Pipe = nullptr)
+	auto LaunchTaskImpl(const char* Name, ETaskTarget Target, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false, FPipe* Pipe = nullptr)
 		-> TTask<T>
 	{
 		try
@@ -269,7 +250,7 @@ namespace Durin::Tasks
 			Launch.Pipe = Pipe;
 			Launch.bIndependentCPU = bIndependentCPU;
 			Launch.Attribution = Options.Attribution;
-			Launch.Target = Detail::Target(Executor);
+			Launch.Target = Target;
 			Launch.Priority = Options.Priority;
 			Launch.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
 			Launch.Prerequisites = Options.Prerequisites;
@@ -291,7 +272,7 @@ namespace Durin::Tasks
 	template<typename F>
 	auto LaunchTask(const char* Name, F&& Function, const FTaskExecutionOptions& Options = {})
 	{
-		return Detail::LaunchTaskImpl(Name, Options.Executor, Options, std::forward<F>(Function));
+		return Detail::LaunchTaskImpl(Name, ETaskTarget::AnyWorker, Options, std::forward<F>(Function));
 	}
 
 	namespace Detail
@@ -316,14 +297,50 @@ namespace Durin::Tasks
 	auto LaunchTask(const char* Name, F&& Function, const T& Input, FTaskExecutionOptions Options = {})
 	{ return LaunchTask(Name, std::forward<F>(Function), Prerequisites(Input), Options); }
 
+	template<typename F>
+	auto LaunchBlockingIO(const char* Name, F&& Function, const FTaskExecutionOptions& Options = {})
+	{
+		return Detail::LaunchTaskImpl(Name, ETaskTarget::BlockingIO, Options, std::forward<F>(Function));
+	}
+
+	template<typename F, Detail::CTaskDependencyCollection R>
+	auto LaunchBlockingIO(const char* Name, F&& Function, const R& Inputs,
+		FTaskExecutionOptions Options = {})
+	{
+		return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {
+			return LaunchBlockingIO(Name, std::forward<F>(Function), BoundOptions);
+		});
+	}
+	template<typename F, Detail::CTaskDependency T>
+	auto LaunchBlockingIO(const char* Name, F&& Function, const T& Input, FTaskExecutionOptions Options = {})
+	{ return LaunchBlockingIO(Name, std::forward<F>(Function), Prerequisites(Input), Options); }
+
+	template<typename F>
+	auto LaunchGameThreadDeferred(const char* Name, F&& Function, const FTaskExecutionOptions& Options = {})
+	{
+		return Detail::LaunchTaskImpl(Name, ETaskTarget::GameThreadDeferred, Options, std::forward<F>(Function));
+	}
+
+	template<typename F, Detail::CTaskDependencyCollection R>
+	auto LaunchGameThreadDeferred(const char* Name, F&& Function, const R& Inputs,
+		FTaskExecutionOptions Options = {})
+	{
+		return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {
+			return LaunchGameThreadDeferred(Name, std::forward<F>(Function), BoundOptions);
+		});
+	}
+	template<typename F, Detail::CTaskDependency T>
+	auto LaunchGameThreadDeferred(const char* Name, F&& Function, const T& Input, FTaskExecutionOptions Options = {})
+	{ return LaunchGameThreadDeferred(Name, std::forward<F>(Function), Prerequisites(Input), Options); }
+
 	// Declares an independent CPU graph: unfinished prerequisites/nested work must
 	// also be independent CPU tasks; completed inputs impose no progress requirements. Children
 	// inherit the contract. Callables must not depend on owner-thread, RHI, I/O or
 	// external progress; the caller owns their ordinary C++ side effects.
 	template<typename F>
-	auto LaunchIndependentTask(const char* Name, F&& Function, const FWorkerTaskOptions& Options = {})
+	auto LaunchIndependentTask(const char* Name, F&& Function, const FTaskExecutionOptions& Options = {})
 	{
-		return Detail::LaunchTaskImpl(Name, ETaskExecutor::Worker,
+		return Detail::LaunchTaskImpl(Name, ETaskTarget::AnyWorker,
 			Options, std::forward<F>(Function), true);
 	}
 

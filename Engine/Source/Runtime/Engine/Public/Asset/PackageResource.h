@@ -71,6 +71,8 @@ namespace Durin
 			FPackageResourceReadStats InReadStats = {})
 			: SegmentExtent(InSegmentExtent), ReadStats(InReadStats) {}
 
+		// Inline reads must only create a bounded view of immutable resident bytes.
+		virtual auto IsMemoryResident() const -> bool { return false; }
 		virtual auto ReadRangeImpl(
 			uint64 Offset,
 			uint64 Size,

@@ -16,14 +16,15 @@ task or event without a typed result accessor. Callables accept no arguments.
 Cancellation tokens and input handles are captured explicitly. Dependent bodies capture the input handles
 they need and inspect their states before accessing results.
 Use a descriptive name or `DURIN_SOURCE_LOCATION` (the call site's file and line).
-Omitting options schedules a Worker task. Tasks participate in the process scheduler
+`LaunchTask` schedules a Worker task. Tasks participate in the process scheduler
 lifetime. Ordinary resource owners keep
 their task handles and completion events, stop their own producer admission,
 then cancel/wait the accepted work before releasing captures or resource state.
 There is no general task-group or group-join facade.
-`Options.Executor` selects Worker, BlockingIO, or GameThreadDeferred.
-Nested submissions record the executing parent identity. Package payload
-reads select BlockingIO. Pipes and independent CPU tasks accept worker-only options.
+`LaunchBlockingIO` submits blocking work to the internal I/O pool.
+`LaunchGameThreadDeferred` submits callbacks to the deferred GameThread queue.
+Both accept the same options and prerequisites as `LaunchTask`.
+Nested submissions record the executing parent identity.
 Domain queues own their admission policy. Accepted producer and publication tasks
 retain their scheduler participation through ordinary terminal publication.
 Asset compilation uses explicit operation completion dependencies as

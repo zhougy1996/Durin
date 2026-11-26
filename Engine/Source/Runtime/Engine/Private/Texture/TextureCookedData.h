@@ -132,7 +132,7 @@ namespace Durin::TexturePrivate
 		{
 			Completion.emplace("CookedTextureDecode");
 			// Register automatic publication before IO, so shutdown needs no new admission.
-			auto Publication = Tasks::LaunchTask("CookedTexturePublication", Publish, *Completion, {.Executor = Tasks::ETaskExecutor::GameThreadDeferred});
+			auto Publication = Tasks::LaunchGameThreadDeferred("CookedTexturePublication", Publish, *Completion);
 		}
 		try
 		{

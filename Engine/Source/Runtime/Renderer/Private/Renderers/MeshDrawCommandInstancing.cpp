@@ -115,7 +115,7 @@ namespace Durin::RendererPrivate
 					Outputs[TaskIndex].RequiredPipelines.push_back(
 						PipelineStateCache::GetAndOrCreateGraphicsPipelineState(*Child, *Initializer));
 			}
-			Tasks::FWorkerTaskOptions Options;
+			Tasks::FTaskExecutionOptions Options;
 			Options.Prerequisites = ParallelCommandListSet->GetPrereqs();
 			auto Task = Tasks::LaunchIndependentTask("Renderer.DrawVisibleMeshCommands",
 				[this, Child, First = StartIndex + First, Count, OverrideArgs, Output = &Outputs[TaskIndex], bStats = Statistics != nullptr] {
