@@ -11,7 +11,7 @@
 #include "DObject/Property.h"
 #include "DObject/TransactionObjectReference.h"
 #include "Logging/LogMacros.h"
-#include "Misc/AssertionMacros.h"
+#include "Misc/Assertion.h"
 #include "Tools/EditorScriptCall.h"
 
 namespace Durin
@@ -412,6 +412,14 @@ namespace Durin
 
 	namespace
 	{
+		void CheckPropertyEditFinish(const std::optional<FScopedTransaction>& Scope, std::string_view Operation)
+		{
+			if (Scope && Scope->IsRecordingCurrent() && !GEditor->GetTransactor()->CanTransact())
+				Private::ReportFormattedAssertionFailure("Illegal property edit reentry", std::source_location::current(),
+					"FPropertyEdit::{} cannot finish transaction {} during a protected transaction operation.",
+					Operation, GUndo->GetContext().TransactionId);
+		}
+
 		auto FailPropertyEdit(std::string* OutError, std::string_view Message) -> bool
 		{
 			if (OutError) *OutError = Message;
@@ -422,11 +430,7 @@ namespace Durin
 	PropertyEditor::FPropertyEdit::~FPropertyEdit()
 	{
 		if (!bActive) return;
-		if (!Cancel() && bActive)
-		{
-			DURIN_FATAL("Destroying an active property edit while its transaction is busy.");
-			check(false);
-		}
+		Cancel();
 		Reset();
 	}
 
@@ -666,7 +670,7 @@ namespace Durin
 			Reset(false);
 			return FailPropertyEdit(OutError, "The property transaction is no longer active.");
 		}
-		if (TransactionScope && !GEditor->GetTransactor()->CanTransact()) return FailPropertyEdit(OutError, "The editor transactor is busy.");
+		CheckPropertyEditFinish(TransactionScope, "Commit");
 		const auto& Target = *Handle.PathTarget;
 		if (!TargetObject.IsValid() || !Target.Object->CanEditChange(Target.MemberProperty))
 		{
@@ -685,8 +689,7 @@ namespace Durin
 	{
 		if (!bActive || HasChanges())
 			return FailPropertyEdit(OutError, "Unchanged cancellation requires an active unchanged edit.");
-		if (TransactionScope && TransactionScope->IsRecordingCurrent() && !GEditor->GetTransactor()->CanTransact())
-			return FailPropertyEdit(OutError, "The editor transactor is busy.");
+		CheckPropertyEditFinish(TransactionScope, "CancelUnchanged");
 		Reset(false);
 		return true;
 	}
@@ -694,8 +697,7 @@ namespace Durin
 	auto PropertyEditor::FPropertyEdit::Cancel(std::string* OutError) -> bool
 	{
 		if (bCommitting) return true;
-		if (TransactionScope && TransactionScope->IsRecordingCurrent() && !GEditor->GetTransactor()->CanTransact())
-			return FailPropertyEdit(OutError, "The editor transactor is busy.");
+		CheckPropertyEditFinish(TransactionScope, "Cancel");
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
 		std::string Error;
 		const bool bRestored = RestoreOriginalValue(OutError ? OutError : &Error);

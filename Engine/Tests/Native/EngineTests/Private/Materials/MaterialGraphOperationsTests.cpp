@@ -4453,7 +4453,7 @@ TEST(FMaterialGraphOperationsTests, SharedScalarParameterWritesBothDeclarationsO
 	CheckDeclarations(.75f);
 }
 
-TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCancellable)
+TEST(FMaterialGraphOperationsTests, StaleParameterGesturePreservesReplacementAndBusyMoveCanRetry)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -4475,23 +4475,10 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	PropertyEditor::FPropertyEdit Edit;
 	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
 	ASSERT_TRUE(Edit.SetValue(.75f));
-	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
-	std::string Error;
-	const auto Failed = Edit.Commit(&Error);
-	ASSERT_FALSE(Failed);
-	EXPECT_NE(Error.find("The editor transactor is busy."), std::string::npos);
-	EXPECT_FALSE(Edit.Cancel());
-	EXPECT_TRUE(Edit.IsActive());
-	EXPECT_FALSE(Transactions->CanUndo());
-	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
-	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	ASSERT_TRUE(Edit.Cancel());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
 	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
 	ASSERT_TRUE(Edit.SetValue(.5f));
-	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
-	EXPECT_FALSE(Edit.Commit());
-	Durin::FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	ASSERT_TRUE(Edit.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
@@ -4526,7 +4513,6 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Move.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	EXPECT_NE(Error.find("The editor transactor is busy."), std::string::npos);
 	EXPECT_NE(MoveFailure.error().find("The editor transactor is busy."), std::string::npos);
 }
 

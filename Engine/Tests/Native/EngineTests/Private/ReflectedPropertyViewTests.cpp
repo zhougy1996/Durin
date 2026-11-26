@@ -475,7 +475,7 @@ TEST(FReflectedPropertyViewTests, ReadOnlyCommitEndsRecordingAndAllowsImmediateH
 	EXPECT_EQ(First->Value, 5);
 }
 
-TEST(FReflectedPropertyViewTests, BusyEscapeLeavesGestureAvailableForCommit)
+TEST(FReflectedPropertyViewTests, ReleaseCommitsAndEscapeOrDisappearanceRestoresPreview)
 {
 	using namespace Durin;
 	using namespace MonaImGui::PropertyEdit;
@@ -531,26 +531,10 @@ TEST(FReflectedPropertyViewTests, BusyEscapeLeavesGestureAvailableForCommit)
 	Frame(-1, false, false);
 	EXPECT_EQ(Object->Value, 5);
 	EXPECT_FALSE(View.IsEditing());
-	Frame(8);
-	FTransBufferTestAccess::SetHistoryBusy(*Transactions.Get(), true);
-	IO.AddKeyEvent(ImGuiKey_Escape, true);
-	Frame(-1, false);
-	EXPECT_FALSE(bLastSucceeded);
-	EXPECT_TRUE(View.IsEditing());
-	EXPECT_EQ(Object->Value, 8);
-	IO.AddKeyEvent(ImGuiKey_Escape, false);
-	FTransBufferTestAccess::SetHistoryBusy(*Transactions.Get(), false);
-	Frame(9, false);
-	EXPECT_TRUE(bLastSucceeded);
-	EXPECT_FALSE(View.IsEditing());
-	EXPECT_EQ(Object->Value, 9);
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(Object->Value, 5);
-	EXPECT_FALSE(Transactions->CanUndo());
-	EXPECT_GT(Errors, 0);
+	EXPECT_EQ(Errors, 0);
 }
 
-TEST(FReflectedPropertyViewTests, BusySwitchPreservesOldScopeWithoutSchedulingCancellation)
+TEST(FReflectedPropertyViewTests, SwitchCommitsOutgoingControlBeforeIncomingCancellation)
 {
 	using namespace Durin;
 	using namespace MonaImGui::PropertyEdit;
@@ -579,23 +563,54 @@ TEST(FReflectedPropertyViewTests, BusySwitchPreservesOldScopeWithoutSchedulingCa
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Object->Value, 5);
 	EXPECT_FALSE(Transactions->CanUndo());
-	Transactions->Reset();
-	ASSERT_TRUE(Write(1, 7));
-	FTransBufferTestAccess::SetHistoryBusy(*Transactions.Get(), true);
-	EXPECT_FALSE(View.UpdatePropertyValueEdit(Context, Target, {.Id = 1, .End = EPropertyInteractionEnd::Commit}, {}));
-	EXPECT_FALSE(Write(2, 9));
-	EXPECT_EQ(Object->Value, 7);
-	FTransBufferTestAccess::SetHistoryBusy(*Transactions.Get(), false);
-	EXPECT_TRUE(View.EndInteractionFrame(Context));
-	EXPECT_TRUE(View.IsEditing());
-	ASSERT_TRUE(Write(2, 9));
-	ASSERT_TRUE(View.FinishActiveEdit(&Context, false));
-	ASSERT_TRUE(Transactions->Undo());
+	ImGui::EndFrame();
+}
+
+TEST(FReflectedPropertyViewTests, PreFinalizeListenerCanCommitNestedPropertyEdit)
+{
+	using namespace Durin;
+	Testing::InitializeAssetSystemForTests();
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(nullptr, "NestedFinish"));
+	FPropertyViewTestTransactorOwner Transactions;
+	ASSERT_EQ(Transactions->Begin("test", "Outer"), 0);
+	const auto Listener = Transactions->OnTransactionStateChanged().AddLambda([&](const FTransactionContext&, ETransactionStateEventType State) {
+		if (State != ETransactionStateEventType::PreTransactionFinalized) return;
+		PropertyEditor::FPropertyEdit Edit;
+		ASSERT_TRUE(Edit.Begin(FPropertyEditTarget::ForMember(Object.Get(), Reflection.Property), "Nested edit", *Transactions.Get()));
+		ASSERT_TRUE(Edit.SetValue(7));
+		ASSERT_TRUE(Edit.Commit());
+	});
+	EXPECT_EQ(Transactions->End(), 1);
+	Transactions->OnTransactionStateChanged().Remove(Listener);
 	EXPECT_EQ(Object->Value, 7);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Object->Value, 5);
 	EXPECT_FALSE(Transactions->CanUndo());
-	ImGui::EndFrame();
+}
+
+TEST(FReflectedPropertyViewTests, FinishingPropertyEditFromTransactionCanceledIsIllegal)
+{
+	using namespace Durin;
+	const auto FinishDuringCancel = [](bool bCommit, bool bChanged) {
+		Testing::InitializeAssetSystemForTests();
+		auto& Reflection = GetPropertyViewHostTestReflection();
+		TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(nullptr, "ReentrantFinish"));
+		FPropertyViewTestTransactorOwner Transactions;
+		PropertyEditor::FPropertyEdit Edit;
+		ASSERT_TRUE(Edit.Begin(FPropertyEditTarget::ForMember(Object.Get(), Reflection.Property), "Edit value", *Transactions.Get()));
+		if (bChanged) ASSERT_TRUE(Edit.SetValue(7));
+		Transactions->OnTransactionStateChanged().AddLambda([&](const FTransactionContext&, ETransactionStateEventType State) {
+			if (State != ETransactionStateEventType::TransactionCanceled) return;
+			if (bCommit) Edit.Commit();
+			else if (bChanged) Edit.Cancel();
+			else Edit.CancelUnchanged();
+		});
+		Transactions->Cancel();
+	};
+	EXPECT_DEATH(FinishDuringCancel(true, true), "FPropertyEdit::Commit cannot finish transaction");
+	EXPECT_DEATH(FinishDuringCancel(false, true), "FPropertyEdit::Cancel cannot finish transaction");
+	EXPECT_DEATH(FinishDuringCancel(false, false), "FPropertyEdit::CancelUnchanged cannot finish transaction");
 }
 
 TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilRequested)
@@ -794,21 +809,15 @@ TEST(FReflectedPropertyViewTests, MapKeyInteractionRetainsIdentityAndCancelsHidd
 	using namespace Durin;
 	Testing::InitializeAssetSystemForTests();
 	auto& Reflection = GetPropertyViewHostTestReflection();
-	for (int EndMode = 0; EndMode < 5; ++EndMode)
+	for (int EndMode = 0; EndMode < 4; ++EndMode)
 	{
 		TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(nullptr, "MapInteraction"));
 		Object->SoftMap["Alpha"] = nullptr;
 		if (EndMode == 3) Object->SoftMap["Reserved"] = nullptr;
 		FPropertyViewTestTransactorOwner Transactions;
 		FPropertyView View;
-		int BusyReports = 0;
 		const FPropertyViewContext Context{.ReportPropertyError = [&](std::string Error) {
 			if (EndMode == 3) EXPECT_EQ(Error, "Map keys must be unique.");
-			else if (EndMode == 4)
-			{
-				EXPECT_EQ(Error, "The editor transactor is busy.");
-				++BusyReports;
-			}
 			else ADD_FAILURE() << Error;
 		}};
 		const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), ImGui::DestroyContext);
@@ -878,18 +887,6 @@ TEST(FReflectedPropertyViewTests, MapKeyInteractionRetainsIdentityAndCancelsHidd
 			IO.AddKeyEvent(ImGuiKey_Escape, false); Frame();
 			EXPECT_TRUE(Object->SoftMap.contains("Reserved"));
 		}
-		else
-		{
-			FTransBufferTestAccess::SetHistoryBusy(*Transactions.Get(), true);
-			IO.AddKeyEvent(ImGuiKey_Enter, true); Frame();
-			FTransBufferTestAccess::SetHistoryBusy(*Transactions.Get(), false);
-			IO.AddKeyEvent(ImGuiKey_Enter, false); Frame();
-			Frame();
-			EXPECT_EQ(BusyReports, 1);
-			EXPECT_TRUE(View.IsEditing());
-			EXPECT_TRUE(Object->SoftMap.contains("Gamma"));
-			ASSERT_TRUE(View.FinishActiveEdit(&Context, true));
-		}
 		EXPECT_TRUE(Object->SoftMap.contains("Alpha"));
 		EXPECT_FALSE(View.IsEditing());
 		EXPECT_FALSE(Transactions.Get()->CanUndo());
@@ -941,16 +938,6 @@ TEST(FReflectedPropertyViewTests, IntegerControlHandoffHasTheSameHistoryInBothDr
 		ASSERT_TRUE(EndFrame());
 		ASSERT_TRUE(Frame.IsActive());
 		EXPECT_EQ(Object->Value, 7);
-
-		FTransBufferTestAccess::SetHistoryBusy(*Transactions.Get(), true);
-		std::string Error;
-		Frame.Observe(1, Handle, MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(1, {false, true}).End, std::nullopt);
-		EXPECT_FALSE(Frame.EndFrame(false, true, {}, &Error));
-		EXPECT_EQ(Error, "The editor transactor is busy.");
-		FTransBufferTestAccess::SetHistoryBusy(*Transactions.Get(), false);
-		Frame.Observe(1, Handle, MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(1, {}).End, std::nullopt);
-		EXPECT_TRUE(EndFrame());
-		EXPECT_TRUE(Frame.IsActive());
 
 		const auto DrawOutgoing = [&] { Frame.Observe(1, Handle, EEnd::Commit, 8); };
 		const auto DrawIncoming = [&] { Frame.Observe(2, Handle, EEnd::Commit, 9); };

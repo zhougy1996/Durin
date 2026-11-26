@@ -388,7 +388,7 @@ TEST(FMaterialParameterPanelModelTests, ColorPopupCoalescesReflectedOverridesAnd
 	IO.ConfigInputTrickleEventQueue = false;
 	IO.DisplaySize = {900, 600}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
 	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
-	const auto Frame = [&](const FMaterialParameterValue* Edited = nullptr, bool bOpen = false, bool bClose = false, bool bExpectReady = true) {
+	const auto Frame = [&](const FMaterialParameterValue* Edited = nullptr, bool bOpen = false, bool bClose = false) {
 		ImGui::NewFrame();
 		ImGui::Begin("Instance color parameter");
 		const ImGuiID PopupId = ImGui::GetID("##Picker");
@@ -403,7 +403,7 @@ TEST(FMaterialParameterPanelModelTests, ColorPopupCoalescesReflectedOverridesAnd
 		const FMaterialParameterPanelModel Model(Instance.Get());
 		const auto* Entry = FindEntry(Model, Id);
 		ASSERT_NE(Entry, nullptr);
-		EXPECT_EQ(Model.UpdateValueEdit(View, Context, *Entry, Picker, Edited), bExpectReady);
+		EXPECT_TRUE(Model.UpdateValueEdit(View, Context, *Entry, Picker, Edited));
 		EXPECT_TRUE(View.EndInteractionFrame(Context));
 		ImGui::End(); ImGui::Render();
 	};
@@ -424,16 +424,6 @@ TEST(FMaterialParameterPanelModelTests, ColorPopupCoalescesReflectedOverridesAnd
 	Transactions->Reset();
 	Frame(nullptr, true);
 	Frame(&First);
-	EXPECT_EQ(Read(), First);
-	FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
-	Frame(nullptr, false, true, false);
-	FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
-	EXPECT_EQ(Error, "The editor transactor is busy.");
-	Error.clear();
-	Frame();
-	Frame();
-	EXPECT_TRUE(View.IsEditing());
-	EXPECT_TRUE(Transactions->IsActive());
 	EXPECT_EQ(Read(), First);
 	IO.AddKeyEvent(ImGuiKey_Escape, true); Frame();
 	EXPECT_EQ(Read(), Final);
@@ -508,7 +498,7 @@ TEST(FMaterialParameterPanelModelTests, ContinuousScalarAndVectorUseGestureBound
 	}
 }
 
-TEST(FMaterialParameterPanelModelTests, BusyCancellationPreservesFirstOverrideWhenSwitching)
+TEST(FMaterialParameterPanelModelTests, SwitchingOverrideCommitsEachParameterSeparately)
 {
 	using namespace Durin;
 	using namespace Durin::MaterialEditor;
@@ -536,9 +526,6 @@ TEST(FMaterialParameterPanelModelTests, BusyCancellationPreservesFirstOverrideWh
 	const auto BeforeAlpha = Read(Alpha), BeforeBeta = Read(Beta);
 	const auto Edited = FMaterialParameterValue::MakeScalar(.123f);
 	ASSERT_TRUE(Model.SubmitValueEdit(View, Context, *FindEntry(Model, Alpha), Edited, true)) << Error;
-	FTransBufferTestAccess::SetHistoryBusy(*Transactions, true);
-	ASSERT_FALSE(View.FinishActiveEdit(&Context, true));
-	FTransBufferTestAccess::SetHistoryBusy(*Transactions, false);
 	ASSERT_TRUE(Model.SubmitValueEdit(View, Context, *FindEntry(Model, Beta), Edited, false));
 	EXPECT_EQ(Read(Alpha), Edited);
 	EXPECT_EQ(Read(Beta), Edited);

@@ -4,7 +4,7 @@ Summary: Define detached property validation, stable edit targets, notifications
 
 Modules: DurinEd, CoreDObject
 
-Last reviewed: 2026-11-22
+Last reviewed: 2026-11-26
 
 ## Scope And Ownership
 
@@ -179,7 +179,7 @@ The default top-level integer and float controls and the reflected color popup r
 input during drawing. At frame end the host applies the active control's final
 value and settles its edit before starting a different control's edit. A color
 popup keeps one edit through successive picker gestures and commits it on
-dismissal. Escape or disappearance restores the active preview. Only a busy current transaction blocks the handoff. Drawing order does not change the values
+dismissal. Escape or disappearance restores the active preview. Drawing order does not change the values
 recorded for Undo. Other controls continue to use the legacy widget submission
 path.
 
@@ -240,7 +240,7 @@ identity across renames, with uniqueness validation on the structural write path
 Legacy controls use `FPropertyEditInteraction` to
 observe `FPropertyInteractionState` independently of the writer. Numeric and vector controls submit the terminal value on edited deactivation.
 Text confirmation and single-step changes submit once. Idle redraws leave the
-gesture alone, including after a busy commit. The picker detects closure once
+gesture alone. The picker detects closure once
 after drawing, using the popup ID and its open state in the owning window.
 The consumers keep widget identity and frame observations for handoff and
 disappearance. This follows UE's separation of interactive updates from
@@ -269,7 +269,7 @@ that resurrects another field's cancelled preview.
 
 Material Toolkit deactivation, close, discard, and working-copy replacement
 can proceed once a cancelled property gesture ends, including after a reported
-snapshot failure. A busy transaction rejects the current request.
+snapshot failure.
 
 This division follows UE 5.8's `IPropertyHandle::SetValue`,
 `SPropertyEditorNumeric::OnBeginSliderMovement`/`OnEndSliderMovement`, and
@@ -281,8 +281,7 @@ notification to the caller's terminal write. Reuse the handle through the
 gesture. A cross-frame session holds that handle alongside its transaction and
 original snapshot. Commit flushes the handle's pending notification without
 rewriting the preview. The final write emits one committed notification even when its value
-matches the last interactive update. A subsequent identical write is silent. A busy current recording rejects this commit and retains its scope. The next input
-may continue, commit, or cancel the edit. The control does not queue a retry.
+matches the last interactive update. A subsequent identical write is silent.
 A stale recording or loss of editability ends the gesture with a diagnostic and
 leaves the live value in place. A still-current scope ends normally. Hosts
 report the diagnostic and use session activity to decide whether they can switch.
@@ -292,10 +291,13 @@ recording and earlier edits when a proposal is rejected. Sessions with applied
 changes restore the saved snapshot directly. Restoration skips proposal validation,
 normalization, and `Modify()`.
 
-Cancellation checks transaction availability before touching the preview. If
-busy, it rejects this request and leaves the original scope open. The next
-input can continue, commit, or cancel that gesture. Once admitted, cancellation
-attempts restoration once, discards an owned recording or ends its nested scope,
+Finishing a current property scope during a protected transaction operation
+is illegal reentry. Commit and both cancellation paths issue a fatal diagnostic
+before publishing the final notification, restoring the preview, or releasing
+the scope. A `PreTransactionFinalized` listener can open and finish its own
+nested edit within the callback.
+
+Cancellation attempts restoration once, discards an owned recording or ends its nested scope,
 and releases the session even if restoration fails. A failed restore returns
 its diagnostic and leaves the live value as it stands. A host reports the
 diagnostic and can switch controls or close. Destruction attempts cancellation

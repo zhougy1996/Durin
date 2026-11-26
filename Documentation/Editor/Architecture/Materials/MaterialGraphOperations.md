@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-11-23
+Last reviewed: 2026-11-26
 
 ## Task routing
 
@@ -716,7 +716,7 @@ After admission and a successful model write, scope destruction
 publishes history. A publication failure leaves the authored graph edit applied
 and is reported by the transactor.
 
-A busy transactor leaves the parameter gesture open for the next input.
+Parameter gestures follow the [reflected property editing contract](../PropertyEditing/ReflectedPropertyEditing.md).
 A stale binding ends the gesture with a diagnostic and leaves both the local
 preview and the current source value as they stand. A failed move commit
 keeps its draft without publishing positions. Rejected move previews preserve the
