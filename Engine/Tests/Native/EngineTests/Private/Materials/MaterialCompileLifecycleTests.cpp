@@ -153,7 +153,7 @@ auto QualifyCanceledFlightResubmission() -> void
 			{
 				FThreadEvent& Release;
 				std::vector<Tasks::FTask>& Blockers;
-				~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Blockers) WaitTask(Task); }
+				~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Blockers) Task.Wait(); }
 			} ReleaseWorkers{Release, Blockers};
 			for (uint32 Index = 0; Index < WorkerCount; ++Index)
 				Blockers.push_back(Durin::Tasks::FTask(Tasks::LaunchTask("HoldCanceledMaterialFlight", [&] {
@@ -693,7 +693,7 @@ TEST_F(FMaterialAsyncCompileTests, ReplacingCanceledSharedFlightCompletesItsOthe
 		{
 			FThreadEvent& Release;
 			std::vector<Tasks::FTask>& Blockers;
-			~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Blockers) WaitTask(Task); }
+			~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Blockers) Task.Wait(); }
 		} ReleaseWorkers{Release, Blockers};
 		for (uint32 Index = 0; Index < WorkerCount; ++Index)
 			Blockers.push_back(Tasks::FTask(Tasks::LaunchTask("HoldReplacedSharedFlight", [&] {
@@ -745,7 +745,7 @@ TEST_F(FMaterialAsyncCompileTests, SingleFlightRetainedHitsAndDemandedReload)
 		{
 			Durin::FThreadEvent& Event;
 			std::vector<Durin::Tasks::FTask>& Tasks;
-			~FReleaseWorkers() { Event.Trigger(); for (const auto& Task : Tasks) Durin::WaitTask(Task); }
+			~FReleaseWorkers() { Event.Trigger(); for (const auto& Task : Tasks) Task.Wait(); }
 		} ReleaseWorkers{Release, Blockers};
 		for (uint32 Index = 0; Index < WorkerCount; ++Index)
 			Blockers.push_back(Durin::Tasks::FTask(Durin::Tasks::LaunchTask("HoldMaterialSingleFlight", [&] {
@@ -982,7 +982,7 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementUsesFallbackUntilComp
 	{
 		Durin::FThreadEvent& Release;
 		std::vector<Durin::Tasks::FTask>& Tasks;
-		~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Tasks) Durin::WaitTask(Task); }
+		~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Tasks) Task.Wait(); }
 	};
 	{
 		FReleaseWorkers ReleaseWorkers{Release, Blockers};
@@ -1145,7 +1145,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 				})));
 			return Started.WaitFor(2.0);
 		}
-		~FHoldWorkers() { Release.Trigger(); for (const auto& Task : Tasks) WaitTask(Task); }
+		~FHoldWorkers() { Release.Trigger(); for (const auto& Task : Tasks) Task.Wait(); }
 	};
 	auto* Leaf = NewObject<DMaterialFunction>(nullptr, "AsyncFunctionLeaf");
 	auto* Wrapper = NewObject<DMaterialFunction>(nullptr, "AsyncFunctionWrapper");
@@ -1531,7 +1531,7 @@ TEST_F(FMaterialAsyncCompileTests, StoppingAdmissionDrainsAcceptedMaterialWithou
 		std::vector<Tasks::FTask>& Blockers;
 		~FResume() {
 			Release.Trigger();
-			for (const auto& Task : Blockers) WaitTask(Task);
+			for (const auto& Task : Blockers) Task.Wait();
 			FShaderCompilingManager::Get().Start();
 		}
 	} Resume{Release, Blockers};

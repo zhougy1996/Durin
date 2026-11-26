@@ -372,7 +372,7 @@ namespace
 		InitializeAssetCompilingManager();
 		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		auto Root = Durin::Tasks::FTask(Tasks::LaunchTask("TextureSaturationRoot", [] {}));
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Root.WaitDetailed().TaskState);
 		auto Deferred = Durin::Tasks::FTask(Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [Root](){}, Root));
 		ASSERT_TRUE(Deferred.IsValid());
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "LargeContent").generic_string() + "/");
@@ -489,7 +489,7 @@ namespace
 		EXPECT_FALSE(Deferred.IsCompleted());
 		EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
 		PumpGameThreadDeferredWork({.bUnlimited = true});
-		WaitTask(Deferred);
+		Deferred.Wait();
 
 		// Keep an accepted asynchronous build suspended when the owner and Core shut down.
 		auto ShutdownCache = std::make_shared<FHeldDerivedDataCache>();
@@ -514,7 +514,7 @@ namespace
 		FScopedOwnerDrain ShutdownDrain{.Caches = {ShutdownCache, ShutdownMeshCache}, .Gates = {&Release},
 			.bShutdown = true, .Restore = [&] {
 				RestoreTextureBridgeTests(); RestoreMeshBridgeTests();
-				for (const auto& Task : Blockers) if (Task.IsValid()) WaitTask(Task);
+				for (const auto& Task : Blockers) if (Task.IsValid()) Task.Wait();
 			}};
 		FPackagePath HeldPath;
 		ASSERT_TRUE(FPackagePath::TryCreate("/AsyncPilot/HeldShutdownTexture", HeldPath));
@@ -588,7 +588,7 @@ namespace
 		EXPECT_EQ(0u, SaturatedCompleted);
 		for (uint32 Index = 2; Index < Blockers.size(); ++Index)
 		{
-			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blockers[Index]).TaskState);
+			EXPECT_EQ(ETaskState::Succeeded, Blockers[Index].WaitDetailed().TaskState);
 		}
 		for (uint32 Index = 0; Index < 4; ++Index)
 		{
@@ -640,7 +640,7 @@ namespace
 		for (uint32 Count : Completed) EXPECT_EQ(1u, Count);
 		EXPECT_EQ(1u, SaturatedCompleted);
 		Release.Trigger();
-		for (const auto& Blocker : Blockers) if (Blocker.IsValid()) WaitTask(Blocker);
+		for (const auto& Blocker : Blockers) if (Blocker.IsValid()) Blocker.Wait();
 		ASSERT_TRUE(WaitUntil([&] { return GetTaskSchedulerDiagnostics().NonterminalTaskCount == 0; }, std::chrono::seconds(1)));
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().NonterminalTaskCount);
 	}

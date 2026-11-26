@@ -908,7 +908,7 @@ TEST_F(FWorldSubsystemTests, LateDetachedCompletionCannotPublishAfterWorldRetire
 	World->CleanupWorld();
 	{ std::lock_guard Lock(Payload->Mutex); Payload->bReleased = true; }
 	Payload->Condition.notify_all();
-	EXPECT_EQ(WaitTask(Worker).WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Worker.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	int Published = 0;
 	// This is the owner's GameThread completion boundary; no retired object is resolved.
 	if (!Cancellation->IsCanceled()) Published = Payload->Value;

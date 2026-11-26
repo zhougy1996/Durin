@@ -37,7 +37,7 @@ TEST(FMaterialCompileShutdownTests, ShutdownDrainsFunctionOwnersAndDetachedFanou
 	{
 		FThreadEvent& Release;
 		std::vector<Tasks::FTask>& Blockers;
-		~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Blockers) WaitTask(Task); }
+		~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Blockers) Task.Wait(); }
 	} ReleaseWorkers{Release, Blockers};
 	const auto WorkerCount = GetTaskSchedulerDiagnostics().WorkerCount;
 	for (uint32 Index = 0; Index < WorkerCount; ++Index)

@@ -200,7 +200,7 @@ namespace Durin
 		if (!CompletionTask.IsValid()) return;
 		DURIN_PROFILE_CPU_ZONE_NAMED("RenderCommandFence.Wait");
 		const auto Started = std::chrono::steady_clock::now();
-		const FTaskWaitResult Result = WaitTask(CompletionTask);
+		const FTaskWaitResult Result = CompletionTask.WaitDetailed();
 		const auto RenderCompleted = std::chrono::steady_clock::now();
 		requiref(Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded,
 			"Render fence completion failed: {}", CompletionTask.GetDiagnostic());

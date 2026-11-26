@@ -325,7 +325,7 @@ namespace Durin
 		{
 			Cancel();
 
-			if (Task.IsValid()) (void)WaitTask(Task).TaskState;
+			if (Task.IsValid()) (void)Task.Wait();
 		}
 		DrainMailbox();
 		if (State == EAssetCompatibilityAuditState::Running)

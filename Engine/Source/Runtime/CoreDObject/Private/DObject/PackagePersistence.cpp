@@ -147,7 +147,7 @@ namespace Durin
 		ETaskState State = ETaskState::Succeeded;
 		for (const auto& Save : SnapshotSaves())
 		{
-			auto Result = WaitTask(Save->Disk);
+			auto Result = Save->Disk.WaitDetailed();
 			if (Result.WaitStatus != ETaskWaitStatus::Completed) return Result;
 			if (Result.TaskState == ETaskState::Failed) State = ETaskState::Failed;
 			else if (Result.TaskState == ETaskState::Canceled && State != ETaskState::Failed) State = ETaskState::Canceled;
@@ -165,7 +165,7 @@ namespace Durin
 		struct FScope { ~FScope() { bDrainingSaves = false; } } Scope;
 		const auto Cutoff = SnapshotSaves();
 		for (const auto& Save : Cutoff)
-			if (WaitTask(Save->Disk).WaitStatus != ETaskWaitStatus::Completed)
+			if (!Save->Disk.Wait())
 				return Reject(OutError, UnifiedError::FError{PackageSaveErrors::Busy, "Save I/O wait is unsupported on this thread."});
 		for (const auto& Save : Cutoff)
 		{

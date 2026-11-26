@@ -199,10 +199,10 @@ namespace Durin
 
 			Cancellation.Cancel();
 			ReleaseBlocker.Trigger();
-			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
-			for (const Tasks::FTask& Task : Succeeded) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
-			for (const Tasks::FTask& Task : Failed) EXPECT_EQ(ETaskState::Failed, WaitTask(Task).TaskState);
-			for (const Tasks::FTask& Task : Canceled) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
+			EXPECT_EQ(ETaskState::Succeeded, Blocker.WaitDetailed().TaskState);
+			for (const Tasks::FTask& Task : Succeeded) EXPECT_EQ(ETaskState::Succeeded, Task.WaitDetailed().TaskState);
+			for (const Tasks::FTask& Task : Failed) EXPECT_EQ(ETaskState::Failed, Task.WaitDetailed().TaskState);
+			for (const Tasks::FTask& Task : Canceled) EXPECT_EQ(ETaskState::Succeeded, Task.WaitDetailed().TaskState);
 		}
 
 		const FTaskSchedulerDiagnostics Final = GetTaskSchedulerDiagnostics();
@@ -358,9 +358,9 @@ namespace Durin
 				const bool RanWhileBlocked = CpuDone.WaitFor(0.01);
 				Release.Trigger();
 				EXPECT_EQ(Target == ETaskTarget::BlockingIO, RanWhileBlocked);
-				EXPECT_EQ(ETaskState::Succeeded, WaitTask(A).TaskState);
-				EXPECT_EQ(ETaskState::Succeeded, WaitTask(B).TaskState);
-				EXPECT_EQ(ETaskState::Succeeded, WaitTask(CPU).TaskState);
+				EXPECT_EQ(ETaskState::Succeeded, A.WaitDetailed().TaskState);
+				EXPECT_EQ(ETaskState::Succeeded, B.WaitDetailed().TaskState);
+				EXPECT_EQ(ETaskState::Succeeded, CPU.WaitDetailed().TaskState);
 				if (Sample >= 0) Samples.push_back(Latency);
 			}
 			std::ranges::sort(Samples);
@@ -383,7 +383,7 @@ namespace Durin
 		Config.QueuedBytesWarningThreshold = 256 * 64;
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor(Config));
 		Tasks::FTask Root = SubmitKernelTask("DeferredMeasurementRoot", []() {});
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Root.WaitDetailed().TaskState);
 
 		constexpr uint32 CallbackCount = 256;
 		constexpr uint64 DeclaredCaptureBytes = 64;

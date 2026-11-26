@@ -695,13 +695,6 @@ namespace Durin
 			return ExecutionState == ETaskState::Running && !IsTaskEvent() && Phase == EPhase::Open;
 		}
 		auto IsTaskEvent() const -> bool { return Event != nullptr; }
-		auto BindBeforeCompletion(std::shared_ptr<Private::FTaskBeforeCompletionHook> Hook) -> void
-		{
-			std::lock_guard Lock(Mutex);
-			requiref(Phase != EPhase::Closed, "Before-completion hooks must be bound before task completion.");
-			Hook->Next = std::move(BeforeCompletionHooks);
-			BeforeCompletionHooks = std::move(Hook);
-		}
 		static auto InvokeCompletionObserver(std::shared_ptr<std::function<void(ETaskState)>> Callback, ETaskState Terminal) -> void
 		{
 			// A closed producer is no longer an executing parent or a wait-cycle ancestor.
@@ -1081,7 +1074,6 @@ namespace Durin
 		std::unique_ptr<FEventData> Event;
 		uint32 PendingNestedCount = 0;
 		bool bUnknownExecutionRequirement = false;
-		std::shared_ptr<Private::FTaskBeforeCompletionHook> BeforeCompletionHooks;
 		std::vector<std::weak_ptr<std::function<void(ETaskState)>>> CompletionObservers;
 		bool bCompletionNotificationsReady = false;
 		FTaskDependencyEdges Dependencies;
@@ -2105,35 +2097,18 @@ namespace Durin
 		std::vector<FTaskSubsequent> SubsequentNodes;
 		std::vector<std::shared_ptr<FTaskStateData>> ReleasedDependencies;
 		std::shared_ptr<FTaskStateData> EventLifetime;
-		for (;;)
 		{
-			std::shared_ptr<Private::FTaskBeforeCompletionHook> Hooks;
+			std::lock_guard Lock(Mutex);
+			LifetimeAccounting->RetainedTerminalTaskCount.fetch_add(1, std::memory_order_acq_rel);
+			if (bHasResultStorage)
 			{
-				std::lock_guard Lock(Mutex);
-				Hooks = std::move(BeforeCompletionHooks);
-				if (!Hooks)
-				{
-					// Closing the hook/dependent lists and publishing completion share
-					// one linearization point. Registration never waits for user hooks.
-					LifetimeAccounting->RetainedTerminalTaskCount.fetch_add(1, std::memory_order_acq_rel);
-					if (bHasResultStorage)
-					{
-						LifetimeAccounting->RetainedTerminalResultCount.fetch_add(1, std::memory_order_acq_rel);
-					}
-					ReleasedDependencies = Dependencies.Release(FTaskDependencyEdges::ERelease::Closed);
-					Phase = EPhase::Closed;
-					if (bPipeCounted) { Pipe->RemoveTask(); bPipeCounted = false; }
-					SubsequentNodes = std::move(Subsequents);
-					if (Event) EventLifetime = std::move(Event->CompletionLifetime);
-					break;
-				}
+				LifetimeAccounting->RetainedTerminalResultCount.fetch_add(1, std::memory_order_acq_rel);
 			}
-			while (Hooks)
-			{
-				auto Hook = std::move(Hooks);
-				Hooks = std::move(Hook->Next);
-				Hook->Function(Outcome.State);
-			}
+			ReleasedDependencies = Dependencies.Release(FTaskDependencyEdges::ERelease::Closed);
+			Phase = EPhase::Closed;
+			if (bPipeCounted) { Pipe->RemoveTask(); bPipeCounted = false; }
+			SubsequentNodes = std::move(Subsequents);
+			if (Event) EventLifetime = std::move(Event->CompletionLifetime);
 		}
 		if (auto Limiter = std::move(ConcurrencyLimiter)) Limiter->RemoveTask(ConcurrencySlot);
 		// Completion is visible before nested/result destruction, as in UE Close.
@@ -2755,9 +2730,6 @@ namespace Durin
 		}
 
 
-		auto FTaskRuntimeAccess::PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>
-		{ require(Task.State); return Task.State; }
-
 		auto FTaskRuntimeAccess::GetAttribution(const Tasks::FTask& Task) -> FTaskAttribution { return Task.State ? Task.State->GetAttribution() : FTaskAttribution{}; }
 
 		auto FTaskRuntimeAccess::IsExecutingIndependentCPU() -> bool { return GCurrentTaskState && GCurrentTaskState->IsIndependentCPU(); }
@@ -2812,11 +2784,6 @@ namespace Durin
 			State->FinishBody(ETaskState::Succeeded);
 		}
 
-		auto FTaskRuntimeAccess::BindBeforeCompletion(const Tasks::FTask& Task, std::shared_ptr<FTaskBeforeCompletionHook> Hook) -> void
-		{
-			require(Task.State && Hook && Hook->Function);
-			Task.State->BindBeforeCompletion(std::move(Hook));
-		}
 		auto FTaskRuntimeAccess::ObserveCompletion(const Tasks::FTask& Task, const std::shared_ptr<std::function<void(ETaskState)>>& Callback) -> void
 		{
 			require(Task.State && Callback && *Callback);
@@ -2841,8 +2808,8 @@ namespace Durin
 
 	} // namespace Private
 
-	auto WaitTask(const Tasks::FTask& Task) -> FTaskWaitResult
-	{ return WaitTask(Task, std::numeric_limits<double>::infinity()); }
+	auto Tasks::Private::FTaskHandle::WaitDetailed() const -> FTaskWaitResult
+	{ return WaitDetailed(std::numeric_limits<double>::infinity()); }
 
 	namespace
 	{
@@ -3004,8 +2971,8 @@ namespace Durin
 		return IsCompleted();
 	}
 
-	auto WaitTask(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult
-	{ return WaitTaskState(Task.State, FTaskWaitDeadline(TimeoutSeconds)); }
+	auto Tasks::Private::FTaskHandle::WaitDetailed(double TimeoutSeconds) const -> FTaskWaitResult
+	{ return WaitTaskState(State, FTaskWaitDeadline(TimeoutSeconds)); }
 
 	auto Tasks::Detail::WaitCollection(std::span<const Tasks::FTask> Tasks, double TimeoutSeconds) -> bool
 	{

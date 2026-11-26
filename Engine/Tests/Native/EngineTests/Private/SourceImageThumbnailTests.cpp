@@ -285,7 +285,7 @@ namespace Durin::ContentBrowser::Private
 			BlockingState->bRelease = true;
 		}
 		BlockingState->Condition.notify_all();
-		EXPECT_EQ(WaitTask(Blocker).TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Blocker.WaitDetailed().TaskState, ETaskState::Succeeded);
 
 		{
 			FSourceImageThumbnailCache RecreatedCache;

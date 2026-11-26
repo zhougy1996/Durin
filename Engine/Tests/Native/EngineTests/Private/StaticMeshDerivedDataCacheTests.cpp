@@ -3842,7 +3842,7 @@ TEST(FAssetBuildSchedulerTests, NestedDependencyRetainsRetirementButReleasesExec
 		Tasks::FTask& Task;
 		bool Triggered = false;
 		auto Trigger() -> void { if (!std::exchange(Triggered, true)) Event.Trigger(); }
-		~FRelease() { Trigger(); if (Task.IsValid()) (void)WaitTask(Task); }
+		~FRelease() { Trigger(); if (Task.IsValid()) (void)Task.Wait(); }
 	} Release{Dependency, Task};
 	Scheduler.Enqueue(false, 100, [&](auto Slot) {
 		Task = Tasks::LaunchTask("AssetBudget.Dispatch", [Slot = std::move(Slot), &Dependency, &BodyExited] {
@@ -3863,7 +3863,7 @@ TEST(FAssetBuildSchedulerTests, NestedDependencyRetainsRetirementButReleasesExec
 	Scheduler.Pump();
 	EXPECT_EQ(Resumed, 0u);
 	Release.Trigger();
-	ASSERT_EQ(WaitTask(Task).WaitStatus, ETaskWaitStatus::Completed);
+	ASSERT_EQ(Task.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	Scheduler.Pump();
 	EXPECT_EQ(Resumed, 0u); // Retirement is ready, but CPU consumption must reacquire memory.
 	BlockingCpu.reset();
@@ -3890,11 +3890,11 @@ TEST(FAssetBuildSchedulerTests, ExplicitCancellationKeepsMemoryUntilCooperativeE
 	});
 	EXPECT_EQ(Scheduler.GetScheduledMemory(), 100u);
 	Cancellation.Cancel();
-	EXPECT_EQ(WaitTask(Task, 0).WaitStatus, ETaskWaitStatus::TimedOut);
+	EXPECT_EQ(Task.WaitDetailed(0).WaitStatus, ETaskWaitStatus::TimedOut);
 	EXPECT_FALSE(Entered);
 	EXPECT_EQ(Scheduler.GetScheduledMemory(), 100u);
 	Prerequisite.Trigger();
-	EXPECT_EQ(WaitTask(Task).TaskState, ETaskState::Succeeded);
+	EXPECT_EQ(Task.WaitDetailed().TaskState, ETaskState::Succeeded);
 	EXPECT_TRUE(Entered);
 	EXPECT_EQ(Scheduler.GetScheduledMemory(), 0u);
 	uint32 Launched = 0;

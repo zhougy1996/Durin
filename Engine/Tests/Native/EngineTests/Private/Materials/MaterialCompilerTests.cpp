@@ -855,7 +855,7 @@ TEST(FMaterialTranslationTests, MaterialCacheWaitReleasesTheOnlyAvailableWorker)
 	FThreadEvent Hold, Held; std::atomic_uint32_t Holding = 0;
 	std::vector<Tasks::FTask> Blockers;
 	const auto Count = GetTaskSchedulerDiagnostics().WorkerCount;
-	struct FRestore { std::shared_ptr<FGate> Cache; FThreadEvent& Hold; std::vector<Tasks::FTask>& Blockers; ~FRestore() { Cache->Release.Trigger(); Hold.Trigger(); for (auto& Task : Blockers) WaitTask(Task); SetTranslationServiceForTests({}); } } Restore{Cache, Hold, Blockers};
+	struct FRestore { std::shared_ptr<FGate> Cache; FThreadEvent& Hold; std::vector<Tasks::FTask>& Blockers; ~FRestore() { Cache->Release.Trigger(); Hold.Trigger(); for (auto& Task : Blockers) Task.Wait(); SetTranslationServiceForTests({}); } } Restore{Cache, Hold, Blockers};
 	for (uint32 Index = 1; Index < Count; ++Index) Blockers.push_back(Tasks::LaunchTask("HoldOtherMaterialWorkers", [&] { if (Holding.fetch_add(1) + 1 == Count - 1) Held.Trigger(); Hold.WaitFor(10); }));
 	if (Count > 1) ASSERT_TRUE(Held.WaitFor(5));
 	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());

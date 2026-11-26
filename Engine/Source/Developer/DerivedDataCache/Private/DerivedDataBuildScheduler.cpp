@@ -23,7 +23,7 @@ namespace Durin::DerivedData
 			}
 			auto Wait() const -> ERequestWaitResult override
 			{
-				return WaitTask(Task).WaitStatus == ETaskWaitStatus::Completed
+				return Task.Wait()
 					? ERequestWaitResult::Completed : ERequestWaitResult::WouldBlock;
 			}
 		};

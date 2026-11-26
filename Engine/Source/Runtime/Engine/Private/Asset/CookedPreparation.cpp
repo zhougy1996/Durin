@@ -203,10 +203,10 @@ namespace Durin
 			State->Cancellation.Cancel();
 			// Accepted DDC work runs to completion; cancellation prevents result installation.
 		};
-		WaitWork = [State] { if (State->Task.IsValid()) (void)WaitTask(State->Task); };
+		WaitWork = [State] { if (State->Task.IsValid()) (void)State->Task.Wait(); };
 		PollWork = [this, State] {
 			if (State->Task.IsValid() && !State->Task.IsCompleted()) return false;
-			if (State->Task.IsValid()) (void)WaitTask(State->Task);
+			if (State->Task.IsValid()) (void)State->Task.Wait();
 			std::lock_guard Lock(State->Mutex);
 			if (State->Cancellation.IsCanceled()) {
 				Result = {EObjectCookError::Cancelled, {}}; return true;

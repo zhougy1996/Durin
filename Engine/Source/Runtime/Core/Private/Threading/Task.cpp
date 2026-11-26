@@ -12,7 +12,7 @@ namespace Durin::Tasks
 
 		auto WaitForSuccess(const Tasks::FTask& Handle) -> void
 		{
-			const auto WaitResult = WaitTask(Handle);
+			const auto WaitResult = Handle.WaitDetailed();
 			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && Handle.GetState() == ETaskState::Succeeded);
 		}
 	}
@@ -69,8 +69,4 @@ namespace Durin::Tasks
 		return Durin::ParallelFor(Name, Num, std::move(Function), Native);
 	}
 
-	auto Wait(const Tasks::FTask& Task) -> bool { return Task.Wait(); }
-	auto Wait(const Tasks::FTask& Task, double TimeoutSeconds) -> bool { return Task.Wait(TimeoutSeconds); }
-	auto WaitDetailed(const Tasks::FTask& Task) -> FTaskWaitResult { return WaitTask(Task); }
-	auto WaitDetailed(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult { return WaitTask(Task, TimeoutSeconds); }
 }

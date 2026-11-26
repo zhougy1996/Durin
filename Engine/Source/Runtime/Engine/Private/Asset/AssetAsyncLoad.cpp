@@ -663,7 +663,7 @@ namespace Durin
 			{
 				for (auto& Handle : Job->Handles) Handle->CancelHandle();
 				Job->Cancellation.Cancel();
-				(void)WaitTask(Durin::Tasks::FTask(Job->Read));
+				(void)Job->Read.Wait();
 			}
 		}
 	};

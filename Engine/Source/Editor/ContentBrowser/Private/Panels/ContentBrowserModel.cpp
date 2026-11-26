@@ -53,8 +53,8 @@ namespace Durin::ContentBrowser::Private
 		}
 		CancelPendingSnapshots();
 		// Module code must remain loaded until both owned worker bodies have exited.
-		if (ItemsTask.IsValid()) (void)WaitTask(Tasks::FTask(ItemsTask));
-		if (TreeTask.IsValid()) (void)WaitTask(Tasks::FTask(TreeTask));
+		if (ItemsTask.IsValid()) (void)ItemsTask.Wait();
+		if (TreeTask.IsValid()) (void)TreeTask.Wait();
 	}
 
 	auto FContentBrowserModel::InvalidateDirectoryTree() -> void

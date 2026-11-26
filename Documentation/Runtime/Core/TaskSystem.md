@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-11-18
+Last reviewed: 2026-11-26
 
 ## Construction And Acceptance
 
@@ -188,13 +188,13 @@ Callers synchronize mutation. Explicit `std::move(Task.GetResult())` moves the
 stored value and leaves a moved-from value visible to every alias. There is no
 separate shared task type, sharing conversion, or framework consuming accessor.
 Rejected waits, failure and cancellation must be handled before result access.
-`GetResultShared()` is a nonblocking nullable immutable view retaining the entire
-node; it returns empty before publication or after failure/cancellation.
+Callers that share a value beyond the task lifetime return an owning value such as
+`std::shared_ptr<const T>` and copy it from `GetResult()` after success.
 Void tasks compose without a value argument and allocate no result state or result
-publication callback. They expose no `GetResult()` or `GetResultShared()`; use
+publication callback. They expose no `GetResult()`; use
 `Wait()` and inspect its outcome. Retained void handles require neither a submitting module's result destructor
 code nor a module result reservation. Nested completion does not alias child
-result storage; retain a child handle or result view explicitly when the value
+result storage; retain a child handle or copy an owning value when the value
 must outlive its producer.
 
 Publication/discard precedes externally visible terminal state and dependent
@@ -240,11 +240,10 @@ Worker overload accepts `LaunchTask(Name, Callable, Dependency, Options)`.
 `Prerequisites(A, B, ...)` creates an owning array of `FTask` handles for mixed
 typed tasks, generic handles, and events; it never consumes a result. These
 overloads append their dependencies to `Options.Prerequisites`, and bind them
-before the supplied collection can go out of scope. `Wait(Task)`
-accepts task/event facades directly. `Wait(Collection)` accepts the same collections
+before the supplied collection can go out of scope. Task and event handles expose `Wait()`. `Wait(Collection)` accepts the same collections
 and returns whether every input is completed. `WaitAny(Collection)` returns a
 completed input's index, or `INDEX_NONE` for an empty collection or unsuccessful wait.
-`WaitDetailed(TaskOrCollection)` is the extension for wait status and terminal state;
+`Task.WaitDetailed()` and `WaitDetailed(Collection)` are the extensions for wait status and terminal state;
 collections return one `FTaskWaitResult` per input in input order, including invalid,
 failed or canceled entries. Waiting never consumes results. Empty collections produce
 no dependencies, Wait succeeds, and WaitDetailed returns an empty result vector.
@@ -296,7 +295,6 @@ Copying task handles preserves the native terminal reason and diagnostic text.
 They are read through ordinary diagnostics, without a separate failure wrapper,
 injected failure storage or dependency-propagation metadata. A dependent callable
 exception remains its own callback failure; it is not relabeled as a failed prerequisite.
-Internal terminal hooks can read native diagnostics before public completion.
 Canceling a dependent does not cancel its inputs or suppress its body; mandatory
 cleanup remains an owner lifecycle responsibility. Completion-edge insertion is
 private to the runtime; callers compose through event prerequisites and `AddNested`.
@@ -305,7 +303,7 @@ Task results are produced by ordinary task bodies; there is no externally
 settled task-result source or external scheduler node. External data delivery
 uses independent promises/futures, while task graphs use `FTaskEvent` for readiness
 and real producer tasks or explicit domain joins for retirement. An event alone
-does not register work for scheduler drain. Terminal hooks dispatch without new
+does not register work for scheduler drain. Public completion observers dispatch without new
 submission; readiness alone never proves producer/capture retirement.
 
 There is no public completion source or detached data-only task constructor.
@@ -317,13 +315,9 @@ observation-only MakeReadyTask helper is exposed.
 Notification runs once, possibly inline, on the completing/subscribing thread.
 `SubscribeTask` uses the same public completion channel. Every callback observes
 IsCompleted true and the published terminal state. Successful results are readable
-through GetResult/GetResultShared, and waiting on the observed task returns
+through GetResult, and waiting on the observed task returns
 immediately. Failure/cancellation remain task outcomes, not observer exceptions.
-Internal `FTaskBeforeCompletionHook`/`BindBeforeCompletion` settle domain work
-before the node closes and must be bound before completion. They are distinct
-from public subscriptions; closing hooks may still bind more internal hooks.
-
-Public dispatch follows result/callable/internal-hook retirement, terminal state
+Public dispatch follows result publication and callable retirement, terminal state
 publication, and kernel dependency release. A subscription racing that release
 joins the pending notification pass; subscriptions after dispatch readiness run
 inline. Registration and invocation never hold the node lock across user code.
@@ -339,7 +333,7 @@ but late inline subscribers own their own call lifetime.
 Callback owners synchronize in-flight callbacks before unloading their own code.
 Dropping/Resetting observation releases its captures and does not cancel domain
 work; an already in-flight notification may finish. Notification exceptions are
-contained. Task handles and `GetResultShared()` views retain the node's own result
+contained. Task handles retain the node's own result
 storage. Additional ownership belongs in the task result or the domain owner;
 tasks expose no readiness marker or arbitrary lifetime-pin attachment API.
 
@@ -501,15 +495,15 @@ of their execution outcome. BodyFinished records success, failure or acknowledge
 producer cancellation after callable retirement; nested work can still keep the
 node open. Ordinary tasks, events and external producers all use
 the same Close path once the body has finished and no nested work remains.
-Close publishes result storage and retires internal before-completion hooks before
-atomically closing hook/dependent registration and exposing the terminal outcome.
+Close publishes result storage, then atomically closes dependent registration
+and exposes the terminal outcome.
 Public task state remains Waiting, Queued or Running until that point; bound
 result-storage metadata is independent of completion. Public observer dispatch has
 its own readiness gate after dependency release; it is not a second task-completion
 condition and does not delay result readability or waiters.
 Synchronous close propagation is limited to 128 levels. Deeper closures retain
 their nodes in a thread-local worklist, drained iteratively by the outermost close
-on that same thread. This covers nested parent notifications and terminal-hook
+on that same thread. This covers nested parent notifications and completion-observer
 cascades without requiring scheduler work or unbounded native recursion.
 
 Execution prerequisites and nested completion have separate phase counters.
@@ -543,9 +537,9 @@ the target and dependencies inspected during retraction register weak observers
 of that signal. This lets later nested readiness repeat retraction
 without broadcasting unrelated scheduler activity. Observers expire when the
 wait returns and retain neither task nodes nor schedulers. Notification does not
-imply completion or bypass callable/terminal-hook retirement.
+imply completion or bypass callable retirement.
 
-`Task.Wait()` and `Tasks::Wait(TaskOrCollection)` return bool: true means every
+`Task.Wait()` and `Tasks::Wait(Collection)` return bool: true means every
 input is completed, including empty handles and Failed/Canceled outcomes; it does
 not imply success. Incomplete work returns false on timeout or a rejected wait.
 A collection shares one steady-clock deadline and attempts execution across its
@@ -555,9 +549,8 @@ collections retain a handle snapshot before helping, so executed bodies can
 reenter and change the caller's collection. Already-completed forward ranges
 need no collection or waiter allocation.
 
-`Task.WaitDetailed()` and `Tasks::WaitDetailed(TaskOrCollection)` retain the
-extension returning wait status separately from task state. Native `WaitTask` and
-`WaitAll` remain available with the same detailed semantics. Completed means an
+`Task.WaitDetailed()` and `Tasks::WaitDetailed(Collection)` retain the
+extension returning wait status separately from task state. Native `WaitAll` also returns per-input outcomes. Completed means an
 empty handle or a closed node with a terminal outcome. SelfWait, DependencyCycle,
 UnsupportedThread and TimedOut do not prove completion. Detailed collections keep
 one result per input, including completed or invalid entries after their shared
@@ -665,7 +658,7 @@ Allocation failures are fatal. Preparation rollback releases prerequisite slots
 and payloads outside the lock; registry rollback restores tracking. Dependency
 registration follows the commit, then one activation enables dispatch. Standalone completions
 and events are constructed active without scheduler admission. The body is retired
-before terminal publication. Task handles and shared result views retain the
+before terminal publication. Task handles retain the
 node's result storage beyond execution without retaining retired callback
 captures. Queue-node membership is
 one-shot; an executed or discarded node cannot be admitted again.

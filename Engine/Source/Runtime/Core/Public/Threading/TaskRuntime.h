@@ -323,10 +323,6 @@ namespace Durin
 		const Tasks::FCancellationToken* ExternalToken;
 	};
 
-	CORE_API auto WaitTask(const Tasks::FTask& Task) -> FTaskWaitResult;
-	// Nonpositive seconds only poll. Positive seconds bound blocking/helping attempts,
-	// never an executing callable. Empty handles complete with Invalid task state.
-	CORE_API auto WaitTask(const Tasks::FTask& Task, double TimeoutSeconds) -> FTaskWaitResult;
 	// Returns one wait result for each input handle, including invalid handles and rejected waits.
 	CORE_API auto WaitAll(std::span<const Tasks::FTask> Tasks) -> std::vector<FTaskWaitResult>;
 	CORE_API auto WaitAll(std::span<const Tasks::FTask> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
@@ -358,8 +354,8 @@ namespace Durin
 			CORE_API auto GetDiagnostics() const -> FTaskDiagnostics;
 			auto Wait() const -> bool { return WaitDetailed().WaitStatus == ETaskWaitStatus::Completed; }
 			auto Wait(double TimeoutSeconds) const -> bool { return WaitDetailed(TimeoutSeconds).WaitStatus == ETaskWaitStatus::Completed; }
-			auto WaitDetailed() const -> FTaskWaitResult { return Durin::WaitTask(*this); }
-			auto WaitDetailed(double TimeoutSeconds) const -> FTaskWaitResult { return Durin::WaitTask(*this, TimeoutSeconds); }
+			CORE_API auto WaitDetailed() const -> FTaskWaitResult;
+			CORE_API auto WaitDetailed(double TimeoutSeconds) const -> FTaskWaitResult;
 			// Attempts this task and its dependencies without waiting for other threads.
 			// An executed callable can run arbitrarily long; executor restrictions apply.
 			CORE_API auto TryRetractAndExecute() const -> bool;
@@ -373,8 +369,6 @@ namespace Durin
 			friend struct Durin::Private::FTaskRuntimeAccess;
 			friend struct Durin::Tasks::Detail::FTaskAccess;
 			friend CORE_API auto Durin::Private::LaunchTaskWithCompletion(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes, Durin::Private::FTaskResultStorage Result) -> FTaskHandle;
-			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
-			friend CORE_API auto Durin::WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
 			friend CORE_API auto Durin::WaitAll(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
 			friend CORE_API auto Durin::Tasks::Detail::WaitCollection(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> bool;
 			friend CORE_API auto Durin::Tasks::Detail::WaitAnyCollection(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> int32;
@@ -387,24 +381,17 @@ namespace Durin
 	{
 		// Internal settlement before public completion. Bind before the node closes.
 		// Binding this preallocated hook never admits another scheduled node.
-		struct FTaskBeforeCompletionHook
-		{
-			FTaskCompletionFunction Function;
-			std::shared_ptr<FTaskBeforeCompletionHook> Next;
-		};
 		struct FTaskRuntimeAccess
 		{
 			CORE_API static auto CreateCompletedTask(const char* DebugName, FTaskResultStorage Result) -> Tasks::FTask;
 			CORE_API static auto CreateTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement) -> Tasks::FTask;
 			CORE_API static auto AddTaskEventPrerequisites(const Tasks::FTask& Event, std::span<const Tasks::FTask> Prerequisites) -> std::optional<Tasks::FTaskConstructionError>;
 			CORE_API static auto TriggerTaskEvent(const Tasks::FTask& Event) -> void;
-			CORE_API static auto PinLifetime(const Tasks::FTask& Task) -> std::shared_ptr<void>;
 			CORE_API static auto SetPriority(const Tasks::FTask& Task, ETaskPriority Priority) -> void;
 			CORE_API static auto GetCurrentTaskId() -> uint64;
 			CORE_API static auto IsExecutingIndependentCPU() -> bool;
 			CORE_API static auto SetCurrentCanceledOutcome() -> void;
 			CORE_API static auto GetAttribution(const Tasks::FTask& Task) -> FTaskAttribution;
-			CORE_API static auto BindBeforeCompletion(const Tasks::FTask& Task, std::shared_ptr<FTaskBeforeCompletionHook> Hook) -> void;
 			CORE_API static auto ObserveCompletion(const Tasks::FTask& Task, const std::shared_ptr<std::function<void(ETaskState)>>& Callback) -> void;
 			CORE_API static auto AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskConstructionError>;
 		};

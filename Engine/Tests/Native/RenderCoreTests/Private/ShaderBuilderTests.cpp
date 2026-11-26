@@ -669,7 +669,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		auto Closing = std::async(std::launch::async, [&] { Builder->Close(); });
 		Release.Trigger(); Closing.get(); EXPECT_EQ(Handle.Wait(), EShaderBuildWaitResult::Completed);
 		EXPECT_EQ(Calls, 1u); EXPECT_EQ(Builder->GetStats().Compilations, 0u);
-		EXPECT_EQ(WaitTask(Blocker).WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_EQ(Blocker.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 	}
 
 	TEST_F(FShaderBuilderTests, GeneratedClosureUsesCallerEnvironmentWithoutMaterialConventions)

@@ -160,7 +160,7 @@ namespace Durin::DerivedData
 		{
 			Tasks::FTask Task;
 			auto Cancel() -> void override { Wait(); }
-			auto Wait() -> void override { requiref(WaitTask(Task).WaitStatus == ETaskWaitStatus::Completed, "Requests must be waited outside their callbacks."); }
+			auto Wait() -> void override { requiref(Task.Wait(), "Requests must be waited outside their callbacks."); }
 			auto SetPriority(ERequestPriority) -> void override {}
 		};
 		if (!IsTaskSchedulerRunning()) { FRequestBarrier Barrier(*this, ERequestBarrierFlags::Priority); Work(); return; }

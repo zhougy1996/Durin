@@ -401,7 +401,7 @@ namespace Durin
 		Abandoned.clear();
 		if (State->LastDrain.IsValid())
 		{
-			const bool bJoined = Tasks::Wait(State->LastDrain);
+			const bool bJoined = State->LastDrain.Wait();
 			requiref(bJoined, "Pipeline creation work could not join.");
 		}
 		State->WorkJoined = true;

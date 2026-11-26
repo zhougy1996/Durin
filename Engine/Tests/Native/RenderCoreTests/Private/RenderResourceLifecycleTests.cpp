@@ -254,7 +254,7 @@ namespace Durin
 		const bool bStarted = ProbeStarted.WaitFor(1.0);
 		ReleaseProbe.Trigger();
 		EXPECT_TRUE(bStarted);
-		EXPECT_EQ(WaitTask(Probe).WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_EQ(Probe.WaitDetailed().WaitStatus, ETaskWaitStatus::Completed);
 
 		EXPECT_EQ(ETaskState::Succeeded, Probe.GetState());
 		EXPECT_TRUE(bRenderCommandAccepted.load(std::memory_order_acquire));

@@ -323,7 +323,7 @@ namespace Durin
 		if (!IsComplete() && (std::ranges::contains(ShaderCallbacks, this) || IsInRenderingThread())) return EShaderBuildWaitResult::WouldBlock;
 		Tasks::FTask Task;
 		{ std::unique_lock Lock(Mutex); Condition.wait(Lock, [&] { return Published; }); Task = Preparation; }
-		if (Task.IsValid() && WaitTask(Task).WaitStatus != ETaskWaitStatus::Completed) return EShaderBuildWaitResult::WouldBlock;
+		if (Task.IsValid() && !Task.Wait()) return EShaderBuildWaitResult::WouldBlock;
 		std::shared_ptr<FFlight> Pending;
 		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); Pending = Flight; }
 		if (Pending) Pending->Owner.Wait();

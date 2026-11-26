@@ -34,7 +34,7 @@ namespace Durin
 
 			auto Run() -> uint32 override
 			{
-				ObservedResult = WaitTask(Target);
+				ObservedResult = Target.WaitDetailed();
 				ReturnedEvent.Trigger();
 				return 0;
 			}
@@ -149,7 +149,7 @@ namespace Durin
 		ASSERT_TRUE(Handle.IsValid());
 
 		ASSERT_TRUE(TaskFinished.WaitFor(1.0));
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Handle).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Handle.WaitDetailed().TaskState);
 
 		ShutdownTaskScheduler(true);
 
@@ -166,7 +166,7 @@ namespace Durin
 
 		Tasks::FTask Handle = SubmitKernelTask("IdempotentInitialization", []() {});
 		ASSERT_TRUE(Handle.IsValid());
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Handle).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Handle.WaitDetailed().TaskState);
 	}
 
 	TEST(FTaskSchedulerTests, ConcurrentProducersCompleteBeforeSchedulerClosure)
@@ -236,7 +236,7 @@ namespace Durin
 		ASSERT_TRUE(Handle.IsValid());
 		EXPECT_STREQ("HandleCompletion", Handle.GetDebugName());
 
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Handle).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Handle.WaitDetailed().TaskState);
 
 		EXPECT_TRUE(Handle.IsCompleted());
 		EXPECT_TRUE(bTaskRan.load(std::memory_order::acquire));
@@ -297,7 +297,7 @@ namespace Durin
 		});
 		ASSERT_TRUE(BlockedHandle.IsValid());
 
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(TargetHandle).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, TargetHandle.WaitDetailed().TaskState);
 
 		EXPECT_TRUE(TargetHandle.IsCompleted());
 		EXPECT_TRUE(bTargetTaskRan.load(std::memory_order::acquire));
@@ -305,7 +305,7 @@ namespace Durin
 		EXPECT_FALSE(BlockedHandle.IsCompleted());
 
 		ReleaseBlockedTask.Trigger();
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(BlockedHandle).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, BlockedHandle.WaitDetailed().TaskState);
 	}
 
 	TEST(FTaskTests, WorkerWaitHelpsNestedTaskOnSingleWorkerPool)
@@ -324,12 +324,12 @@ namespace Durin
 			});
 
 			bChildHandleWasValid.store(ChildHandle.IsValid(), std::memory_order::release);
-			EXPECT_EQ(ETaskState::Succeeded, WaitTask(ChildHandle).TaskState);
+			EXPECT_EQ(ETaskState::Succeeded, ChildHandle.WaitDetailed().TaskState);
 			bParentTaskFinished.store(true, std::memory_order::release);
 		});
 		ASSERT_TRUE(ParentHandle.IsValid());
 
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(ParentHandle).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, ParentHandle.WaitDetailed().TaskState);
 
 		EXPECT_TRUE(ParentHandle.IsCompleted());
 		EXPECT_TRUE(bChildHandleWasValid.load(std::memory_order::acquire));
@@ -360,18 +360,18 @@ namespace Durin
 			FTaskLaunchOptions Options;
 			Options.Prerequisites = Prerequisites;
 			DependentChild = SubmitKernelTask("IneligibleWaitChild", []() {}, Options);
-			const FTaskWaitResult WaitResult = WaitTask(DependentChild);
+			const FTaskWaitResult WaitResult = DependentChild.WaitDetailed();
 			ObservedWaitStatus.store(WaitResult.WaitStatus, std::memory_order::release);
 			ObservedWaitState.store(WaitResult.TaskState, std::memory_order::release);
 		});
 		ReleaseBlocker.Trigger();
 
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Parent).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Parent.WaitDetailed().TaskState);
 		ASSERT_TRUE(DependentChild.IsValid());
 		EXPECT_EQ(ETaskWaitStatus::DependencyCycle, ObservedWaitStatus.load(std::memory_order::acquire));
 		EXPECT_EQ(ETaskState::Waiting, ObservedWaitState.load(std::memory_order::acquire));
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(DependentChild).TaskState);
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, DependentChild.WaitDetailed().TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Blocker.WaitDetailed().TaskState);
 	}
 
 	TEST(FTaskTests, StandardAndUnknownExceptionsPublishFailureDiagnostics)
@@ -387,9 +387,9 @@ namespace Durin
 			throw 7;
 		});
 
-		EXPECT_EQ(ETaskState::Failed, WaitTask(StandardFailure).TaskState);
+		EXPECT_EQ(ETaskState::Failed, StandardFailure.WaitDetailed().TaskState);
 		EXPECT_EQ("expected task failure", StandardFailure.GetDiagnostic());
-		EXPECT_EQ(ETaskState::Failed, WaitTask(UnknownFailure).TaskState);
+		EXPECT_EQ(ETaskState::Failed, UnknownFailure.WaitDetailed().TaskState);
 		EXPECT_EQ("Task callable threw an unknown exception.", UnknownFailure.GetDiagnostic());
 	}
 
@@ -514,7 +514,7 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Waiting, Tail.GetState());
 		ReleaseRoot.Trigger();
 
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Tail).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Tail.WaitDetailed().TaskState);
 		EXPECT_TRUE(bOrderValid.load(std::memory_order::acquire));
 		EXPECT_EQ(31u, ExecutionMask.load(std::memory_order::acquire));
 	}
@@ -549,7 +549,7 @@ namespace Durin
 			Submitter.join();
 
 			ASSERT_TRUE(Dependent.IsValid());
-			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Dependent).TaskState);
+			EXPECT_EQ(ETaskState::Succeeded, Dependent.WaitDetailed().TaskState);
 			EXPECT_EQ(1u, DependentExecutionCount.load(std::memory_order::acquire));
 		}
 	}
@@ -576,7 +576,7 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Waiting, Dependent.GetState());
 
 		CompletionBarrier.arrive_and_wait();
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Dependent).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Dependent.WaitDetailed().TaskState);
 		EXPECT_EQ(1u, ExecutionCount.load(std::memory_order::acquire));
 	}
 
@@ -595,7 +595,7 @@ namespace Durin
 		EXPECT_TRUE(EmptyDependency.GetDiagnostics().PrerequisiteTaskIds.empty());
 
 		Tasks::FTask EarlierLifetimeTask = SubmitKernelTask("EarlierLifetimeTask", []() {});
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(EarlierLifetimeTask).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, EarlierLifetimeTask.WaitDetailed().TaskState);
 		ShutdownTaskScheduler(true);
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
@@ -625,14 +625,14 @@ namespace Durin
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		TestCancellation.Cancel();
 		Release.Trigger();
-		EXPECT_EQ(ETaskState::Failed, WaitTask(Task).TaskState);
+		EXPECT_EQ(ETaskState::Failed, Task.WaitDetailed().TaskState);
 		EXPECT_TRUE(bTokenObservedCancellation.load(std::memory_order::acquire));
 		EXPECT_EQ("failure after cancellation", Task.GetDiagnostic());
 		TestCancellation.Cancel();
 		EXPECT_EQ(ETaskState::Failed, Task.GetState());
 
 		Tasks::FTask CompletedTask = SubmitKernelTask("CompletedBeforeCancellation", []() {});
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(CompletedTask).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, CompletedTask.WaitDetailed().TaskState);
 		TestCancellation.Cancel();
 		EXPECT_EQ(ETaskState::Succeeded, CompletedTask.GetState());
 	}
@@ -655,7 +655,7 @@ namespace Durin
 		for (ETaskState& Outcome : Outcomes)
 		{
 			Waiters.emplace_back([&Task, &Outcome]() {
-				Outcome = WaitTask(Task).TaskState;
+				Outcome = Task.WaitDetailed().TaskState;
 			});
 		}
 		Release.Trigger();
@@ -687,16 +687,16 @@ namespace Durin
 		std::atomic<ETaskWaitStatus> ObservedWaitStatus = ETaskWaitStatus::InvalidTask;
 		std::atomic<ETaskState> ObservedWaitState = ETaskState::Invalid;
 		SelfTask = SubmitKernelTask("SelfWait", [&]() {
-			const FTaskWaitResult WaitResult = WaitTask(SelfTask);
+			const FTaskWaitResult WaitResult = SelfTask.WaitDetailed();
 			ObservedWaitStatus.store(WaitResult.WaitStatus, std::memory_order::release);
 			ObservedWaitState.store(WaitResult.TaskState, std::memory_order::release);
 		});
 		ReleaseBlockingTask.Trigger();
 
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(SelfTask).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, SelfTask.WaitDetailed().TaskState);
 		EXPECT_EQ(ETaskWaitStatus::SelfWait, ObservedWaitStatus.load(std::memory_order::acquire));
 		EXPECT_EQ(ETaskState::Running, ObservedWaitState.load(std::memory_order::acquire));
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(BlockingTask).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, BlockingTask.WaitDetailed().TaskState);
 	}
 
 	TEST(FTaskTests, RenderingThreadJoinsExplicitIndependentCPUWork)
@@ -732,7 +732,7 @@ namespace Durin
 				EXPECT_EQ(Runnable.ObservedResult.WaitStatus, ETaskWaitStatus::Completed);
 				EXPECT_EQ(Runnable.ObservedResult.TaskState, Fail ? ETaskState::Failed : ETaskState::Succeeded);
 			}
-			EXPECT_EQ(WaitTask(Blocker).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(Blocker.WaitDetailed().TaskState, ETaskState::Succeeded);
 			if (Outcome == 0) EXPECT_EQ(Task.GetResult(), 42);
 		}
 	}
@@ -761,7 +761,7 @@ namespace Durin
 				Invalid.Wait();
 			}, "Task construction failed");
 			auto Task = Tasks::LaunchIndependentTask("IndependentWaitContract", [&] {
-				return WaitTask(Input).WaitStatus;
+				return Input.WaitDetailed().WaitStatus;
 			});
 			EXPECT_EQ(Task.GetResult(), ETaskWaitStatus::UnsupportedThread);
 		}
@@ -867,7 +867,7 @@ namespace Durin
 		Tasks::TTask<void> Child;
 		Root = Tasks::LaunchIndependentTask("IndependentCycleRoot", [&] {
 			Child = Tasks::LaunchTask("IndependentCycleChild", [] {}, Root);
-			EXPECT_EQ(WaitTask(Child).WaitStatus, ETaskWaitStatus::DependencyCycle);
+			EXPECT_EQ(Child.WaitDetailed().WaitStatus, ETaskWaitStatus::DependencyCycle);
 			const auto Error = Private::FTaskRuntimeAccess::AddNested(Child);
 			EXPECT_TRUE(Error.has_value());
 			if (Error) EXPECT_EQ(Error->Code, Tasks::ETaskConstructionErrorCode::DependencyCycle);
@@ -904,8 +904,8 @@ namespace Durin
 		EXPECT_EQ(ETaskWaitStatus::UnsupportedThread, Runnable.ObservedResult.WaitStatus);
 		EXPECT_EQ(ETaskState::Queued, Runnable.ObservedResult.TaskState);
 		ReleaseBlockingTask.Trigger();
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(QueuedTask).TaskState);
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(BlockingTask).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, QueuedTask.WaitDetailed().TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, BlockingTask.WaitDetailed().TaskState);
 	}
 
 	TEST(FTaskTests, RestartIsRejectedUntilShutdownCompletesAndOldHandleRemainsQueryable)
@@ -943,7 +943,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		Tasks::FTask NewTask = SubmitKernelTask("SequentialFixtureRestart", []() {});
 		ASSERT_TRUE(NewTask.IsValid());
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(NewTask).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, NewTask.WaitDetailed().TaskState);
 		EXPECT_EQ(ETaskState::Succeeded, RetainedTask.GetState());
 	}
 
@@ -1154,18 +1154,18 @@ namespace Durin
 		EXPECT_EQ("DiagnosticBlocker", LongWaitDiagnostics.LastLongWaitTargetName);
 		EXPECT_EQ(ETaskState::Running, LongWaitDiagnostics.LastLongWaitTargetState);
 		EXPECT_GE(LongWaitDiagnostics.LastLongWaitElapsedNanoseconds, 200'000'000u);
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Queued).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Blocker.WaitDetailed().TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Queued.WaitDetailed().TaskState);
 
 		FThreadEvent AllowParentWork;
 		Tasks::FTask Child;
 		Tasks::FTask Parent = SubmitKernelTask("DiagnosticParent", [&]() {
 			AllowParentWork.Wait();
 			Child = SubmitKernelTask("DiagnosticChild", []() {});
-			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Child).TaskState);
+			EXPECT_EQ(ETaskState::Succeeded, Child.WaitDetailed().TaskState);
 		});
 		AllowParentWork.Trigger();
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Parent).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Parent.WaitDetailed().TaskState);
 		ASSERT_TRUE(Child.IsValid());
 		const FTaskDiagnostics ParentDiagnostics = Parent.GetDiagnostics();
 		const FTaskDiagnostics ChildDiagnostics = Child.GetDiagnostics();
@@ -1178,19 +1178,19 @@ namespace Durin
 		EXPECT_EQ(0u, ParentDiagnostics.ParentTaskId);
 
 		Tasks::FTask Prerequisite = SubmitKernelTask("DiagnosticPrerequisite", []() {});
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Prerequisite).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Prerequisite.WaitDetailed().TaskState);
 		std::array<Tasks::FTask, 1> Prerequisites{Prerequisite};
 		FTaskLaunchOptions DependentOptions;
 		DependentOptions.Prerequisites = Prerequisites;
 		Tasks::FTask Dependent = SubmitKernelTask("DiagnosticDependent", []() {}, DependentOptions);
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Dependent).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Dependent.WaitDetailed().TaskState);
 		ASSERT_EQ(1u, Dependent.GetDiagnostics().PrerequisiteTaskIds.size());
 		EXPECT_EQ(Prerequisite.GetTaskId(), Dependent.GetDiagnostics().PrerequisiteTaskIds[0]);
 
 		Tasks::FTask Failed = SubmitKernelTask("DiagnosticFailure", []() {
 			throw std::runtime_error("diagnostic failure");
 		});
-		EXPECT_EQ(ETaskState::Failed, WaitTask(Failed).TaskState);
+		EXPECT_EQ(ETaskState::Failed, Failed.WaitDetailed().TaskState);
 		EXPECT_EQ("diagnostic failure", Failed.GetDiagnostics().Diagnostic);
 
 		const FTaskSchedulerDiagnostics TerminalDiagnostics = GetTaskSchedulerDiagnostics();
@@ -1319,8 +1319,8 @@ namespace Durin
 		EXPECT_EQ(32u, Accepted.size());
 
 		ReleaseBlocker.Trigger();
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
-		for (const Tasks::FTask& Task : Accepted) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Blocker.WaitDetailed().TaskState);
+		for (const Tasks::FTask& Task : Accepted) EXPECT_EQ(ETaskState::Succeeded, Task.WaitDetailed().TaskState);
 		const auto ReservationReleaseDeadline =
 			std::chrono::steady_clock::now() + std::chrono::seconds(1);
 		while (GetTaskSchedulerDiagnostics().CurrentTrackedTaskCount != 0
@@ -1396,7 +1396,7 @@ namespace Durin
 			}, {});
 		ASSERT_TRUE(Admission.IsValid());
 		auto Task = std::move(Admission);
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Task.WaitDetailed().TaskState);
 		EXPECT_EQ(1, Calls.load());
 		EXPECT_EQ(1, Destroyed.load());
 	}
@@ -1507,7 +1507,7 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Running, Task.GetState());
 		EXPECT_EQ(0, Destroyed.load());
 		ReleaseDestruction.Trigger();
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
+		EXPECT_EQ(ETaskState::Succeeded, Task.WaitDetailed().TaskState);
 		EXPECT_EQ(1, Destroyed.load());
 	}
 
@@ -1519,7 +1519,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		Tasks::FTask Root = SubmitKernelTask("DeferredPriorityRoot", []() {});
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Root.WaitDetailed().TaskState);
 
 		std::vector<int> Order;
 		auto Enqueue = [&](int Value, ETaskPriority Priority) {
@@ -1563,7 +1563,7 @@ namespace Durin
 		Config.EntryBytesWarningThreshold = 8;
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor(Config));
 		Tasks::FTask Root = SubmitKernelTask("DeferredLimitRoot", []() {});
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Root.WaitDetailed().TaskState);
 
 		auto Enqueue = [&](uint64 Bytes) {
 			FTaskLaunchOptions Options;
@@ -1603,7 +1603,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		Tasks::FTask Root = SubmitKernelTask("DeferredTimeBudgetRoot", []() {});
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Root.WaitDetailed().TaskState);
 
 		FTaskLaunchOptions Options;
 		Options.Target = ETaskTarget::GameThreadDeferred;
@@ -1634,7 +1634,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		Tasks::FTask Root = SubmitKernelTask("DeferredFailureRoot", []() {});
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Root.WaitDetailed().TaskState);
 
 		FTaskLaunchOptions Options;
 		Options.Target = ETaskTarget::GameThreadDeferred;
@@ -1693,7 +1693,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		EXPECT_GT(GetGameThreadDeferredWorkQueueDiagnostics().AdapterGeneration, DrainAdapterGeneration);
 		Tasks::FTask CancelRoot = SubmitKernelTask("CrossCancelRoot", []() {});
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(CancelRoot).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, CancelRoot.WaitDetailed().TaskState);
 		Options.Prerequisites = std::span(&CancelRoot, 1);
 		Options.Attribution = Private::FTaskRuntimeAccess::GetAttribution(CancelRoot);
 		Tasks::FTask CancelTail = SubmitKernelTask("CrossCancelTail", []() {}, Options);
@@ -1715,7 +1715,7 @@ namespace Durin
 		Config.QueuedBytesWarningThreshold = 256 * 64;
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor(Config));
 		Tasks::FTask Root = SubmitKernelTask("DeferredAccountingRoot", []() {});
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Root.WaitDetailed().TaskState);
 
 		constexpr uint32 CallbackCount = 16;
 		constexpr uint64 DeclaredCaptureBytes = 64;
@@ -1759,7 +1759,7 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Invalid, InvalidHandle.GetState());
 		EXPECT_STREQ("", InvalidHandle.GetDebugName());
 
-		const FTaskWaitResult WaitResult = WaitTask(InvalidHandle);
+		const FTaskWaitResult WaitResult = InvalidHandle.WaitDetailed();
 		EXPECT_EQ(ETaskWaitStatus::Completed, WaitResult.WaitStatus);
 		EXPECT_EQ(ETaskState::Invalid, WaitResult.TaskState);
 		const std::vector<FTaskWaitResult> WaitResults = WaitAll(std::span<const Tasks::FTask>(&InvalidHandle, 1));
@@ -1815,7 +1815,7 @@ namespace Durin
 		EXPECT_EQ(0u, DuringPublication.FinishTimeNanoseconds);
 		EXPECT_EQ(ETaskTerminalReason::None, DuringPublication.TerminalReason);
 		EXPECT_TRUE(DuringPublication.Diagnostic.empty());
-		EXPECT_EQ(nullptr, Producer.GetResultShared());
+		EXPECT_FALSE(Producer.IsCompleted());
 		EXPECT_EQ(ETaskState::Waiting, Dependent.GetState());
 		EXPECT_FALSE(bDependentRan.load(std::memory_order::acquire));
 
@@ -1825,9 +1825,8 @@ namespace Durin
 		EXPECT_EQ(0u, SchedulerDuringPublication.RetainedTerminalResultCount);
 
 		ReleasePublication.Trigger();
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Dependent).TaskState);
-		ASSERT_NE(nullptr, Producer.GetResultShared());
-		EXPECT_EQ(42, *Producer.GetResultShared());
+		ASSERT_EQ(ETaskState::Succeeded, Dependent.WaitDetailed().TaskState);
+		EXPECT_EQ(42, Producer.GetResult());
 		EXPECT_TRUE(bDependentRan.load(std::memory_order::acquire));
 		const FTaskDiagnostics Published = Producer.GetDiagnostics();
 		EXPECT_EQ(ETaskState::Succeeded, Published.State);
@@ -1885,7 +1884,7 @@ namespace Durin
 		Storage.reset();
 		EXPECT_FALSE(Weak.expired());
 		Gate.Trigger();
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, Task.WaitDetailed().TaskState);
 		ASSERT_NE(nullptr, Weak.lock());
 		EXPECT_EQ(42, *Weak.lock()->PeekPublished());
 		EXPECT_TRUE(Task.GetDiagnostics().bHasResultStorage);
@@ -1904,8 +1903,8 @@ namespace Durin
 
 		auto PreviousLifetime = Tasks::LaunchTask("PreviousLifetime", []() { return 7; });
 		auto ReleasedWhileStopped = Tasks::LaunchTask("ReleasedWhileStopped", []() { return 8; });
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Durin::Tasks::FTask(PreviousLifetime)).TaskState);
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Durin::Tasks::FTask(ReleasedWhileStopped)).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, PreviousLifetime.WaitDetailed().TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, ReleasedWhileStopped.WaitDetailed().TaskState);
 		while (GetTaskSchedulerDiagnostics().CompletedTaskCount < 2)
 		{
 			std::this_thread::yield();

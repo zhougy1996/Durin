@@ -26,8 +26,8 @@ namespace Durin::ContentBrowser::Private
 			{
 				Model.PumpPendingSnapshots();
 				if (Lifetime.expired()) return;
-				if (Model.ItemsTask.IsValid()) (void)WaitTask(Tasks::FTask(Model.ItemsTask));
-				if (Model.TreeTask.IsValid()) (void)WaitTask(Tasks::FTask(Model.TreeTask));
+				if (Model.ItemsTask.IsValid()) (void)Model.ItemsTask.Wait();
+				if (Model.TreeTask.IsValid()) (void)Model.TreeTask.Wait();
 			} while (Model.ItemsTask.IsValid() || Model.TreeTask.IsValid() || Model.IsLoading()
 				|| !Model.RequestedDirectoryChildrenSnapshots.empty());
 		}

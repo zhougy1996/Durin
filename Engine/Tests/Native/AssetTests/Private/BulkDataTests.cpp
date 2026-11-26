@@ -657,7 +657,7 @@ TEST(FPackageResourceTests, BlockingReadsLeaveCpuAvailableAndTransformsShareTerm
 	EXPECT_TRUE(Transform.Wait());
 	EXPECT_EQ(First.Wait()->GetBytes().data(), Copy.Wait()->GetBytes().data());
 	EXPECT_TRUE(Second.Wait());
-	WaitTask(Cpu);
+	Cpu.Wait();
 
 	auto CancelResource = std::make_shared<FTestPackageResource>(true);
 	auto Canceled = CancelResource->ReadRangeAsync(0, 4);

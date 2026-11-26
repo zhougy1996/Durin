@@ -33,7 +33,7 @@ namespace Durin
 		template<typename T> concept CHasSharedTaskResult = requires(const T& Task) { Task.GetResultShared(); };
 	}
 	static_assert(!CHasTaskResult<Tasks::TTask<void>>);
-	static_assert(!CHasSharedTaskResult<Tasks::TTask<void>>);
+	static_assert(!CHasSharedTaskResult<Tasks::TTask<int>>);
 	static_assert(CHasTaskResult<Tasks::TTask<std::monostate>>);
 	static_assert(std::same_as<Tasks::Detail::TResultState<void>, std::nullptr_t>);
 
@@ -103,17 +103,16 @@ namespace Durin
 		EXPECT_EQ(0u, GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth);
 	}
 
-	TEST_F(FTaskCloseTests, DependentResultViewsAndErasedHandlesRetainNodesAfterShutdown)
+	TEST_F(FTaskCloseTests, SharedPayloadOutlivesTaskHandlesAfterShutdown)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		std::atomic<uint32> Retired = 0;
 		struct FOwner { std::atomic<uint32>& Count; ~FOwner() { ++Count; } };
-		auto Seed = Tasks::LaunchTask("OwnedSeed", [&] { return std::unique_ptr<FOwner>(new FOwner{Retired}); });
-		auto Published = Tasks::LaunchTask("RetainView", [Seed] { return Seed.GetResultShared(); }, Seed);
+		auto Seed = Tasks::LaunchTask("OwnedSeed", [&] { return std::make_shared<FOwner>(Retired); });
+		auto Published = Tasks::LaunchTask("RetainView", [Seed] { return Seed.GetResult(); }, Seed);
 		ASSERT_EQ(Published.WaitDetailed().TaskState, ETaskState::Succeeded);
 		auto View = Published.GetResult();
 		ASSERT_TRUE(View);
-		EXPECT_TRUE(*View);
 		Tasks::FTask Retained = Seed;
 		Seed = {}; Published = {};
 		ShutdownTaskScheduler(false);
@@ -295,51 +294,18 @@ namespace Durin
 		EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTrackedTaskCount, 0u);
 	}
 
-	TEST_F(FTaskCloseTests, ClosingHooksCanRegisterDependenciesAndMoreHooks)
-	{
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		Tasks::FTaskEvent Event("ClosingRegistration", false);
-		Tasks::TTask<int> Dependent;
-		uint32 Calls = 0;
-		auto Hook = std::make_shared<Private::FTaskBeforeCompletionHook>();
-		Hook->Function = [&](ETaskState) {
-			EXPECT_FALSE(Event.IsCompleted());
-			Dependent = Tasks::LaunchTask("RegisteredDuringClose", [] { return 42; }, Tasks::Prerequisites(Event));
-			auto Late = std::make_shared<Private::FTaskBeforeCompletionHook>();
-			Late->Function = [&](ETaskState) { EXPECT_FALSE(Event.IsCompleted()); ++Calls; };
-			Private::FTaskRuntimeAccess::BindBeforeCompletion(Event, std::move(Late));
-		};
-		Private::FTaskRuntimeAccess::BindBeforeCompletion(Event, std::move(Hook));
-		Event.Trigger();
-		EXPECT_TRUE(Event.IsCompleted());
-		EXPECT_EQ(Calls, 1u);
-		EXPECT_EQ(Dependent.GetResult(), 42);
-	}
-
 	TEST_F(FTaskCloseTests, PublicCompletionObserversReadResultsAndWaitForReleasedDependents)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		Tasks::FTaskEvent Gate("CompletionObserverGate", false);
 		auto Task = Tasks::LaunchTask("ObservedResult", [] { return std::make_unique<int>(42); }, Gate);
 		auto Dependent = Tasks::LaunchTask("ObservedDependent", [] { return 43; }, Task);
-		std::atomic<bool> Settled = false;
-		auto Hook = std::make_shared<Private::FTaskBeforeCompletionHook>();
-		Hook->Function = [&](ETaskState) {
-			EXPECT_FALSE(Task.IsCompleted());
-			EXPECT_FALSE(Task.GetResultShared());
-			Settled = true;
-		};
-		Private::FTaskRuntimeAccess::BindBeforeCompletion(Task, std::move(Hook));
 		FThreadEvent Observed;
 		auto Subscription = Task.Subscribe([&, Task, Dependent](ETaskState Outcome) {
-			EXPECT_TRUE(Settled.load());
 			EXPECT_TRUE(Task.IsCompleted());
 			EXPECT_EQ(Outcome, ETaskState::Succeeded);
 			EXPECT_TRUE(Task.Wait());
 			EXPECT_EQ(*Task.GetResult(), 42);
-			const auto View = Task.GetResultShared();
-			EXPECT_TRUE(View);
-			if (View) EXPECT_EQ(**View, 42);
 			// The producer is closed, so it is no longer a wait-cycle ancestor.
 			EXPECT_TRUE(Dependent.Wait(1));
 			if (Dependent.IsCompleted()) EXPECT_EQ(Dependent.GetResult(), 43);
@@ -352,11 +318,6 @@ namespace Durin
 		bool Inline = false;
 		auto Late = Task.Subscribe([&](ETaskState) { EXPECT_EQ(*Task.GetResult(), 42); Inline = true; });
 		EXPECT_TRUE(Inline);
-		EXPECT_DEATH({
-			auto Invalid = std::make_shared<Private::FTaskBeforeCompletionHook>();
-			Invalid->Function = [](ETaskState) {};
-			Private::FTaskRuntimeAccess::BindBeforeCompletion(Task, std::move(Invalid));
-		}, "must be bound before task completion");
 	}
 
 	TEST_F(FTaskCloseTests, PublicObserversDoNotDelayCompletionAndResetDoesNotJoinInflightCalls)
@@ -392,9 +353,11 @@ namespace Durin
 	{
 		Tasks::FTaskEvent Event("PreCompletionObserverRace", false);
 		FThreadEvent Entered, Release;
-		auto Hook = std::make_shared<Private::FTaskBeforeCompletionHook>();
-		Hook->Function = [&](ETaskState) { Entered.Trigger(); Release.Wait(); };
-		Private::FTaskRuntimeAccess::BindBeforeCompletion(Event, std::move(Hook));
+		Private::SetTaskTerminalPublicationTestHook([&](uint64 TaskId) {
+			if (TaskId != Event.GetTaskId()) return;
+			Entered.Trigger();
+			Release.Wait();
+		});
 		std::thread Publisher([&] { Event.Trigger(); });
 		EXPECT_TRUE(Entered.WaitFor(2));
 		std::atomic<uint32> Calls = 0;
@@ -404,6 +367,7 @@ namespace Durin
 		EXPECT_EQ(Calls.load(), 0u);
 		Release.Trigger();
 		Publisher.join();
+		Private::SetTaskTerminalPublicationTestHook({});
 		EXPECT_EQ(Calls.load(), 1u);
 	}
 
@@ -480,7 +444,6 @@ namespace Durin
 				EXPECT_TRUE(Task.IsCompleted()); EXPECT_TRUE(Task.Wait());
 				EXPECT_EQ(State, Outcome); EXPECT_EQ(Task.GetState(), Outcome);
 				if (Outcome == ETaskState::Succeeded) EXPECT_EQ(Task.GetResult(), 42);
-				else EXPECT_FALSE(Task.GetResultShared());
 				Observed.Trigger();
 				throw std::runtime_error("observer failure");
 			});
@@ -578,35 +541,19 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FTaskCloseTests, DeepNestedAndHookClosePropagationUsesBoundedStack)
+	TEST_F(FTaskCloseTests, DeepNestedClosePropagationUsesBoundedStack)
 	{
-		// Nested parent completion and inline terminal hooks are separate sources
-		// of synchronous propagation. Both must tolerate chains beyond a native stack.
 		constexpr uint32 Count = 8192;
-		for (bool Nested : {false, true})
+		std::vector<Tasks::FTaskEvent> Events;
+		Events.reserve(Count);
+		for (uint32 Index = 0; Index < Count; ++Index) Events.emplace_back("DeepClose", false);
+		for (uint32 Index = 0; Index + 1 < Count; ++Index)
 		{
-			std::vector<Tasks::FTaskEvent> Events;
-			Events.reserve(Count);
-			for (uint32 Index = 0; Index < Count; ++Index) Events.emplace_back("DeepClose", false);
-			for (uint32 Index = 0; Index + 1 < Count; ++Index)
-			{
-				if (Nested) Events[Index].AddPrerequisites(Events[Index + 1]);
-				else
-				{
-					auto Hook = std::make_shared<Private::FTaskBeforeCompletionHook>();
-					Hook->Function = [Next = Events[Index + 1]](ETaskState) mutable { Next.Trigger(); };
-					Private::FTaskRuntimeAccess::BindBeforeCompletion(Events[Index], std::move(Hook));
-				}
-			}
-			if (Nested)
-			{
-				for (uint32 Index = 0; Index + 1 < Count; ++Index) Events[Index].Trigger();
-				EXPECT_FALSE(Events.front().IsCompleted());
-				Events.back().Trigger();
-			}
-			else Events.front().Trigger();
-			for (const auto& Event : Events) ASSERT_TRUE(Event.IsCompleted());
+			Events[Index].AddPrerequisites(Events[Index + 1]);
+			Events[Index].Trigger();
 		}
+		EXPECT_FALSE(Events.front().IsCompleted());
+		Events.back().Trigger();
+		for (const auto& Event : Events) ASSERT_TRUE(Event.IsCompleted());
 	}
-
 }

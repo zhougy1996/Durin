@@ -50,12 +50,6 @@ namespace Durin::Tasks
 	CORE_API auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function,
 		const FParallelForPolicyOptions& Options = {}) -> FParallelForResult;
 
-	// Completion includes failed/canceled work and empty handles, independent of success.
-	CORE_API auto Wait(const FTask& Task) -> bool;
-	CORE_API auto Wait(const FTask& Task, double TimeoutSeconds) -> bool;
-	CORE_API auto WaitDetailed(const FTask& Task) -> FTaskWaitResult;
-	CORE_API auto WaitDetailed(const FTask& Task, double TimeoutSeconds) -> FTaskWaitResult;
-
 	// Completion dependency only: does not forward cancellation or failure to either task.
 	// Must be called from a running task body; its worker is free after the body returns.
 	CORE_API auto AddNested(const FTask& Task) -> void;
@@ -198,11 +192,6 @@ namespace Durin::Tasks
 		{
 			Detail::WaitForSuccess(Handle);
 			return *Storage->PeekPublished();
-		}
-		auto GetResultShared() const -> std::shared_ptr<const T> requires (!std::is_void_v<T>)
-		{
-			if (!IsCompleted() || GetState() != ETaskState::Succeeded) return {};
-			return std::shared_ptr<const T>(Durin::Private::FTaskRuntimeAccess::PinLifetime(Handle), Storage->PeekPublished());
 		}
 		auto Subscribe(std::function<void(ETaskState)> Callback) const -> FTaskSubscription
 		{ return SubscribeTask(Handle, std::move(Callback)); }

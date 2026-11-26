@@ -318,7 +318,7 @@ TEST_F(FPackagePersistenceTests, RejectedPublicationDoesNotWaitForOccupiedIoWork
 	struct FRelease {
 		FThreadEvent& Event;
 		std::vector<Tasks::TTask<void>>& Tasks;
-		~FRelease() { Event.Trigger(); for (const auto& Task : Tasks) WaitTask(Task); }
+		~FRelease() { Event.Trigger(); for (const auto& Task : Tasks) Task.Wait(); }
 	} Resume{Release, Blockers};
 	for (uint32 Index = 0; Index < WorkerCount; ++Index)
 		Blockers.push_back(Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [&] {

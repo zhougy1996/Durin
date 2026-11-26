@@ -580,8 +580,8 @@ namespace Durin
 		}
 		if (Completion.IsValid())
 		{
-			const auto Wait = TimeoutSeconds ? Tasks::WaitDetailed(Completion, std::max(0.0, *TimeoutSeconds
-				- std::chrono::duration<double>(std::chrono::steady_clock::now() - Started).count())) : Tasks::WaitDetailed(Completion);
+			const auto Wait = TimeoutSeconds ? Completion.WaitDetailed(std::max(0.0, *TimeoutSeconds
+				- std::chrono::duration<double>(std::chrono::steady_clock::now() - Started).count())) : Completion.WaitDetailed();
 			if (Wait.WaitStatus != ETaskWaitStatus::Completed)
 				return Result(EPackageResourceReadStatus::IoError,
 					{.Message = std::format("Package request wait was rejected; the request outcome is unchanged. WaitStatus: {}.", static_cast<uint32>(Wait.WaitStatus))});
