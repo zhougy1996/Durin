@@ -476,8 +476,14 @@ namespace
 		std::string Error;
 		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&ReferencesProperty, &Owner, 0, Snapshot))) << Durin::ToString(SnapshotResult.error());
 		ASSERT_EQ(Snapshot.GetReferencedObjects().size(), 2u);
-		Durin::FPropertyValueSnapshot SnapshotCopy = Snapshot;
+		Durin::FPropertyValueSnapshot Copy = Snapshot;
 		Snapshot = {};
+		Durin::FPropertyValueSnapshot SnapshotCopy = std::move(Copy);
+		EXPECT_FALSE(Copy.IsValid());
+		EXPECT_TRUE(Copy.GetReferencedObjects().empty());
+		ASSERT_EQ(SnapshotCopy.GetReferencedObjects().size(), 2u);
+		EXPECT_EQ(SnapshotCopy.GetReferencedObjects()[0], First);
+		EXPECT_EQ(SnapshotCopy.GetReferencedObjects()[1], Second);
 
 		Owner.References.clear();
 		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);

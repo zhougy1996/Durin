@@ -354,28 +354,27 @@ namespace Durin
 			const FProperty*, void*, uint32, const FPropertyValueSnapshotPayload&, bool) -> std::expected<void, FPropertySnapshotError>;
 	};
 
-	// Legacy retaining adapter over the shared retention-neutral property snapshot payload.
+	// Owns the hard references needed to restore a captured property value.
 	class FPropertyValueSnapshot
 	{
 	public:
 		FPropertyValueSnapshot() = default;
-		COREDOBJECT_API ~FPropertyValueSnapshot();
-		COREDOBJECT_API FPropertyValueSnapshot(const FPropertyValueSnapshot& Other);
+		FPropertyValueSnapshot(const FPropertyValueSnapshot&) = default;
 		COREDOBJECT_API auto operator=(const FPropertyValueSnapshot& Other) -> FPropertyValueSnapshot&;
 		COREDOBJECT_API FPropertyValueSnapshot(FPropertyValueSnapshot&& Other) noexcept;
 		COREDOBJECT_API auto operator=(FPropertyValueSnapshot&& Other) noexcept -> FPropertyValueSnapshot&;
 		auto IsValid() const -> bool { return Payload.IsValid(); }
 		auto GetProperty() const -> const FProperty* { return Payload.GetProperty(); }
 		auto GetBytes() const -> const FByteBuffer& { return Payload.GetBytes(); }
-		auto GetReferencedObjects() const -> const std::vector<DObject*>& { return ReferencedObjects; }
+		auto GetReferencedObjects() const
+		{
+			return StrongReferences | std::views::transform(&TStrongObjectPtr<DObject>::Get);
+		}
 		auto GetPayload() const -> const FPropertyValueSnapshotPayload& { return Payload; }
 		COREDOBJECT_API auto operator==(const FPropertyValueSnapshot& Other) const -> bool;
 	private:
 		FPropertyValueSnapshotPayload Payload;
-		std::vector<DObject*> ReferencedObjects;
 		std::vector<TStrongObjectPtr<DObject>> StrongReferences;
-		auto AddStrongReferences() -> void;
-		auto ReleaseStrongReferences() -> void;
 		friend COREDOBJECT_API auto CapturePropertyValue(const FProperty*, const void*, uint32, FPropertyValueSnapshot&) -> std::expected<void, FPropertySnapshotError>;
 		friend COREDOBJECT_API auto RestorePropertyValue(const FProperty*, void*, uint32, const FPropertyValueSnapshot&) -> std::expected<void, FPropertySnapshotError>;
 	};

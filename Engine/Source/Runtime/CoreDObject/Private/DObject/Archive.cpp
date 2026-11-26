@@ -1471,18 +1471,6 @@ namespace Durin
 		if (auto* ObjectArchive = RequireObjectArchive(Ar)) ObjectArchive->SerializeWeakObjectReference(Value);
 	}
 
-	FPropertyValueSnapshot::~FPropertyValueSnapshot()
-	{
-		ReleaseStrongReferences();
-	}
-
-	FPropertyValueSnapshot::FPropertyValueSnapshot(const FPropertyValueSnapshot& Other)
-		: Payload(Other.Payload)
-		, ReferencedObjects(Other.ReferencedObjects)
-	{
-		AddStrongReferences();
-	}
-
 	auto FPropertyValueSnapshot::operator=(const FPropertyValueSnapshot& Other) -> FPropertyValueSnapshot&
 	{
 		if (this == &Other) return *this;
@@ -1492,25 +1480,16 @@ namespace Durin
 	}
 
 	FPropertyValueSnapshot::FPropertyValueSnapshot(FPropertyValueSnapshot&& Other) noexcept
-		: Payload(std::move(Other.Payload))
-		, ReferencedObjects(std::move(Other.ReferencedObjects))
+		: Payload(std::exchange(Other.Payload, {}))
 		, StrongReferences(std::move(Other.StrongReferences))
 	{
-		Other.Payload = {};
-		Other.ReferencedObjects.clear();
-		Other.StrongReferences.clear();
 	}
 
 	auto FPropertyValueSnapshot::operator=(FPropertyValueSnapshot&& Other) noexcept -> FPropertyValueSnapshot&
 	{
 		if (this == &Other) return *this;
-		ReleaseStrongReferences();
-		Payload = std::move(Other.Payload);
-		ReferencedObjects = std::move(Other.ReferencedObjects);
+		Payload = std::exchange(Other.Payload, {});
 		StrongReferences = std::move(Other.StrongReferences);
-		Other.Payload = {};
-		Other.ReferencedObjects.clear();
-		Other.StrongReferences.clear();
 		return *this;
 	}
 
@@ -1532,19 +1511,8 @@ namespace Durin
 				Property, Left.GetContainer(), 0, Right.GetContainer(), 0);
 		}
 		return Payload.GetBytes() == Other.Payload.GetBytes()
-			&& ReferencedObjects == Other.ReferencedObjects;
-	}
-
-	auto FPropertyValueSnapshot::AddStrongReferences() -> void
-	{
-		StrongReferences.reserve(ReferencedObjects.size());
-		for (DObject* Object : ReferencedObjects) StrongReferences.emplace_back(Object);
-	}
-
-	auto FPropertyValueSnapshot::ReleaseStrongReferences() -> void
-	{
-		StrongReferences.clear();
-		ReferencedObjects.clear();
+			&& std::ranges::equal(StrongReferences, Other.StrongReferences, {},
+				&TStrongObjectPtr<DObject>::GetKey, &TStrongObjectPtr<DObject>::GetKey);
 	}
 
 	auto ArePropertySnapshotTypesCompatible(
@@ -1833,12 +1801,12 @@ namespace Durin
 		FPropertyValueSnapshot Snapshot;
 		if (auto Result = CapturePropertyValuePayload(
 			Property, Container, ArrayIndex, Snapshot.Payload); !Result) return Result;
+		Snapshot.StrongReferences.reserve(Snapshot.Payload.GetReferencedObjectKeys().size());
 		for (FObjectKey Handle : Snapshot.Payload.GetReferencedObjectKeys())
 		{
 			if (DObject* Object = ResolveObjectKey(Handle))
-				Snapshot.ReferencedObjects.push_back(Object);
+				Snapshot.StrongReferences.emplace_back(Object);
 		}
-		Snapshot.AddStrongReferences();
 		OutSnapshot = std::move(Snapshot);
 		return {};
 	}
