@@ -2761,7 +2761,6 @@ namespace Durin
 				RHITerminateOnFailure("RHI submission", "Oversized");
 			}
 			FRHIThreadWork Work;
-			Work.FrameCount = EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::EndFrame) ? 1u : 0u;
 			Work.BatchCount = static_cast<uint32>(GroupBatchCount);
 			Work.PayloadBytes = static_cast<uint64>(GroupPayloadBytes);
 			Work.Execute = [Replay, SubmissionGroup]() mutable {
@@ -2914,14 +2913,9 @@ namespace Durin
 			.CompletedSerial = GetCompletedSerial(),
 			.WaitDurationNanoseconds = State->WaitDurationNanoseconds.load(
 				std::memory_order_relaxed),
-			.BackpressureWaitCount = ThreadStats.BackpressureWaitCount,
 			.PeakQueueEntryCount = ThreadStats.PeakOutstandingEntryCount,
 			.PeakQueueBatchCount = ThreadStats.PeakOutstandingBatchCount,
 			.PeakQueuePayloadBytes = ThreadStats.PeakOutstandingPayloadBytes,
-			.PendingFrameCount = ThreadStats.OutstandingFrameCount,
-			.PeakQueueFrameCount = ThreadStats.PeakOutstandingFrameCount,
-			.FramePressureWaitCount = ThreadStats.FramePressureWaitCount,
-			.FramePressureWaitNanoseconds = ThreadStats.FramePressureWaitNanoseconds,
 		};
 	}
 

@@ -516,30 +516,47 @@ namespace Durin
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
-		EndFramePacingStaysRenderOnlyWhileThreadsFlushWaitsExactRHIWork)
+		EndFrameWaitsForRHIFrameNMinusTwoWhileRenderThreadKeepsSubmitting)
 	{
 		FRHIThread RHIThread;
 		ASSERT_TRUE(RHIThread.Start());
 		GCommandListExecutor.SetThreadedMode(RHIThread);
-		FThreadEvent RHIWorkStarted;
-		FThreadEvent ReleaseRHIWork;
-
-		ENQUEUE_RENDER_COMMAND(DispatchBlockingRHIWork)(
-			[&](FRHICommandListImmediate& RHICmdList) {
-				RHICmdList.EnqueueLambda([&]() {
-					RHIWorkStarted.Trigger();
-					ReleaseRHIWork.Wait();
-				});
-				RHICmdList.ImmediateFlush(
-					EImmediateFlushType::DispatchToRHIThread);
+		FThreadEvent ReleaseFirst, ReleaseSecond, ThirdFrameSubmitted, ThirdFrameReturned;
+		std::atomic<bool> FirstComplete = false;
+		std::atomic<bool> SecondComplete = false;
+		ENQUEUE_RENDER_COMMAND(FirstFrame)([&](FRHICommandListImmediate& Commands) {
+			Commands.EnqueueLambda([&] {
+				EXPECT_TRUE(ReleaseFirst.WaitFor(5.0));
+				FirstComplete = true;
 			});
-
+		});
 		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
+		ENQUEUE_RENDER_COMMAND(SecondFrame)([&](FRHICommandListImmediate& Commands) {
+			Commands.EnqueueLambda([&] {
+				EXPECT_TRUE(ReleaseSecond.WaitFor(5.0));
+				SecondComplete = true;
+			});
+		});
 		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
-		EXPECT_TRUE(RHIWorkStarted.WaitFor(1.0));
-
-		ReleaseRHIWork.Trigger();
+		EXPECT_FALSE(FirstComplete.load());
+		ENQUEUE_RENDER_COMMAND(ThirdFrame)([&](FRHICommandListImmediate& Commands) {
+			Commands.EnqueueLambda([] {});
+			Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread);
+			ThirdFrameSubmitted.Trigger();
+		});
+		std::thread Release([&] {
+			EXPECT_TRUE(ThirdFrameSubmitted.WaitFor(2.0));
+			EXPECT_FALSE(ThirdFrameReturned.WaitFor(0.1));
+			ReleaseFirst.Trigger();
+		});
+		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
+		ThirdFrameReturned.Trigger();
+		EXPECT_TRUE(FirstComplete.load());
+		EXPECT_FALSE(SecondComplete.load());
+		ReleaseSecond.Trigger();
+		Release.join();
 		FFrameSync::Sync(FFrameSync::EFlushMode::Threads);
+		EXPECT_TRUE(SecondComplete.load());
 		GCommandListExecutor.SetInlineMode();
 		RHIThread.Stop();
 	}

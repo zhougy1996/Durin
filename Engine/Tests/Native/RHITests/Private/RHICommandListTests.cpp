@@ -3605,12 +3605,12 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context, Thread);
 		struct FReleaseOnExit { FThreadEvent& Event; ~FReleaseOnExit() { Event.Trigger(); } } ReleaseGuard{Release};
 		auto& Commands = Executor.GetImmediateCommandList();
-		Commands.EnqueueLambda([&] { Started.Trigger(); Release.Wait(); });
+		Commands.EnqueueLambda([&] { Started.Trigger(); EXPECT_TRUE(Release.WaitFor(5.0)); });
 		Executor.Submit({}, ERHISubmitFlags::None);
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		const auto Buffer = MakeRefCount<FTestBuffer>(16);
 		std::vector<FRHIUniformBufferRange> Uniforms;
-		for (int Frame = 0; Frame < 2; ++Frame)
+		for (int Frame = 0; Frame < 4; ++Frame)
 		{
 			Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::BeginFrame);
 			std::array<std::byte, 16> Bytes;
@@ -3622,14 +3622,11 @@ namespace Durin
 		EXPECT_EQ(Executor.GetFrameNumber(), 0u);
 		EXPECT_EQ(Executor.GetStats().WaitCount, 0u);
 		EXPECT_EQ(Executor.GetStats().SynchronousOperationCount, 0u);
-		EXPECT_EQ(Executor.GetStats().PendingFrameCount, 2u);
-		EXPECT_EQ(Executor.GetStats().FramePressureWaitCount, 0u);
 		EXPECT_GE(GetBufferUploadStats().LiveBytes, 64u);
 		Release.Trigger();
 		Thread.Flush();
-		EXPECT_EQ(Executor.GetFrameNumber(), 2u);
-		EXPECT_EQ(Context.ObservedBufferData, FByteBuffer(16, std::byte{11}));
-		EXPECT_EQ(Executor.GetStats().PendingFrameCount, 0u);
+		EXPECT_EQ(Executor.GetFrameNumber(), 4u);
+		EXPECT_EQ(Context.ObservedBufferData, FByteBuffer(16, std::byte{13}));
 		Uniforms.clear();
 		Executor.Submit({}, ERHISubmitFlags::DeleteResources | ERHISubmitFlags::FlushRHIThread);
 	}

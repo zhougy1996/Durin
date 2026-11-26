@@ -31,7 +31,6 @@ namespace Durin
 	class FRHIThread::FState
 	{
 	public:
-		FRHIThreadQueueLimits Limits;
 		bool bStoppedPermanently = false;
 		ERHIThreadAdmissionState AdmissionState = ERHIThreadAdmissionState::Stopped;
 		std::deque<FRHIThreadQueueEntry> Queue;
@@ -39,14 +38,10 @@ namespace Durin
 		uint64 CompletedSerial = 0;
 		uint64 OutstandingEntryCount = 0;
 		uint64 OutstandingBatchCount = 0;
-		uint32 OutstandingFrameCount = 0;
 		uint64 OutstandingPayloadBytes = 0;
 		uint64 PeakOutstandingEntryCount = 0;
 		uint64 PeakOutstandingBatchCount = 0;
-		uint32 PeakOutstandingFrameCount = 0;
 		uint64 PeakOutstandingPayloadBytes = 0;
-		uint64 FramePressureWaitCount = 0;
-		uint64 FramePressureWaitNanoseconds = 0;
 		bool bConsumerReady = false;
 		mutable std::mutex Mutex;
 		mutable std::condition_variable WorkCV;
@@ -94,7 +89,6 @@ namespace Durin
 					DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} batches={} payloadBytes={}", Entry.Serial, Entry.Work.BatchCount, Entry.Work.PayloadBytes));
 					Entry.Work.Execute();
 				}
-				const uint32 CompletedFrameCount = Entry.Work.FrameCount;
 				const uint32 CompletedBatchCount = Entry.Work.BatchCount;
 				const uint64 CompletedPayloadBytes = Entry.Work.PayloadBytes;
 				{
@@ -103,7 +97,7 @@ namespace Durin
 				}
 				{
 					std::lock_guard Lock(State.Mutex);
-					ReleaseCapacity(CompletedBatchCount, CompletedPayloadBytes, CompletedFrameCount);
+					RetireWork(CompletedBatchCount, CompletedPayloadBytes);
 					State.CompletedSerial = Entry.Serial;
 				}
 				State.CompletionCV.notify_all();
@@ -130,15 +124,13 @@ namespace Durin
 		}
 
 	private:
-		auto ReleaseCapacity(uint32 BatchCount, uint64 PayloadBytes, uint32 FrameCount) -> void
+		auto RetireWork(uint32 BatchCount, uint64 PayloadBytes) -> void
 		{
 			check(State.OutstandingEntryCount > 0);
 			check(State.OutstandingBatchCount >= BatchCount);
 			check(State.OutstandingPayloadBytes >= PayloadBytes);
 			--State.OutstandingEntryCount;
 			State.OutstandingBatchCount -= BatchCount;
-			check(State.OutstandingFrameCount >= FrameCount);
-			State.OutstandingFrameCount -= FrameCount;
 			State.OutstandingPayloadBytes -= PayloadBytes;
 		}
 
@@ -155,9 +147,8 @@ namespace Durin
 		Stop();
 	}
 
-	auto FRHIThread::Start(const FRHIThreadQueueLimits& InLimits) -> bool
+	auto FRHIThread::Start(uint32 ThreadStackSize) -> bool
 	{
-		check(InLimits.MaxFrames > 0);
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->AdmissionState != ERHIThreadAdmissionState::Stopped
@@ -165,7 +156,6 @@ namespace Durin
 			{
 				return false;
 			}
-			State->Limits = InLimits;
 			State->AdmissionState = ERHIThreadAdmissionState::Running;
 			State->LastSubmittedSerial = 0;
 			State->CompletedSerial = 0;
@@ -175,16 +165,12 @@ namespace Durin
 			State->PeakOutstandingEntryCount = 0;
 			State->PeakOutstandingBatchCount = 0;
 			State->PeakOutstandingPayloadBytes = 0;
-			State->OutstandingFrameCount = 0;
-			State->PeakOutstandingFrameCount = 0;
-			State->FramePressureWaitCount = 0;
-			State->FramePressureWaitNanoseconds = 0;
 			State->bConsumerReady = false;
 		}
 
 		RunnableOwner = std::make_unique<FRunnableOwner>(*State);
 		Thread.reset(FRunnableThread::Create(
-			RunnableOwner.get(), "RHIThread", InLimits.ThreadStackSize,
+			RunnableOwner.get(), "RHIThread", ThreadStackSize,
 			EThreadPriority::Normal, EThreadRole::RHIThread));
 		if (!Thread)
 		{
@@ -245,30 +231,7 @@ namespace Durin
 			RHITerminateOnFailure("RHI queue", "InvalidWork");
 		}
 
-		std::unique_lock Lock(State->Mutex);
-		if (Work.FrameCount > State->Limits.MaxFrames)
-		{
-			RHITerminateOnFailure("RHI queue", "Oversized");
-		}
-
-		auto HasFrameCapacity = [&]() {
-			return Work.FrameCount <= State->Limits.MaxFrames - State->OutstandingFrameCount;
-		};
-		if (State->AdmissionState == ERHIThreadAdmissionState::Running && !HasFrameCapacity())
-		{
-			const auto WaitStart = std::chrono::steady_clock::now();
-			++State->FramePressureWaitCount;
-			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Enqueue.BackpressureWait");
-				State->CompletionCV.wait(Lock, [this, &HasFrameCapacity]() {
-					return HasFrameCapacity()
-						|| State->AdmissionState != ERHIThreadAdmissionState::Running;
-				});
-			}
-			const auto WaitNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now() - WaitStart).count());
-			State->FramePressureWaitNanoseconds += WaitNanoseconds;
-		}
+		std::lock_guard Lock(State->Mutex);
 		if (State->AdmissionState != ERHIThreadAdmissionState::Running)
 		{
 			RHITerminateOnFailure("RHI queue", "RHI thread is closed");
@@ -285,8 +248,6 @@ namespace Durin
 		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} queuedEntries={} batches={} payloadBytes={}", Serial, State->Queue.size(), Work.BatchCount, Work.PayloadBytes));
 		++State->OutstandingEntryCount;
 		State->OutstandingBatchCount += Work.BatchCount;
-		State->OutstandingFrameCount += Work.FrameCount;
-		State->PeakOutstandingFrameCount = std::max(State->PeakOutstandingFrameCount, State->OutstandingFrameCount);
 		State->OutstandingPayloadBytes += Work.PayloadBytes;
 		State->PeakOutstandingEntryCount = std::max(
 			State->PeakOutstandingEntryCount, State->OutstandingEntryCount);
@@ -342,16 +303,10 @@ namespace Durin
 			.CompletedSerial = State->CompletedSerial,
 			.OutstandingEntryCount = State->OutstandingEntryCount,
 			.OutstandingBatchCount = State->OutstandingBatchCount,
-			.OutstandingFrameCount = State->OutstandingFrameCount,
 			.OutstandingPayloadBytes = State->OutstandingPayloadBytes,
 			.PeakOutstandingEntryCount = State->PeakOutstandingEntryCount,
 			.PeakOutstandingBatchCount = State->PeakOutstandingBatchCount,
-			.PeakOutstandingFrameCount = State->PeakOutstandingFrameCount,
 			.PeakOutstandingPayloadBytes = State->PeakOutstandingPayloadBytes,
-			.BackpressureWaitCount = State->FramePressureWaitCount,
-			.BackpressureWaitNanoseconds = State->FramePressureWaitNanoseconds,
-			.FramePressureWaitCount = State->FramePressureWaitCount,
-			.FramePressureWaitNanoseconds = State->FramePressureWaitNanoseconds,
 		};
 	}
 } // namespace Durin

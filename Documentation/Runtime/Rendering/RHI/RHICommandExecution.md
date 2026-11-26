@@ -183,16 +183,13 @@ capture that same queue-owned last-accepted serial. Inline mode preserves the
 same serial and completion behavior locally. Empty work without an ordered
 event does not manufacture a serial or backend submission.
 
-The queue allows three outstanding frame-end markers by default. Each submission
-carrying `EndFrame` charges one frame through execution and capture retirement.
-Another frame end waits for frame capacity. Ordinary submissions can enter while
-the frame quota is full. Entry count, batch count and owned payload bytes are
-tracked for peak diagnostics. Workloads with long gaps between frame ends can
-accumulate queued work and retained payloads. Vulkan's two-slot GPU pacing
-operates independently. Admission is explicit
+RHI queue admission is independent of frame pacing. Entry count, batch count
+and owned payload bytes are tracked for peak diagnostics. Producers outside
+the game frame loop can accumulate queued work and retained payloads.
+Vulkan's two-slot GPU pacing operates independently. Admission is explicit
 `Stopped -> Running -> Draining -> Stopped`. Once stopped, a thread object
 cannot start again. A new RHI lifecycle creates a fresh thread and serial space.
-A producer still waiting for capacity when admission closes reports a fatal lifecycle error. The RHI thread is the sole runtime owner of command-context
+Submitting after admission closes reports a fatal lifecycle error. The RHI thread is the sole runtime owner of command-context
 replay, Vulkan command-pool/buffer mutation, graphics and present queue
 submission, frame state, and ordered backend deletion.
 
@@ -201,7 +198,7 @@ priority and records a wait at that position in the command stream. Ready PSOs
 need no wait command. Inline and threaded replay execute preceding commands,
 including commands inside an open GPU submission or render pass, before waiting
 on the shared compilation outcome. Required compilation failure is fatal.
-The FIFO consumer retains the serial, capacity and command storage until replay
+The FIFO consumer retains the serial and command storage until replay
 finishes. Later submissions and the current submission's trailing events remain
 ordered behind the wait.
 
@@ -411,8 +408,7 @@ At `BeginFrame`, Vulkan polls completion, waits the exact prerequisites of its
 selected pacing slot, and prepares a completion-eligible descriptor pool batch.
 The render thread dispatches this boundary asynchronously through
 `DispatchToRHIThread`; it can prepare later frames while the RHI lane waits.
-The `RHI.BeginFrame.Dispatch` scope measures dispatch, which consumes zero frame slots. Queue statistics expose
-current and peak outstanding frame ends, frame-pressure waits, and wait duration.
+The `RHI.BeginFrame.Dispatch` scope measures dispatch.
 Uniform objects own pending initial bytes and a backend allocation; updates
 copy payloads into commands and replace the allocation on ordered replay.
 Storage retains a mutable CPU copy for partial updates and directly owns its
@@ -487,7 +483,10 @@ cleanup, and drains outstanding RHI work and deferred deletes before exiting.
 See [runtime shutdown](../../Application/RuntimeLifecycle.md).
 
 `FFrameSync::Sync(EndFrame)` limits GameThread lead over the rendering thread to
-one frame. `Threads` and `FlushRenderingCommands()` synchronize accepted work
+one frame and lead over RHI CPU submission to two frames. Each frame inserts
+a render fence and an RHI fence. The game thread waits for the render fence
+from frame N-1 and the RHI fence from frame N-2. With a backend active,
+the RHI fence covers submission of pending native commands. `Threads` and `FlushRenderingCommands()` synchronize accepted work
 through the exact RHI serial captured on the rendering thread.
 Final render shutdown also drains cleanup queued behind the fence.
 `FlushRenderingCommands()` is a GameThread no-op when the rendering thread is
@@ -496,7 +495,7 @@ object and of the task scheduler.
 
 `RHIExit()` broadcasts resource release and flushes recorded commands on the current
 executor while PSO compilation remains available. It then closes the cache and joins compilation. In threaded mode, stopping the FIFO
-closes admission, wakes blocked producers and joins the consumer after accepted
+closes admission and joins the consumer after accepted
 work releases its captures. The executor then switches to inline mode.
 With both rendering threads stopped, the game thread destroys the pipeline cache,
 drains deferred RHI resources (including deletes produced by destructors), and

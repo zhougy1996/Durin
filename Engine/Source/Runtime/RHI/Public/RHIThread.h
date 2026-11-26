@@ -24,12 +24,6 @@ namespace Durin
 		Draining,
 	};
 
-	struct FRHIThreadQueueLimits
-	{
-		uint32 ThreadStackSize = 0;
-		uint32 MaxFrames = 3;
-	};
-
 	struct FRHIThreadWork
 	{
 		FRHIThreadWork() = default;
@@ -42,7 +36,6 @@ namespace Durin
 		std::function<void()> Execute;
 		uint32 BatchCount = 0;
 		uint64 PayloadBytes = 0;
-		uint32 FrameCount = 0;
 	};
 
 	struct FRHIThreadStats
@@ -52,16 +45,10 @@ namespace Durin
 		uint64 CompletedSerial = 0;
 		uint64 OutstandingEntryCount = 0;
 		uint64 OutstandingBatchCount = 0;
-		uint32 OutstandingFrameCount = 0;
 		uint64 OutstandingPayloadBytes = 0;
 		uint64 PeakOutstandingEntryCount = 0;
 		uint64 PeakOutstandingBatchCount = 0;
-		uint32 PeakOutstandingFrameCount = 0;
 		uint64 PeakOutstandingPayloadBytes = 0;
-		uint64 BackpressureWaitCount = 0;
-		uint64 BackpressureWaitNanoseconds = 0;
-		uint64 FramePressureWaitCount = 0;
-		uint64 FramePressureWaitNanoseconds = 0;
 	};
 
 	// Owns the single FIFO consumer used by threaded RHI execution.
@@ -74,7 +61,7 @@ namespace Durin
 		FRHIThread(const FRHIThread&) = delete;
 		auto operator=(const FRHIThread&) -> FRHIThread& = delete;
 
-		RHI_API auto Start(const FRHIThreadQueueLimits& InLimits = {}) -> bool;
+		RHI_API auto Start(uint32 ThreadStackSize = 0) -> bool;
 		// Closes admission but drains every accepted entry through execution and capture retirement.
 		RHI_API auto BeginDrain() -> void;
 		RHI_API auto Stop() -> void;

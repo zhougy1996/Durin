@@ -37,14 +37,9 @@ namespace Durin
 		uint64 LastSubmittedSerial = 0;
 		uint64 CompletedSerial = 0;
 		uint64 WaitDurationNanoseconds = 0;
-		uint64 BackpressureWaitCount = 0;
 		uint64 PeakQueueEntryCount = 0;
 		uint64 PeakQueueBatchCount = 0;
 		uint64 PeakQueuePayloadBytes = 0;
-		uint32 PendingFrameCount = 0;
-		uint32 PeakQueueFrameCount = 0;
-		uint64 FramePressureWaitCount = 0;
-		uint64 FramePressureWaitNanoseconds = 0;
 	};
 	// Reports one bounded cache's current occupancy and lifetime counters.
 	struct FRHICacheStatistics

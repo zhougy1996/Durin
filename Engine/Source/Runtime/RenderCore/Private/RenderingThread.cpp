@@ -27,8 +27,7 @@ namespace Durin
 				"RHI executor drained (mode: {}): {} command(s), {} payload byte(s), "
 				"{} batch(es), {} submission group(s), {} ns replay, {} wait(s), "
 				"{} synchronous operation(s), "
-				"{} ns wait duration, peak queue {} entry(s)/{} batch(es)/{} byte(s), "
-				"{} backpressure event(s).",
+				"{} ns wait duration, peak queue {} entry(s)/{} batch(es)/{} byte(s).",
 				ExecutorMode,
 				ExecutorStats.RecordedCommandCount,
 				ExecutorStats.RecordedPayloadBytes,
@@ -40,13 +39,11 @@ namespace Durin
 				ExecutorStats.WaitDurationNanoseconds,
 				ExecutorStats.PeakQueueEntryCount,
 				ExecutorStats.PeakQueueBatchCount,
-				ExecutorStats.PeakQueuePayloadBytes,
-				ExecutorStats.BackpressureWaitCount);
+				ExecutorStats.PeakQueuePayloadBytes);
 			const auto UploadStats = GetBufferUploadStats();
-			DURIN_TRACE("RHI upload/frame bounds: peak queued frames={}, frame-pressure waits={} ({} ns), "
+			DURIN_TRACE("RHI upload bounds: "
 				"CPU upload live/peak={}/{}, backing reserved live/peak/capacity={}/{}/{}.",
-				ExecutorStats.PeakQueueFrameCount, ExecutorStats.FramePressureWaitCount,
-				ExecutorStats.FramePressureWaitNanoseconds, UploadStats.LiveBytes, UploadStats.PeakBytes,
+				UploadStats.LiveBytes, UploadStats.PeakBytes,
 				UploadStats.BackingLiveBytes, UploadStats.BackingPeakBytes,
 				UploadStats.BackingReservedCapacity);
 			const size_t PendingRHIDeletes =
@@ -166,8 +163,17 @@ namespace Durin
 		};
 
 		FRenderingThread RenderingThread;
-		std::array<FRenderCommandFence, 2> FrameFences;
-		uint32 NextFrameFence = 0;
+		std::deque<FRenderCommandFence> RenderFrameFences;
+		std::deque<FRenderCommandFence> RHIFrameFences;
+
+		auto WaitForOldFrames(std::deque<FRenderCommandFence>& Fences, size_t AllowedLag) -> void
+		{
+			while (Fences.size() > AllowedLag)
+			{
+				Fences.front().Wait();
+				Fences.pop_front();
+			}
+		}
 	}
 
 	FRenderCommandFence::FRenderCommandFence() = default;
@@ -187,7 +193,9 @@ namespace Durin
 			[Event = std::move(Event), Fence = std::move(Fence)](FRHICommandListImmediate&) mutable {
 				if (Fence)
 				{
-					const uint64 Serial = GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
+					// The CPU fence covers native submission when a backend is active.
+					const auto Flags = GDynamicRHI ? ERHISubmitFlags::SubmitToGPU : ERHISubmitFlags::None;
+					const uint64 Serial = GCommandListExecutor.Submit({}, Flags);
 					*Fence = GCommandListExecutor.CreateFence(Serial);
 				}
 				Event.Trigger();
@@ -231,19 +239,10 @@ namespace Durin
 			check(IsInGameThread());
 			const auto SyncStarted = std::chrono::steady_clock::now();
 			const bool bFullSync = FlushMode == EFlushMode::Threads;
-			if (bFullSync)
-			{
-				FRenderCommandFence Fence;
-				Fence.BeginFence(ERenderCommandFenceMode::RHIThread);
-				FrameFences[NextFrameFence ^ 1].Wait();
-				Fence.Wait();
-			}
-			else
-			{
-				FrameFences[NextFrameFence].BeginFence();
-				NextFrameFence ^= 1;
-				FrameFences[NextFrameFence].Wait();
-			}
+			RenderFrameFences.emplace_back().BeginFence(ERenderCommandFenceMode::RenderThread);
+			WaitForOldFrames(RenderFrameFences, bFullSync ? 0 : 1);
+			RHIFrameFences.emplace_back().BeginFence(ERenderCommandFenceMode::RHIThread);
+			WaitForOldFrames(RHIFrameFences, bFullSync ? 0 : 2);
 			const double SyncMS = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - SyncStarted).count();
 			if (Profiling::AreStartupDiagnosticsEnabled() && SyncMS >= 20.0)
 				DURIN_DEBUG("Render frame sync: mode={} | {:.3f} ms", bFullSync ? "Threads" : "EndFrame", SyncMS);
@@ -262,8 +261,8 @@ namespace Durin
 		GRenderingThread->Kill(true);
 		delete GRenderingThread;
 		GRenderingThread = nullptr;
-		FrameFences[NextFrameFence ^ 1].Wait();
-		NextFrameFence = 0;
+		WaitForOldFrames(RenderFrameFences, 0);
+		WaitForOldFrames(RHIFrameFences, 0);
 	}
 
 	auto IsRenderingThreadRunning() -> bool

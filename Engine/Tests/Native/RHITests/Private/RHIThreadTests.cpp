@@ -209,7 +209,7 @@ namespace Durin
 		EXPECT_EQ((std::vector<int>{1, 2}), Order);
 	}
 
-	TEST(FRHIThreadTests, FullFrameQuotaAllowsOrdinaryWorkWhileNextEndFrameWaits)
+	TEST(FRHIThreadTests, QueuePeaksIncludeRunningAndQueuedWork)
 	{
 		FRHIThread Thread;
 		FRHIThreadTestGuard Guard(Thread);
@@ -217,30 +217,9 @@ namespace Durin
 		FThreadEvent Started, Release;
 		struct FReleaseOnExit { FThreadEvent& Event; ~FReleaseOnExit() { Event.Trigger(); } } ReleaseGuard{Release};
 		FRHIThreadWork First;
-		First.FrameCount = 1;
 		First.Execute = [&] { Started.Trigger(); EXPECT_TRUE(Release.WaitFor(5.0)); };
 		ASSERT_TRUE(Thread.Enqueue(std::move(First)));
 		ASSERT_TRUE(Started.WaitFor(1.0));
-		for (int Index = 0; Index < 2; ++Index)
-		{
-			FRHIThreadWork Next;
-			Next.FrameCount = 1;
-			Next.Execute = [] {};
-			EXPECT_TRUE(Thread.Enqueue(std::move(Next)));
-		}
-		EXPECT_EQ(Thread.GetStats().OutstandingFrameCount, 3u);
-		EXPECT_EQ(Thread.GetStats().BackpressureWaitCount, 0u);
-		std::atomic<bool> Accepted = false;
-		std::thread Producer([&] {
-			FRHIThreadWork Fourth;
-			Fourth.FrameCount = 1;
-			Fourth.Execute = [] {};
-			Accepted = Thread.Enqueue(std::move(Fourth));
-		});
-		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-		while (!Thread.GetStats().FramePressureWaitCount && std::chrono::steady_clock::now() < Deadline)
-			std::this_thread::yield();
-		EXPECT_EQ(Thread.GetStats().FramePressureWaitCount, 1u);
 		constexpr uint64 PayloadPerEntry = 5ull * 1024 * 1024;
 		for (int Index = 0; Index < 8; ++Index)
 		{
@@ -251,68 +230,23 @@ namespace Durin
 			Thread.Enqueue(std::move(Ordinary));
 		}
 		const auto Stats = Thread.GetStats();
-		EXPECT_EQ(Stats.PeakOutstandingEntryCount, 11u);
+		EXPECT_EQ(Stats.PeakOutstandingEntryCount, 9u);
 		EXPECT_EQ(Stats.PeakOutstandingBatchCount, 24u);
 		EXPECT_EQ(Stats.PeakOutstandingPayloadBytes, 8 * PayloadPerEntry);
-		EXPECT_EQ(Stats.OutstandingFrameCount, 3u);
-		EXPECT_EQ(Stats.BackpressureWaitCount, 1u);
-		EXPECT_FALSE(Accepted.load());
 		Release.Trigger();
-		Producer.join();
-		EXPECT_TRUE(Accepted.load());
 		Thread.Flush();
-		EXPECT_EQ(Thread.GetStats().OutstandingFrameCount, 0u);
-		EXPECT_EQ(Thread.GetStats().PeakOutstandingFrameCount, 3u);
-		EXPECT_GT(Thread.GetStats().FramePressureWaitNanoseconds, 0u);
+		EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 0u);
 	}
 
-	TEST(FRHIThreadTests, OversizedAndLateSubmissionsAreFatal)
+	TEST(FRHIThreadTests, SubmissionAfterDrainIsFatal)
 	{
 		FRHIThread Thread;
 		FRHIThreadTestGuard Guard(Thread);
-		FRHIThreadQueueLimits Limits;
-		ASSERT_TRUE(Thread.Start(Limits));
-
-		FRHIThreadWork Oversized;
-		Oversized.FrameCount = Limits.MaxFrames + 1;
-		Oversized.Execute = []() {};
-		EXPECT_DEATH(Thread.Enqueue(std::move(Oversized)), "Oversized");
-
+		ASSERT_TRUE(Thread.Start());
 		Thread.BeginDrain();
 		FRHIThreadWork Late;
 		Late.Execute = []() {};
 		EXPECT_DEATH(Thread.Enqueue(std::move(Late)), "RHI thread is closed");
-	}
-
-	TEST(FRHIThreadTests,
-		DrainClosesAdmissionAndWakesBackpressuredProducer)
-	{
-		EXPECT_DEATH(([] {
-			FRHIThread Thread;
-			FRHIThreadQueueLimits Limits;
-			Limits.MaxFrames = 1;
-			require(Thread.Start(Limits));
-			FThreadEvent HoldCapacity;
-			FRHIThreadWork First;
-			First.FrameCount = 1;
-			First.Execute = [&] { require(HoldCapacity.WaitFor(5.0)); };
-			Thread.Enqueue(std::move(First));
-
-			FRHIThreadWork Blocked;
-			Blocked.FrameCount = 1;
-			Blocked.Execute = [] {};
-			std::thread Producer([&] { Thread.Enqueue(std::move(Blocked)); });
-			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-			while (Thread.GetStats().FramePressureWaitCount == 0)
-			{
-				require(std::chrono::steady_clock::now() < Deadline);
-				std::this_thread::yield();
-			}
-			Thread.BeginDrain();
-			Producer.join();
-			HoldCapacity.Trigger();
-			Thread.Stop();
-		}()), "RHI thread is closed");
 	}
 
 	TEST(FRHIThreadTests, SynchronousSubmissionRetiresCaptureExactlyOnce)
@@ -398,10 +332,8 @@ namespace Durin
 	TEST(FRHIThreadTests, FailedLaunchRestoresStoppedState)
 	{
 		FRHIThread Thread;
-		FRHIThreadQueueLimits Limits;
-		Limits.ThreadStackSize = 1;
 
-		EXPECT_FALSE(Thread.Start(Limits));
+		EXPECT_FALSE(Thread.Start(1));
 		EXPECT_EQ(ERHIThreadAdmissionState::Stopped,
 			Thread.GetStats().AdmissionState);
 		EXPECT_EQ(nullptr, GRHIThread);
