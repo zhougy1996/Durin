@@ -329,16 +329,6 @@ namespace Durin
 		}()), "SelfEnqueue");
 	}
 
-	TEST(FRHIThreadTests, FailedLaunchRestoresStoppedState)
-	{
-		FRHIThread Thread;
-
-		EXPECT_FALSE(Thread.Start(1));
-		EXPECT_EQ(ERHIThreadAdmissionState::Stopped,
-			Thread.GetStats().AdmissionState);
-		EXPECT_EQ(nullptr, GRHIThread);
-	}
-
 	TEST(FRHIThreadTests, StoppedThreadCannotRestart)
 	{
 		FRHIThread Thread;

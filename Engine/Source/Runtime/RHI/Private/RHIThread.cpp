@@ -147,7 +147,7 @@ namespace Durin
 		Stop();
 	}
 
-	auto FRHIThread::Start(uint32 ThreadStackSize) -> bool
+	auto FRHIThread::Start() -> bool
 	{
 		{
 			std::lock_guard Lock(State->Mutex);
@@ -170,7 +170,7 @@ namespace Durin
 
 		RunnableOwner = std::make_unique<FRunnableOwner>(*State);
 		Thread.reset(FRunnableThread::Create(
-			RunnableOwner.get(), "RHIThread", ThreadStackSize,
+			RunnableOwner.get(), "RHIThread", 0,
 			EThreadPriority::Normal, EThreadRole::RHIThread));
 		if (!Thread)
 		{

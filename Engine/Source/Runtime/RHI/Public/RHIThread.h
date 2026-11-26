@@ -61,7 +61,7 @@ namespace Durin
 		FRHIThread(const FRHIThread&) = delete;
 		auto operator=(const FRHIThread&) -> FRHIThread& = delete;
 
-		RHI_API auto Start(uint32 ThreadStackSize = 0) -> bool;
+		RHI_API auto Start() -> bool;
 		// Closes admission but drains every accepted entry through execution and capture retirement.
 		RHI_API auto BeginDrain() -> void;
 		RHI_API auto Stop() -> void;
