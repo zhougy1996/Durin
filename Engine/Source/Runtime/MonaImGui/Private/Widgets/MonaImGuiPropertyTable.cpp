@@ -358,16 +358,21 @@ namespace Durin::MonaImGui::PropertyEdit
 		return bChanged;
 	}
 
-	auto FPropertyInteractionState::FromWidget(ImGuiID Id, const FWidgetState& State, bool bReadOnly) -> FPropertyInteractionState
+	auto FPropertyInteractionState::FromWidget(ImGuiID Id, const FWidgetState& State, bool bReadOnly, bool bChanged) -> FPropertyInteractionState
 	{
 		return {Id, EPropertyInteractionBoundary::Widget, bReadOnly ? EPropertyInteractionEnd::Cancel
-			: State.bDeactivatedAfterEdit || !State.bActive ? EPropertyInteractionEnd::Commit : EPropertyInteractionEnd::None};
+			: State.bDeactivatedAfterEdit || (bChanged && !State.bActive) ? EPropertyInteractionEnd::Commit : EPropertyInteractionEnd::None};
 	}
 
-	auto FPropertyInteractionState::FromPopup(ImGuiID Id, bool bOpen, bool bReadOnly) -> FPropertyInteractionState
+	auto FPropertyInteractionState::FromPopup(ImGuiID Id, bool bDrawnOpen, bool bCancel) -> FPropertyInteractionState
 	{
-		return {Id, EPropertyInteractionBoundary::Popup, bReadOnly ? EPropertyInteractionEnd::Cancel
-			: bOpen ? EPropertyInteractionEnd::None : EPropertyInteractionEnd::Commit};
+		const bool bOpen = ImGui::IsPopupOpen(Id, ImGuiPopupFlags_AnyPopupLevel);
+		auto* Storage = ImGui::GetStateStorage();
+		const bool bWasOpen = Storage->GetBool(Id);
+		if (bWasOpen != bOpen) Storage->SetBool(Id, bOpen);
+		const bool bClosed = !bOpen && (bWasOpen || bDrawnOpen);
+		return {Id, EPropertyInteractionBoundary::Popup, bCancel ? EPropertyInteractionEnd::Cancel
+			: bClosed ? EPropertyInteractionEnd::Commit : EPropertyInteractionEnd::None};
 	}
 
 	auto FPropertyInteractionState::IsCancelled() const -> bool
@@ -375,41 +380,19 @@ namespace Durin::MonaImGui::PropertyEdit
 		return End == EPropertyInteractionEnd::Cancel || (ImGui::GetCurrentContext() && ImGui::IsKeyPressed(ImGuiKey_Escape, false));
 	}
 
-	auto FPropertyEditInteraction::Observe(const FPropertyInteractionState& State) -> void
+	auto FPropertyEditInteraction::Observe(const FPropertyInteractionState& State) -> bool
 	{
-		if (State.Id == 0 || (IsActive() && !Matches(State))) return;
-		const auto Pending = Current.End;
-		Current = State;
+		if (State.Id == 0 || (IsActive() && !Matches(State))) return false;
+		Id = State.Id;
+		Boundary = State.Boundary;
 		LastDrawFrame = ImGui::GetFrameCount();
-		if (Pending == EPropertyInteractionEnd::Cancel || State.IsCancelled()) RequestCancel();
-		else if (Pending == EPropertyInteractionEnd::Commit) Current.End = Pending;
+		return State.End == EPropertyInteractionEnd::Commit;
 	}
 
-	auto FPropertyEditInteraction::CanRetryFinish() const -> bool
+	auto FPropertyEditInteraction::ShouldCancel(bool bEndOfFrame) const -> bool
 	{
-		return !ImGui::GetCurrentContext() || FailedFinishFrame != ImGui::GetFrameCount();
-	}
-
-	auto FPropertyEditInteraction::RecordFailure(std::string_view Message) -> bool
-	{
-		if (ImGui::GetCurrentContext()) FailedFinishFrame = ImGui::GetFrameCount();
-		if (LastError == Message) return false;
-		LastError = Message;
-		return true;
-	}
-
-	auto FPropertyEditInteraction::Poll(bool bEndOfFrame) -> EPropertyInteractionEnd
-	{
-		if (!IsActive()) return EPropertyInteractionEnd::None;
-		const int FramesSinceDraw = ImGui::GetFrameCount() - LastDrawFrame;
-		if (Current.IsCancelled() || FramesSinceDraw > (bEndOfFrame ? 0 : 1))
-		{
-			RequestCancel();
-			return EPropertyInteractionEnd::Cancel;
-		}
-		if (Current.Boundary == EPropertyInteractionBoundary::Widget) return Current.End;
-		return ImGui::IsPopupOpen(Current.Id, ImGuiPopupFlags_AnyPopupLevel)
-			? EPropertyInteractionEnd::None : EPropertyInteractionEnd::Commit;
+		return IsActive() && (ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+			|| ImGui::GetFrameCount() - LastDrawFrame > (bEndOfFrame ? 0 : 1));
 	}
 
 	auto DrawColorPicker(FLinearColor& Color, EColorPickerMode Mode, bool bShowAlpha,
@@ -431,11 +414,11 @@ namespace Durin::MonaImGui::PropertyEdit
 			PreviewFlags, PreviewSize))
 			ImGui::OpenPopup("##Picker");
 		const ImGuiID PickerId = ImGui::GetID("##Picker");
-		if (OutPickerState) *OutPickerState = FPropertyInteractionState::FromPopup(PickerId, false);
-		if (ImGui::BeginPopup("##Picker"))
+		const bool bDrawnOpen = ImGui::BeginPopup("##Picker");
+		bool bCancel = false;
+		if (bDrawnOpen)
 		{
-			const bool bCancel = bReadOnly || (OutPickerState && ImGui::IsKeyPressed(ImGuiKey_Escape, false));
-			if (OutPickerState) *OutPickerState = FPropertyInteractionState::FromPopup(PickerId, true, bCancel);
+			bCancel = bReadOnly || (OutPickerState && ImGui::IsKeyPressed(ImGuiKey_Escape, false));
 			if (bCancel) ImGui::CloseCurrentPopup();
 			else
 			{
@@ -446,6 +429,7 @@ namespace Durin::MonaImGui::PropertyEdit
 			}
 			ImGui::EndPopup();
 		}
+		if (OutPickerState) *OutPickerState = FPropertyInteractionState::FromPopup(PickerId, bDrawnOpen, bCancel);
 		if (bChanged)
 		{
 			Color.R = bSRGB ? ColorConvert::SRGBToLinear(DisplayColor.R) : DisplayColor.R;

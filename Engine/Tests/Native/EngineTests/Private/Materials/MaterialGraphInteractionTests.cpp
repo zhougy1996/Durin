@@ -435,6 +435,7 @@ TEST(FMaterialGraphInteractionTests, PreviewBindingRejectsWrongTypesAndStaleSour
 	std::string Error;
 	EXPECT_FALSE(Edit.Commit(&Error));
 	EXPECT_EQ(Error, "The property is no longer editable.");
+	EXPECT_FLOAT_EQ(Preview->Scalar, .5f);
 	EXPECT_FALSE(Edit.IsActive());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .75f);
 
@@ -458,12 +459,13 @@ TEST(FMaterialGraphInteractionTests, PreviewBindingRejectsWrongTypesAndStaleSour
 	ASSERT_TRUE(Material->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.7f)));
 	EXPECT_FALSE(OldHandle.IsEditable());
 	Controls.Observe(7, OldHandle, EEnd::Commit, std::nullopt);
-	EXPECT_FALSE(Controls.EndFrame(false, false));
-	EXPECT_FALSE(Controls.IsActive());
 	Preview = Parameters.Find(Id);
 	ASSERT_TRUE(Preview);
-	Controls.Observe(7, PropertyEditor::FReflectedPropertyHandle(Preview->GetEditTarget()), EEnd::Commit, .6f);
-	ASSERT_TRUE(Controls.EndFrame(false, false));
+	Controls.Observe(8, PropertyEditor::FReflectedPropertyHandle(Preview->GetEditTarget()), EEnd::Commit, .6f);
+	Error.clear();
+	EXPECT_TRUE(Controls.EndFrame(false, false, {}, &Error));
+	EXPECT_EQ(Error, "The property is no longer editable.");
+	EXPECT_FALSE(Controls.IsActive());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .6f);
 }
 

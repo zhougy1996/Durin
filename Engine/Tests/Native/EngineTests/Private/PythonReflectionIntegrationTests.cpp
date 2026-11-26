@@ -515,6 +515,22 @@ assert a.value == 100 and a.get_editor_property('value') == 100
         EXPECT_TRUE(Host->GetTransactor()->Redo()); EXPECT_EQ(EditActor->Value, 100);
         EXPECT_TRUE(ScenePackage->IsDirty());
     }
+    TEST_F(PythonReflectionTests, StalePropertyCommitReportsOnlyItsOriginalError)
+    {
+        PrepareScene();
+        EditActor->BeforePublication = [&] { Host->GetTransactor()->Cancel(); };
+        Pass(R"(
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).GetEditTarget()
+try:
+    a.value = 19
+except durin.ScriptAccessError as error:
+    assert str(error).endswith("The property transaction is no longer active."), str(error)
+else:
+    raise AssertionError('stale commit succeeded')
+assert a.value == 19
+)");
+        EXPECT_FALSE(Host->GetTransactor()->IsActive());
+    }
     TEST_F(PythonReflectionTests, PropertySnapshotsAndNestedValuesShareOneTransaction)
     {
         PrepareScene();

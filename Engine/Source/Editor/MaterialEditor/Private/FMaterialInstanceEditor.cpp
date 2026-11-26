@@ -135,7 +135,7 @@ namespace Durin::MaterialEditor
 			bool bDeactivatedAfterEdit, bool bActive) -> void
 		{
 			const auto Interaction = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(
-				ImGui::GetID("##ParameterInteraction"), {bActive, bDeactivatedAfterEdit});
+				ImGui::GetID("##ParameterInteraction"), {bActive, bDeactivatedAfterEdit}, false, bChanged);
 			if (bOverrideEnabled)
 				Model.UpdateValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Interaction, bChanged ? &Value : nullptr);
 		}
@@ -432,7 +432,6 @@ namespace Durin::MaterialEditor
 			DrawingPreview->Draw(&Instance);
 		}) && Preview) Preview->SetVisible(false);
 		Panel("Details", "Details", &ProfileSettings->bDetailsVisible, [&] {
-			PropertyView.DrawInteractionError();
 			MonaImGui::TextName(Instance.GetFName());
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Instance.GetObjectPath().c_str());
 			ImGui::TextDisabled("Material Instance");
@@ -440,7 +439,6 @@ namespace Durin::MaterialEditor
 			DrawMaterialInstance(&Instance);
 		});
 		Panel("Parameters", "Parameters", &ProfileSettings->bParametersVisible, [&] {
-			PropertyView.DrawInteractionError();
 			if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", DetailsStyle::MakeTableConfig()))
 			{
 				DrawMaterialParameters(&Instance);

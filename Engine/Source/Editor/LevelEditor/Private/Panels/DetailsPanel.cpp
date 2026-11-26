@@ -196,7 +196,6 @@ namespace Durin::LevelEditor
 		const FPropertyViewContext ViewContext = MakePropertyViewContext(Context);
 		if (!PropertyView.HandleOwnerContext(ViewContext, Object))
 		{
-			PropertyView.DrawInteractionError();
 			return;
 		}
 		if (!Object)

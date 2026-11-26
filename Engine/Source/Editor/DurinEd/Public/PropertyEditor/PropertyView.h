@@ -101,7 +101,6 @@ namespace Durin
 		) -> bool;
 		DURINED_API auto EndInteractionFrame(const FPropertyViewContext& Context, bool* OutChanged = nullptr) -> bool;
 
-		DURINED_API auto DrawInteractionError() const -> void;
 		DURINED_API auto ReportEditError(const FPropertyViewContext& Context, std::string Error) -> void;
 
 		// Returns false only when the requested terminal action failed and the
@@ -188,7 +187,6 @@ namespace Durin
 			FPropertyValueSnapshot Value;
 			ImGuiID Id = 0;
 		} MapKeyInteraction;
-		std::string FinishError;
 		std::string LastTransientError;
 		double LastTransientErrorTime = 0.0;
 		PropertyEditor::FPropertyEdit EditSession;

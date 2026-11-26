@@ -129,8 +129,8 @@ already returned to callers.
 ## Generic Mutation
 
 Typed setters pass their prepared draft directly to the shared write path.
-Snapshot application and cancellation initialize a draft from the supplied
-value or the original value. The shared write compares the normalized draft with the live
+Applying a proposed snapshot initializes a draft from the supplied value.
+The shared write compares the normalized draft with the live
 value captured for this write. A synchronous listener can close the recording or preview during
 `Modify()`. Shutdown requests block new edit sessions and handle writes. A pending write can finish
 while its target remains live. Retiring the target in a proposal or dirty notification
@@ -179,8 +179,7 @@ The default top-level integer and float controls and the reflected color popup r
 input during drawing. At frame end the host applies the active control's final
 value and settles its edit before starting a different control's edit. A color
 popup keeps one edit through successive picker gestures and commits it on
-dismissal. Escape or disappearance restores the active preview. A failed
-terminal action blocks the handoff. Drawing order does not change the values
+dismissal. Escape or disappearance restores the active preview. Only a busy current transaction blocks the handoff. Drawing order does not change the values
 recorded for Undo. Other controls continue to use the legacy widget submission
 path.
 
@@ -190,10 +189,7 @@ and a no-op commit adds no undo record. The caller can supply a string output
 for diagnostics on failure. The view can surface a rejection as a short,
 non-modal notification and suppress repeated copies while it is visible.
 A proxy target can report a backing-object write failure after its committed notification.
-The session restores its original property value and returns the diagnostic. A failed
-restoration keeps the edit available for retry. Other recoverable edit failures keep their reason visible
-in the Details panel until retry succeeds. Python uses the failure text in its
-exceptions.
+Callers can surface the diagnostic in the Details panel or a Python exception.
 
 A completed property write closes its session even when the buffer subsequently
 discards the entry or reports a publication failure. The buffer owns that
@@ -219,7 +215,7 @@ Commit()
   end the scoped record
 
 Cancel()
-  if changed, restore through the generic hook path and notify ValueSet for the restored member
+  if the live value differs, restore the saved original directly and notify ValueSet for the restored member
   discard an owned recording or close the nested scope
   create no transaction
 ```
@@ -242,15 +238,16 @@ storage or own history. Map keys remain structural edits and retain their widget
 identity across renames, with uniqueness validation on the structural write path.
 
 Legacy controls use `FPropertyEditInteraction` to
-observe `FPropertyInteractionState` independently of the writer. Numeric and
-vector gestures and text confirmation use control activation. Color gestures
-use popup lifetime. This follows UE's separation of interactive updates from
+observe `FPropertyInteractionState` independently of the writer. Numeric and vector controls submit the terminal value on edited deactivation.
+Text confirmation and single-step changes submit once. Idle redraws leave the
+gesture alone, including after a busy commit. The picker detects closure once
+after drawing, using the popup ID and its open state in the owning window.
+The consumers keep widget identity and frame observations for handoff and
+disappearance. This follows UE's separation of interactive updates from
 the enclosing transaction boundary. Escape takes precedence over deactivation
 and new proposals. Hosts call `EndInteractionFrame` after drawing all rows to
 cancel abandoned previews. Legacy per-row reconciliation also detects missing
-controls on the next frame. Failed restoration retains the session and cancel
-request. Material graph sessions keep their domain setter and likewise remain
-active until restoration succeeds.
+controls on the next frame.
 
 The legacy UI entry point `UpdatePropertyValueEdit` accepts one interaction description
 and an optional detached-value assignment. Missing assignments only observe the
@@ -262,22 +259,17 @@ activation or popup state to one identity, boundary kind, and terminal request;
 the graph canvas does not maintain a second widget identity or visibility clock.
 
 All property writers prepare the write before copying the root into a detached
-proposal. Preparation checks read-only state, pending cancellation, logical
-target, and (for widget writes) control identity and boundary. A different
-control or target must finish the preceding interaction successfully first;
-restoration failure rejects the new assignment without invoking it. Input from
+proposal. Preparation checks read-only state, the current interaction boundary,
+and the logical target and widget identity. A switch settles the outgoing
+interaction before preparing the incoming assignment from live storage. Input from
 the cancelled gesture cannot restart it. Container mutations use the same gate
 and retain detached map keys across restoration. Prebuilt root snapshots are
 private to the prepared write path, so callers cannot submit a stale snapshot
 that resurrects another field's cancelled preview.
 
-Material canvas cancellation reports whether the Toolkit may proceed.
-Deactivate, close, discard, and working-copy reset must preserve the canvas and
-working object if restoration fails; retrying the operation retries cancellation.
-An affected material Toolkit rejects object replacement before publication if
-its interaction cannot be restored.
-This failure propagation is a Durin requirement for rejectable restoration, not
-a claim that UE's color-picker reset callbacks provide a retry protocol.
+Material Toolkit deactivation, close, discard, and working-copy replacement
+can proceed once a cancelled property gesture ends, including after a reported
+snapshot failure. A busy transaction rejects the current request.
 
 This division follows UE 5.8's `IPropertyHandle::SetValue`,
 `SPropertyEditorNumeric::OnBeginSliderMovement`/`OnEndSliderMovement`, and
@@ -286,22 +278,28 @@ the transaction owner's terminal action. Property handles accept per-write flags
 transaction. An enclosing recording can still capture the property owner.
 `InteractiveChange` sends an interactive notification and leaves the final
 notification to the caller's terminal write. Reuse the handle through the
-gesture. The final write emits one committed notification even when its value
-matches the last interactive update. A subsequent identical write is silent. A failed terminal action is
-retried at most once per ImGui frame, and an unchanged error is reported once per
-interaction. Cancellation remains pending across failed retries.
+gesture. A cross-frame session holds that handle alongside its transaction and
+original snapshot. Commit flushes the handle's pending notification without
+rewriting the preview. The final write emits one committed notification even when its value
+matches the last interactive update. A subsequent identical write is silent. A busy current recording rejects this commit and retains its scope. The next input
+may continue, commit, or cancel the edit. The control does not queue a retry.
+A stale recording or loss of editability ends the gesture with a diagnostic and
+leaves the live value in place. A still-current scope ends normally. Hosts
+report the diagnostic and use session activity to decide whether they can switch.
 
 `CancelUnchanged()` closes an active unchanged session and ends its transaction scope silently. It preserves an enclosing
 recording and earlier edits when a proposal is rejected. Sessions with applied
-changes use the ordinary restoration and cancellation path.
+changes restore the saved snapshot directly. Restoration skips proposal validation,
+normalization, and `Modify()`.
 
-Destroying a session cancels an applied preview as a safety fallback. Hosts
-should still explicitly commit or cancel when selection, document, read-only
-state, or workspace activity changes so errors can be reported deliberately. A
-failed Apply or Cancel keeps the session active with its stable target and
-original snapshot so restoration can be retried. If the destructor's final
-safety cancel fails, it emits a fatal editor error instead of silently
-discarding the preview state.
+Cancellation checks transaction availability before touching the preview. If
+busy, it rejects this request and leaves the original scope open. The next
+input can continue, commit, or cancel that gesture. Once admitted, cancellation
+attempts restoration once, discards an owned recording or ends its nested scope,
+and releases the session even if restoration fails. A failed restore returns
+its diagnostic and leaves the live value as it stands. A host reports the
+diagnostic and can switch controls or close. Destruction attempts cancellation
+only for a still-active session.
 
 ## History Submission
 

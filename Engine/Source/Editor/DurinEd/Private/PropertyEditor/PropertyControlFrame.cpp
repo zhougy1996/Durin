@@ -8,16 +8,15 @@ namespace Durin::PropertyEditor
 		Frame.Observe(Id, Handle, End, std::move(Value));
 	}
 
-	auto FPropertyControlFrame::Finish(bool bCancel) -> bool
+	auto FPropertyControlFrame::Finish(bool bCancel, std::string* OutError) -> bool
 	{
-		return Frame.Finish(bCancel, [this](bool bRestore) { return FinishEdit(bRestore); });
+		return Frame.Finish(bCancel, [&](bool bRestore) { return FinishEdit(bRestore, OutError); });
 	}
 
 	auto FPropertyControlFrame::EndFrame(bool bCancel, bool bShouldTransact,
 		const std::function<bool()>& PrepareNewEdit, std::string* OutError, bool* OutChanged) -> bool
 	{
-		bool bChanged = bCancel && Edit.HasChanges();
-		const std::string PreviousError = FinishError;
+		bool bChanged = false;
 		const bool bSucceeded = Frame.EndFrame(bCancel,
 			[&](ImGuiID, const FReflectedPropertyHandle& Handle) {
 				return (!PrepareNewEdit || PrepareNewEdit()) && Handle.IsEditable() && Edit.Begin(Handle.ResolveTarget(), {}, bShouldTransact, OutError);
@@ -26,30 +25,27 @@ namespace Durin::PropertyEditor
 				bool bAppliedChange = false;
 				if (!Edit.WriteControlValue(Value, OutError, &bAppliedChange))
 				{
-					Finish(true);
+					Finish(true, OutError);
 					return false;
 				}
 				bChanged |= bAppliedChange;
 				return true;
 			},
-			[this](bool bRestore) { return FinishEdit(bRestore); });
-		if (!bSucceeded && OutError && OutError->empty() && FinishError != PreviousError) *OutError = FinishError;
+			[&](bool bRestore) { return FinishEdit(bRestore, OutError, &bChanged); });
 		if (bSucceeded && OutChanged) *OutChanged |= bChanged;
 		return bSucceeded;
 	}
 
-	auto FPropertyControlFrame::FinishEdit(bool bCancel) -> bool
+	auto FPropertyControlFrame::FinishEdit(bool bCancel, std::string* OutError, bool* OutChanged) -> bool
 	{
 		if (!Edit.IsActive()) return true;
-		const int FrameNumber = ImGui::GetCurrentContext() ? ImGui::GetFrameCount() : -1;
-		if (!bCancel && FrameNumber >= 0 && FrameNumber == FailedFinishFrame) return false;
-		const bool bFinished = bCancel
-			? (Edit.HasChanges() ? Edit.Cancel(&FinishError) : Edit.CancelUnchanged(&FinishError))
-			: Edit.Commit(&FinishError);
-		// A target that became read-only is closed at commit.
-		if (!bFinished && !Edit.IsActive()) Frame.RetireActiveControl();
-		FailedFinishFrame = Edit.IsActive() && !bFinished ? FrameNumber : -1;
-		if (bFinished) FinishError.clear();
-		return bFinished;
+		if (bCancel && Edit.HasChanges())
+		{
+			const bool bRestored = Edit.Cancel(OutError);
+			if (OutChanged) *OutChanged |= bRestored;
+		}
+		else if (bCancel) Edit.CancelUnchanged(OutError);
+		else Edit.Commit(OutError);
+		return !Edit.IsActive();
 	}
 }

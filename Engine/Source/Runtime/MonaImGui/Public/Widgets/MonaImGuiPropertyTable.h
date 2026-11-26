@@ -35,8 +35,8 @@ namespace Durin::MonaImGui::PropertyEdit
 		ImGuiID Id = 0;
 		EPropertyInteractionBoundary Boundary = EPropertyInteractionBoundary::Widget;
 		EPropertyInteractionEnd End = EPropertyInteractionEnd::None;
-		static MONAIMGUI_API auto FromWidget(ImGuiID Id, const FWidgetState& State, bool bReadOnly = false) -> FPropertyInteractionState;
-		static MONAIMGUI_API auto FromPopup(ImGuiID Id, bool bOpen, bool bReadOnly = false) -> FPropertyInteractionState;
+		static MONAIMGUI_API auto FromWidget(ImGuiID Id, const FWidgetState& State, bool bReadOnly = false, bool bChanged = false) -> FPropertyInteractionState;
+		static MONAIMGUI_API auto FromPopup(ImGuiID Id, bool bDrawnOpen, bool bCancel = false) -> FPropertyInteractionState;
 		MONAIMGUI_API auto IsCancelled() const -> bool;
 	};
 	enum class EColorPickerMode { SRGB, Linear, LinearHDR };
@@ -44,20 +44,15 @@ namespace Durin::MonaImGui::PropertyEdit
 	class FPropertyEditInteraction
 	{
 	public:
-		MONAIMGUI_API auto Observe(const FPropertyInteractionState& State) -> void;
-		MONAIMGUI_API auto Poll(bool bEndOfFrame = false) -> EPropertyInteractionEnd;
-		auto Matches(const FPropertyInteractionState& State) const -> bool { return IsActive() && State.Id == Current.Id && State.Boundary == Current.Boundary; }
-		auto IsActive() const -> bool { return Current.Id != 0; }
-		auto RequestCancel() -> void { Current.End = EPropertyInteractionEnd::Cancel; }
-		auto IsCancelPending() const -> bool { return Current.End == EPropertyInteractionEnd::Cancel; }
-		MONAIMGUI_API auto CanRetryFinish() const -> bool;
-		MONAIMGUI_API auto RecordFailure(std::string_view Message) -> bool;
+		MONAIMGUI_API auto Observe(const FPropertyInteractionState& State) -> bool;
+		MONAIMGUI_API auto ShouldCancel(bool bEndOfFrame = false) const -> bool;
+		auto Matches(const FPropertyInteractionState& State) const -> bool { return IsActive() && State.Id == Id && State.Boundary == Boundary; }
+		auto IsActive() const -> bool { return Id != 0; }
 
 	private:
-		FPropertyInteractionState Current;
+		ImGuiID Id = 0;
+		EPropertyInteractionBoundary Boundary = EPropertyInteractionBoundary::Widget;
 		int LastDrawFrame = 0;
-		int FailedFinishFrame = -1;
-		std::string LastError;
 	};
 
 	MONAIMGUI_API auto DrawColorPicker(FLinearColor& Color, EColorPickerMode Mode,

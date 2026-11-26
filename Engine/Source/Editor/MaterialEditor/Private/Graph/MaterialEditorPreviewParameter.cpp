@@ -51,8 +51,8 @@ namespace Durin::MaterialEditor
 			return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::Rejected);
 		auto* Material = Collection ? Collection->Material.Get() : nullptr;
 		const auto* Definition = Material ? Material->FindParameterDefinition(ParameterId) : nullptr;
-		// An open session can still restore its local value after the proxy is detached.
-		if (!Definition || Definition->Type != Type) return {};
+		if (!Definition || Definition->Type != Type)
+			return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::Rejected);
 		auto Candidate = *Definition;
 		const auto* Storage = Proposal.DraftRootProperty->GetValuePtr(Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 		switch (Candidate.Type)

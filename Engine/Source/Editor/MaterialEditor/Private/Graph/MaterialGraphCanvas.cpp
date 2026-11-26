@@ -366,7 +366,10 @@ namespace Durin::MaterialEditor
 		NodeLiteralDraft.reset();
 		if (!FinishDetailsEdit(true)) return false;
 		RootInputFrame.Finish(true, [this](bool bCancel) { return FinishRootInputEdit(bCancel); });
-		if (!ParameterControls.Finish(true)) { ReportError(ParameterControls.GetFinishError()); return false; }
+		std::string Error;
+		const bool bFinished = ParameterControls.Finish(true, &Error);
+		if (!Error.empty()) ReportError(Error);
+		if (!bFinished) return false;
 		if (MoveSession.IsActive())
 		{
 			MoveSession.Cancel();

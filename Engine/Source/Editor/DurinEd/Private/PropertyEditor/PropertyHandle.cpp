@@ -97,6 +97,7 @@ namespace Durin::PropertyEditor
 	{
 		if (!IsActive())
 			return Reject(OutError, "The property edit cannot write this value.");
+		const auto& Target = *Handle.PathTarget;
 		FPropertyValueDraft Draft(Target);
 		FPropertyValueSnapshotPayload Proposed;
 		if (!PrepareTypedValue(Target, Value, Draft, Proposed, OutError)) return false;
@@ -277,13 +278,12 @@ namespace Durin::PropertyEditor
 			return Fail(ToString(Capture.error()));
 		FPropertyValueDraft Draft(Target, &Before);
 		FPropertyValueSnapshotPayload Proposed;
-		const bool bInteractive = (Flags & EPropertyValueSetFlags::InteractiveChange) != 0;
 		if (!PrepareTypedValue(Target, Value, Draft, Proposed, &LastError)) return FPropertyAccess::Fail;
 		const bool bProposedChange = Proposed != Before;
 		bool bChanged = false;
 		if (bProposedChange)
 		{
-			auto Result = WriteValidatedValue(Target, Draft, Flags, Before);
+			auto Result = WriteDraft(Target, Draft, Flags, Before);
 			if (!Result)
 			{
 				LastError = std::move(Result.error());
@@ -291,10 +291,7 @@ namespace Durin::PropertyEditor
 			}
 			bChanged = *Result;
 		}
-		if (bChanged || (!bInteractive && bInteractiveChangeInProgress))
-			NotifyMutation(Target, Flags);
-		Scope.reset();
-		if (bChanged || !bInteractive) bInteractiveChangeInProgress = bInteractive;
+		NotifyValueSet(Target, Flags, bChanged);
 		return FPropertyAccess::Success;
 	}
 }

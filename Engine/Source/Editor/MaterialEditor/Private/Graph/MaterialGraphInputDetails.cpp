@@ -37,7 +37,9 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphCanvas::CommitParameterValue(const FMaterialParameterDefinition& Parameter,
 		const FMaterialParameterValue& Value) -> std::expected<void, std::string>
 	{
-		if (!ParameterControls.Finish(false)) return std::unexpected(ParameterControls.GetFinishError());
+		std::string Error;
+		if (!ParameterControls.Finish(false, &Error)) return std::unexpected(std::move(Error));
+		if (!Error.empty()) ReportError(std::move(Error));
 		auto* Preview = PreviewParameters.Find(Parameter.Id);
 		if (!Preview) return std::unexpected("The material parameter definition is unavailable.");
 		PropertyEditor::FReflectedPropertyHandle Handle(Preview->GetEditTarget());
@@ -107,10 +109,10 @@ namespace Durin::MaterialEditor
 			if (Parameter.Presentation == EMaterialParameterPresentation::Color)
 			{
 				FLinearColor Color(Components[0], Components[1], Components[2], Components[3]);
-				Edited = DrawColorPicker(Color, EColorPickerMode::LinearHDR, true, false, &Interaction);
-				if (Interaction.End != EPropertyInteractionEnd::Cancel)
-					Interaction = FPropertyInteractionState::FromPopup(Interaction.Id,
-						ImGui::IsPopupOpen(Interaction.Id, ImGuiPopupFlags_AnyPopupLevel) && !ImGui::IsMouseReleased(ImGuiMouseButton_Left));
+				FWidgetState PickerState;
+				Edited = DrawColorPicker(Color, EColorPickerMode::LinearHDR, true, false, &Interaction, &PickerState);
+				if (Interaction.End == EPropertyInteractionEnd::None && PickerState.bDeactivatedAfterEdit)
+					Interaction.End = EPropertyInteractionEnd::Commit;
 				if (Edited) Value.GetVector4() = FVector4(Color.R, Color.G, Color.B, Color.A);
 			}
 			else
@@ -121,7 +123,7 @@ namespace Durin::MaterialEditor
 		}
 		const bool Active = ImGui::IsItemActive();
 		const bool Deactivated = ImGui::IsItemDeactivatedAfterEdit();
-		if (Interaction.Id == 0) Interaction = FPropertyInteractionState::FromWidget(Widget, {Active, Deactivated});
+		if (Interaction.Id == 0) Interaction = FPropertyInteractionState::FromWidget(Widget, {Active, Deactivated}, false, Edited);
 		if (Preview && (Edited || bEditing))
 		{
 			std::optional<PropertyEditor::FPropertyControlValue> Proposed;
@@ -276,9 +278,6 @@ namespace Durin::MaterialEditor
 			{
 				ImGui::TableNextColumn();
 				bEdited = DrawColorPicker(Color, Mode, false, false, &Interaction);
-				if (Interaction.End != EPropertyInteractionEnd::Cancel)
-					Interaction = FPropertyInteractionState::FromPopup(Interaction.Id,
-						ImGui::IsPopupOpen(Interaction.Id, ImGuiPopupFlags_AnyPopupLevel));
 				ImGui::EndTable();
 			}
 			ImGui::PopStyleVar();
@@ -290,13 +289,13 @@ namespace Durin::MaterialEditor
 			FWidgetState State;
 			bEdited = EditVectorValue("##Value", Vector, 0.01, &State,
 				{.MaximumWidthInEm = Width / ImGui::GetFontSize(), .Format = "%.4g"});
-			Interaction = FPropertyInteractionState::FromWidget(Widget, State);
+			Interaction = FPropertyInteractionState::FromWidget(Widget, State, false, bEdited);
 			if (bEdited) Value.Literal = {Vector.x, Vector.y, Vector.z};
 		}
 		else
 		{
 			bEdited = ImGui::DragFloat("##Value", &Value.Literal.X, 0.01f, 0.0f, 0.0f, "%.4g");
-			Interaction = FPropertyInteractionState::FromWidget(Widget, {ImGui::IsItemActive(), ImGui::IsItemDeactivatedAfterEdit()});
+			Interaction = FPropertyInteractionState::FromWidget(Widget, {ImGui::IsItemActive(), ImGui::IsItemDeactivatedAfterEdit()}, false, bEdited);
 		}
 		ImGui::EndGroup();
 		RootInputFrame.Observe({*Pin.MaterialProperty, Interaction.Id}, Revision, Interaction.End,

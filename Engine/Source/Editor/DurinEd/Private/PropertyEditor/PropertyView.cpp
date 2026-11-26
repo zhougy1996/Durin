@@ -16,6 +16,7 @@
 #include "Editor/EditorEngine.h"
 #include "Asset/AssetPicker.h"
 #include "Icons/FontAwesomeIcons.h"
+#include "Logging/LogMacros.h"
 #include "Math/Color.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
@@ -538,9 +539,6 @@ namespace Durin
 					const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
 					FPropertyInteractionState Interaction;
 					const bool bChanged = EditColor(Label.c_str(), Value, bShowAlpha, bReadOnly, nullptr, Tooltip, &Interaction);
-					if (Interaction.End != EPropertyInteractionEnd::Cancel)
-						Interaction = FPropertyInteractionState::FromPopup(Interaction.Id,
-							ImGui::IsPopupOpen(Interaction.Id, ImGuiPopupFlags_AnyPopupLevel), bReadOnly);
 					HandleControls.Observe(Interaction.Id, Handle, Interaction.End, bChanged ? std::optional(FValue{Value}) : std::nullopt);
 					return false;
 				}
@@ -554,7 +552,7 @@ namespace Durin
 					FWidgetState Widget;
 					const bool bChanged = DrawNumericProperty(*Property, Type, &Value, Widget);
 					EndRow(bReadOnly);
-					const auto State = FPropertyInteractionState::FromWidget(Id, Widget, bReadOnly);
+					const auto State = FPropertyInteractionState::FromWidget(Id, Widget, bReadOnly, bChanged);
 					HandleControls.Observe(Id, Handle, State.End, bChanged ? std::optional(FValue{Value}) : std::nullopt);
 					return true;
 				};
@@ -594,7 +592,7 @@ namespace Durin
 		auto CaptureResult = [&](bool bChanged, bool bContinuous, const MonaImGui::PropertyEdit::FWidgetState& State = {}) {
 			Result.bChanged = bChanged;
 			Result.bContinuous = bContinuous;
-			Result.Interaction = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(ImGui::GetID(Label.c_str()), State, bReadOnly);
+			Result.Interaction = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(ImGui::GetID(Label.c_str()), State, bReadOnly, bChanged);
 		};
 
 		auto EditMathStruct = [&]<typename TValue, typename TEditor>(TEditor&& Editor) -> FPropertyWidgetEditResult {
@@ -758,7 +756,7 @@ namespace Durin
 		auto CaptureResult = [&](bool bChanged, bool bContinuous, const MonaImGui::PropertyEdit::FWidgetState& State = {}) {
 			Result.bChanged = bChanged;
 			Result.bContinuous = bContinuous;
-			Result.Interaction = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(ImGui::GetID(Label.c_str()), State, bReadOnly);
+			Result.Interaction = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(ImGui::GetID(Label.c_str()), State, bReadOnly, bChanged);
 		};
 
 		MonaImGui::PropertyEdit::BeginRow(Label.c_str(), bReadOnly, 0.0f, Tooltip);
@@ -1342,11 +1340,10 @@ namespace Durin
 				const FPropertyWidgetEditResult KeyEdit = EditPropertyWidget(
 					Context, Property->GetKeyProp(), const_cast<void*>(Key), 0, "Key", bReadOnly);
 				ImGui::PopID();
-				const bool bCancelKey = KeyEdit.Interaction.IsCancelled()
-					|| (bCurrentKey && EditInteraction.IsCancelPending());
+				const bool bCancelKey = KeyEdit.Interaction.IsCancelled();
 				if (bCurrentKey && bCancelKey)
 				{
-					FinishActiveEdit(&Context, true);
+					UpdatePropertyValueEdit(Context, KeyTarget, KeyEdit.Interaction, {});
 					ImGui::PopID();
 					break;
 				}
@@ -1442,8 +1439,8 @@ namespace Durin
 				}
 				if (IsEditingTarget(KeyTarget) && MapKeyInteraction.Id == KeyId)
 				{
-					EditInteraction.Observe(KeyEdit.Interaction);
-					ReconcileInteraction(Context);
+					if (EditInteraction.Observe(KeyEdit.Interaction)) FinishActiveEdit(&Context, false);
+					else ReconcileInteraction(Context);
 				}
 				ImGui::PopID();
 				// Rename and erase may change iteration order, so resume traversal next frame.
@@ -1464,8 +1461,7 @@ namespace Durin
 			return false;
 		if (!EditSession.IsActive()) return true;
 		const bool bSameTarget = IsEditingTarget(Target);
-		const bool bCancel = EditInteraction.IsCancelPending()
-			|| EditInteraction.Poll() == MonaImGui::PropertyEdit::EPropertyInteractionEnd::Cancel;
+		const bool bCancel = EditInteraction.ShouldCancel();
 		const bool bDifferentWidget = Interaction && EditInteraction.IsActive() && !EditInteraction.Matches(*Interaction);
 		if (bCancel || !bSameTarget || bDifferentWidget)
 		{
@@ -1546,42 +1542,44 @@ namespace Durin
 		const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
 		const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool* OutChanged) -> bool
 	{
-		if (Interaction.IsCancelled() || Context.bReadOnly
-			|| (EditSession.MatchesTarget(Target) && EditInteraction.Matches(Interaction) && EditInteraction.IsCancelPending()))
-			return !EditSession.MatchesTarget(Target) || FinishActiveEdit(&Context, true);
+		if (Interaction.IsCancelled() || Context.bReadOnly)
+		{
+			if (!EditSession.MatchesTarget(Target)) return true;
+			// A refused Escape still counts as a draw of the active widget.
+			if (EditInteraction.Matches(Interaction))
+				EditInteraction.Observe({Interaction.Id, Interaction.Boundary});
+			return FinishActiveEdit(&Context, true);
+		}
 
 		const bool bApplied = !AssignValue || ApplyPropertyValueEdit(Context, Target, AssignValue, true, &Interaction, OutChanged);
 		if (!EditSession.MatchesTarget(Target)) return bApplied;
-		EditInteraction.Observe(Interaction);
+		if (EditInteraction.Observe(Interaction))
+			return FinishActiveEdit(&Context, false) && bApplied;
 		return ReconcileInteraction(Context) && bApplied;
 	}
 
 	auto FPropertyView::FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool
 	{
-		const std::string PreviousHandleError = HandleControls.GetFinishError();
-		if (!HandleControls.Finish(bCancel))
+		std::string Error;
+		const bool bHandleFinished = HandleControls.Finish(bCancel, &Error);
+		if (EditSession.IsActive() && bHandleFinished)
 		{
-			const auto& Error = HandleControls.GetFinishError();
-			if (Context && Context->ReportPropertyError && Error != PreviousHandleError)
-				Context->ReportPropertyError(Error);
-			return false;
+			if (bCancel) EditSession.Cancel(&Error);
+			else EditSession.Commit(&Error);
+			if (!EditSession.IsActive())
+			{
+				ActiveEditObject = nullptr;
+				ActiveEditOwnerObject = nullptr;
+				EditInteraction = {};
+				MapKeyInteraction = {};
+			}
 		}
-		if (!EditSession.IsActive()) return true;
-		if (bCancel) EditInteraction.RequestCancel();
-		bCancel = EditInteraction.IsCancelPending();
-		if (!EditInteraction.CanRetryFinish()) return false;
-		const bool bFinished = bCancel ? EditSession.Cancel(&FinishError) : EditSession.Commit(&FinishError);
-		if (!bFinished && EditInteraction.RecordFailure(FinishError) && Context && Context->ReportPropertyError)
-			Context->ReportPropertyError(FinishError);
-		if (!EditSession.IsActive())
+		if (!Error.empty())
 		{
-			FinishError.clear();
-			ActiveEditObject = nullptr;
-			ActiveEditOwnerObject = nullptr;
-			EditInteraction = {};
-			MapKeyInteraction = {};
+			if (Context) ReportEditError(*Context, std::move(Error));
+			else DURIN_ERROR("Could not finish the property edit: {}", Error);
 		}
-		return bFinished;
+		return bHandleFinished && !EditSession.IsActive();
 	}
 
 	auto FPropertyView::HandleOwnerContext(const FPropertyViewContext& Context, DObject* Object) -> bool
@@ -1607,18 +1605,11 @@ namespace Durin
 		return ReconcileInteraction(Context, true) && bFinished;
 	}
 
-	auto FPropertyView::DrawInteractionError() const -> void
-	{
-		const auto& Error = FinishError.empty() ? HandleControls.GetFinishError() : FinishError;
-		if (!Error.empty()) ImGui::TextWrapped("Could not finish the property edit. %s", Error.c_str());
-	}
-
 	auto FPropertyView::ReconcileInteraction(const FPropertyViewContext& Context, bool bEndOfFrame) -> bool
 	{
-		using MonaImGui::PropertyEdit::EPropertyInteractionEnd;
-		if (Context.bReadOnly && EditInteraction.IsActive()) EditInteraction.RequestCancel();
-		const auto End = EditInteraction.Poll(bEndOfFrame);
-		return End == EPropertyInteractionEnd::None || FinishActiveEdit(&Context, End == EPropertyInteractionEnd::Cancel);
+		if ((Context.bReadOnly && EditInteraction.IsActive()) || EditInteraction.ShouldCancel(bEndOfFrame))
+			return FinishActiveEdit(&Context, true);
+		return true;
 	}
 
 	auto FPropertyView::ReportEditError(const FPropertyViewContext& Context, std::string Error) -> void

@@ -1,5 +1,6 @@
 #include "NativeAssetRuntimeTestSupport.h"
 #include "PropertyEditor/PropertyHandle.h"
+#include "PropertyEditor/PropertyView.h"
 #include "ReflectedPropertyEditingTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 
@@ -27,6 +28,28 @@ TEST(FReflectedPropertyEditSessionTests, CommitsAndUndoRedoesGuidValues)
 	EXPECT_EQ(Object->GuidValue, Original);
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object->GuidValue, Proposed);
+}
+
+TEST(FReflectedPropertyEditSessionTests, StaleCommitLeavesReplacementRecordingAndLaterValueIntact)
+{
+	auto Property = MakeValueProperty();
+	FValueContainer Container{5};
+	FManagedEditObserver Object;
+	FTestTransactorOwner Transactions;
+	Durin::PropertyEditor::FPropertyEdit Session;
+	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Old edit", *Transactions.Get()));
+	ASSERT_TRUE(Session.Apply(CaptureValue(Property.get(), Container, 8)));
+	Transactions.Get()->Cancel();
+	Durin::FScopedTransaction Replacement("Replacement");
+	ASSERT_TRUE(Replacement.IsRecordingCurrent());
+	Container.Value = 11;
+	std::string Error;
+	EXPECT_FALSE(Session.Commit(&Error));
+	EXPECT_EQ(Error, "The property transaction is no longer active.");
+	EXPECT_FALSE(Session.IsActive());
+	EXPECT_TRUE(Replacement.IsRecordingCurrent());
+	EXPECT_EQ(Container.Value, 11);
+	EXPECT_EQ(Object.Changes.size(), 1u);
 }
 
 TEST(FReflectedPropertyEditSessionTests, AppliesInteractiveValuesAndCommitsOnce)
@@ -185,37 +208,73 @@ TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifyi
 	EXPECT_TRUE(Object.Changes.empty());
 }
 
-TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForRetry)
+TEST(FReflectedPropertyEditSessionTests, CancelRestoresOriginalWithoutValidatingANewProposal)
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
 	FManagedEditObserver Object;
-	bool bAllowRestore = false;
-	Object.PreChange = [&](Durin::FPropertyEditProposal& Proposal) -> std::expected<void, Durin::FObjectValidationError> {
-		if (Proposal.Flags == Durin::PropertyEditor::EPropertyValueSetFlags::DefaultFlags && !bAllowRestore)
-		{
-			return std::unexpected(Durin::FObjectValidationError{.Code = Durin::EObjectValidationError::PropertyRejected, .PropertyReason = Durin::EPropertyEditRejection::Rejected});
-		}
-		return {};
-	};
 	Durin::PropertyEditor::FPropertyEdit Session;
 	std::string Error;
 	const bool EditResult8 = Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", false, &Error);
 	ASSERT_TRUE(EditResult8) << Error;
 	ASSERT_TRUE(Session.Apply(CaptureValue(Property.get(), Container, 8)));
 
-	const bool EditResult9 = Session.Cancel(&Error);
-	EXPECT_FALSE(EditResult9);
-	EXPECT_EQ(Error, "The object rejected the reflected property proposal.");
-	EXPECT_TRUE(Session.IsActive());
-	EXPECT_EQ(Container.Value, 8);
-	bAllowRestore = true;
-	EXPECT_TRUE(Session.Cancel());
+	Object.PreChange = [](Durin::FPropertyEditProposal&) -> std::expected<void, Durin::FObjectValidationError> {
+		ADD_FAILURE() << "Restoring the original value must bypass proposal validation";
+		return std::unexpected(Durin::FObjectValidationError{.Code = Durin::EObjectValidationError::PropertyRejected});
+	};
+	ASSERT_TRUE(Session.Cancel(&Error)) << Error;
 	EXPECT_FALSE(Session.IsActive());
 	EXPECT_EQ(Container.Value, 5);
 	ASSERT_EQ(Object.Changes.size(), 2u);
 	EXPECT_EQ(Object.Changes[0].ChangeType, Durin::EPropertyChangeType::Interactive);
 	EXPECT_EQ(Object.Changes[1].ChangeType, Durin::EPropertyChangeType::ValueSet);
+}
+
+TEST(FReflectedPropertyEditSessionTests, RestoreFailureClosesTheGestureWithItsDiagnostic)
+{
+	using namespace Durin;
+	FManagedEditObserver Object;
+	FValueContainer Container{5};
+	FProperty Property({}, "Value", EObjectFlags::NoFlags, EPropertyFlags::Edit, 1,
+		offsetof(FValueContainer, Value), sizeof(int32), DurinCodeGen::EPropertyGenFlags::BulkData, nullptr);
+	SetTestValueLifecycle<int32>(Property);
+	const auto Serialize = [](FArchive& Ar, void* Storage) { Ar << *static_cast<int32*>(Storage); };
+	Property.SetBulkDataOperations(Serialize, nullptr);
+	const auto Target = MakeTarget(Object, &Property, Container);
+	PropertyEditor::FPropertyEdit Session;
+	FTestTransactorOwner Transactions;
+	ASSERT_TRUE(Session.Begin(Target, "Preview", *Transactions.Get()));
+	ASSERT_TRUE(Session.Apply(CaptureValue(&Property, Container, 8)));
+	const auto FailRead = [](FArchive& Ar, void* Storage) {
+		if (Ar.IsLoading()) Ar.SetError("Original value cannot be decoded");
+		else Ar << *static_cast<int32*>(Storage);
+	};
+	Property.SetBulkDataOperations(FailRead, nullptr);
+	std::string Error;
+	EXPECT_FALSE(Session.Cancel(&Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_FALSE(Session.IsActive());
+	EXPECT_EQ(Container.Value, 8);
+	EXPECT_EQ(Object.Changes.size(), 1u);
+	EXPECT_FALSE(Transactions.Get()->IsActive());
+	EXPECT_FALSE(Transactions.Get()->CanUndo());
+	Property.SetBulkDataOperations(Serialize, nullptr);
+	FPropertyView View;
+	std::vector<std::string> Reports;
+	const FPropertyViewContext Context{.ReportPropertyError = [&](std::string Message) { Reports.push_back(std::move(Message)); }};
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, Target, [](FProperty* Field, void* Data, uint32 Index) {
+		*Field->ContainerPtrToValuePtr<int32>(Data, Index) = 9;
+	}, true));
+	Property.SetBulkDataOperations(FailRead, nullptr);
+	FManagedEditObserver NextObject;
+	EXPECT_TRUE(View.HandleOwnerContext(Context, NextObject.Get()));
+	EXPECT_FALSE(View.IsEditing());
+	EXPECT_EQ(Container.Value, 9);
+	EXPECT_FALSE(Transactions.Get()->IsActive());
+	EXPECT_TRUE(View.HandleOwnerContext(Context, NextObject.Get()));
+	ASSERT_EQ(Reports.size(), 1u);
+	EXPECT_EQ(Reports.front(), Error);
 }
 
 TEST(FReflectedPropertyEditSessionTests, EmitsTerminalEventAfterReturningToOriginalValue)

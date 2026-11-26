@@ -661,8 +661,9 @@ declaration expression sharing the parameter GUID. Replay restores the declarati
 rebuilds the material's parameter schema from the settled graph.
 
 Material-instance color overrides use the reflected override array and linear
-LDR controls. Graph default colors use a linear HDR picker. Each mouse release
-commits the current graph color while the picker stays open.
+LDR controls. Graph default colors use a linear HDR picker. Releasing an edited
+picker control commits one graph color gesture while the popup stays open.
+Idle frames and closing the popup after that release add no Undo entry.
 
 Graph scalar, vector and color controls collect input during drawing and use
 the [shared frame settlement](../PropertyEditing/ReflectedPropertyEditing.md#edit-session-lifecycle)
@@ -715,9 +716,9 @@ After admission and a successful model write, scope destruction
 publishes history. A publication failure leaves the authored graph edit applied
 and is reported by the transactor.
 
-A busy transactor leaves a parameter gesture available for retry or cancellation.
-A stale binding closes the preview and reports that the property is no longer
-editable. A failed move commit
+A busy transactor leaves the parameter gesture open for the next input.
+A stale binding ends the gesture with a diagnostic and leaves both the local
+preview and the current source value as they stand. A failed move commit
 keeps its draft without publishing positions. Rejected move previews preserve the
 previous draft. A semantic revision change cancels the move. A released drag
 keeps its final positions while the transactor is busy and commits when it

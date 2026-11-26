@@ -27,16 +27,9 @@ namespace Durin::PropertyEditor
 			ActiveObservation.reset();
 			NewProposal.reset();
 			if (!ActiveId) return true;
-			bCancelPending |= bCancel;
-			const bool bFinished = FinishEdit(bCancelPending);
-			if (bFinished) RetireActiveControl();
+			const bool bFinished = FinishEdit(bCancel);
+			if (bFinished) ActiveId.reset();
 			return bFinished;
-		}
-
-		auto RetireActiveControl() -> void
-		{
-			ActiveId.reset();
-			bCancelPending = false;
 		}
 
 		auto EndFrame(bool bCancel, auto&& BeginEdit, auto&& ApplyValue, auto&& FinishEdit) -> bool
@@ -47,7 +40,7 @@ namespace Durin::PropertyEditor
 
 			if (ActiveId)
 			{
-				if (bCancelPending || !Previous || Previous->End == EEnd::Cancel)
+				if (!Previous || Previous->End == EEnd::Cancel)
 				{
 					if (!Finish(true, FinishEdit)) return false;
 				}
@@ -81,7 +74,6 @@ namespace Durin::PropertyEditor
 		};
 
 		std::optional<TId> ActiveId;
-		bool bCancelPending = false;
 		std::optional<FObservation> ActiveObservation;
 		std::optional<FProposal> NewProposal;
 	};
@@ -97,18 +89,15 @@ namespace Durin::PropertyEditor
 			std::optional<FValue> Value) -> void;
 		DURINED_API auto EndFrame(bool bCancel, bool bShouldTransact,
 			const std::function<bool()>& PrepareNewEdit = {}, std::string* OutError = nullptr, bool* OutChanged = nullptr) -> bool;
-		DURINED_API auto Finish(bool bCancel) -> bool;
-		auto GetFinishError() const -> const std::string& { return FinishError; }
+		DURINED_API auto Finish(bool bCancel, std::string* OutError = nullptr) -> bool;
 		auto IsActive() const -> bool { return Edit.IsActive(); }
 		auto IsEditingObject(const DObject* Object) const -> bool { return Edit.IsEditingObject(Object); }
 		auto MatchesTarget(const FPropertyEditTarget& Target) const -> bool { return Edit.MatchesTarget(Target); }
 
 	private:
-		auto FinishEdit(bool bCancel) -> bool;
+		auto FinishEdit(bool bCancel, std::string* OutError, bool* OutChanged = nullptr) -> bool;
 
 		FPropertyEdit Edit;
-		std::string FinishError;
-		int FailedFinishFrame = -1;
 		TPropertyControlFrame<ImGuiID, FReflectedPropertyHandle, FValue> Frame;
 	};
 }

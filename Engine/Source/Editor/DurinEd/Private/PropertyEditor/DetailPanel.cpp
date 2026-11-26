@@ -39,7 +39,6 @@ namespace Durin
 	{
 		FDetailPanelResult Result;
 		Result.bOwnerReady = View.HandleOwnerContext(Context, Object);
-		View.DrawInteractionError();
 		if (!Result.bOwnerReady) return Result;
 		FDetailLayoutBuilder Layout(Options.SearchText, Options.HostContext);
 		{

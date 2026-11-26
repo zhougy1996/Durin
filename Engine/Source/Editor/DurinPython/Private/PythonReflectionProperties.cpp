@@ -72,7 +72,7 @@ namespace Durin::PythonReflection::Private
         if (!Session.Begin(FPropertyEditTarget::ForMember(Object, &P), {}, *Transactor, &EditError))
             return Error(Registry->AccessError, Path + ": " + EditError);
         auto CloseRejected = [&](std::string* CleanupError = nullptr) {
-            return Session.HasChanges() ? Session.Cancel(CleanupError) : Session.CancelUnchanged(CleanupError);
+            return !Session.IsActive() || (Session.HasChanges() ? Session.Cancel(CleanupError) : Session.CancelUnchanged(CleanupError));
         };
         try
         {
@@ -93,7 +93,7 @@ namespace Durin::PythonReflection::Private
         }
         catch (...)
         {
-            if (Session.IsActive()) (void)CloseRejected();
+            (void)CloseRejected();
             throw;
         }
         Py_IncRef(Py_None); return Py_None;
