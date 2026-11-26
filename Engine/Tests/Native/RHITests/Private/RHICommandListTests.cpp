@@ -1323,7 +1323,7 @@ namespace Durin
 		FThreadEvent ReleaseTail;
 		FRHIThreadWork Tail;
 		Tail.Execute = [&] { ReleaseTail.WaitFor(3.0); };
-		const uint64 TailSerial = RHIThread.Enqueue(Tail);
+		const uint64 TailSerial = RHIThread.Enqueue(std::move(Tail));
 		ASSERT_NE(TailSerial, 0u);
 		bool bFallbackQueued = false;
 		std::jthread Publisher([&] {
@@ -2129,7 +2129,7 @@ namespace Durin
 			ReleaseWork.Wait();
 		};
 		const uint64 LifecycleSubmission =
-			RHIThread.Enqueue(LifecycleWork);
+			RHIThread.Enqueue(std::move(LifecycleWork));
 		ASSERT_TRUE(bool(LifecycleSubmission));
 		if (!WorkStarted.WaitFor(1.0))
 		{

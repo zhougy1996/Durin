@@ -58,11 +58,10 @@ terminate through the required-success boundary below. Thread work
 callbacks return `void`; the queue does not catch execution exceptions. An
 exception escaping the RHI worker terminates the process; inline execution
 propagates it to the caller. There is no external-failure injection protocol or
-failed-serial state machine. Thread enqueue returns its serial, or zero on closed
-admission without consuming producer work. Invalid work, self-enqueue, impossible
-frame counts, and serial overflow are internal errors. Synchronous initialization
-returns a completion boolean; ordinary command submission is required-success
-and returns its serial without a second rejection enum or result wrapper.
+failed-serial state machine. Enqueue transfers ownership of the work and returns its nonzero submission
+serial. Submission to a closed queue, invalid work, self-enqueue, impossible
+frame counts, and serial overflow are fatal. Synchronous enqueue returns after
+execution and capture retirement.
 Backend `Init` owns partial-state cleanup before propagating its original
 exception to the initialization operation's handler. The RHI owner
 then destroys the failed backend and releases its module; it does not call
@@ -189,13 +188,13 @@ The queue admits at most 8 queued-or-active entries and 3 frame-end boundaries,
 with backpressure budgets of 16 batches and 32 MiB of owned payload. A single
 indivisible submission above either budget waits for an empty queue and runs alone;
 later work waits for its completion. Each submission carrying `EndFrame`
-charges one frame until replay finishes or rejects the work. This is a CPU
+charges one frame until replay finishes. This is a CPU
 queue latency limit, independent of Vulkan's two-slot GPU pacing. A producer
 that would cross a bound waits for capacity and wakes
 on completion or admission close. Admission is explicit
 `Stopped -> Running -> Draining -> Stopped`. Once stopped, a thread object
 cannot start again. A new RHI lifecycle creates a fresh thread and serial space.
-Rejection leaves work with its producer. The RHI thread is the sole runtime owner of command-context
+A producer still waiting for capacity when admission closes reports a fatal lifecycle error. The RHI thread is the sole runtime owner of command-context
 replay, Vulkan command-pool/buffer mutation, graphics and present queue
 submission, frame state, and ordered backend deletion.
 
@@ -296,8 +295,7 @@ GPU-idle waits, resource creation, viewport resize,
 and backend-dependent allocation—use declared synchronous executor operations.
 They first complete required earlier recorded work and execute backend mutation
 on the RHI thread. The normal `ExecuteSynchronousOperation` surface is terminal:
-a waiter always targets the exact accepted serial, and operation failure or
-admission rejection never falls back to producer-thread backend work.
+a waiter always targets the exact accepted serial.
 
 `FRHIGPUBufferReadback::Wait` uses the executor that recorded the copy. Ready
 results return immediately. In threaded mode, publication of the copy result

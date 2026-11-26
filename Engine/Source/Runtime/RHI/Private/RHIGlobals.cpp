@@ -121,14 +121,7 @@ namespace Durin
 				}
 				FRHIThreadWork InitWork;
 				InitWork.Execute = InitializeBackend;
-				const bool InitResult =
-					RHIThreadOwner->EnqueueSynchronous(InitWork);
-				if (!InitResult)
-				{
-					DURIN_ERROR("RHI thread rejected backend initialization.");
-					ReleaseFailedInitialization(bOwnsBackendModule);
-					return false;
-				}
+				RHIThreadOwner->EnqueueSynchronous(std::move(InitWork));
 				DURIN_DEBUG("RHI execution mode: threaded");
 			}
 			else

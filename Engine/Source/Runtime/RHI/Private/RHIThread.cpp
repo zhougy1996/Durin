@@ -49,7 +49,6 @@ namespace Durin
 		uint64 BackpressureWaitNanoseconds = 0;
 		uint64 FramePressureWaitCount = 0;
 		uint64 FramePressureWaitNanoseconds = 0;
-		uint64 RejectedWorkCount = 0;
 		bool bConsumerReady = false;
 		mutable std::mutex Mutex;
 		mutable std::condition_variable WorkCV;
@@ -186,7 +185,6 @@ namespace Durin
 			State->PeakOutstandingFrameCount = 0;
 			State->FramePressureWaitCount = 0;
 			State->FramePressureWaitNanoseconds = 0;
-			State->RejectedWorkCount = 0;
 			State->bConsumerReady = false;
 		}
 
@@ -242,32 +240,21 @@ namespace Durin
 		RunnableOwner.reset();
 	}
 
-	auto FRHIThread::Enqueue(FRHIThreadWork& Work) -> uint64
+	auto FRHIThread::Enqueue(FRHIThreadWork&& Work) -> uint64
 	{
 		if (IsInRHIThread())
 		{
-			std::lock_guard Lock(State->Mutex);
-			++State->RejectedWorkCount;
 			RHITerminateOnFailure("RHI queue", "SelfEnqueue");
 		}
 		if (!Work.Execute)
 		{
-			std::lock_guard Lock(State->Mutex);
-			++State->RejectedWorkCount;
 			RHITerminateOnFailure("RHI queue", "InvalidWork");
 		}
 
 		std::unique_lock Lock(State->Mutex);
 		if (Work.FrameCount > State->Limits.MaxFrames)
 		{
-			++State->RejectedWorkCount;
 			RHITerminateOnFailure("RHI queue", "Oversized");
-		}
-
-		if (State->AdmissionState != ERHIThreadAdmissionState::Running)
-		{
-			++State->RejectedWorkCount;
-			return 0;
 		}
 
 		auto HasCapacity = [this, &Work]() {
@@ -279,7 +266,7 @@ namespace Durin
 						&& State->OutstandingPayloadBytes <= State->Limits.MaxPayloadBytes
 						&& Work.PayloadBytes <= State->Limits.MaxPayloadBytes - State->OutstandingPayloadBytes));
 		};
-		if (!HasCapacity())
+		if (State->AdmissionState == ERHIThreadAdmissionState::Running && !HasCapacity())
 		{
 			const auto WaitStart = std::chrono::steady_clock::now();
 			const bool bFramePressure = Work.FrameCount > State->Limits.MaxFrames - State->OutstandingFrameCount;
@@ -299,12 +286,10 @@ namespace Durin
 		}
 		if (State->AdmissionState != ERHIThreadAdmissionState::Running)
 		{
-			++State->RejectedWorkCount;
-			return 0;
+			RHITerminateOnFailure("RHI queue", "RHI thread is closed");
 		}
 		if (State->LastSubmittedSerial == std::numeric_limits<uint64>::max())
 		{
-			++State->RejectedWorkCount;
 			RHITerminateOnFailure("RHI queue", "SerialExhausted");
 		}
 
@@ -330,12 +315,9 @@ namespace Durin
 		return Serial;
 	}
 
-	auto FRHIThread::EnqueueSynchronous(FRHIThreadWork& Work) -> bool
+	auto FRHIThread::EnqueueSynchronous(FRHIThreadWork&& Work) -> void
 	{
-		const uint64 Serial = Enqueue(Work);
-		if (Serial == 0) return false;
-		WaitForSerial(Serial);
-		return true;
+		WaitForSerial(Enqueue(std::move(Work)));
 	}
 
 	auto FRHIThread::WaitForSerial(uint64 Serial) const -> void
@@ -383,7 +365,6 @@ namespace Durin
 			.BackpressureWaitNanoseconds = State->BackpressureWaitNanoseconds,
 			.FramePressureWaitCount = State->FramePressureWaitCount,
 			.FramePressureWaitNanoseconds = State->FramePressureWaitNanoseconds,
-			.RejectedWorkCount = State->RejectedWorkCount,
 		};
 	}
 } // namespace Durin

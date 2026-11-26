@@ -67,7 +67,6 @@ namespace Durin
 		uint64 BackpressureWaitNanoseconds = 0;
 		uint64 FramePressureWaitCount = 0;
 		uint64 FramePressureWaitNanoseconds = 0;
-		uint64 RejectedWorkCount = 0;
 	};
 
 	// Owns the single FIFO consumer used by threaded RHI execution.
@@ -85,11 +84,11 @@ namespace Durin
 		RHI_API auto BeginDrain() -> void;
 		RHI_API auto Stop() -> void;
 
-		// Returns the queue serial, or zero if closed without moving Work.
+		// Transfers work to the running queue and returns its nonzero submission serial.
 		// Invalid work, self-enqueue, and serial overflow are programming errors.
-		RHI_API auto Enqueue(FRHIThreadWork& Work) -> uint64;
-		// Returns false on admission rejection. Success includes execution and capture retirement.
-		RHI_API auto EnqueueSynchronous(FRHIThreadWork& Work) -> bool;
+		RHI_API auto Enqueue(FRHIThreadWork&& Work) -> uint64;
+		// Returns after execution and capture retirement.
+		RHI_API auto EnqueueSynchronous(FRHIThreadWork&& Work) -> void;
 		// Serial must be zero or an accepted submission from this queue.
 		RHI_API auto WaitForSerial(uint64 Serial) const -> void;
 		RHI_API auto Flush() const -> void;

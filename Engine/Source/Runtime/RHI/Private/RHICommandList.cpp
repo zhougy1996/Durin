@@ -2471,7 +2471,7 @@ namespace Durin
 			Resolve(Executor->State->ReplayContext.GetOperationContext("Buffer readback wait"));
 			Request->FinishFallback(Fallback->bFinished);
 		};
-		if (!RHIThread->Enqueue(Work)) RHITerminateOnFailure("Buffer readback wait", "RHI thread is closed");
+		RHIThread->Enqueue(std::move(Work));
 		State->WaitForResult(Fallback->bFinished);
 		// A queued fallback must not inspect a later copy using this readback.
 		std::lock_guard Lock(Fallback->Mutex);
@@ -2767,8 +2767,8 @@ namespace Durin
 			Work.Execute = [Replay, SubmissionGroup]() mutable {
 				Replay(*SubmissionGroup);
 			};
-			const uint64 Serial = State->RHIThread->Enqueue(Work);
-			if (!Serial) RHITerminateOnFailure("RHI submission", "RHI thread is closed");
+			const uint64 Serial = State->RHIThread->Enqueue(std::move(Work));
+
 			RecordAcceptedSubmission();
 			if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
 			{
@@ -2841,8 +2841,8 @@ namespace Durin
 			Operation(State->ReplayContext.GetOperationContext(
 				"Synchronous RHI operation"));
 		};
-		const uint64 Serial = State->RHIThread->Enqueue(Work);
-		if (!Serial) RHITerminateOnFailure("Synchronous RHI operation", "RHI thread is closed");
+		const uint64 Serial = State->RHIThread->Enqueue(std::move(Work));
+
 		WaitForSerial(Serial);
 	}
 
