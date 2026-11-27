@@ -263,12 +263,6 @@ namespace Durin
 		CheckRenderingThread();
 		return GDefaultMaterialProxy_RenderThread.GetReference();
 	}
-	auto GetDefaultCubeSkyMaterial() -> DMaterialInterface*
-	{
-		CheckDefaultMaterialGameThread();
-		return GDefaultMaterialService.bAcceptingBindings ? LoadSkyMaterial(false) : nullptr;
-	}
-
 	auto GetDefaultMaterial() -> DMaterialInterface*
 	{
 		CheckDefaultMaterialGameThread();

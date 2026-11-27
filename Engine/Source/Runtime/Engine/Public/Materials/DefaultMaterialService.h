@@ -24,7 +24,6 @@ namespace Durin
 	ENGINE_API auto GetDefaultCubeSkyBindings_RenderThread(const FMaterialRenderLayoutIdentity& Layout)
 		-> const FDefaultCubeSkyBindings*;
 	ENGINE_API auto RequestSkyMaterialProxy_RenderThread(bool bProcedural) -> FMaterialRenderProxyRef;
-	ENGINE_API auto GetDefaultCubeSkyMaterial() -> DMaterialInterface*;
 	ENGINE_API auto GetDefaultMaterial() -> DMaterialInterface*;
 	inline constexpr std::string_view DefaultMaterialPackagePath =
 		"/Engine/Materials/DefaultMaterial";

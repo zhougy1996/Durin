@@ -1,13 +1,10 @@
 #include "Actors/ProceduralSkyActor.h"
 #include "DObject/Archive.h"
 #include "Misc/UnifiedError.h"
-#include "NativePackageUnloadTestSupport.h"
 #include "Components/ProceduralSkyComponent.h"
 #include "NativeAssetTestSupport.h"
 #include "SkyBoxTestSupport.h"
 #include "NativeDObjectTestSupport.h"
-#include "AssetForge/Builtins/TextureCubeImport.h"
-#include "Texture/TextureCubeFactoryTestSupport.h"
 #include "Math/Operations.h"
 #include "Actors/SkyLightActor.h"
 #include "Components/SkyLightComponent.h"
@@ -159,80 +156,4 @@ TEST(FSkyLightTests, SelectsDeterministicallyAndRetiresExactSnapshots)
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ShutdownRenderingThread();
-}
-
-TEST(FSkyBoxTests, ActorDefaultsDuplicateAndRetainCubeReference)
-{
-	InitializeDObjectSystem();
-	auto* Actor = Durin::NewObject<Durin::ASkyBoxActor>(nullptr, "SkyBoxActor");
-	Durin::DSkyBoxComponent* Component = Actor->GetSkyBoxComponent();
-	auto* Cube = Durin::NewObject<Durin::DTextureCube>(nullptr, "ReferencedCube");
-	ASSERT_NE(Component, nullptr);
-	EXPECT_FALSE(Component->IsSelectable());
-
-	Component->SetTextureCube(Cube);
-	EXPECT_EQ(Component->CreateSceneProxy(), nullptr);
-	Component->SetTint(Durin::FLinearColor(0.25f, 0.5f, 0.75f, 1.0f));
-	Component->SetIntensity(-2.0f);
-	EXPECT_EQ(Component->GetIntensity(), 0.0f);
-
-	Durin::AddToRoot(Actor);
-	const Durin::FObjectKey CubeHandle = Durin::FObjectKey(Cube);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(Durin::ResolveObjectKey(CubeHandle), Cube);
-	Component->SetTextureCube(nullptr);
-	Component->SetSelectable(true);
-
-	const auto Copy = Durin::DuplicateObject(Actor, nullptr, "CopiedSkyBox");
-	ASSERT_TRUE(Copy) << Durin::ToString(Copy.error());
-	auto* LoadedActor = *Copy;
-	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
-	ASSERT_NE(LoadedComponent, nullptr);
-	EXPECT_TRUE(LoadedComponent->IsSelectable());
-	EXPECT_EQ(LoadedComponent->GetTextureCube(), nullptr);
-	EXPECT_EQ(LoadedComponent->GetTint(), (Durin::FLinearColor(0.25f, 0.5f, 0.75f, 1.0f)));
-	EXPECT_EQ(LoadedComponent->GetIntensity(), 0.0f);
-
-	Durin::RemoveFromRoot(Actor);
-	Durin::MarkAsGarbage(Actor);
-	Durin::MarkAsGarbage(LoadedActor);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(Durin::ResolveObjectKey(CubeHandle), nullptr);
-}
-
-TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
-{
-	InitializeSkyBoxAssetMount();
-	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
-		GetSkyBoxConventionFaces(), "/SkyBoxAssetTests/Cube");
-	ASSERT_TRUE(CubeResult) << CubeResult.Message;
-
-	Durin::FPackagePath CubePath;
-	Durin::FPackagePath ActorPath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/Cube", CubePath));
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/Actor", ActorPath));
-	Durin::ASkyBoxActor* Actor = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(ActorPath, Actor));
-	Actor->GetSkyBoxComponent()->SetTextureCube(CubeResult.Asset);
-	ASSERT_TRUE(Durin::SavePackage(Actor->GetPackage()));
-
-	const Durin::FPackageCatalogEntry ActorData = Durin::FindPackageExact(ActorPath);
-	ASSERT_NE(ActorData, nullptr);
-	EXPECT_NE(std::ranges::find(ActorData->Dependencies, CubePath), ActorData->Dependencies.end());
-
-	ASSERT_TRUE(Durin::UnloadPackage(ActorPath));
-	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
-	Durin::ASkyBoxActor* LoadedActor = nullptr;
-	{
-		std::optional<Durin::UnifiedError::FError> LoadedValueError;
-		auto LoadedValue = Durin::LoadObject<Durin::ASkyBoxActor>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ActorPath), nullptr, &LoadedValueError);
-		LoadedActor = LoadedValue;
-		ASSERT_TRUE(LoadedValue);
-	}
-	ASSERT_NE(LoadedActor, nullptr);
-	ASSERT_NE(LoadedActor->GetSkyBoxComponent()->GetTextureCube(), nullptr);
-	EXPECT_EQ(LoadedActor->GetSkyBoxComponent()->GetTextureCube()->GetName(), "Cube");
-
-	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(ActorPath));
-	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(CubePath));
 }

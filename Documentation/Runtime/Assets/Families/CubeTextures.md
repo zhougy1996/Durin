@@ -362,16 +362,11 @@ source pixel.
   boundary, then covers component replacement and resource retirement while
   Vulkan Validation is active.
 
-## Sky Component and Scene Snapshot
+## Sky Materials and Texture Lifetime
 
-- `DSkyBoxComponent` derives from `DStaticMeshComponent`. Its reflected fields
-  store the cubemap, optional material override, linear tint and nonnegative
-  intensity. With a mesh assigned, slot zero defaults to the material override
-  or a transient instance of `DefaultCubeSky`. The component applies its cube,
-  tint and intensity to that instance by parameter name. Ordinary per-slot mesh
-  overrides take precedence.
-- A level sky uses the assigned mesh geometry and its world transform. A
-  component with an empty Static Mesh field submits no geometry.
+- A level sky uses an ordinary static mesh and its world transform. Assign
+  `DefaultCubeSky` or a material instance to a mesh slot. The instance can
+  override `SkyTexture`, `SkyTint` and `SkyIntensity`.
 - The abstract `DTexture` base owns the shared source/import state, cooked bulk
   slot, stable `FTextureReference`, owned update and terminal result, and current
   generic texture resource for every texture leaf. `DTextureCube` owns its cube
@@ -418,7 +413,7 @@ in [Texture Cube Workflow](../../../Editor/Guides/TextureCubeWorkflow.md).
 - `Engine/Source/Runtime/RHI/Public/RHIDefinitions.h`
 - `Engine/Source/Runtime/RHI/Public/RHIResources.h`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`
-- `Engine/Source/Runtime/Engine/Public/Components/SkyBoxComponent.h`
+- `Engine/Source/Runtime/Engine/Public/Components/StaticMeshComponent.h`
 - `Engine/Source/Runtime/Engine/Public/Rendering/SceneInterface.h`
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
 - `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.cpp`

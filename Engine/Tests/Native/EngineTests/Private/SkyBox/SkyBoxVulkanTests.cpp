@@ -660,18 +660,17 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			auto* CubeParent = LoadObject<DMaterial>(MaterialPath);
 			ASSERT_NE(CubeParent, nullptr);
 			ASSERT_TRUE(CubeParent->GetStaticProperties().bIsSky);
-			auto* CubeComponent = NewObject<DSkyBoxComponent>(nullptr, "CubeSkyMesh");
-			CubeComponent->SetTextureCube(HdrCubeResult.Asset);
-			CubeComponent->SetTint({HdrTint.x, HdrTint.y, HdrTint.z, 1.0f});
-			CubeComponent->SetIntensity(HdrIntensity);
-			CubeComponent->SetStaticMesh(Sphere);
-			auto* CubeMaterial = Cast<DMaterialInstance>(CubeComponent->GetMaterial());
+			auto* CubeMaterial = NewObject<DMaterialInstance>(nullptr, "CubeSkyMaterial");
 			ASSERT_NE(CubeMaterial, nullptr);
-			EXPECT_EQ(CubeMaterial->GetParent(), CubeParent);
+			ASSERT_TRUE(CubeMaterial->SetParent(CubeParent));
+			ASSERT_TRUE(CubeMaterial->SetTextureParameterValue("SkyTexture", HdrCubeResult.Asset));
+			ASSERT_TRUE(CubeMaterial->SetVectorParameterValue("SkyTint", FVector3(HdrTint)));
+			ASSERT_TRUE(CubeMaterial->SetScalarParameterValue("SkyIntensity", HdrIntensity));
 			EXPECT_TRUE(CubeMaterial->GetStaticProperties().bIsSky);
 			FAssetCompilingManager::Get().FinishCompilationForObject(*CubeMaterial);
 			ASSERT_TRUE(CubeMaterial->GetMaterialCompileStatus().IsCurrent());
-			auto MaterialProxy = CubeComponent->CreateSceneProxy();
+			ASSERT_TRUE(Dome->SetMaterial(CubeMaterial));
+			auto MaterialProxy = Dome->CreateSceneProxy();
 			ASSERT_TRUE(MaterialProxy);
 			FSceneInterfaceTestAccess::AddPrimitiveProxy(Scene, Id, std::move(MaterialProxy), glm::scale(FMatrix(1), FVector3(-4)));
 			// The editor uses a reversed-Z perspective view for the lit sky pass.

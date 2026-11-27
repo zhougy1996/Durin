@@ -2,7 +2,7 @@
 
 Summary: Move visible SkyBox and Procedural Sky to material-backed backgrounds while preserving scene-owned Sky Light capture and existing levels.
 
-Last reviewed: 2026-11-26
+Last reviewed: 2026-11-27
 Status: Active
 Completed:
 
@@ -10,8 +10,10 @@ Completed:
 
 GrayboxStage15 uses a static mesh actor with the built-in sphere and
 `DefaultCubeSky` in material slot 0. Its `SkyTexture` defaults to
-`/Engine/Renderer/DefaultSkyCube`. Cubemap drops create a mesh-backed sky
-with a dynamic material instance. Surface materials marked `Is Sky` draw
+`/Engine/Renderer/DefaultSkyCube`. With all 33 tracked packages free of legacy
+SkyBox actor and component references and no older levels to support, Stage 4
+retires the compatibility types. Use a static mesh and an authored instance
+of `DefaultCubeSky` for custom cubemaps. Surface materials marked `Is Sky` draw
 on their authored mesh sections at the far depth for the view.
 
 Per-view cubemaps and the procedural environment use a camera-centered,
@@ -25,7 +27,7 @@ Win64 Vulkan readback verified that an authored sky triangle covered only its
 projected area in both forward and hybrid views. With reversed Z, the Graybox
 sky center matched the direct HDR cubemap sample at RGB (214, 216, 220).
 The parent material thumbnail had center RGBA (127, 140, 176, 255) and a
-transparent corner at 256 ¡Á 256 pixels.
+transparent corner at 256 Ã— 256 pixels.
 
 On Win64 Debug Vulkan (GTX 1060, working tree based on `ee86e27fa`), the
 authored UV probe distinguished opposite longitudes at equal latitude. All
@@ -42,6 +44,12 @@ and volumetric cloud scene tests (166 cases in total). The
 Debug Sandbox export included both default sky materials and passed packaged
 startup verification under `Build/UESkyRenderingAlignment/Skydome/SandboxExport`.
 Metal GPU qualification remains open.
+
+The legacy-type removal based on `c2eb99e4c` passed the eight `SkyBoxTests`
+cases and the `SkyBoxVulkanIntegrationTests` case on Win64 Debug DurinEditor.
+The cases cover cubemap import, material parameter undo and redo, dependency
+tracking, saved level reload, and HDR sky rendering through ordinary static
+meshes. The `LevelEditor`, `Sandbox` and `RoadWeaverEditor` targets also built.
 
 Stage 1 has an authored `/Engine/Materials/DefaultCubeSky` asset. Its Unlit
 emissive graph samples in the world-position-minus-camera-position direction
@@ -93,7 +101,7 @@ export and logs are under `Build/UESkyRenderingAlignment/MaterialSky`.
 Metal visible-background and capture qualification still require a macOS GPU
 runner. The plan remains active for this acceptance gate.
 
-**Consumer inventory.** LevelEditor placement creates or transactionally
+**Stage 0 consumer inventory.** LevelEditor placement creates or transactionally
 replaces a visible SkyBox and rejects ambiguous placement. The scene accepts
 one cubemap proxy. A hidden actor publishes none. View preparation first
 resolves an explicit cube override, returning `RequiredEnvironmentUnavailable`
@@ -239,3 +247,6 @@ LUTs, aerial perspective and UE-style general scene capture are outside this pla
   and give cubemap placement a mesh-backed default.
 - [x] Remove meshless scene publication and migrate GrayboxStage15 to a regular
   static mesh actor using the shared DefaultCubeSky material.
+- [x] Retire the legacy SkyBox actor and component after verifying the tracked
+  asset corpus. Validate cubemap persistence and rendering through ordinary
+  static meshes and material instances.

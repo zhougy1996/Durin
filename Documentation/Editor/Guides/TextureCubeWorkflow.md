@@ -40,14 +40,11 @@ and connect the sky color to Emissive. Assign the material or an instance to
 the mesh slot. For a dome viewed from inside, use inward-facing geometry or
 enable **Two Sided**.
 
-For an existing Sky Box Actor, select its component and assign the cubemap
-to **Texture Cube** in Details. Adjust its mesh, scale, tint and intensity
-there as well.
-
-To supply your own sky material on that component, assign it to **Material
-Override**. It supplies its own parameters. Clearing it restores the stored
-cubemap, tint and intensity when slot zero has no other material override.
-A Sky Box needs an assigned mesh to appear in the level.
+To use the built-in cubemap sky material, assign a sphere mesh to a Static Mesh
+Actor and set its material slot to `DefaultCubeSky` under Engine Materials.
+For a custom cubemap, create a material instance of `DefaultCubeSky`, set
+`SkyTexture` to the imported Texture Cube, and assign the instance to the slot.
+Use `SkyTint` and `SkyIntensity` on the instance to adjust the appearance.
 Sky Light capture follows the Sky Light source setting.
 
 Face orientation, panorama projection, build, and rendering contracts are
