@@ -1452,7 +1452,7 @@ TEST(FRendererSceneContractTests, ViewSettingsDefaultToProductionVisibilityAndLO
 TEST(FRendererSceneContractTests, ViewRenderOptionsDefaultToSafeProductionScheduling)
 {
 	const Durin::FSceneViewRenderOptions Options;
-	EXPECT_FALSE(Options.Environment.has_value());
+	EXPECT_FALSE(Options.Environment);
 	EXPECT_FALSE(Options.bEnableAsyncCompute);
 
 	const Durin::FViewEnvironmentOverride Environment;

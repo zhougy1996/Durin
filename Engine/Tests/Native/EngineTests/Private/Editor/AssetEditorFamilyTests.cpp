@@ -436,7 +436,7 @@ namespace
 		ASSERT_NO_THROW(CollectionWorld->InitializeSubsystems());
 		auto* WorldState = CollectionWorld->GetSubsystem<DMaterialParameterCollectionSubsystem>();
 		ASSERT_NE(nullptr, WorldState);
-		ASSERT_TRUE(WorldState->SetValue(*Collection, Declaration.Id, FVector4(7)));
+		ASSERT_TRUE(WorldState->SetValue(*Collection, Declaration.Name, FVector4(7)));
 		ASSERT_TRUE(Open(*Collection));
 		auto* EditorInstance = Durin::Testing::FindReflectedEditor(AssetEditorSubsystem, Collection, EAssetOpenMethod::Edit);
 		ASSERT_NE(nullptr, EditorInstance);
@@ -451,7 +451,7 @@ namespace
 			EXPECT_EQ(EPackageReloadStatus::Failed, ReloadPackages(FailedReload).Wait().Status);
 		}
 		EXPECT_EQ(Collection, EditorInstance->GetEditingObjects().front());
-		EXPECT_TRUE(WorldState->SetValue(*Collection, Declaration.Id, FVector4(8)));
+		EXPECT_TRUE(WorldState->SetValue(*Collection, Declaration.Name, FVector4(8)));
 		ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardAsset(*Collection)) << EditorInstance->GetToolkit()->GetLastOperationError();
 		const auto Objects = EditorInstance->GetEditingObjects();
 		ASSERT_EQ(1u, Objects.size());
@@ -461,9 +461,9 @@ namespace
 		auto* Replacement = Cast<DMaterialParameterCollection>(Objects.front());
 		ASSERT_NE(nullptr, Replacement);
 		FVector4 Override;
-		EXPECT_TRUE(WorldState->GetValue(*Replacement, Declaration.Id, Override));
+		EXPECT_TRUE(WorldState->GetValue(*Replacement, Declaration.Name, Override));
 		EXPECT_EQ(FVector4(8, 0, 0, 0), Override);
-		EXPECT_TRUE(WorldState->SetValue(*Replacement, Declaration.Id, FVector4(9)));
+		EXPECT_TRUE(WorldState->SetValue(*Replacement, Declaration.Name, FVector4(9)));
 	}
 
 	TEST_F(FAssetEditorFamilyTests, DirectMeshRelocationRestoreAndUnsupportedReloadPreserveTheInspector)

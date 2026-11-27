@@ -1,4 +1,5 @@
 #include "Renderers/SceneRenderPipeline.h"
+#include "Materials/DefaultMaterialService.h"
 #include "Renderers/RenderStageTimings.h"
 #include "Renderers/GPUSceneRendering.h"
 #include "GPUScene.h"
@@ -122,19 +123,16 @@ namespace Durin
 		std::optional<FStaticMeshPreparationWork> ReceiverWork;
 		if (Options.Environment)
 		{
-			const FViewEnvironmentOverride& Environment = *Options.Environment;
+			const FCubeSkyViewEnvironment& Environment = *Options.Environment;
 			FRHITexture* Texture = Environment.TextureReference != nullptr ? Environment.TextureReference->GetReferencedTexture_RenderThread() : nullptr;
-			if (Texture == nullptr
+			if (!Environment.Material || Texture == nullptr
 				|| Texture->GetDimension() != ETextureDimension::TextureCube)
 			{
 				return std::unexpected(ERenderViewResult::RequiredEnvironmentUnavailable);
 			}
 			PreparedView.Environment.emplace();
-			PreparedView.Environment->SkyBox.TextureReference =
-				Environment.TextureReference;
+			PreparedView.Environment->CubeMaterial = Environment.Material;
 			PreparedView.Environment->SkyBox.Rotation = Environment.Rotation;
-			PreparedView.Environment->SkyBox.Tint = Environment.Tint;
-			PreparedView.Environment->SkyBox.Intensity = Environment.Intensity;
 			PreparedView.Environment->Texture = Texture;
 		}
 		if (Scene != nullptr)

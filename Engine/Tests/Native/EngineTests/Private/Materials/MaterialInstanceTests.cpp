@@ -110,12 +110,12 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
 	auto Capture = [](const DMaterialInstance& Value) {
 		std::vector<std::pair<FGuid, FMaterialParameterValue>> Result;
-		Value.VisitLocalParameterValues([&](const FGuid& Id, const FMaterialParameterValue& Local) { Result.emplace_back(Id, Local); });
+		Value.VisitLocalParameterOverrides([&](const auto&, const FGuid& Id, const FMaterialParameterValue& Local) { Result.emplace_back(Id, Local); });
 		return Result;
 	};
 	const auto Before = Capture(*Instance);
 	ASSERT_EQ(Before.size(), 3u);
-	for (const auto& [Id, Value] : Before) EXPECT_TRUE(Instance->IsParameterValueOrphan(Id));
+	Instance->VisitLocalParameterOverrides([](const auto& Info, const FGuid& Id, const auto&) { EXPECT_FALSE(Info.IsGlobal()); EXPECT_TRUE(Id.IsValid()); });
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Instance = nullptr;
@@ -213,27 +213,27 @@ TEST(FMaterialInstanceTests, ParameterWritesRejectNonFiniteValuesWithoutMutation
 	ASSERT_TRUE(Authored->SetParent(Base));
 	auto* Dynamic = DMaterialInstance::CreateDynamic(Base, nullptr, "FiniteParameterDynamic");
 	ASSERT_TRUE(Dynamic);
-	const auto ScalarId = Base->FindParameterDefinition(MaterialParameters::RoughnessName())->Id;
-	const auto VectorId = Base->FindParameterDefinition(MaterialParameters::BaseColorName())->Id;
+	const auto ScalarId = Base->FindParameterDefinition(MaterialParameters::RoughnessName())->GetParameterInfo();
+	const auto VectorId = Base->FindParameterDefinition(MaterialParameters::BaseColorName())->GetParameterInfo();
 	for (auto* Instance : {Authored, Dynamic})
 	{
-		ASSERT_TRUE(Instance->SetParameterValue(ScalarId, FMaterialParameterValue::MakeScalar(.25f)));
+		ASSERT_TRUE(Instance->SetParameterValueByInfo(ScalarId, FMaterialParameterValue::MakeScalar(.25f)));
 		const auto Version = Instance->GetRenderChangeCount();
 		uint64 Notifications = 0;
 		const auto Listener = Instance->GetParameterChanges().AddLambda([&] { ++Notifications; });
 		for (const auto Value : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()})
 		{
-			const auto Result = Instance->SetParameterValue(ScalarId, FMaterialParameterValue::MakeScalar(Value));
+			const auto Result = Instance->SetParameterValueByInfo(ScalarId, FMaterialParameterValue::MakeScalar(Value));
 			ASSERT_FALSE(Result);
 
-			EXPECT_FALSE(Instance->SetParameterValue(VectorId, FMaterialParameterValue::MakeVector4({0, Value, 0, 1})));
+			EXPECT_FALSE(Instance->SetParameterValueByInfo(VectorId, FMaterialParameterValue::MakeVector4({0, Value, 0, 1})));
 		}
-		EXPECT_FALSE(Instance->SetParameterValue(VectorId,
+		EXPECT_FALSE(Instance->SetParameterValueByInfo(VectorId,
 			FMaterialParameterValue::MakeVector4({std::numeric_limits<double>::max(), 0, 0, 1})));
 		FMaterialParameterValue Stored;
-		ASSERT_TRUE(Instance->GetLocalParameterValue(ScalarId, Stored));
+		ASSERT_TRUE(Instance->GetLocalParameterValueByInfo(ScalarId, Stored));
 		EXPECT_FLOAT_EQ(Stored.GetScalar(), .25f);
-		EXPECT_FALSE(Instance->HasLocalParameterValue(VectorId));
+		EXPECT_FALSE(Instance->HasLocalParameterValueByInfo(VectorId));
 		EXPECT_EQ(Instance->GetRenderChangeCount(), Version);
 		EXPECT_EQ(Notifications, 0u);
 		Instance->GetParameterChanges().Remove(Listener);
@@ -254,27 +254,27 @@ TEST(FMaterialInstanceTests, DynamicClearRemovesOrphansWithoutAnAcceptedParentPr
 	ASSERT_TRUE(Parent->SetParent(Base));
 	auto* Dynamic = DMaterialInstance::CreateDynamic(Parent, nullptr, "DynamicClearChild");
 	ASSERT_TRUE(Dynamic);
-	const auto Id = Base->FindParameterDefinition(MaterialParameters::RoughnessName())->Id;
-	ASSERT_TRUE(Dynamic->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.25f)));
+	const auto Id = Base->FindParameterDefinition(MaterialParameters::RoughnessName())->GetParameterInfo();
+	ASSERT_TRUE(Dynamic->SetParameterValueByInfo(Id, FMaterialParameterValue::MakeScalar(.25f)));
 	ASSERT_TRUE(Parent->SetParent(nullptr));
 	EXPECT_EQ(Dynamic->GetAcceptedCompiledProgram(), nullptr);
-	EXPECT_TRUE(Dynamic->IsParameterValueOrphan(Id));
+	EXPECT_TRUE(Dynamic->IsParameterValueOrphanByInfo(Id));
 	const auto Version = Dynamic->GetRenderChangeCount();
 	uint64 Notifications = 0;
 	const auto Listener = Dynamic->GetParameterChanges().AddLambda([&] { ++Notifications; });
 	const std::array Rejected{
-		FMaterialDynamicParameterUpdate::Clear(Id),
-		FMaterialDynamicParameterUpdate::Set(FGuid::NewGuid(), FMaterialParameterValue::MakeScalar(.5f)),
+		FMaterialDynamicParameterUpdate::ClearByInfo(Id),
+		FMaterialDynamicParameterUpdate::SetByInfo({.Name = FName("Missing")}, FMaterialParameterValue::MakeScalar(.5f)),
 	};
 	EXPECT_FALSE(Dynamic->ApplyDynamicParameterUpdates(Rejected));
-	EXPECT_TRUE(Dynamic->HasLocalParameterValue(Id));
+	EXPECT_TRUE(Dynamic->HasLocalParameterValueByInfo(Id));
 	EXPECT_EQ(Dynamic->GetRenderChangeCount(), Version);
 	EXPECT_EQ(Notifications, 0u);
-	EXPECT_TRUE(Dynamic->ClearParameterValue(Id));
-	EXPECT_FALSE(Dynamic->HasLocalParameterValue(Id));
+	EXPECT_TRUE(Dynamic->ClearParameterValueByInfo(Id));
+	EXPECT_FALSE(Dynamic->HasLocalParameterValueByInfo(Id));
 	EXPECT_EQ(Dynamic->GetRenderChangeCount(), Version + 1);
 	EXPECT_EQ(Notifications, 1u);
-	const std::array NoOp{FMaterialDynamicParameterUpdate::Clear(FGuid::NewGuid())};
+	const std::array NoOp{FMaterialDynamicParameterUpdate::ClearByInfo({.Name = FName("Missing")})};
 	EXPECT_TRUE(Dynamic->ApplyDynamicParameterUpdates(NoOp));
 	EXPECT_EQ(Dynamic->GetRenderChangeCount(), Version + 1);
 	EXPECT_EQ(Notifications, 1u);
@@ -282,14 +282,14 @@ TEST(FMaterialInstanceTests, DynamicClearRemovesOrphansWithoutAnAcceptedParentPr
 	float Value = 0;
 	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::RoughnessName(), Value));
 	EXPECT_NE(Value, .25f);
-	ASSERT_TRUE(Dynamic->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.4f)));
+	ASSERT_TRUE(Dynamic->SetParameterValueByInfo(Id, FMaterialParameterValue::MakeScalar(.4f)));
 	ASSERT_TRUE(Base->SetMaterialExpressions({}, {}));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Base));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Parent));
 	ASSERT_NE(Dynamic->GetAcceptedCompiledProgram(), nullptr);
-	EXPECT_TRUE(Dynamic->IsParameterValueOrphan(Id));
-	EXPECT_TRUE(Dynamic->ClearParameterValue(Id));
-	EXPECT_FALSE(Dynamic->HasLocalParameterValue(Id));
+	EXPECT_TRUE(Dynamic->IsParameterValueOrphanByInfo(Id));
+	EXPECT_TRUE(Dynamic->ClearParameterValueByInfo(Id));
+	EXPECT_FALSE(Dynamic->HasLocalParameterValueByInfo(Id));
 	Dynamic->GetParameterChanges().Remove(Listener);
 	MarkAsGarbage(Dynamic);
 	MarkAsGarbage(Parent);
@@ -431,9 +431,9 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	const std::array Updates{
 		FMaterialDynamicParameterUpdate::SetByInfo(Metallic->GetParameterInfo(),
 			FMaterialParameterValue::MakeScalar(0.31f)),
-		FMaterialDynamicParameterUpdate::Set(Roughness->Id,
+		FMaterialDynamicParameterUpdate::SetByInfo(Roughness->GetParameterInfo(),
 			FMaterialParameterValue::MakeScalar(0.72f)),
-		FMaterialDynamicParameterUpdate::Set(BaseColor->Id,
+		FMaterialDynamicParameterUpdate::SetByInfo(BaseColor->GetParameterInfo(),
 			FMaterialParameterValue::MakeVector4({0.2, 0.4, 0.6, 1.0})),
 	};
 	ASSERT_TRUE(Dynamic->ApplyDynamicParameterUpdates(Updates));
@@ -454,7 +454,7 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	const std::array NoOpUpdates{
 		FMaterialDynamicParameterUpdate::SetByInfo(Metallic->GetParameterInfo(),
 			FMaterialParameterValue::MakeScalar(0.31f)),
-		FMaterialDynamicParameterUpdate::Set(FGuid::NewGuid(),
+		FMaterialDynamicParameterUpdate::SetByInfo({.Name = FName("Missing")},
 			FMaterialParameterValue::MakeScalar(0.5f)),
 	};
 	const uint64 BeforeNoOpVersion = Dynamic->GetRenderChangeCount();
@@ -467,7 +467,7 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	const std::array DuplicateUpdates{
 		FMaterialDynamicParameterUpdate::SetByInfo(Metallic->GetParameterInfo(),
 			FMaterialParameterValue::MakeScalar(0.9f)),
-		FMaterialDynamicParameterUpdate::Clear(Metallic->Id),
+		FMaterialDynamicParameterUpdate::ClearByInfo(Metallic->GetParameterInfo()),
 	};
 	const auto Duplicate = Dynamic->ApplyDynamicParameterUpdates(DuplicateUpdates);
 	ASSERT_FALSE(Duplicate);
@@ -477,15 +477,15 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	EXPECT_EQ(Dynamic->GetRenderChangeCount(), BeforeNoOpVersion);
 
 	const std::array ClearUpdates{
-		FMaterialDynamicParameterUpdate::Clear(Metallic->Id),
-		FMaterialDynamicParameterUpdate::Clear(Roughness->Id),
+		FMaterialDynamicParameterUpdate::ClearByInfo(Metallic->GetParameterInfo()),
+		FMaterialDynamicParameterUpdate::ClearByInfo(Roughness->GetParameterInfo()),
 	};
 	ASSERT_TRUE(Dynamic->ApplyDynamicParameterUpdates(ClearUpdates));
 	EXPECT_EQ(Dynamic->GetRenderChangeCount(), BeforeNoOpVersion + 1);
 	EXPECT_EQ(Notifications, 2u);
 	const uint64 BeforeEmpty = Dynamic->GetRenderChangeCount();
 	const std::array ReachableClearNoOp{
-		FMaterialDynamicParameterUpdate::Clear(Metallic->Id)};
+		FMaterialDynamicParameterUpdate::ClearByInfo(Metallic->GetParameterInfo())};
 	ASSERT_TRUE(Dynamic->ApplyDynamicParameterUpdates(ReachableClearNoOp));
 	EXPECT_EQ(Dynamic->GetRenderChangeCount(), BeforeEmpty);
 	const auto FinalCounters = GetMaterialDynamicParameterCounters();
@@ -941,19 +941,19 @@ TEST(FMaterialInstanceTests, MultiLevelResolutionReportsSupplyingSourceAndCurren
 	ASSERT_TRUE(Child->SetParent(Parent));
 
 	Durin::FResolvedMaterialParameter Resolved;
-	ASSERT_TRUE(Child->ResolveParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Resolved));
+	ASSERT_TRUE(Child->ResolveParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}, Resolved));
 	EXPECT_EQ(Resolved.Source, Base);
 	EXPECT_FALSE(Resolved.bHasLocalOverride);
 	EXPECT_FLOAT_EQ(Resolved.Value.GetScalar(), 1.0f);
 
 	ASSERT_TRUE(Parent->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.6f));
-	ASSERT_TRUE(Child->ResolveParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Resolved));
+	ASSERT_TRUE(Child->ResolveParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}, Resolved));
 	EXPECT_EQ(Resolved.Source, Parent);
 	EXPECT_FALSE(Resolved.bHasLocalOverride);
 	EXPECT_FLOAT_EQ(Resolved.Value.GetScalar(), 0.6f);
 
 	ASSERT_TRUE(Child->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.25f));
-	ASSERT_TRUE(Child->ResolveParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Resolved));
+	ASSERT_TRUE(Child->ResolveParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}, Resolved));
 	EXPECT_EQ(Resolved.Source, Child);
 	EXPECT_TRUE(Resolved.bHasLocalOverride);
 	EXPECT_FLOAT_EQ(Resolved.Value.GetScalar(), 0.25f);
@@ -972,21 +972,21 @@ TEST(FMaterialInstanceTests, ParentRemovalPreservesOrphansAndExcludesThemFromRen
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3)));
-	ASSERT_TRUE(Instance->HasLocalParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
-	EXPECT_FALSE(Instance->IsParameterValueOrphan(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+	ASSERT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
+	EXPECT_FALSE(Instance->IsParameterValueOrphanByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
 
 	ASSERT_TRUE(Instance->SetParent(nullptr));
 	ASSERT_EQ(Instance->GetLocalParameterValueCount(), 1u);
-	EXPECT_TRUE(Instance->HasLocalParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
-	EXPECT_TRUE(Instance->IsParameterValueOrphan(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
+	EXPECT_TRUE(Instance->IsParameterValueOrphanByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
 	Durin::FResolvedMaterialParameter Resolved;
-	EXPECT_FALSE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value, Resolved));
+	EXPECT_FALSE(Instance->ResolveParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}, Resolved));
 	EXPECT_TRUE(Durin::Testing::CaptureMaterialRenderData(*Instance).Representation.IsError());
 
 	ASSERT_TRUE(Instance->SetParent(Base));
-	EXPECT_FALSE(Instance->IsParameterValueOrphan(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+	EXPECT_FALSE(Instance->IsParameterValueOrphanByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
 	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Instance)).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
-	ASSERT_TRUE(Instance->ClearParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+	ASSERT_TRUE(Instance->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
 	EXPECT_TRUE(Instance->GetLocalParameterValueCount() == 0);
 
 	Durin::MarkAsGarbage(Instance);
@@ -1033,41 +1033,87 @@ TEST(FMaterialInstanceTests, ParameterInfoFindsOverridesAcrossIndependentParents
 	EXPECT_EQ(Instance->GetLocalParameterValueCount(), 0u);
 }
 
-TEST(FMaterialInstanceTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)
+TEST(FMaterialInstanceTests, DynamicNamedOverridesFollowInfoAcrossRecompilationAndClearAsOrphans)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Parent = MakeExpandedMaterial(nullptr, "DynamicBindingParent");
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Parent);
+	ASSERT_TRUE(Dynamic);
+	const FMaterialParameterInfo Info{.Name = "Metallic"};
+	ASSERT_NE(Parent->FindParameterDefinitionByInfo(Info), nullptr);
+	const auto Value = FMaterialParameterValue::MakeScalar(.375f);
+	ASSERT_TRUE(Dynamic->SetParameterValueByInfo(Info, Value));
+	Dynamic->VisitLocalParameterOverrides([&](const auto& Key, const FGuid& Id, const auto&) {
+		EXPECT_EQ(Key, Info);
+		EXPECT_FALSE(Id.IsValid());
+	});
+
+	const auto BeforeMap = Parent->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId;
+	auto Graph = Testing::MakePBRMaterialExpressionsForTest();
+	const auto ReplacementId = FGuid::NewGuid();
+	DMaterialExpressionParameter* Metallic = nullptr;
+	for (const auto& Node : Graph.Expressions)
+		if (auto* Parameter = Cast<DMaterialExpressionParameter>(Node.Get()); Parameter && Parameter->Metadata.Name == Info.Name)
+			Metallic = Parameter;
+	ASSERT_TRUE(Metallic);
+	Metallic->Metadata.Id = ReplacementId;
+	ASSERT_TRUE(Graph.Apply(*Parent));
+	ASSERT_TRUE(FinishMaterialCompileForTest(*Parent));
+	EXPECT_EQ(Parent->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, BeforeMap);
+	FMaterialParameterValue Actual;
+	EXPECT_TRUE(Dynamic->GetLocalParameterValueByInfo(Info, Actual));
+	ASSERT_TRUE(Dynamic->GetMaterialRenderParameters().GetParameterValue(Dynamic->GetAcceptedCompiledProgram()->FindParameterField(Info).value(), Actual));
+	EXPECT_EQ(Actual, Value);
+
+	const FMaterialParameterInfo Renamed{.Name = "MetalAmount"};
+	Metallic->Metadata.Name = Renamed.Name;
+	ASSERT_TRUE(Graph.Apply(*Parent));
+	ASSERT_TRUE(FinishMaterialCompileForTest(*Parent));
+	EXPECT_FALSE(Dynamic->HasLocalParameterValueByInfo(Renamed));
+	EXPECT_TRUE(Dynamic->HasLocalParameterValueByInfo(Info));
+	ASSERT_TRUE(Dynamic->SetParameterValueByInfo(Renamed, Value));
+	ASSERT_TRUE(Dynamic->ClearParameterValueByInfo(Info));
+	EXPECT_TRUE(Dynamic->HasLocalParameterValueByInfo(Renamed));
+	ASSERT_TRUE(Dynamic->ClearParameterValueByInfo(Renamed));
+	EXPECT_EQ(Dynamic->GetLocalParameterValueCount(), 0u);
+	MarkAsGarbage(Dynamic);
+	MarkAsGarbage(Parent);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FMaterialInstanceTests, NamedOverrideRejectsUnknownAndPreservesVersionOnNoOp)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "GuidOverrideBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "GuidOverrideInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
-	const Durin::FGuid Unknown{1, 2, 3, 4};
+	const Durin::FMaterialParameterInfo Unknown{.Name = "UnknownParameter"};
 	const uint64 InitialVersion = Instance->GetRenderChangeCount();
 	const auto MissingName = Instance->SetScalarParameterValue("UnknownParameter", .5f);
 	EXPECT_FALSE(MissingName);
 	const auto WrongNameType = Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), .5f);
 	EXPECT_FALSE(WrongNameType);
 
-	const auto Missing = Instance->SetParameterValue(Unknown, Durin::FMaterialParameterValue::MakeScalar(0.5f));
+	const auto Missing = Instance->SetParameterValueByInfo(Unknown, Durin::FMaterialParameterValue::MakeScalar(0.5f));
 	ASSERT_FALSE(Missing);
-	EXPECT_NE(Missing.error().find(Unknown.ToString()), std::string::npos);
-	const auto WrongType = Instance->SetParameterValue(
-		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
+	EXPECT_NE(Missing.error().find(Unknown.Name.ToString()), std::string::npos);
+	const auto WrongType = Instance->SetParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()},
 		Durin::FMaterialParameterValue::MakeScalar(0.5f));
 	EXPECT_FALSE(WrongType);
 	EXPECT_EQ(Instance->GetRenderChangeCount(), InitialVersion);
 	EXPECT_TRUE(Instance->GetLocalParameterValueCount() == 0);
 
-	ASSERT_TRUE(Instance->SetParameterValue(
-		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value,
+	ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()},
 		Durin::FMaterialParameterValue::MakeScalar(0.5f)));
 	const uint64 OverriddenVersion = Instance->GetRenderChangeCount();
 	Durin::FMaterialParameterValue SameActiveValue = Durin::FMaterialParameterValue::MakeScalar(0.5f);
 	EXPECT_EQ(SameActiveValue.GetType(), Durin::EMaterialParameterType::Scalar);
-	ASSERT_TRUE(Instance->SetParameterValue(
-		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value,
+	ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()},
 		SameActiveValue));
 	EXPECT_EQ(Instance->GetRenderChangeCount(), OverriddenVersion);
 	EXPECT_EQ(Instance->GetLocalParameterValueCount(), 1u);
-	EXPECT_NE(Missing.error().find(Unknown.ToString()), std::string::npos);
+	EXPECT_NE(Missing.error().find(Unknown.Name.ToString()), std::string::npos);
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
@@ -1196,7 +1242,7 @@ TEST(FMaterialInstanceTests, DuplicateInstancePreservesParentAndNestedTextureOve
 		Durin::DuplicateObject(Source, nullptr, "DuplicateOverrideResult").value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetParent(), Base);
-	EXPECT_TRUE(Duplicate->HasLocalParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture));
+	EXPECT_TRUE(Duplicate->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
 	Durin::DTexture* DuplicateTexture = nullptr;
 	ASSERT_TRUE(Duplicate->GetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), DuplicateTexture));
@@ -1247,18 +1293,17 @@ TEST(FMaterialInstanceTests, ProgramDefaultsRemainSeparateFromInstanceOverrides)
 	ASSERT_TRUE(Instance->SetParent(Root));
 	auto* Dynamic = DMaterialInstance::CreateDynamic(Instance);
 	ASSERT_TRUE(Dynamic);
-	const auto Id = Root->FindParameterDefinition(MaterialParameters::RoughnessName())->Id;
 	ASSERT_TRUE(Root->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.2f));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.4f));
 	ASSERT_TRUE(Dynamic->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.6f));
 	const auto Program = Instance->GetAcceptedCompiledProgram();
-	const auto Default = std::ranges::find(Program->DefaultParameters.ScalarParameters, Id, &FMaterialScalarParameterValue::ParameterId);
-	ASSERT_NE(Default, Program->DefaultParameters.ScalarParameters.end());
-	EXPECT_FLOAT_EQ(Default->Value, 0.2f);
+	FMaterialParameterValue Default;
+	ASSERT_TRUE(Program->DefaultParameters.GetParameterValue(Program->FindParameterField({.Name = MaterialParameters::RoughnessName()}).value(), Default));
+	EXPECT_FLOAT_EQ(Default.GetScalar(), 0.2f);
 	ASSERT_TRUE(Root->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.8f));
 	EXPECT_EQ(Instance->GetAcceptedCompiledProgram()->ShaderMap, Program->ShaderMap);
 	EXPECT_NE(Instance->GetAcceptedCompiledProgram(), Program);
-	EXPECT_FLOAT_EQ(Default->Value, 0.2f);
+	EXPECT_FLOAT_EQ(Default.GetScalar(), 0.2f);
 	float Value = 0;
 	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::RoughnessName(), Value));
 	EXPECT_FLOAT_EQ(Value, 0.6f);
@@ -1277,9 +1322,10 @@ TEST(FMaterialInstanceTests, ProgramDefaultsRemainSeparateFromInstanceOverrides)
 TEST(FMaterialInstanceTests, ClassifiedSetsAcceptUnsortedInitializationAndTypeChanges)
 {
 	using namespace Durin;
-	const FGuid First{1, 0, 0, 1}, Last{9, 0, 0, 1};
+	const uint32 First = 1, Last = 9;
 	FMaterialInstanceParameterSet Parameters;
-	Parameters.ScalarParameters = {{.ParameterId = Last, .Value = 0.9f}, {.ParameterId = First, .Value = 0.1f}};
+	Parameters.SetParameter(Last, 0.9f);
+	Parameters.SetParameter(First, 0.1f);
 	FMaterialParameterValue Value;
 	ASSERT_TRUE(Parameters.GetParameterValue(First, Value));
 	EXPECT_FLOAT_EQ(Value.GetScalar(), 0.1f);
@@ -1289,8 +1335,7 @@ TEST(FMaterialInstanceTests, ClassifiedSetsAcceptUnsortedInitializationAndTypeCh
 	EXPECT_FLOAT_EQ(Value.GetScalar(), 0.4f);
 	Parameters.SetParameter(First, FMaterialParameterValue(FVector4(0.6)));
 	EXPECT_EQ(Parameters.GetParameterCount(), 2u);
-	ASSERT_EQ(Parameters.ScalarParameters.size(), 1u);
-	EXPECT_EQ(Parameters.ScalarParameters.front().ParameterId, Last);
+	EXPECT_EQ(Parameters.GetFields().back().FieldIndex, Last);
 	ASSERT_TRUE(Parameters.GetParameterValue(First, Value));
 	EXPECT_EQ(Value.GetType(), EMaterialParameterType::Vector4);
 	EXPECT_EQ(Value.GetVector4(), FVector4(0.6f));

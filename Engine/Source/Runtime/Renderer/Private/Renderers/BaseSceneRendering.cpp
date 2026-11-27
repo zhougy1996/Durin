@@ -91,17 +91,9 @@ namespace Durin
 		const auto Failure = Inputs.Failure;
 		const auto Completion = Graph.CreateValue<FSceneColorPassResult>("Scene.BaseValue", "scene-color-result");
 		std::optional<FRDGTextureHandle> Sky;
-		FRHITexture* SkyTexture = nullptr;
-		if (Inputs.Record.Environment
-			&& Inputs.Record.Environment->SkyBox.ProceduralSky.ToSunEnabled.w <= 0.5f)
-		{
-			SkyTexture = Inputs.Record.Environment->Texture;
-			if (!SkyTexture && Inputs.Record.Environment->SkyBox.TextureReference)
-				SkyTexture = Inputs.Record.Environment->SkyBox.TextureReference->GetReferencedTexture_RenderThread();
-			if (!SkyTexture) SkyTexture = Inputs.DefaultTextures.GetCube_RenderThread();
-			if (SkyTexture)
-				Sky = Graph.RegisterExternalTexture(FTextureRHIRef(SkyTexture), "Scene.Environment.Sky", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		}
+		FRHITexture* SkyTexture = RecordInputs.Environment ? RecordInputs.Environment->Texture.GetReference() : nullptr;
+		if (SkyTexture)
+			Sky = Graph.RegisterExternalTexture(RecordInputs.Environment->Texture, "Scene.Environment.Sky", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto MakeGeometryParameters = [&](TRDGValueHandle<FSceneColorPassResult> Result, bool bClearColor, bool bClearDepth) {
 			auto Parameters = Graph.AllocParameters<FBaseScenePassParameters>();
 			Parameters->Completion = {.Value = Result};

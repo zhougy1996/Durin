@@ -50,7 +50,11 @@ namespace Durin
 		{
 			if (!Debug) return 0;
 			uint64 Bytes = sizeof(*Debug) + Debug->GeneratedSource.capacity() + Debug->IR.Nodes.capacity() * sizeof(MIR::FNode);
-			for (const auto& Node : Debug->IR.Nodes) Bytes += Node.Inputs.capacity() * sizeof(uint32);
+			for (const auto& Node : Debug->IR.Nodes)
+			{
+				Bytes += Node.Inputs.capacity() * sizeof(uint32);
+				if (const auto* Name = std::get_if<std::string>(&Node.Payload)) Bytes += Name->capacity();
+			}
 			return Bytes;
 		}
 		auto CollectionBytes(std::span<const FMaterialParameterCollectionLayout> Collections) -> uint64
@@ -69,6 +73,10 @@ namespace Durin
 			+ ActiveParameters.capacity() * sizeof(FMaterialCompilerParameterDeclaration)
 			+ Layout.Fields.capacity() * sizeof(FMaterialRenderField) + CompiledShaders.capacity() * sizeof(FShaderCode);
 		Size += RequiredEntries.capacity() * sizeof(std::string) + Entries.capacity() * sizeof(FMaterialShaderEntryRequest);
+		for (const auto& Parameter : ActiveParameters)
+			if (const auto* Name = Parameter.Id.GetName()) Size += Name->capacity();
+		for (const auto& Field : Layout.Fields)
+			if (const auto* Name = Field.ParameterId.GetName()) Size += Name->capacity();
 		for (const auto& Name : RequiredEntries) Size += Name.capacity();
 		for (const auto& Entry : Entries)
 		{
@@ -76,7 +84,10 @@ namespace Durin
 			Size += Key.ShaderType.capacity() + Key.EntryPoint.capacity() + Key.Target.capacity();
 			if (Entry.Mesh) Size += Entry.Mesh->Material.ShaderType.capacity() + Entry.Mesh->Material.EntryPoint.capacity()
 				+ Entry.Mesh->Material.Target.capacity() + Entry.Mesh->VertexFactoryType.capacity();
-			Size += (Q.AttributeIDs.capacity() + Q.ParameterIDs.capacity() + Q.CollectionIDs.capacity()) * sizeof(FGuid)
+			for (const auto& Parameter : Q.ParameterIDs)
+				if (const auto* Name = Parameter.GetName()) Size += Name->capacity();
+			Size += (Q.AttributeIDs.capacity() + Q.CollectionIDs.capacity()) * sizeof(FGuid)
+				+ Q.ParameterIDs.capacity() * sizeof(FMaterialFieldKey)
 				+ Q.ResourceIndices.capacity() * sizeof(uint16) + Q.SceneTextures.capacity() * sizeof(FMaterialSceneTextureRequirement)
 				+ Q.Interpolators.capacity() * sizeof(FMaterialValueSemantics) + Entry.Bindings.capacity() * sizeof(FMaterialShaderBinding);
 			for (const auto& Binding : Entry.Bindings)

@@ -599,7 +599,7 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 		EXPECT_EQ(Presentation.Nodes.size(),
 			Material->GetExpressionCollection().Expressions.size());
 		EXPECT_TRUE(Material->GetExpressionCollection().Expressions.empty());
-		EXPECT_EQ(Material->GetRootPosition(), (std::pair<int32, int32>{1600, 400}));
+		EXPECT_EQ(Material->GetRootPosition(), (std::pair<int32, int32>{0, 0}));
 		ASSERT_TRUE(UnloadPackage(Path));
 	}
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -731,10 +731,16 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 		if (std::string_view(Name) == "MetalCopy")
 		{
 			ASSERT_EQ(BeforeLayout.size(), 4u);
-			for (size_t Index = 0; Index < BeforeLayout.size(); ++Index)
+			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Source));
+			FMaterialGraphPresentation Expected;
+			ASSERT_TRUE(Graph->CalculateLayout({}, Expected));
+			for (const auto& Node : Graph->GetNodes())
 			{
-				EXPECT_EQ(BeforeLayout[Index].X, 0);
-				EXPECT_EQ(BeforeLayout[Index].Y, static_cast<int32>(Index) * 240);
+				const auto& Position = Node->GetView().Presentation;
+				const auto It = std::ranges::find(Expected.Nodes, Position.NodeId, &FMaterialGraphNodePresentation::NodeId);
+				ASSERT_NE(It, Expected.Nodes.end());
+				EXPECT_EQ(Position.X, It->X);
+				EXPECT_EQ(Position.Y, It->Y);
 			}
 		}
 		if constexpr (std::is_same_v<T, DMaterialFunction>)
@@ -1256,7 +1262,7 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 			ASSERT_TRUE(Edit.Commit());
 			const auto Updated=Testing::CaptureMaterialRenderData(*Material); EXPECT_FALSE(Updated.Representation.IsError());
 			ASSERT_TRUE(Updated.CompiledProgram); EXPECT_EQ(Updated.CompiledProgram->ShaderMap,Program->ShaderMap);
-			const auto Field=std::ranges::find(Updated.Representation.GetLayout().Fields,Id,&FMaterialRenderField::ParameterId);
+			const auto Field=std::ranges::find(Updated.Representation.GetLayout().Fields,Material->FindParameterDefinition(Id)->Name.ToString(),&FMaterialRenderField::ParameterId);
 			EXPECT_EQ(Field!=Updated.Representation.GetLayout().Fields.end(),Id==ColorId || Index<2);
 			if (Field!=Updated.Representation.GetLayout().Fields.end())
 			{
@@ -1276,15 +1282,15 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 			FAssetCompilingManager::Get().FinishCompilationForObject(*Instance);
 			const auto BeforeInstance=Testing::CaptureMaterialRenderData(*Instance); ASSERT_TRUE(BeforeInstance.CompiledProgram); EXPECT_FALSE(BeforeInstance.Representation.IsError());
 			const auto InstanceRequests=GetMaterialCompilationStatistics().AcceptedRequests;
-			if (Index<2) ASSERT_TRUE(Instance->SetParameterValue(WeightId,FMaterialParameterValue::MakeScalar(.875f)));
-			else EXPECT_FALSE(Instance->SetParameterValue(WeightId,FMaterialParameterValue::MakeScalar(.875f)));
-			ASSERT_TRUE(Instance->SetParameterValue(ColorId,FMaterialParameterValue::MakeVector4({.8,.2,.1,1})));
+			if (Index<2) ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = "LayerWeight"},FMaterialParameterValue::MakeScalar(.875f)));
+			else EXPECT_FALSE(Instance->SetParameterValueByInfo({.Name = "LayerWeight"},FMaterialParameterValue::MakeScalar(.875f)));
+			ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = "Emission"},FMaterialParameterValue::MakeVector4({.8,.2,.1,1})));
 			const auto Updated=Testing::CaptureMaterialRenderData(*Instance); EXPECT_FALSE(Updated.Representation.IsError()); ASSERT_TRUE(Updated.CompiledProgram);
 			EXPECT_EQ(Updated.CompiledProgram->ShaderMap,BeforeInstance.CompiledProgram->ShaderMap);
 			for (const auto& Field:Updated.Representation.GetLayout().Fields)
-				if (Field.ParameterId==WeightId || Field.ParameterId==ColorId) { float Value; std::memcpy(&Value,Updated.Representation.GetUniformPayload().data()+Field.Offset,sizeof(Value)); EXPECT_FLOAT_EQ(Value,Field.ParameterId==WeightId ? .875f : .8f); }
-			if (Index<2) ASSERT_TRUE(Instance->ClearParameterValue(WeightId));
-			ASSERT_TRUE(Instance->ClearParameterValue(ColorId));
+				if (Field.ParameterId == std::string("LayerWeight") || Field.ParameterId == std::string("Emission")) { float Value; std::memcpy(&Value,Updated.Representation.GetUniformPayload().data()+Field.Offset,sizeof(Value)); EXPECT_FLOAT_EQ(Value,Field.ParameterId == std::string("LayerWeight") ? .875f : .8f); }
+			if (Index<2) ASSERT_TRUE(Instance->ClearParameterValueByInfo({.Name = "LayerWeight"}));
+			ASSERT_TRUE(Instance->ClearParameterValueByInfo({.Name = "Emission"}));
 			const auto Cleared=Testing::CaptureMaterialRenderData(*Instance);
 			EXPECT_EQ(Cleared.Representation.GetContentHash(),Testing::CaptureMaterialRenderData(*Material).Representation.GetContentHash());
 			EXPECT_EQ(GetMaterialCompilationStatistics().AcceptedRequests,InstanceRequests);

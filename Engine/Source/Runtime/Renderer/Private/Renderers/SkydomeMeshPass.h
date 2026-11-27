@@ -9,7 +9,6 @@ namespace Durin
 	namespace RendererPrivate { class FSurfaceMaterialResources; }
 	class FScene;
 	struct FPreparedEnvironment;
-	class FDefaultTextureResources;
 	class FRHICommandListImmediate;
 	struct FSceneView;
 
@@ -17,9 +16,7 @@ namespace Durin
 	class FSkydomeMeshPass final
 	{
 	public:
-		FSkydomeMeshPass(
-			FDefaultTextureResources& InDefaultTextures, RendererPrivate::FSurfaceMaterialResources& InMaterials
-		);
+		explicit FSkydomeMeshPass(RendererPrivate::FSurfaceMaterialResources& InMaterials);
 		~FSkydomeMeshPass();
 
 		FSkydomeMeshPass(const FSkydomeMeshPass&) = delete;
@@ -35,7 +32,6 @@ namespace Durin
 	private:
 		struct FState;
 
-		FDefaultTextureResources& DefaultTextures;
 		RendererPrivate::FSurfaceMaterialResources& Materials;
 		std::unique_ptr<FState> State;
 	};

@@ -29,6 +29,20 @@ namespace Durin::MaterialBuildPrivate
 				{ if constexpr (!Reading) Writer->WriteU32(V); else Good &= Reader->ReadU32(V); }
 				else if constexpr (std::integral<VType>)
 				{ uint32 Raw = V; Value(Raw); Good &= Raw <= std::numeric_limits<VType>::max(); if constexpr (Reading) V = T(Raw); }
+				else if constexpr (std::same_as<VType, FMaterialFieldKey>)
+				{
+					bool Named = V.GetName() != nullptr; Value(Named);
+					if (Named)
+					{
+						std::string Name = V.ToString(); String(Name, FName::StringBufferSize);
+						if constexpr (Reading) V = std::move(Name);
+					}
+					else
+					{
+						auto Id = V.GetCollectionMemberId(); Value(Id);
+						if constexpr (Reading) V = Id;
+					}
+				}
 				else if constexpr (std::same_as<VType, FGuid>)
 				{ if constexpr (!Reading) Writer->WriteGuid(V); else Good &= Reader->ReadGuid(V); }
 				else if constexpr (std::same_as<VType, FXxHash128>)
@@ -50,7 +64,7 @@ namespace Durin::MaterialBuildPrivate
 			{
 				using VType = std::remove_cv_t<T>;
 				if constexpr (std::same_as<VType, FMaterialProgramLiteral>) Literal(V);
-				else if constexpr (std::same_as<VType, FGuid>) Value(V);
+				else if constexpr (std::same_as<VType, std::string>) String(V, FName::StringBufferSize);
 				else if constexpr (std::same_as<VType, MIR::FCustomDataRead>) Value(V.Index);
 				else if constexpr (std::same_as<VType, MIR::FTextureRead>) { Value(V.Mode); }
 				else if constexpr (std::same_as<VType, MIR::FSceneTextureRead>) { Value(V.SceneTextureId); Value(V.Filter); }

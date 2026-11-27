@@ -93,7 +93,7 @@ namespace Durin
 		}
 
 		DPROPERTY()
-		FGuid AttributeID{0x4d415454, 0x52505250, 1, 1};
+		FGuid AttributeID = FMaterialAttributeDefinitionMap::GetID(EMaterialProperty::MP_BaseColor);
 		auto GetProperty() const -> EMaterialProperty
 		{
 			const auto* Definition = FMaterialAttributeDefinitionMap::Find(AttributeID);

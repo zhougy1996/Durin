@@ -3,27 +3,41 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Materials/MaterialRenderProxy.h"
 
 namespace Durin
 {
 	class DMaterialInterface;
 
-	struct FDefaultCubeSkyBindings
-	{
-		static constexpr const char* TextureName = "SkyTexture";
-		static constexpr const char* TintName = "SkyTint";
-		static constexpr const char* IntensityName = "SkyIntensity";
+	class DMaterialInstance;
+	struct FViewEnvironmentOverride;
 
-		uint16 TextureIndex;
-		uint32 TintOffset;
-		uint32 IntensityOffset;
+	struct FCubeSkyViewEnvironment
+	{
+		FMaterialRenderProxyRef Material;
+		FRHITextureReferenceRef TextureReference;
+		FQuat Rotation;
 	};
 
-	auto RefreshDefaultCubeSkyBindings_GameThread(const DMaterialInterface& Material, const FMaterialProgram* Program) -> void;
-	ENGINE_API auto GetDefaultCubeSkyBindings_RenderThread(const FMaterialRenderLayoutIdentity& Layout)
-		-> const FDefaultCubeSkyBindings*;
-	ENGINE_API auto RequestSkyMaterialProxy_RenderThread(bool bProcedural) -> FMaterialRenderProxyRef;
+	// Game-thread capture owner. Render submissions retain only the published proxy and texture reference.
+	class FCubeSkyCaptureMaterial
+	{
+	public:
+		ENGINE_API static auto Create(const FViewEnvironmentOverride& Input)
+			-> std::expected<std::unique_ptr<FCubeSkyCaptureMaterial>, std::string>;
+		ENGINE_API ~FCubeSkyCaptureMaterial();
+		FCubeSkyCaptureMaterial(const FCubeSkyCaptureMaterial&) = delete;
+		auto operator=(const FCubeSkyCaptureMaterial&) -> FCubeSkyCaptureMaterial& = delete;
+		auto GetEnvironment() const -> const std::shared_ptr<const FCubeSkyViewEnvironment>& { return Environment; }
+
+	private:
+		FCubeSkyCaptureMaterial() = default;
+		TStrongObjectPtr<DMaterialInstance> Instance;
+		std::shared_ptr<const FCubeSkyViewEnvironment> Environment;
+	};
+
+	ENGINE_API auto RequestProceduralSkyMaterialProxy_RenderThread() -> FMaterialRenderProxyRef;
 	ENGINE_API auto GetDefaultMaterial() -> DMaterialInterface*;
 	inline constexpr std::string_view DefaultMaterialPackagePath =
 		"/Engine/Materials/DefaultMaterial";

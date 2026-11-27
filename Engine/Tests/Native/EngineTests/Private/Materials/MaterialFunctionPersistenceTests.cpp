@@ -27,6 +27,20 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	DMaterialFunction* Second = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
+	auto TerminalIds = [](const DMaterialFunction& Function) {
+		const auto& Signature = Function.GetFunctionSignature();
+		const auto& Nodes = Function.GetExpressionCollection().Expressions;
+		return std::array{Signature.Inputs.at(0).Id, Signature.Outputs.at(0).Id,
+			Nodes.at(0)->Id, Nodes.at(1)->Id};
+	};
+	const auto FirstIds = TerminalIds(*First);
+	std::unordered_set<FGuid> UniqueIds;
+	for (const auto& Ids : {FirstIds, TerminalIds(*Second)})
+		for (const auto& Id : Ids)
+		{
+			EXPECT_TRUE(Id.IsValid());
+			EXPECT_TRUE(UniqueIds.insert(Id).second);
+		}
 	ASSERT_TRUE(DMaterialGraph::Create(*Second)->InsertFunctionCall(*First, 0, 300, false));
 	ASSERT_TRUE(SavePackage(First->GetPackage()));
 	ASSERT_TRUE(SavePackage(Second->GetPackage()));
@@ -88,6 +102,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Reloaded, nullptr);
+	EXPECT_EQ(TerminalIds(*Reloaded), FirstIds);
 	EXPECT_EQ(Reloaded->GetFunctionSignature().Outputs[0].Name, "Saved Surface");
 	EXPECT_EQ(GetFunctionCalls(*Second)[0]->Function.Get(), Reloaded);
 	EXPECT_FALSE(PreviewInvalidation.ConsumeRefreshRequest());

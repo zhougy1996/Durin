@@ -77,7 +77,7 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	auto* Dynamic = Durin::DMaterialInstance::CreateDynamic(
 		Instance, nullptr, "StaticOverrideDynamic");
 	ASSERT_NE(Dynamic, nullptr);
-	EXPECT_FALSE(Dynamic->SetStaticBoolOverride(StaticBoolId, false));
+	EXPECT_FALSE(Dynamic->SetStaticBoolOverrideByInfo({.Name = "UsePackageDetail"}, false));
 	Durin::MarkAsGarbage(Dynamic);
 	ASSERT_TRUE(Instance->SetStaticBoolOverrideByInfo({.Name = "UsePackageDetail"}, true, false));
 	Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.35f);
@@ -86,6 +86,17 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	Instance->SetVector2ParameterValue(Durin::FName("BaseColorUVScale"), Durin::FVector2(2.0, -1.0));
 	Instance->SetVector2ParameterValue(Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.25, 0.5));
 	Instance->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
+	// Reproduce a source record written before overrides stored parameter info.
+	auto* Property = Instance->GetClass()->FindPropertyByName("StaticBoolOverrides");
+	ASSERT_NE(Property, nullptr);
+	auto& Legacy = *Property->ContainerPtrToValuePtr<std::vector<Durin::FMaterialStaticBoolOverride>>(Instance);
+	EXPECT_FALSE(Instance->ClearOrphanedStaticBoolOverride(StaticBoolId));
+	Legacy.front().ParameterInfo = {};
+	Legacy.front().bOverride = true;
+	EXPECT_FALSE(Durin::SnapshotMaterialCompilerInput(*Instance, {.CompilerIdentity = "LegacySwitch"}));
+	Legacy.front().bOverride = false;
+	const auto OrphanId = Durin::FGuid::NewGuid();
+	Legacy.push_back({OrphanId, false, {}, false});
 	ASSERT_TRUE(Durin::SavePackage(Instance->GetPackage()));
 	const Durin::FPackageCatalogEntry InstanceData =
 		Durin::FindPackageExact(InstancePath);
@@ -110,7 +121,10 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded->GetParent(), nullptr);
-	ASSERT_EQ(Loaded->GetStaticBoolOverrides().size(), 1u);
+	ASSERT_EQ(Loaded->GetStaticBoolOverrides().size(), 2u);
+	ASSERT_TRUE(Loaded->ClearOrphanedStaticBoolOverride(OrphanId));
+	EXPECT_FALSE(Loaded->ClearOrphanedStaticBoolOverride(StaticBoolId));
+	ASSERT_TRUE(Durin::SavePackage(Loaded->GetPackage()));
 	EXPECT_EQ(Loaded->GetStaticBoolOverrides().front(),
 		(Durin::FMaterialStaticBoolOverride{StaticBoolId, true, {.Name = "UsePackageDetail"}, false}));
 	Durin::DTexture* LoadedTexture = nullptr;
@@ -156,6 +170,31 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 		BasePath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(TexturePath));
+}
+
+TEST(FMaterialPackageTests, StaticOverrideRecoversItsNameOnReparentAndTracksRename)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Parent(NewObject<DMaterial>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, NAME_None));
+	auto Graph = Testing::MakePBRMaterialExpressionsForTest();
+	auto& Switch = Graph.Add(EMaterialProgramOpcode::StaticBool, EMaterialProgramValueType::StaticBool, {}, {}, {});
+	auto* Declaration = Cast<DMaterialExpressionStaticBool>(&Switch);
+	ASSERT_NE(Declaration, nullptr);
+	Declaration->Name = "Detail";
+	ASSERT_TRUE(Graph.Apply(*Parent));
+	auto* Property = Instance->GetClass()->FindPropertyByName("StaticBoolOverrides");
+	ASSERT_NE(Property, nullptr);
+	auto& Overrides = *Property->ContainerPtrToValuePtr<std::vector<FMaterialStaticBoolOverride>>(Instance.Get());
+	Overrides.push_back({Declaration->DeclarationId, true, {}, true});
+	ASSERT_TRUE(Instance->SetParent(Parent.Get()));
+	ASSERT_EQ(Overrides.front().ParameterInfo.Name, Declaration->Name);
+	Declaration->Name = "DetailEnabled";
+	ASSERT_TRUE(Graph.Apply(*Parent));
+	EXPECT_EQ(Overrides.front().ParameterInfo.Name, Declaration->Name);
+	EXPECT_FALSE(Instance->ClearStaticBoolOverrideByInfo({.Name = "Detail"}));
+	EXPECT_TRUE(Instance->ClearStaticBoolOverrideByInfo({.Name = "DetailEnabled"}));
 }
 
 TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformedSaves)

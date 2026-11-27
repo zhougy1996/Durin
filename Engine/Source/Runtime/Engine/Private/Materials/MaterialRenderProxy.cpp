@@ -36,7 +36,6 @@ namespace Durin
 			std::atomic<uint64> ResolutionCacheMissCount = 0;
 			std::atomic<uint64> BindingUpdateCount = 0;
 			std::atomic<uint64> RepresentationValidationFailureCount = 0;
-			std::atomic<uint64> ParameterBindingBuildCount = 0;
 			std::atomic<uint64> IndexedParameterWriteCount = 0;
 		};
 
@@ -77,7 +76,6 @@ namespace Durin
 			.ResolutionCacheMissCount = GMaterialRenderProxyCounters.ResolutionCacheMissCount.load(),
 			.BindingUpdateCount = GMaterialRenderProxyCounters.BindingUpdateCount.load(),
 			.RepresentationValidationFailureCount = GMaterialRenderProxyCounters.RepresentationValidationFailureCount.load(),
-			.ParameterBindingBuildCount = GMaterialRenderProxyCounters.ParameterBindingBuildCount.load(),
 			.IndexedParameterWriteCount = GMaterialRenderProxyCounters.IndexedParameterWriteCount.load(),
 		};
 	}
@@ -97,7 +95,6 @@ namespace Durin
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.store(0);
 		GMaterialRenderProxyCounters.BindingUpdateCount.store(0);
 		GMaterialRenderProxyCounters.RepresentationValidationFailureCount.store(0);
-		GMaterialRenderProxyCounters.ParameterBindingBuildCount.store(0);
 		GMaterialRenderProxyCounters.IndexedParameterWriteCount.store(0);
 	}
 
@@ -184,6 +181,7 @@ namespace Durin
 		const bool ShaderMapChanged = !RenderingThreadProgram || !Program || RenderingThreadProgram->ShaderMap != Program->ShaderMap;
 		if (ShaderMapChanged)
 		{
+			ParameterValues = {};
 			InvalidateStaticDrawLists_RenderThread();
 			bProgramUsesWPO = Program && Program->HasShaderMap() && std::ranges::any_of(Program->GetShaderMap().Entries,
 				[](const auto& Entry) { return Entry.Requirements.bUsesWPO; });
@@ -206,38 +204,42 @@ namespace Durin
 	{
 		RecordUpdate_RenderThread();
 		check(Parameters.IsRenderThreadSet());
-		std::ranges::sort(Parameters.ScalarParameters, {}, &FMaterialScalarParameterValue::ParameterId);
-		std::ranges::sort(Parameters.Vector2Parameters, {}, &std::pair<FGuid, FVector2>::first);
-		std::ranges::sort(Parameters.Vector3Parameters, {}, &std::pair<FGuid, FVector3>::first);
-		std::ranges::sort(Parameters.VectorParameters, {}, &FMaterialVectorParameterValue::ParameterId);
-		std::ranges::sort(Parameters.TextureParameters, {}, &FMaterialTextureParameterValue::ParameterId);
 		if (ParameterValues == Parameters) return;
 		const bool bCheckDepth = !SceneReferences.empty() && !bProgramUsesWPO && !bCompiling;
 		const bool bHadStableDepth = bCheckDepth && HasStableOpaqueDepth_RenderThread();
+		// Retire the previous texture bindings even if this proxy is never drawn again.
+		CachedResolvedData.Representation = {};
 		ParameterValues = std::move(Parameters);
 		InvalidateUniformExpressionCache_RenderThread(false);
 		InvalidateOcclusionHistory_RenderThread();
 		if (bCheckDepth && HasStableOpaqueDepth_RenderThread() != bHadStableDepth) InvalidateStaticDrawLists_RenderThread();
 		GMaterialRenderProxyCounters.ParameterUpdateCount.fetch_add(1);
 	}
-	auto FMaterialRenderProxy::UpdateParameter_GameThread(const FGuid& Id, const FMaterialParameterValue& Value) -> void
+	auto FMaterialRenderProxy::UpdateParameter_GameThread(uint32 FieldIndex, const FMaterialParameterValue& Value) -> void
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		auto RenderValue = Value;
 		RenderValue.ResolveTextureReference();
 		const auto Bytes = RenderValue.GetPayloadBytes();
-		QueueMaterialUpdate(*this, [Id, Value = std::move(RenderValue)](auto& Proxy) mutable { Proxy.UpdateParameter_RenderThread(Id, std::move(Value)); }, Bytes);
+		QueueMaterialUpdate(*this, [FieldIndex, Value = std::move(RenderValue)](auto& Proxy) mutable { Proxy.UpdateParameter_RenderThread(FieldIndex, std::move(Value)); }, Bytes);
 	}
-	auto FMaterialRenderProxy::UpdateParameter_RenderThread(const FGuid& Id, FMaterialParameterValue Value) -> void
+	auto FMaterialRenderProxy::UpdateParameter_RenderThread(uint32 FieldIndex, FMaterialParameterValue Value) -> void
 	{
 		RecordUpdate_RenderThread();
 		check(Value.IsRenderThreadValue());
+		if (!RenderingThreadProgram || FieldIndex >= RenderingThreadProgram->GetShaderMap().Layout.Fields.size())
+		{
+			InvalidateOcclusionHistory_RenderThread();
+			return;
+		}
 		FMaterialParameterValue Current;
-		if (ParameterValues.GetParameterValue(Id, Current) && Current == Value) return;
-		const bool bPreserveOcclusion = CanPreserveOcclusionForParameter(Id, Value);
+		const bool bExisting = ParameterValues.GetParameterValue(FieldIndex, Current);
+		if (bExisting && Current == Value) return;
+		const bool bPreserveOcclusion = CanPreserveOcclusionForParameter(FieldIndex, Value);
 		const bool bCheckDepth = !bPreserveOcclusion && !SceneReferences.empty() && !bProgramUsesWPO && !bCompiling;
 		const bool bHadStableDepth = bCheckDepth && HasStableOpaqueDepth_RenderThread();
-		ParameterValues.SetParameter(Id, Value);
+		if (Value.GetType() == EMaterialParameterType::Texture) CachedResolvedData.Representation = {};
+		ParameterValues.SetParameter(FieldIndex, Value);
 		InvalidateUniformExpressionCache_RenderThread(false);
 		if (!bPreserveOcclusion) InvalidateOcclusionHistory_RenderThread();
 		if (bCheckDepth && HasStableOpaqueDepth_RenderThread() != bHadStableDepth) InvalidateStaticDrawLists_RenderThread();
@@ -284,38 +286,6 @@ namespace Durin
 		GMaterialRenderProxyCounters.UniformCacheInvalidationCount.fetch_add(1);
 	}
 
-	auto FMaterialRenderProxy::UpdateParameterBindings() -> void
-	{
-		bool bCurrent = BindingArtifact == (RenderingThreadProgram ? RenderingThreadProgram->ShaderMap : nullptr)
-			&& ParameterBindings.size() == ParameterValues.GetParameterCount();
-		size_t ParameterIndex = 0;
-		ParameterValues.VisitParameters([&](const FGuid& Id, const FMaterialParameterValue& Value) {
-			if (bCurrent) bCurrent = ParameterBindings[ParameterIndex].Id == Id && ParameterBindings[ParameterIndex].Type == Value.GetType();
-			++ParameterIndex;
-		});
-		if (bCurrent) return;
-		BindingArtifact = RenderingThreadProgram ? RenderingThreadProgram->ShaderMap : nullptr;
-		ParameterBindings.clear();
-		if (!BindingArtifact) return;
-		std::unordered_map<FGuid, uint32> Fields;
-		Fields.reserve(BindingArtifact->Layout.Fields.size());
-		for (uint32 Index = 0; Index < BindingArtifact->Layout.Fields.size(); ++Index)
-			Fields.emplace(BindingArtifact->Layout.Fields[Index].ParameterId, Index);
-		std::unordered_map<FGuid, EMaterialParameterType> Active;
-		Active.reserve(BindingArtifact->ActiveParameters.size());
-		for (const auto& Parameter : BindingArtifact->ActiveParameters) Active.emplace(Parameter.Id, Parameter.Type);
-		ParameterBindings.reserve(ParameterValues.GetParameterCount());
-		ParameterValues.VisitParameters([&](const FGuid& Id, const FMaterialParameterValue& Value) {
-			FParameterBinding Binding{Id, Value.GetType()};
-			const auto Declaration = Active.find(Id);
-			const auto Field = Fields.find(Id);
-			Binding.bActive = Declaration != Active.end() && Declaration->second == Binding.Type;
-			if (Field != Fields.end()) Binding.FieldIndex = Field->second;
-			ParameterBindings.push_back(Binding);
-		});
-		GMaterialRenderProxyCounters.ParameterBindingBuildCount.fetch_add(1);
-	}
-
 	auto FMaterialRenderProxy::HasStableOpaqueDepth_RenderThread() -> bool
 	{
 		CheckRenderingThread();
@@ -326,7 +296,7 @@ namespace Durin
 		return bHasValidatedOpaqueDepth;
 	}
 
-	auto FMaterialRenderProxy::CanPreserveOcclusionForParameter(const FGuid& Id, const FMaterialParameterValue& Value) const -> bool
+	auto FMaterialRenderProxy::CanPreserveOcclusionForParameter(uint32 FieldIndex, const FMaterialParameterValue& Value) const -> bool
 	{
 		// A known numeric uniform in a validated opaque program without WPO cannot change depth coverage.
 		// Check the value before publication so a fallback caused by an invalid write also invalidates history.
@@ -359,8 +329,7 @@ namespace Durin
 			return std::abs(Component) <= std::numeric_limits<float>::max();
 		})) return false;
 		const auto& Fields = CachedResolvedData.Representation.GetLayout().Fields;
-		const auto Field = std::ranges::find(Fields, Id, &FMaterialRenderField::ParameterId);
-		return Field != Fields.end() && Field->Storage == EMaterialRenderFieldStorage::Uniform && Field->Type == Type;
+		return FieldIndex < Fields.size() && Fields[FieldIndex].Storage == EMaterialRenderFieldStorage::Uniform && Fields[FieldIndex].Type == Type;
 	}
 
 	auto FMaterialRenderProxy::GetMaterialNoFallback() -> const FMaterialRenderData*
@@ -408,28 +377,22 @@ namespace Durin
 				RenderingThreadProgram->GetShaderMap().ShaderMapId;
 		}
 		FMaterialRenderRepresentationBuilder RepresentationBuilder = CachedResolvedData.CompiledProgram
-			&& CachedResolvedData.CompiledProgram->GetShaderMap().Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
-			&& CachedResolvedData.CompiledProgram->GetShaderMap().Layout.Identity != CachedResolvedData.Representation.GetLayout().Identity
 			? FMaterialRenderRepresentationBuilder(CachedResolvedData.CompiledProgram->GetShaderMap().Layout)
 			: FMaterialRenderRepresentationBuilder(CachedResolvedData.Representation);
 		bool bRepresentationValid = true;
 		if (CachedResolvedData.CompiledProgram)
 			CachedResolvedData.PlanningPassIdentity.ShaderMap.RenderLayout = CachedResolvedData.CompiledProgram->GetShaderMap().Layout.Identity;
 		if (RenderingThreadProgram)
-			RenderingThreadProgram->DefaultParameters.VisitParameters([&](const FGuid& Id, const FMaterialParameterValue& Value) {
-				bRepresentationValid &= RepresentationBuilder.SetParameter(Id, Value);
-			});
-		UpdateParameterBindings();
-		uint64 IndexedWrites = 0;
-		size_t ParameterIndex = 0;
-		ParameterValues.VisitParameters([&](const FGuid& Id, const FMaterialParameterValue& Value) {
-			if (!BindingArtifact) return;
-			const auto& Binding = ParameterBindings[ParameterIndex++];
-			if (!Binding.bActive) return;
-			++IndexedWrites;
-			if (!RepresentationBuilder.SetParameterAtIndex(Binding.FieldIndex, Id, Value)) bRepresentationValid = false;
-		});
-		GMaterialRenderProxyCounters.IndexedParameterWriteCount.fetch_add(IndexedWrites);
+		{
+			const auto WriteFields = [&](const FMaterialInstanceParameterSet& Parameters) {
+				for (const auto& Field : Parameters.GetFields())
+					bRepresentationValid &= RepresentationBuilder.WriteBoundParameter(Field.FieldIndex, Field.Value);
+			};
+			WriteFields(RenderingThreadProgram->DefaultParameters);
+			WriteFields(ParameterValues);
+			GMaterialRenderProxyCounters.IndexedParameterWriteCount.fetch_add(
+				RenderingThreadProgram->DefaultParameters.GetParameterCount() + ParameterValues.GetParameterCount());
+		}
 		if (Properties)
 		{
 			ApplyStaticProperties(

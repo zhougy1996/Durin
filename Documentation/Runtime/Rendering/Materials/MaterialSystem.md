@@ -15,7 +15,7 @@ representation, builder, pipeline identity, and fallback declarations live in
 `Materials/MaterialRenderTypes.h`; `MaterialRenderProxy.h` includes that narrow
 surface directly. Their implementations are separated into authored schema,
 compiled-layout representation/builder, and diagnostics files. The production
-render boundary accepts only material-specific layout v5 data. Built-in role knowledge is confined to editor-owned standard function authoring and import binding.
+render boundary accepts only material-specific layout v6 data. Built-in role knowledge is confined to editor-owned standard function authoring and import binding.
 
 ## Single Layer Water
 
@@ -110,11 +110,10 @@ active parameter contract. `IsDynamicInstance()` exposes this immutable lifecycl
 The existing typed setters and clear operations, and
 `ApplyDynamicParameterUpdates`, update only local runtime values and render state,
 without package dirtiness or compilation. A batch borrows Set/Clear records for
-one GameThread call, rejects duplicate or invalid GUIDs and invalid values with
-the failing record index, and validates Set records against one captured accepted
-parent contract before swapping candidate typed storage. Clear records remove local
-values even when declarations are orphaned or the parent has no accepted program;
-clearing a valid absent GUID is a no-op. A rejected batch changes
+one GameThread call. A named write stores its global `FMaterialParameterInfo`.
+A replacement declaration with the same name and type inherits that override.
+The batch rejects selectors that address the same parameter twice and publishes
+only after all records pass validation. Clear removes an orphan by its original parameter info even when the parent has no accepted program. Clearing an absent global parameter is a no-op. A rejected batch changes
 nothing. A fully no-op batch succeeds without publication; a changed batch advances
 render state, publishes, and notifies exactly once regardless of record count.
 Static overrides,
@@ -153,8 +152,9 @@ The error contains a failure code, record index, parameter GUID and diagnostic t
 it has no success state. Callers check the expected before consuming its value or error.
 
 Each world owns a `DMaterialParameterCollectionSubsystem`. A borrowed batch of
-GUID-addressed Set/Clear records is validated completely before one candidate
-payload is published; duplicate, missing, nonfinite or type-invalid records reject
+name-addressed Set/Clear records resolves each name to its stable member ID before
+publishing a candidate payload. World overrides survive member renames.
+Duplicate, missing, nonfinite or type-invalid records reject
 the whole update. Changed, no-op and rejected commits have exact counters. Values
 fall back to asset defaults, and authored default edits refresh instantiated world
 states without material compilation. Worlds retain independent immutable
@@ -170,9 +170,9 @@ Instance numeric overrides must be finite both before and after conversion to
 their stored representation. Native setters, reflected editing, and loaded-object
 validation reject nonfinite values before they can reach render publication.
 
-- `DMaterialInterface` is the common asset/component-facing contract. Persistent
-  parameter identity is an `FGuid`; public human/API lookup uses
-  case-insensitive `FName`.
+- `DMaterialInterface` is the common asset/component-facing contract. Ordinary parameters use
+  `FMaterialParameterInfo` with a case-insensitive name, association, and index.
+  Authored declarations keep an expression GUID for editor rename tracking.
 - `FMaterialParameterValue` is a non-reflected C++ variant of scalar, Vector2,
   Vector3, Vector4, or `FMaterialTextureValue`. `GetType()` derives its type from
   the selected alternative. Checked accessors return that alternative by
@@ -182,7 +182,10 @@ validation reject nonfinite values before they can reach render publication.
   only that active object reference. `ResolveTextureReference` prepares a copy for
   publication: it retains `TextureReference` and clears the object pointer. The
   native reference is transient and unreflected; authored writes reject it.
-  RenderThread consumes this same value type and rejects live object references.
+  Dynamic instances can bind a counted external reference through
+  `SetTextureReferenceByInfo` in a parameter batch. This operation inherits the
+  declaration's texture dimension, sampler, and fallback. RenderThread consumes
+  the published value and rejects live object references.
 - Typed parameter expressions own common identity/presentation metadata and
   their concrete default. Scalar ranges and texture usage belong to their
   respective expression families. `FMaterialParameterDefinition` is a transient
@@ -209,7 +212,7 @@ validation reject nonfinite values before they can reach render publication.
   records typed graph operations, connection selectors, call ports and callee handles;
   it excludes parameter defaults and presentation, and is not a persisted shader key.
   Material owners retain no universal Program or function-call table cache. Structural
-  code changes invalidate compilation. Compiler snapshots build detached typed IR with GUID/type parameter
+  code changes invalidate compilation. Compiler snapshots build detached typed IR with name/type parameter
   declarations before worker enqueueing, retaining no authored texture pointers. Graph-stripped Cooked roots
   load generated parameter descriptors/defaults and permit dynamic value updates
   without recreating an authored graph.
@@ -218,21 +221,21 @@ validation reject nonfinite values before they can reach render publication.
   `FMaterialProgramValidationResult`; output snapshots are assigned only on
   success. Editor commands retain bounded diagnostics and distinguish parameter
   GUIDs from node GUIDs.
-- `DMaterialInstance::SetParameterValue(Id, Value)` derives the assignment type from the value
+- `DMaterialInstance::SetParameterValueByInfo(Info, Value)` derives the assignment type from the value
   and rejects mismatched active declarations. Cook stores five typed logical
-  parameter arrays, including declaration order and only applicable metadata.
+  parameter arrays sorted by name within each type.
   Render publication uses a separate selected value whose texture alternative
   owns counted RHI references; no texture objects cross into the render thread.
 - `DMaterialInstance` references a parent material interface and persists separate
-  scalar, vector, and texture parameter-value arrays. Each record stores its parameter info, expression GUID
+  scalar, vector, and texture parameter-value arrays. Each authored record stores its parameter info, editor-only expression GUID
   and concrete value; all vector widths use `FMaterialVectorParameterValue` with
   `FVector4f` storage and a validated declaration-type marker. Reads restore the
   declared width; writes clear unused components and compare at float precision.
   Texture values include sampler/fallback policy.
-  `GetLocalParameterValue` reads a selected value directly from those arrays;
-  `VisitLocalParameterValues` enumerates GUID/value pairs without an alternate cached
+  `GetLocalParameterValueByInfo` reads a selected value directly from those arrays;
+  `VisitLocalParameterOverrides` enumerates parameter info, rename metadata, and values without an alternate cached
   record array, and `GetLocalParameterValueCount` reports their combined size.
-  Reflected storage owns texture references. Duplicate GUIDs across arrays
+  Reflected storage owns texture references. Duplicate authored GUIDs across arrays
   fail property-edit admission and package serialization. Instance package version 5 stores
   parameter info alongside the expression GUID and persists the static switch override flag.
   A disabled switch retains its stored value and inherits the effective value from its parent.
@@ -291,7 +294,7 @@ black, or flat-RG-normal recovery.
 The standard template retains its published declaration GUIDs. Imported scene
 materials assign their own GUIDs. Callers can address either material through
 its named parameter interface.
-Engine compiles reachable declarations in GUID order into layout v5. Numeric
+Engine compiles reachable declarations in name order into layout v6. Numeric
 fields occupy zero-padded 16-byte slots after the reserved view-control slot;
 Texture2D and TextureCube fields receive compact resource/sampler indices. Layout identity,
 counts, field types, offsets, and shader reflection are accepted as one schema.
@@ -353,7 +356,7 @@ fallback and validates the resident RHI texture against the compiled field.
 [Material scene inputs](MaterialSceneInputs.md) defines PostProcessInput0, read-only depth, viewport conversion and graph-owned resource binding.
 Synthetic expression source records retain authored node, input and call path.
 These authoring forms lower before normalization and do
-not change layout v5. Fresh materials start with an empty expression body and twelve unconnected property defaults including
+not change layout v6. Fresh materials start with an empty expression body and twelve unconnected property defaults including
 BaseColor `(0, 0, 0)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 `0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
 OpacityMask `1`, WPO `(0,0,0)`, Specular `0.5`, ClearCoat `1`, and
@@ -406,9 +409,10 @@ added for these operations.
 
 Static bool declarations are reflected expressions keyed by valid stable GUIDs
 and unique names, bounded to 32 per root material. A base declaration supplies
-the default and an authored material instance may override the same GUID; orphan,
-duplicate, or over-bound records reject. These values belong to shader selection,
-not compiled layout v5, parameter collections, or dynamic material-instance
+the default. Authored instances set and clear overrides by parameter info. On load
+or reparenting, declaration IDs restore missing names and track renamed switches.
+An enabled orphan rejects compilation. An unnamed orphan can be removed by its ID. These values belong to shader selection,
+not compiled layout v6, parameter collections, or dynamic material-instance
 mutation. Static, Quality, and Feature Level switches select before normalized IR
 and dependency discovery, so only the root-reachable selected branch contributes
 parameters, resources, functions, limits, source, and code.
@@ -883,7 +887,7 @@ preparation continues to decode and re-encode saved programs without compilation
 [Target policy](../../Assets/Build/TargetPlatforms.md) owns platform
 capabilities; the material family owns legal variant selection and its Cook
 dependency projection. Authored expression collections and their owned descendants are stripped from cooked packages. One
-DMAT v28 family per material or instance in the
+DMAT v30 family per material or instance in the
 `DMaterialInterface::ProgramData` BulkData field stores the selected exact configurations.
 The default is Low and High quality crossed with ES3_1, SM5, and SM6; explicit
 selections may retain a supported subset. Each uses that owner's
@@ -909,8 +913,9 @@ opaque 64-bit identity. `GetMaterialCompileAdapterVersion()` independently
 versions request/result adaptation. Both are captured in the compiler environment
 and program digest; execution rejects a stale producer or adapter before generation.
 The MIR version remains a contract for live typed IR, not compiled DMAT admission.
-DMAT v28 contains no IR/generator/compiler producer version words. Older payload
-schemas require recook; algorithm upgrades alone do not change the payload schema. Payload schema, runtime pass ABI, target,
+DMAT v30 stores ordinary parameter fields and binding requirements by name.
+Cooked declarations and instance overrides omit editor rename GUIDs. Older payload
+schemas require a recook. Payload schema, runtime pass ABI, target,
 layout, bindings, shader hashes and configuration remain admission checks.
 Loading rejects a missing configuration, truncated, corrupt, trailing,
 wrong-target, wrong-profile, wrong-version, invalid-stage, or package/payload
@@ -932,7 +937,7 @@ or published by the owner;
 compilation progress is derived from its request association. Canonical shader
 properties derive from the accepted properties. Admission validates the entire
 candidate before swapping. Values resolve through the bounded authored chain by
-stable GUID/type against the variant's active layout; no packed parent bytes or
+parameter info and type against the variant's active layout; no packed parent bytes or
 parent compilation success are required. Removed declarations retain accepted
 native values/resources until replacement. Dynamic edits refresh compatible
 values and dependent publications without compiling. A shader/pipeline edit
@@ -1104,10 +1109,10 @@ unavailable defaults use ErrorMaterial.
   array: shared indices apply immediately, entries beyond a smaller mesh are
   dormant, and a later larger mesh reactivates them. Dormant entries bind no
   dependency and never reach the scene proxy; Clear All removes them too.
-- Material-side code resolves accepted declaration GUIDs into one immutable
+- Material-side code resolves accepted named fields into one immutable
   `FMaterialRenderRepresentation` carried by `FMaterialRenderData` alongside
   the static shader/pipeline identity. `FMaterialRenderRepresentationBuilder`
-  is the only GUID-to-layout compilation seam. The renderer consumes the
+  applies values by their bound field indices. The renderer consumes the
   validated compiled binding contract and never performs GUID or `FName` lookup or
   reads reflected material objects.
 - StaticMesh and SplineMesh use one Renderer-private material
@@ -1196,11 +1201,12 @@ retains one counted proxy for level, preview, and thumbnail consumers. Engine
 destruction detaches world, scene, viewport, preview, and thumbnail consumers,
 then shuts the service down before Engine and rendering shutdown.
 
-Authored sky meshes use their material slots. For a view that needs the built-in
-skydome, the renderer requests either DefaultCubeSky or DefaultProceduralSky.
-The game thread loads and prepares the requested material once per service
-lifetime. View preparation reports pending until its proxy and bindings reach
-the render thread.
+Authored sky meshes use their material slots. Each cube capture creates a transient
+instance of the shared DefaultCubeSky parent on the game thread and sets
+SkyTexture, SkyTint, and SkyIntensity together. The view retains the instance
+proxy through submission. Its finalized texture binding must match the physical
+cube allocation registered for the RDG read. Procedural skies request the
+shared DefaultProceduralSky proxy during view preparation.
 
 The authored default is opaque, lit, one-sided, automatic-depth-write black
 with BaseColor `(0, 0, 0)`, Normal `(0, 0, 1)`, Metallic `0`,
@@ -1225,7 +1231,7 @@ whole-material counters.
 
 `FMaterialRenderRepresentation` is an Engine-owned immutable snapshot with a
 layout identity, validated uniform payload, counted RHI texture references,
-typed sampler states, and explicit texture fallbacks. Compiled layout v5 is
+typed sampler states, and explicit texture fallbacks. Compiled layout v6 is
 material-specific: it deterministically packs only reachable declarations and
 is validated against the accepted program and reflected pass bindings. Material
 assets persist authored values rather than this transient representation. DMAT
@@ -1256,14 +1262,11 @@ Storage retires after its last consumer, without a global historical record cach
 Texture references still resolve their current render-thread resources through
 the existing generation and readiness checks.
 
-Each render proxy prebinds its local parameter GUID/type sequence to field indices
-of the accepted immutable program. Value-only publications reuse that index;
-program replacement or a changed parameter sequence rebuilds it. Indexed writes
-check bounds, GUID and concrete field type before modifying payload or resources.
-Inactive/type-orphan values remain excluded. Final representation validation and
-atomic fallback remain unchanged. Proxy counters separately report binding-index
-builds and indexed writes; ordinary value resolution performs no repeated linear
-search of the active declaration or layout field arrays.
+GameThread binds root defaults and instance overrides to field indices of the
+accepted material layout. Each program publication owns its name-to-index mapping.
+On a shader-map change the proxy discards its previous indexed overrides and the
+owner republishes values against the new layout. Both defaults and local values
+use checked field-index writes. The indexed-write counter includes both sets.
 
 `FMaterialRenderProxy` resolves parent and local layers into a copied builder,
 publishes only a complete representation, and keeps the existing cache,
@@ -1368,8 +1371,8 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 29, MIR 16, layout 5, pass contract 28,
-and material Cook class-schema version 7. The independent compile adapter is version 26;
+Current compatibility versions are DMAT 30, MIR 16, layout 6, pass contract 30,
+and material Cook class-schema version 9. The independent compile adapter is version 26;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v11

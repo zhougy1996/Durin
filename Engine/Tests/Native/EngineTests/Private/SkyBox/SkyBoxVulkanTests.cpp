@@ -447,7 +447,14 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			Durin::FSceneViewStatistics Statistics;
 			bool bReadback = false;
 			auto ViewOptions = Options;
-			if (!ViewOptions.Environment) ViewOptions.Environment = Environment;
+			std::unique_ptr<Durin::FCubeSkyCaptureMaterial> SkyMaterial;
+			if (!ViewOptions.Environment && Environment)
+			{
+				auto Created = Durin::FCubeSkyCaptureMaterial::Create(*Environment);
+				if (!Created) { Result->bSucceeded = false; Result->Error = Created.error(); return false; }
+				SkyMaterial = std::move(*Created);
+				ViewOptions.Environment = SkyMaterial->GetEnvironment();
+			}
 			const auto Outcome = RenderPreparedSkyView(Renderer, Scene, RenderView, Color, ViewOptions, &Statistics,
 				[&](Durin::FRHICommandListImmediate& Commands) {
 					if (bCaptureTelemetry) Result->HybridSkyTelemetry = GHybridSkyTelemetry;
@@ -516,9 +523,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		RotatedSky.Rotation = glm::identity<Durin::FQuat>();
 		Environment = RotatedSky;
 		Durin::FSceneViewRenderOptions OverrideOptions;
-		OverrideOptions.Environment = Durin::FViewEnvironmentOverride{
-			.TextureReference = CubeReference
-		};
+		auto OverrideMaterial = Durin::FCubeSkyCaptureMaterial::Create({.TextureReference = CubeReference});
+		ASSERT_TRUE(OverrideMaterial) << OverrideMaterial.error();
+		OverrideOptions.Environment = (*OverrideMaterial)->GetEnvironment();
 		if (!RenderWithOptions(
 				MakePrincipalAxisView(Directions[0], {}, 17, 17),
 				Result->ExplicitOverride,
@@ -530,7 +537,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			Result->InvalidViewStatistics.Summary.DrawCalls = 999;
 			Result->InvalidOutputResult = Renderer.RenderView(CommandList, {&Scene, MakePrincipalAxisView(Directions[0], {}, 17, 17), nullptr, false, {}, &Result->InvalidViewStatistics});
 			Durin::FSceneViewRenderOptions MissingEnvironment;
-			MissingEnvironment.Environment = Durin::FViewEnvironmentOverride{};
+			MissingEnvironment.Environment = std::make_shared<Durin::FCubeSkyViewEnvironment>();
 			Result->MissingEnvironmentResult = Renderer.RenderView(CommandList, {&Scene, MakePrincipalAxisView(Directions[0], {}, 17, 17), Color, false, MissingEnvironment});
 		});
 		Durin::FlushRenderingCommands();
@@ -538,6 +545,31 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		{
 			if (!Render(MakePrincipalAxisView(Directions[FaceIndex], {}, 17, 17), Result->HdrPrincipalAxes[FaceIndex])) return;
 		}
+
+		auto HdrMaterial = Durin::FCubeSkyCaptureMaterial::Create(RotatedSky);
+		ASSERT_TRUE(HdrMaterial) << HdrMaterial.error();
+		const Durin::FSceneViewRenderOptions HdrOptions{.Environment = (*HdrMaterial)->GetEnvironment()};
+		ASSERT_NE(HdrOptions.Environment->Material, OverrideOptions.Environment->Material);
+		ASSERT_NE(Result->HdrPrincipalAxes[0], Result->ExplicitOverride);
+		Durin::EnqueueRenderCommand("DrawIndependentCubeCaptures", [&](Durin::FRHICommandListImmediate& Commands) {
+			FSkyValidationFrame Frame(Commands);
+			auto View = MakePrincipalAxisView(Directions[0], {}, 17, 17);
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			auto CheckCapture = [&](const Durin::FSceneViewRenderOptions& Options, const Durin::FByteBuffer& Expected) {
+				ASSERT_EQ(Renderer.RenderView(Commands, {&Scene, View, Color, false, Options}), Durin::ERenderViewResult::Success);
+				Durin::FByteBuffer Pixels;
+				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, Color, 0, 0, Pixels));
+				EXPECT_EQ(Pixels, Expected);
+			};
+			CheckCapture(HdrOptions, Result->HdrPrincipalAxes[0]);
+			CheckCapture(OverrideOptions, Result->ExplicitOverride);
+			auto Mismatched = std::make_shared<Durin::FCubeSkyViewEnvironment>(*HdrOptions.Environment);
+			Mismatched->TextureReference = CubeReference;
+			const Durin::FSceneViewRenderOptions MismatchedOptions{.Environment = Mismatched};
+			EXPECT_NE(Renderer.RenderView(Commands, {&Scene, View, Color, false, MismatchedOptions}),
+				Durin::ERenderViewResult::Success);
+		});
+		Durin::FlushRenderingCommands();
 
 		RotatedSky.TextureReference = CubeReference;
 		RotatedSky.Tint = Durin::FVector3f(1.0f);

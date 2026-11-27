@@ -5691,7 +5691,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceRepla
 			for (uint32 Level = 0; Level < 2; ++Level)
 			{
 				SCOPED_TRACE(std::format("face {} mip {}", Face, Level));
-				ASSERT_TRUE(Instance->SetParameterValue(Direction->Metadata.Id, FMaterialParameterValue::MakeVector4(Directions[Face])));
+				ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = Direction->Metadata.Name}, FMaterialParameterValue::MakeVector4(Directions[Face])));
 				ASSERT_TRUE(Instance->SetScalarParameterValue("Mip", float(Level)));
 				auto Expected = FaceColors[Face]; if (Level) for (auto& C : Expected) C = 255-C;
 				Capture(Expected);
@@ -5712,19 +5712,19 @@ TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceRepla
 				FVector4(1,-T,-S,0), FVector4(-1,-T,S,0),
 				FVector4(S,1,T,0), FVector4(S,-1,-T,0),
 				FVector4(S,-T,1,0), FVector4(-S,-T,-1,0)};
-			ASSERT_TRUE(Instance->SetParameterValue(Direction->Metadata.Id,
+			ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = Direction->Metadata.Name},
 				FMaterialParameterValue::MakeVector4(CornerDirections[Face])));
 			Capture(FaceColors[Corner]);
 		}
 		ASSERT_FALSE(Instance->SetTextureParameterValue("Cube", NewObject<DTexture2D>(nullptr, NAME_None)));
 		ASSERT_TRUE(Instance->SetTextureParameterValue("Cube", nullptr));
 		Capture({255,255,255});
-		FResolvedMaterialParameter Resolved; ASSERT_TRUE(Instance->ResolveParameterValue(Sample->Metadata.Id, Resolved));
+		FResolvedMaterialParameter Resolved; ASSERT_TRUE(Instance->ResolveParameterValueByInfo({.Name = Sample->Metadata.Name}, Resolved));
 		Resolved.Value.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
-		ASSERT_TRUE(Instance->SetParameterValue(Sample->Metadata.Id,Resolved.Value));
+		ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = Sample->Metadata.Name},Resolved.Value));
 		Capture({0,0,0});
 		Resolved.Value.GetTexture().TextureFallback = EMaterialTextureFallback::FlatRGNormal;
-		EXPECT_FALSE(Instance->SetParameterValue(Sample->Metadata.Id,Resolved.Value));
+		EXPECT_FALSE(Instance->SetParameterValueByInfo({.Name = Sample->Metadata.Name},Resolved.Value));
 		Scene.Reset(); FlushRenderingCommands();
 		for (auto& Cube : Cubes) Cube->ReleaseResource();
 		FlushRenderingCommands();
@@ -6065,7 +6065,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, EmissiveSeedsSceneColorOnceAcrossL
 	{
 		std::array<TStrongObjectPtr<DMaterial>, 4> Materials;
 		std::array<TStrongObjectPtr<DMaterialInstance>, 4> Instances;
-		std::array<FGuid, 4> EmissionIds;
 		for (uint32 V = 0; V < 4; ++V)
 		{
 			Materials[V] = TStrongObjectPtr<DMaterial>(NewObject<DMaterial>(nullptr, NAME_None));
@@ -6080,7 +6079,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, EmissiveSeedsSceneColorOnceAcrossL
 			TStrongObjectPtr<DMaterialExpressionVector4Parameter> Emission(NewObject<DMaterialExpressionVector4Parameter>(nullptr, NAME_None));
 			Emission->Id = FGuid::NewGuid();
 			Emission->Metadata = {.Id = FGuid::NewGuid(), .Name = "Emission"};
-			EmissionIds[V] = Emission->Metadata.Id;
 			TStrongObjectPtr<DMaterialExpressionSwizzle> ColorChannels(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
 			ColorChannels->Id = FGuid::NewGuid();
 			ColorChannels->Input = {Emission.Get()};
@@ -6108,7 +6106,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, EmissiveSeedsSceneColorOnceAcrossL
 		FlushRenderingCommands();
 		const FVector4 Emission(2.3, .37, 7.125, 1);
 		const FVector4 Overlay(1.25, 3.5, .125, 1);
-		const auto SetEmission = [&](uint32 V, const FVector4& Value) { EXPECT_TRUE(Instances[V]->SetParameterValue(EmissionIds[V], FMaterialParameterValue::MakeVector4(Value))); };
+		const auto SetEmission = [&](uint32 V, const FVector4& Value) { EXPECT_TRUE(Instances[V]->SetParameterValueByInfo({.Name = "Emission"}, FMaterialParameterValue::MakeVector4(Value))); };
 		const auto Publish = [&](uint32 V, bool bOverlay = false) {
 			FlushRenderingCommands();
 			const auto Proxy = Instances[V]->GetRenderProxy();

@@ -353,7 +353,7 @@ namespace Durin
 		return Resource->Proxy;
 	}
 
-	auto DMaterialInterface::PublishCompilationResources(EMaterialRenderDirtyFlags Flags, std::span<const FGuid> ChangedParameters) const -> void
+	auto DMaterialInterface::PublishCompilationResources(EMaterialRenderDirtyFlags Flags, std::span<const FMaterialParameterInfo> ChangedParameters) const -> void
 	{
 		if (!bAcceptingMaterialProxyPublications) return;
 		for (const auto& Resource : CompilationState.Resources)

@@ -218,7 +218,7 @@ TEST(FMaterialProgramIdentityTests,
 	InitializeDObjectSystem();
 	auto [Definitions, Program] = MakeDualLayerRustFixture();
 	const FGuid RustAmountId = Definitions[5].Id;
-	const FGuid RustMaskId = Definitions[4].Id;
+	const auto RustMaskInfo = Definitions[4].GetParameterInfo();
 
 	auto* Root = NewObject<DMaterial>(nullptr, "DualLayerRust");
 	auto* LightRust = NewObject<DMaterialInstance>(nullptr, "LightRust");
@@ -233,8 +233,7 @@ TEST(FMaterialProgramIdentityTests,
 	auto HeavyMask = Definitions[4].Value;
 	HeavyMask.GetTexture().TextureFallback = EMaterialTextureFallback::White;
 	HeavyMask.GetTexture().SamplerState.AddressU = EMaterialSamplerAddressMode::ClampToEdge;
-	ASSERT_TRUE(HeavyRust->SetParameterValue(
-		RustMaskId, HeavyMask));
+	ASSERT_TRUE(HeavyRust->SetParameterValueByInfo(RustMaskInfo, HeavyMask));
 	const auto Accepted = Root->GetAcceptedCompiledProgram();
 	ASSERT_NE(Accepted, nullptr);
 	EXPECT_EQ(Accepted->GetShaderMap().Layout.ResourceFieldCount, 5u);
@@ -243,10 +242,10 @@ TEST(FMaterialProgramIdentityTests,
 	const auto HeavyData = Durin::Testing::CaptureMaterialRenderData(*HeavyRust);
 	EXPECT_EQ(LightData.CompiledProgram->ShaderMap, Accepted->ShaderMap);
 	EXPECT_EQ(HeavyData.CompiledProgram->ShaderMap, Accepted->ShaderMap);
-	EXPECT_FLOAT_EQ(ReadParameterFloat(LightData, RustAmountId), 0.1f);
-	EXPECT_FLOAT_EQ(ReadParameterFloat(HeavyData, RustAmountId), 0.9f);
+	EXPECT_FLOAT_EQ(ReadParameterFloat(LightData, std::string("RustAmount")), 0.1f);
+	EXPECT_FLOAT_EQ(ReadParameterFloat(HeavyData, std::string("RustAmount")), 0.9f);
 	const auto MaskField = std::ranges::find(Accepted->GetShaderMap().Layout.Fields,
-		RustMaskId, &FMaterialRenderField::ParameterId);
+		Definitions[4].Name.ToString(), &FMaterialRenderField::ParameterId);
 	ASSERT_NE(MaskField, Accepted->GetShaderMap().Layout.Fields.end());
 	const auto LightBinding = GetMaterialBinding(LightData);
 	const auto HeavyBinding = GetMaterialBinding(HeavyData);
@@ -511,15 +510,14 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 	EXPECT_FALSE(RenderData.Representation.IsError());
 	using Role = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole;
 	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
-	const auto BaseId = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(
-		Role::BaseColor, Kind::Value);
+	const auto BaseId = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName().ToString();
 	EXPECT_FLOAT_EQ(ReadParameterFloat(RenderData, BaseId, 0), 0.15f);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(RenderData, BaseId, 1), 0.25f);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(RenderData, BaseId, 2), 0.35f);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(RenderData,
-		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(Role::Opacity, Kind::Value)), 0.45f);
+		Durin::AssetForge::Builtins::MaterialParameters::OpacityName().ToString()), 0.45f);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(RenderData,
-		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(Role::Roughness, Kind::Value)), 0.25f);
+		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName().ToString()), 0.25f);
 }
 
 TEST(FMaterialRenderRepresentationTests, CompilationPreservesAuthoredInputsAndRejectsNonFinitePayloads)
@@ -655,15 +653,15 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	auto Value = Definition.Value;
 	Value.GetTexture().SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
 	Value.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
-	ASSERT_TRUE(Child->SetParameterValue(Definition.Id, Value));
+	ASSERT_TRUE(Child->SetParameterValueByInfo(Definition.GetParameterInfo(), Value));
 	Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Child));
 	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
 	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Child).CompiledProgram, ChildAccepted);
-	ASSERT_TRUE(Root->SetParameterValue(Definition.Id, Value));
+	ASSERT_TRUE(Root->SetParameterValueByInfo(Definition.GetParameterInfo(), Value));
 	EXPECT_EQ(Root->GetAcceptedCompiledProgram()->ShaderMap, Accepted->ShaderMap);
 	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Root).PlanningPassIdentity.ShaderMap.ProgramIdentity, Accepted->GetShaderMap().ShaderMapId);
-	ASSERT_TRUE(Child->ClearParameterValue(Definition.Id));
+	ASSERT_TRUE(Child->ClearParameterValueByInfo(Definition.GetParameterInfo()));
 	Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Child));
 	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);

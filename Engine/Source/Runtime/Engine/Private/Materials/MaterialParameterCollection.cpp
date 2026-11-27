@@ -171,7 +171,7 @@ namespace Durin
 		if (!Compiled)
 			return Error(
 				EMaterialParameterCollectionError::InvalidDeclaration, 0,
-				Compiled.Validation.ParameterId,
+				Compiled.Validation.ParameterId.GetCollectionMemberId(),
 				"The collection uniform layout could not be compiled.");
 		FMaterialParameterCollectionLayout Result{
 			.CollectionId = CollectionId, .UniformLayout = std::move(Compiled.Layout),
@@ -384,6 +384,40 @@ namespace Durin
 		check(IsInGameThread());
 		Counters.SubmittedRecords += Updates.size();
 		if (Updates.empty()) { ++Counters.NoOpCommits; return {}; }
+		std::unordered_set<FGuid> Seen;
+		std::vector<const FMaterialParameterCollectionDeclaration*> Members;
+		Members.reserve(Updates.size());
+		for (uint32 Index = 0; Index < Updates.size(); ++Index)
+		{
+			const auto& Update = Updates[Index];
+			const auto* Declaration = Collection.FindDeclaration(Update.ParameterName);
+			if (!Declaration)
+			{
+				++Counters.RejectedCommits;
+				return Error(EMaterialParameterCollectionError::DeclarationNotFound, Index, {},
+					std::format("Collection parameter '{}' was not found.", Update.ParameterName.ToString()));
+			}
+			if (!Seen.insert(Declaration->Id).second)
+			{
+				++Counters.RejectedCommits;
+				return Error(EMaterialParameterCollectionError::DuplicateUpdate,
+					Index, Declaration->Id, "A batch cannot update one declaration twice.");
+			}
+			if (Update.Operation != EMaterialParameterCollectionUpdateOperation::Clear
+				&& Update.Operation != EMaterialParameterCollectionUpdateOperation::Set)
+			{
+				++Counters.RejectedCommits;
+				return Error(EMaterialParameterCollectionError::InvalidState,
+					Index, Declaration->Id, "Unknown collection parameter operation.");
+			}
+			if (Update.Operation == EMaterialParameterCollectionUpdateOperation::Set && !IsFinite(Update.Value, Declaration->Type))
+			{
+				++Counters.RejectedCommits;
+				return Error(EMaterialParameterCollectionError::NonFiniteValue,
+					Index, Declaration->Id, "Runtime collection values must be finite.");
+			}
+			Members.push_back(Declaration);
+		}
 		auto StateResult = FindOrCreateState(Collection);
 		if (!StateResult)
 		{
@@ -391,34 +425,13 @@ namespace Durin
 			return std::unexpected(StateResult.error());
 		}
 		auto* State = *StateResult;
-		std::unordered_set<FGuid> Seen;
 		auto Candidate = State->Overrides;
-		for (uint32 Index = 0; Index < Updates.size(); ++Index)
+		for (size_t Index = 0; Index < Updates.size(); ++Index)
 		{
-			const auto& Update = Updates[Index];
-			if (!Seen.insert(Update.ParameterId).second)
-			{
-				++Counters.RejectedCommits;
-				return Error(EMaterialParameterCollectionError::DuplicateUpdate,
-					Index, Update.ParameterId, "A batch cannot update one declaration twice.");
-			}
-			const auto* Declaration = Collection.FindDeclaration(Update.ParameterId);
-			if (!Declaration)
-			{
-				++Counters.RejectedCommits;
-				return Error(EMaterialParameterCollectionError::DeclarationNotFound,
-					Index, Update.ParameterId, "The collection declaration was not found.");
-			}
-			if (Update.Operation == EMaterialParameterCollectionUpdateOperation::Clear)
-				Candidate.erase(Update.ParameterId);
-			else if (!IsFinite(Update.Value, Declaration->Type))
-			{
-				++Counters.RejectedCommits;
-				return Error(EMaterialParameterCollectionError::NonFiniteValue,
-					Index, Update.ParameterId, "Runtime collection values must be finite.");
-			}
-			else Candidate[Update.ParameterId] = CanonicalValue(Update.Value,
-				Declaration->Type);
+			if (Updates[Index].Operation == EMaterialParameterCollectionUpdateOperation::Clear)
+				Candidate.erase(Members[Index]->Id);
+			else
+				Candidate[Members[Index]->Id] = CanonicalValue(Updates[Index].Value, Members[Index]->Type);
 		}
 		if (Candidate == State->Overrides)
 		{
@@ -435,33 +448,10 @@ namespace Durin
 	}
 
 	auto DMaterialParameterCollectionSubsystem::SetValue(
-		DMaterialParameterCollection& Collection, FGuid ParameterId,
-		const FVector4& Value) -> std::expected<void, FMaterialParameterCollectionError>
-	{
-		const auto Update = FMaterialParameterCollectionUpdate::Set(ParameterId, Value);
-		return ApplyUpdates(Collection, std::span(&Update, 1));
-	}
-
-	auto DMaterialParameterCollectionSubsystem::SetValue(
 		DMaterialParameterCollection& Collection, FName ParameterName,
 		const FVector4& Value) -> std::expected<void, FMaterialParameterCollectionError>
 	{
-		const auto* Declaration = Collection.FindDeclaration(ParameterName);
-		if (!Declaration)
-		{
-			++Counters.SubmittedRecords;
-			++Counters.RejectedCommits;
-			return Error(EMaterialParameterCollectionError::DeclarationNotFound,
-				0, {}, "The collection declaration was not found.");
-		}
-		return SetValue(Collection, Declaration->Id, Value);
-	}
-
-	auto DMaterialParameterCollectionSubsystem::ClearValue(
-		DMaterialParameterCollection& Collection, FGuid ParameterId)
-		-> std::expected<void, FMaterialParameterCollectionError>
-	{
-		const auto Update = FMaterialParameterCollectionUpdate::Clear(ParameterId);
+		const auto Update = FMaterialParameterCollectionUpdate::Set(ParameterName, Value);
 		return ApplyUpdates(Collection, std::span(&Update, 1));
 	}
 
@@ -469,42 +459,27 @@ namespace Durin
 		DMaterialParameterCollection& Collection, FName ParameterName)
 		-> std::expected<void, FMaterialParameterCollectionError>
 	{
-		const auto* Declaration = Collection.FindDeclaration(ParameterName);
-		if (!Declaration)
-		{
-			++Counters.SubmittedRecords;
-			++Counters.RejectedCommits;
-			return Error(EMaterialParameterCollectionError::DeclarationNotFound,
-				0, {}, "The collection declaration was not found.");
-		}
-		return ClearValue(Collection, Declaration->Id);
-	}
-
-	auto DMaterialParameterCollectionSubsystem::GetValue(
-		const DMaterialParameterCollection& Collection, FGuid ParameterId,
-		FVector4& OutValue) const -> bool
-	{
-		check(IsInGameThread());
-		const auto State = States.find(Collection.GetCollectionId());
-		if (State != States.end())
-			if (const auto Override = State->second.Overrides.find(ParameterId);
-				Override != State->second.Overrides.end())
-			{
-				OutValue = Override->second;
-				return true;
-			}
-		const auto* Declaration = Collection.FindDeclaration(ParameterId);
-		if (!Declaration) return false;
-		OutValue = Declaration->DefaultValue;
-		return true;
+		const auto Update = FMaterialParameterCollectionUpdate::Clear(ParameterName);
+		return ApplyUpdates(Collection, std::span(&Update, 1));
 	}
 
 	auto DMaterialParameterCollectionSubsystem::GetValue(
 		const DMaterialParameterCollection& Collection, FName ParameterName,
 		FVector4& OutValue) const -> bool
 	{
+		check(IsInGameThread());
 		const auto* Declaration = Collection.FindDeclaration(ParameterName);
-		return Declaration && GetValue(Collection, Declaration->Id, OutValue);
+		if (!Declaration) return false;
+		const auto State = States.find(Collection.GetCollectionId());
+		if (State != States.end())
+			if (const auto Override = State->second.Overrides.find(Declaration->Id);
+				Override != State->second.Overrides.end())
+			{
+				OutValue = Override->second;
+				return true;
+			}
+		OutValue = Declaration->DefaultValue;
+		return true;
 	}
 
 	auto DMaterialParameterCollectionSubsystem::GetSnapshot(

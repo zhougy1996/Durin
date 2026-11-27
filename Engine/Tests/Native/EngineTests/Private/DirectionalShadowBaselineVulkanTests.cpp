@@ -1671,8 +1671,17 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 		EXPECT_EQ(GLastTelemetry.Visibility.OcclusionCulledPrimitives, 0u);
 		ASSERT_TRUE(RequireReadyHistory());
 
-		const FGuid RoughnessParameter = AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
-			AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Roughness).Value;
+		const auto FindWallField = [&](FName Name) {
+			uint32 Index = std::numeric_limits<uint32>::max();
+			EnqueueRenderCommand("FindWallField", [&](FRHICommandListImmediate&) {
+				const auto Program = WallMaterial->GetMaterialWithFallback().CompiledProgram;
+				if (Program) Index = Program->FindParameterField({.Name = Name}).value_or(Index);
+			});
+			FlushRenderingCommands();
+			return Index;
+		};
+		const auto RoughnessParameter = FindWallField(AssetForge::Builtins::MaterialParameters::RoughnessName());
+		ASSERT_NE(RoughnessParameter, std::numeric_limits<uint32>::max());
 		{
 			SCOPED_TRACE("opaque numeric uniform writes preserve ready history");
 			ASSERT_TRUE(RequireReadyHistory());
@@ -1703,18 +1712,18 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 			CheckFirstFrame();
 		};
 		CheckChange("unknown parameter publication invalidates ready history", [&] {
-			WallMaterial->UpdateParameter_GameThread(FGuid{41, 23, 72, 9}, FMaterialParameterValue::MakeScalar(0.5f));
+			WallMaterial->UpdateParameter_GameThread(std::numeric_limits<uint32>::max(), FMaterialParameterValue::MakeScalar(0.5f));
 			FlushRenderingCommands();
 		});
 		CheckChange("out-of-range uniform publication invalidates ready history", [&] {
-			const FGuid BaseColor = AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
-				AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value;
+			const auto BaseColor = FindWallField(AssetForge::Builtins::MaterialParameters::BaseColorName());
+			ASSERT_NE(BaseColor, std::numeric_limits<uint32>::max());
 			EnqueueRenderCommand("ShadowBaselineCapture", [&, BaseColor](FRHICommandListImmediate&) {
 				const uint64 Revision = Scene->GetOcclusionRevision_RenderThread();
 				WallMaterial->UpdateParameter_RenderThread(BaseColor,
-					FMaterialParameterValue::MakeVector(FVector3(std::numeric_limits<double>::max())));
+					FMaterialParameterValue::MakeVector4(FVector4(std::numeric_limits<double>::max())));
 				EXPECT_NE(Scene->GetOcclusionRevision_RenderThread(), Revision);
-				WallMaterial->UpdateParameter_RenderThread(BaseColor, FMaterialParameterValue::MakeVector({0.7, 0.3, 0.1}));
+				WallMaterial->UpdateParameter_RenderThread(BaseColor, FMaterialParameterValue::MakeVector4({0.7, 0.3, 0.1, 1}));
 			});
 			FlushRenderingCommands();
 		});

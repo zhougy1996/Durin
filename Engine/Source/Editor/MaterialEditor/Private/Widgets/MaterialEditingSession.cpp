@@ -5,6 +5,7 @@
 #include "Materials/MaterialExpressionIO.h"
 
 #include "Asset/AssetCompilingManager.h"
+#include "CoreGlobals.h"
 #include "DObject/Package.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Transactions/Transactor.h"
@@ -27,6 +28,7 @@ namespace Durin::MaterialEditor
 
 	FMaterialEditingSession::~FMaterialEditingSession()
 	{
+		if (Working && WorkingChangeHandle.IsValid()) Working->GetGraphChanges().Unsubscribe(WorkingChangeHandle);
 		if (Working) FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Working);
 		if (WorkingPackage && Transactor.IsValid()) Transactor->ForgetPackage(*WorkingPackage);
 		if (Working) MarkAsGarbage(Working.Get());
@@ -76,6 +78,11 @@ namespace Durin::MaterialEditor
 		Graph = DMaterialGraph::Create(*Working);
 		PublishedWorkingRevision = Working->GetGraphChanges().GetEditRevision();
 		WorkingPackage->ClearDirty();
+		// Transient objects skip normal package dirtying. Replay restores the recorded dirty bit itself.
+		WorkingChangeHandle = Working->GetGraphChanges().Subscribe(*Working, [this](const FMaterialGraphChangeSet&) {
+			if (!GIsTransacting && Working->GetGraphChanges().GetEditRevision() != PublishedWorkingRevision)
+				WorkingPackage->MarkDirty();
+		});
 
 		return true;
 	}

@@ -1,5 +1,4 @@
 #include "Materials/MaterialInterface.h"
-#include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionEditing.h"
 #include "Materials/MaterialFunction.h"
@@ -442,6 +441,7 @@ namespace Durin
 
 	auto DMaterialInterface::FindParameterDefinition(const FGuid& Id) const -> const FMaterialParameterDefinition*
 	{
+		if (!Id.IsValid()) return nullptr;
 		const std::span Definitions = GetParameterDefinitions();
 		const auto It = std::ranges::find(Definitions, Id, &FMaterialParameterDefinition::Id);
 		return It == Definitions.end() ? nullptr : &*It;
@@ -463,12 +463,6 @@ namespace Durin
 		const std::span Definitions = GetParameterDefinitions();
 		const auto It = std::ranges::find(Definitions, Info.Name, &FMaterialParameterDefinition::Name);
 		return It == Definitions.end() ? nullptr : &*It;
-	}
-
-	auto DMaterialInterface::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
-	{
-		const auto* Definition = FindParameterDefinition(Id);
-		return Definition && ResolveParameterValueByInfo(Definition->GetParameterInfo(), OutParameter);
 	}
 
 	auto DMaterialInterface::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
@@ -572,11 +566,11 @@ namespace Durin
 		while (Owner->IsDynamicInstance() && IsValid(Owner->GetParent())) Owner = Owner->GetParent();
 		const auto& Program = Owner->CompilationState.SelectedResource->CompiledProgram;
 		if (!Program) return;
-		for (const auto& Parameter : Program->GetShaderMap().ActiveParameters)
+		for (uint32 Index = 0; Index < Program->FieldParameters.size(); ++Index)
 		{
-			if (Parameter.Type != EMaterialParameterType::Texture) continue;
+			if (Program->GetShaderMap().ActiveParameters[Index].Type != EMaterialParameterType::Texture) continue;
 			FResolvedMaterialParameter Resolved;
-			if (!ResolveParameterValue(Parameter.Id, Resolved) || Resolved.Value.GetType() != EMaterialParameterType::Texture) continue;
+			if (!ResolveParameterValueByInfo(Program->FieldParameters[Index], Resolved) || Resolved.Value.GetType() != EMaterialParameterType::Texture) continue;
 			auto* Texture = Resolved.Value.GetTexture().Texture.Get();
 			if (IsValid(Texture) && std::ranges::find(OutTextures, Texture) == OutTextures.end()) OutTextures.push_back(Texture);
 		}
@@ -707,16 +701,23 @@ namespace Durin
 		if (!ResolveMaterialProperties(*this, Properties)) return {};
 		const auto* Root = Cast<DMaterial>(ResolveObjectKey(Properties.Root));
 		if (!Root || Root->GetDomain() != Program->GetShaderMap().Domain) return {};
+		const auto& Map = Program->GetShaderMap();
+		if (Map.ActiveParameters.size() != Map.Layout.Fields.size()) return {};
+		std::vector<FMaterialParameterInfo> FieldParameters;
 		FMaterialInstanceParameterSet Defaults;
-		for (const auto& Parameter : Program->GetShaderMap().ActiveParameters)
+		for (uint32 Index = 0; Index < Map.Layout.Fields.size(); ++Index)
 		{
-			const auto* Definition = Root->FindParameterDefinition(Parameter.Id);
+			const auto& Parameter = Map.ActiveParameters[Index];
+			if (Parameter.Id != Map.Layout.Fields[Index].ParameterId) return {};
+			const auto* Definition = Parameter.Id.GetName() ? Root->FindParameterDefinitionByInfo({.Name = *Parameter.Id.GetName()}) : nullptr;
 			if (!Definition || !Parameter.MatchesValue(Definition->Value)) return {};
-			Defaults.SetParameter(Parameter.Id, Definition->Value);
+			FieldParameters.push_back(Definition->GetParameterInfo());
+			Defaults.SetParameter(Index, Definition->Value);
 		}
 		Defaults.ResolveTextureReferences();
-		if (Program->DefaultParameters == Defaults) return Program;
+		if (Program->FieldParameters == FieldParameters && Program->DefaultParameters == Defaults) return Program;
 		auto Bound = std::make_shared<FMaterialProgram>(*Program);
+		Bound->FieldParameters = std::move(FieldParameters);
 		Bound->DefaultParameters = std::move(Defaults);
 		return Bound;
 	}
@@ -728,17 +729,17 @@ namespace Durin
 		if (!Resource.CompiledProgram) return Result;
 		FResolvedMaterialProperties Properties;
 		if (!ResolveMaterialProperties(*this, Properties)) return Result;
-		for (const auto& Parameter : Resource.CompiledProgram->GetShaderMap().ActiveParameters)
+		const auto& Program = *Resource.CompiledProgram;
+		for (uint32 Index = 0; Index < Program.FieldParameters.size(); ++Index)
 		{
-			const auto* Definition = FindParameterDefinition(Parameter.Id);
-			if (!Definition) continue;
+			const auto& Parameter = Program.GetShaderMap().ActiveParameters[Index];
 			for (auto* Owner = this; Owner && Owner->GetParent(); Owner = Owner->GetParent())
 			{
 				const auto* Instance = Cast<DMaterialInstance>(Owner);
 				FMaterialParameterValue Value;
-				if (Instance && Instance->GetLocalParameterValueByInfo(Definition->GetParameterInfo(), Value) && Parameter.MatchesValue(Value))
+				if (Instance && Instance->GetLocalParameterValueByInfo(Program.FieldParameters[Index], Value) && Parameter.MatchesValue(Value))
 				{
-					Result.SetParameter(Parameter.Id, Value);
+					Result.SetParameter(Index, Value);
 					break;
 				}
 			}
@@ -751,8 +752,8 @@ namespace Durin
 	{
 		auto Parameters = Resource.CompiledProgram ? Resource.CompiledProgram->DefaultParameters
 			: FMaterialInstanceParameterSet{};
-		BuildMaterialParameterOverrides(Resource).VisitParameters([&](const FGuid& Id, const FMaterialParameterValue& Value) {
-			Parameters.SetParameter(Id, Value);
+		BuildMaterialParameterOverrides(Resource).VisitParameters([&](uint32 Index, const FMaterialParameterValue& Value) {
+			Parameters.SetParameter(Index, Value);
 		});
 		Parameters.ResolveTextureReferences();
 		return Parameters;
@@ -766,7 +767,7 @@ namespace Durin
 			| EMaterialRenderDirtyFlags::PipelineState, false, Context);
 	}
 
-	auto DMaterialInterface::PublishMaterialRenderProxyState(EMaterialRenderDirtyFlags Flags, std::span<const FGuid> ChangedParameters) -> void
+	auto DMaterialInterface::PublishMaterialRenderProxyState(EMaterialRenderDirtyFlags Flags, std::span<const FMaterialParameterInfo> ChangedParameters) -> void
 	{
 		CheckMaterialQueryThread();
 		if (!bAcceptingMaterialProxyPublications) return;
@@ -784,7 +785,7 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::SubmitMaterialRenderProxyState(
-		EMaterialRenderDirtyFlags Flags, std::span<const FGuid> ChangedParameters) const -> void
+		EMaterialRenderDirtyFlags Flags, std::span<const FMaterialParameterInfo> ChangedParameters) const -> void
 	{
 		if (!bAcceptingMaterialProxyPublications
 			|| !MaterialRenderProxy)
@@ -795,13 +796,12 @@ namespace Durin
 		if (!IsRenderingThreadRunning()) return;
 
 		const auto* Resource = GetMaterialResource();
-		RefreshDefaultCubeSkyBindings_GameThread(*this, Resource ? Resource->CompiledProgram.get() : nullptr);
 		SubmitMaterialProxyUpdates(*MaterialRenderProxy, Resource, Flags, ChangedParameters);
 		bMaterialProxyPublicationDirty = false;
 	}
 
 	auto DMaterialInterface::SubmitMaterialProxyUpdates(FMaterialRenderProxy& Proxy,
-		const FMaterialResource* Resource, EMaterialRenderDirtyFlags Flags, std::span<const FGuid> ChangedParameters) const -> void
+		const FMaterialResource* Resource, EMaterialRenderDirtyFlags Flags, std::span<const FMaterialParameterInfo> ChangedParameters) const -> void
 	{
 		const bool ProgramChanged = EnumHasAnyFlags(Flags, EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::ParentChain);
 		if (ProgramChanged || (ChangedParameters.empty() && EnumHasAnyFlags(Flags, EMaterialRenderDirtyFlags::DynamicParameters)))
@@ -812,11 +812,13 @@ namespace Durin
 		{
 			if (!ProgramChanged && !ChangedParameters.empty())
 			{
-				for (const auto& Id : ChangedParameters)
+				for (const auto& Info : ChangedParameters)
 				{
 					FResolvedMaterialParameter Parameter;
-					if (ResolveParameterValue(Id, Parameter) && Cast<DMaterialInstance>(Parameter.Source))
-						Proxy.UpdateParameter_GameThread(Id, Parameter.Value);
+					if (!Resource || !Resource->CompiledProgram) continue;
+					const auto Field = Resource->CompiledProgram->FindParameterField(Info);
+					if (Field && ResolveParameterValueByInfo(Info, Parameter) && Cast<DMaterialInstance>(Parameter.Source))
+						Proxy.UpdateParameter_GameThread(*Field, Parameter.Value);
 				}
 			}
 			else if (ProgramChanged || GetParent())
@@ -846,7 +848,7 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags,
-		bool bNotifyParameterChanges, FObjectCacheContext* Context, std::span<const FGuid> ChangedParameters) -> void
+		bool bNotifyParameterChanges, FObjectCacheContext* Context, std::span<const FMaterialParameterInfo> ChangedParameters) -> void
 	{
 		if (DirtyFlags == EMaterialRenderDirtyFlags::None) return;
 		auto Publish = [DirtyFlags, ChangedParameters, bNotifyParameterChanges](DMaterialInterface& Owner) {

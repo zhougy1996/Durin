@@ -549,9 +549,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 0.23f));
 	EXPECT_FALSE(Instance->GetPackage()->IsDirty());
 	EXPECT_EQ(Child->GetCookedProgramData().GetMetadata().LogicalSize, 0u);
-	EXPECT_FALSE(Instance->IsParameterValueOrphan(
-		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
-			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+	EXPECT_FALSE(Instance->IsParameterValueOrphanByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
 	const bool bOwnsRenderingThread = !Durin::IsRenderingThreadRunning();
 	if (bOwnsRenderingThread) Durin::InitRenderingThread();
 	Durin::FMaterialRenderData BaseData, ChildData;
@@ -653,11 +651,11 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->GetShaderMap().Layout;
 	auto* Instance = NewObject<DMaterialInstance>(Source->GetPackage(), "CustomCookedOverrides");
 	ASSERT_TRUE(Instance->SetParent(Source));
-	ASSERT_TRUE(Instance->SetParameterValue(Tint.Id, FMaterialParameterValue::MakeVector4(FVector4(0.8, 0.3, 0.1, 1.0))));
+	ASSERT_TRUE(Instance->SetParameterValueByInfo(Tint.GetParameterInfo(), FMaterialParameterValue::MakeVector4(FVector4(0.8, 0.3, 0.1, 1.0))));
 	auto Sampling = Texture.Value;
 	Sampling.GetTexture().SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
 	Sampling.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
-	ASSERT_TRUE(Instance->SetParameterValue(Texture.Id, Sampling));
+	ASSERT_TRUE(Instance->SetParameterValueByInfo(Texture.GetParameterInfo(), Sampling));
 	FSoftObjectPath InstancePath;
 	ASSERT_TRUE(FSoftObjectPath::TryCreate(Instance->GetObjectPath(), InstancePath));
 	const auto CookRoot = std::filesystem::absolute(Testing::CreateTestFixtureDirectory("CustomLayoutMaterialCook"));
@@ -708,7 +706,12 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		}
 		ASSERT_NE(LoadedInstance, nullptr);
 		FShaderCompilingManager::Get().FinishAllCompilation();
-		EXPECT_FALSE(LoadedInstance->IsParameterValueOrphan(Texture.Id));
+		EXPECT_FALSE(LoadedInstance->IsParameterValueOrphanByInfo(Texture.GetParameterInfo()));
+		for (const auto& Parameter : Loaded->GetParameterDefinitions()) EXPECT_FALSE(Parameter.Id.IsValid());
+		LoadedInstance->VisitLocalParameterOverrides([](const auto& Info, const FGuid& Id, const auto&) {
+			EXPECT_TRUE(Info.IsGlobal());
+			EXPECT_FALSE(Id.IsValid());
+		});
 		const auto RootBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded));
 		const auto InstanceBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*LoadedInstance));
 		EXPECT_EQ(RootBinding.LayoutIdentity, ExpectedLayout.Identity);
@@ -717,7 +720,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		EXPECT_EQ(RootBinding.CompiledSamplers[0], Texture.Value.GetTexture().SamplerState);
 		EXPECT_EQ(InstanceBinding.CompiledSamplers[0], Sampling.GetTexture().SamplerState);
 		EXPECT_EQ(InstanceBinding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
-		for (const auto& Field : ExpectedLayout.Fields) if (Field.ParameterId == Tint.Id)
+		for (const auto& Field : ExpectedLayout.Fields) if (Field.ParameterId == Tint.Name.ToString())
 		{
 			EXPECT_FLOAT_EQ(ReadFloat(RootBinding.CompiledUniformPayload, Field.Offset), 0.2f);
 			EXPECT_FLOAT_EQ(ReadFloat(InstanceBinding.CompiledUniformPayload, Field.Offset), 0.8f);
@@ -741,7 +744,6 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 	std::array<FPackagePath,Names.size()> Paths;
 	std::array<std::shared_ptr<const FMaterialProgram>,Names.size()> EditorPrograms,GamePrograms;
 	std::array<FMaterialConfiguration,Names.size()> Configurations;
-	std::array<FGuid,Names.size()> ColorIds;
 	FCookContext Cook(ECookTargetPlatform::Win64,ECookTargetProfile::Game);
 	Cook.SetMaterialConfigurations(std::array{FMaterialCookConfiguration{GetMaterialQualityLevel(),ERHIFeatureLevel::SM5}});
 	for (uint32 Variant=0;Variant<Names.size();++Variant)
@@ -765,7 +767,7 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Nodes;
 		const auto Add=[&]<class T>() { auto* E=NewObject<T>(nullptr,NAME_None); E->Id=FGuid::NewGuid(); Nodes.emplace_back(E); return E; };
 		auto* Color=Add.template operator()<DMaterialExpressionVector4Parameter>();
-		Color->Metadata={.Id=FGuid::NewGuid(),.Name="Color"}; Color->DefaultValue={.5,1,2,1}; ColorIds[Variant]=Color->Metadata.Id;
+		Color->Metadata={.Id=FGuid::NewGuid(),.Name="Color"}; Color->DefaultValue={.5,1,2,1};
 		auto* RGB=Add.template operator()<DMaterialExpressionSwizzle>(); RGB->Input={Color}; RGB->Components={0,1,2};
 		FMaterialRootInputs Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB};
 		if (Variant<2)
@@ -891,7 +893,7 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 			ASSERT_EQ(Actual.CompiledShaders.size(),Expected.CompiledShaders.size());
 			for (size_t I=0;I<Actual.CompiledShaders.size();++I) { EXPECT_EQ(Actual.CompiledShaders[I].CodeHash,Expected.CompiledShaders[I].CodeHash); EXPECT_TRUE(std::ranges::equal(Actual.CompiledShaders[I].Code,Expected.CompiledShaders[I].Code)); }
 			const auto Data=Testing::CaptureMaterialRenderData(*Loaded); EXPECT_FALSE(Data.Representation.IsError());
-			const auto Field=std::ranges::find(Actual.Layout.Fields,ColorIds[Variant],&FMaterialRenderField::ParameterId);
+			const auto Field=std::ranges::find(Actual.Layout.Fields,std::string("color"),&FMaterialRenderField::ParameterId);
 			if (Field!=Actual.Layout.Fields.end())
 			{
 				const auto RequestsBefore=GetMaterialCompilationStatistics().AcceptedRequests;
@@ -899,7 +901,7 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 				auto* First=DMaterialInstance::CreateDynamic(Loaded,Loaded,"First");
 				auto* Second=DMaterialInstance::CreateDynamic(Loaded,Loaded,"Second");
 				ASSERT_TRUE(First && Second);
-				ASSERT_TRUE(First->SetParameterValue(ColorIds[Variant],FMaterialParameterValue(FVector4(.8,1,2,1))));
+				ASSERT_TRUE(First->SetParameterValueByInfo({.Name = "Color"},FMaterialParameterValue(FVector4(.8,1,2,1))));
 				const auto Updated=Testing::CaptureMaterialRenderData(*First);
 				const auto Unchanged=Testing::CaptureMaterialRenderData(*Second);
 				std::memcpy(&Value,Updated.Representation.GetUniformPayload().data()+Field->Offset,sizeof(Value)); EXPECT_FLOAT_EQ(Value,.8f);

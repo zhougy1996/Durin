@@ -96,9 +96,9 @@ namespace Durin::MIR
 		return Builder.Literal(Components, Kind, Space);
 	}
 
-	auto FEmitter::Parameter(FGuid Id, EMaterialParameterType Type, EMaterialTextureDimension Dimension) -> uint32
+	auto FEmitter::Parameter(FName Name, EMaterialParameterType Type, EMaterialTextureDimension Dimension) -> uint32
 	{
-		return Builder.Parameter(Id, Type, Dimension);
+		return Builder.Parameter(Name, Type, Dimension);
 	}
 
 	auto FEmitter::CollectionParameter(
@@ -160,7 +160,7 @@ namespace Durin::MIR
 		if (Index >= Builder.Result.IR.Nodes.size()) return false;
 		const auto& Node = GetNode(Index);
 		if (Node.Opcode != EMaterialProgramOpcode::TextureParameter) return false;
-		const auto Usage = Builder.Shared->TextureUsages.find(Node.GetParameterId());
+		const auto Usage = Builder.Shared->TextureUsages.find(FName(std::get<std::string>(Node.Payload)));
 		return Usage != Builder.Shared->TextureUsages.end() && Usage->second == ETextureUsage::Normal;
 	}
 

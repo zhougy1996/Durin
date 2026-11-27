@@ -19,10 +19,10 @@
 
 namespace
 {
-	constexpr Durin::FGuid TintId{0, 0, 1, 1};
-	constexpr Durin::FGuid UVId{0, 0, 1, 2};
-	constexpr Durin::FGuid TextureId{0, 0, 1, 3};
-	constexpr Durin::FGuid MaskId{0, 0, 1, 4};
+	const std::string TintId = "tint";
+	const std::string UVId = "uv";
+	const std::string TextureId = "texture";
+	const std::string MaskId = "mask";
 
 	auto ResolveNodeSemantics(Durin::MIR::FModule& IR, Durin::MIR::FNode& Node) -> void
 	{

@@ -41,7 +41,6 @@ namespace Durin
 		uint64 ResolutionCacheMissCount = 0;
 		uint64 BindingUpdateCount = 0;
 		uint64 RepresentationValidationFailureCount = 0;
-		uint64 ParameterBindingBuildCount = 0;
 		uint64 IndexedParameterWriteCount = 0;
 	};
 
@@ -73,8 +72,8 @@ namespace Durin
 		ENGINE_API auto SetProgram_RenderThread(std::shared_ptr<const FMaterialProgram> Program) -> void;
 		ENGINE_API auto InitParameters_GameThread(FMaterialInstanceParameterSet Parameters) -> void;
 		ENGINE_API auto InitParameters_RenderThread(FMaterialInstanceParameterSet Parameters) -> void;
-		ENGINE_API auto UpdateParameter_GameThread(const FGuid& Id, const FMaterialParameterValue& Value) -> void;
-		ENGINE_API auto UpdateParameter_RenderThread(const FGuid& Id, FMaterialParameterValue Value) -> void;
+		ENGINE_API auto UpdateParameter_GameThread(uint32 FieldIndex, const FMaterialParameterValue& Value) -> void;
+		ENGINE_API auto UpdateParameter_RenderThread(uint32 FieldIndex, FMaterialParameterValue Value) -> void;
 		ENGINE_API auto SetProperties_GameThread(std::optional<FMaterialStaticProperties> Properties) -> void;
 		ENGINE_API auto SetProperties_RenderThread(std::optional<FMaterialStaticProperties> Properties) -> void;
 		ENGINE_API auto SetCompiling_GameThread(bool Compiling) -> void;
@@ -97,18 +96,6 @@ namespace Durin
 		ENGINE_API auto GetResolutionCount_RenderThread() const -> uint64;
 
 	private:
-		// Bindings retain the exact program and parameter sequence they were built for.
-		struct FParameterBinding
-		{
-			FGuid Id;
-			EMaterialParameterType Type;
-			uint32 FieldIndex = std::numeric_limits<uint32>::max();
-			bool bActive = false;
-		};
-		auto UpdateParameterBindings() -> void;
-		std::shared_ptr<const FMaterialShaderMap> BindingArtifact;
-		std::vector<FParameterBinding> ParameterBindings;
-
 		~FMaterialRenderProxy() override = default;
 
 		mutable std::atomic<uint32> ReferenceCount = 0;
@@ -122,7 +109,7 @@ namespace Durin
 		auto RecordUpdate_RenderThread() -> void;
 		auto InvalidateStaticDrawLists_RenderThread() -> void;
 		auto InvalidateOcclusionHistory_RenderThread() -> void;
-		auto CanPreserveOcclusionForParameter(const FGuid& Id, const FMaterialParameterValue& Value) const -> bool;
+		auto CanPreserveOcclusionForParameter(uint32 FieldIndex, const FMaterialParameterValue& Value) const -> bool;
 		std::unordered_map<FSceneInterface*, uint32> SceneReferences;
 
 		FMaterialRenderData CachedResolvedData;

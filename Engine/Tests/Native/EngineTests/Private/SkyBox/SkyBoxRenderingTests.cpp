@@ -37,8 +37,6 @@ TEST(FSkyBoxRenderingTests, ReconstructsTranslationInvariantDirectionAndInverseC
 	Durin::FViewSkyParameters SkyBox;
 	SkyBox.Rotation = Durin::Math::MakeQuaternionFromAxisAngleRadians(
 		Durin::Math::HalfPi<Durin::FReal>(), Durin::FVectorConstants::Up);
-	SkyBox.Tint = {0.25f, 0.5f, 0.75f};
-	SkyBox.Intensity = 2.0f;
 
 	Durin::FSceneView OriginView;
 	OriginView.ViewProjectionMatrix = Durin::FMatrix(1.0);
@@ -63,10 +61,9 @@ TEST(FSkyBoxRenderingTests, ReconstructsTranslationInvariantDirectionAndInverseC
 	{
 		EXPECT_NEAR(OriginDirection[Axis], ExpectedDirection[Axis], 1.e-6);
 	}
-	EXPECT_EQ(OriginUniform.TintIntensity, Durin::FVector4f(0.25f, 0.5f, 0.75f, 2.0f));
 }
 
-TEST(FSkyBoxRenderingTests, RejectsInvalidTransformsAndClampsIntensity)
+TEST(FSkyBoxRenderingTests, RejectsInvalidTransforms)
 {
 	Durin::FSceneView View;
 	Durin::FViewSkyParameters SkyBox;
@@ -79,10 +76,6 @@ TEST(FSkyBoxRenderingTests, RejectsInvalidTransformsAndClampsIntensity)
 	SkyBox.Rotation = Durin::FQuat(0.0, 0.0, 0.0, 0.0);
 	EXPECT_FALSE(Durin::SkyBoxRendering::BuildUniform(View, SkyBox, Uniform));
 
-	SkyBox.Rotation = Durin::FQuatConstants::Identity;
-	SkyBox.Intensity = -3.0f;
-	ASSERT_TRUE(Durin::SkyBoxRendering::BuildUniform(View, SkyBox, Uniform));
-	EXPECT_FLOAT_EQ(Uniform.TintIntensity.w, 0.0f);
 }
 
 TEST(FSkyBoxRenderingTests, KeepsDirectionsStableForTinyNearClipAtLargeWorldCoordinates)

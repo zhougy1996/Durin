@@ -929,7 +929,7 @@ TEST(FSceneImportTests, SourceTransformsMaskFactorAndTexturelessEmissiveArePubli
 	FResolvedMaterialParameter Parameter;
 	const auto Resolve = [&](FName Name) {
 		const auto* Definition = Instance->FindParameterDefinition(Name);
-		return Definition && Instance->ResolveParameterValue(Definition->Id, Parameter);
+		return Definition && Instance->ResolveParameterValueByInfo(Definition->GetParameterInfo(), Parameter);
 	};
 	ASSERT_TRUE(Resolve("BaseColorTexture"));
 	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.MinFilter, EMaterialSamplerMinFilter::Nearest);
@@ -1058,7 +1058,7 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 				ASSERT_TRUE(LoadedValue);
 			}
 			EXPECT_EQ(Reused->GetParent(), Parent);
-			EXPECT_TRUE(Reused->HasLocalParameterValue(ColorId));
+			EXPECT_TRUE(Reused->HasLocalParameterValueByInfo({.Name = MaterialParameters::BaseColorName()}));
 		}
 	EXPECT_EQ(Parent->GetPackage()->IsDirty(), bWasDirty);
 	EXPECT_FALSE(Parent->GetPackage()->IsDirty());
@@ -1104,8 +1104,7 @@ TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdit
 	ASSERT_NE(Mesh, nullptr);
 	const auto* ColorDefinition = Material->FindParameterDefinition(MaterialParameters::BaseColorName());
 	ASSERT_NE(ColorDefinition, nullptr);
-	const auto Color = ColorDefinition->Id;
-	ASSERT_TRUE(Material->SetParameterValue(Color, FMaterialParameterValue::MakeVector4({.2, .3, .4, 0})));
+	ASSERT_TRUE(Material->SetParameterValueByInfo(ColorDefinition->GetParameterInfo(), FMaterialParameterValue::MakeVector4({.2, .3, .4, 0})));
 	auto Properties = Material->GetStaticProperties();
 	Properties.bTwoSided = true;
 	ASSERT_TRUE(Material->SetStaticProperties(Properties));
@@ -1301,9 +1300,9 @@ TEST(FSceneImportTests, StandardPBRParentMapsPackedChannelsUVsEmissiveAndOpacity
 		EXPECT_TRUE(Instance->GetMaterialCompileStatus().IsCurrent());
 		EXPECT_EQ(Instance->GetStaticProperties().BlendMode, bTranslucent ? EMaterialBlendMode::Translucent : EMaterialBlendMode::Masked);
 		FResolvedMaterialParameter Value;
-		ASSERT_TRUE(Instance->ResolveParameterValue(UVScaleId, Value));
+		ASSERT_TRUE(Instance->ResolveParameterValueByInfo(Instance->FindParameterDefinition(UVScaleId)->GetParameterInfo(), Value));
 		EXPECT_EQ(FVector2(Value.Value.GetVector4()), FVector2(2, 3));
-		ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialProperty::MP_EmissiveColor, Kind::Value), Value));
+		ASSERT_TRUE(Instance->ResolveParameterValueByInfo(Instance->FindParameterDefinition(GetMaterialSurfaceParameterId(EMaterialProperty::MP_EmissiveColor, Kind::Value))->GetParameterInfo(), Value));
 		EXPECT_EQ(FVector3(Value.Value.GetVector4()), FVector3(0));
 		DTexture* Metallic = nullptr;
 		DTexture* Roughness = nullptr;

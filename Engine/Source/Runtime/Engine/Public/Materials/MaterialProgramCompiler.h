@@ -134,7 +134,7 @@ namespace Durin
 			EMaterialSceneTextureFilter Filter = EMaterialSceneTextureFilter::Linear;
 			auto operator==(const FSceneTextureRead&) const -> bool = default;
 		};
-		using FPayload = std::variant<std::monostate, FMaterialProgramLiteral, FGuid,
+		using FPayload = std::variant<std::monostate, FMaterialProgramLiteral, std::string,
 			FSwizzle, FCollectionParameter, FMaterialTransformPayload, FCustomDataRead, FTextureRead, FSceneTextureRead>;
 
 		struct FNode
@@ -153,10 +153,10 @@ namespace Durin
 				const auto* Value = std::get_if<FMaterialProgramLiteral>(&Payload);
 				return Value ? *Value : FMaterialProgramLiteral{};
 			}
-			auto GetParameterId() const -> FGuid
+			auto GetParameterId() const -> FMaterialFieldKey
 			{
-				const auto* Value = std::get_if<FGuid>(&Payload);
-				return Value ? *Value : FGuid{};
+				const auto* Name = std::get_if<std::string>(&Payload);
+				return Name ? FMaterialFieldKey(*Name) : FMaterialFieldKey{};
 			}
 			auto GetSwizzle() const -> FSwizzle
 			{
@@ -215,7 +215,7 @@ namespace Durin
 				}
 				case EMaterialProgramOpcode::Constant: return std::holds_alternative<FMaterialProgramLiteral>(Payload);
 				case EMaterialProgramOpcode::Parameter:
-				case EMaterialProgramOpcode::TextureParameter: return std::holds_alternative<FGuid>(Payload);
+				case EMaterialProgramOpcode::TextureParameter: return std::holds_alternative<std::string>(Payload);
 				case EMaterialProgramOpcode::CollectionParameter:
 					return std::holds_alternative<FCollectionParameter>(Payload);
 				case EMaterialProgramOpcode::Swizzle: return std::holds_alternative<FSwizzle>(Payload);
@@ -342,7 +342,7 @@ namespace Durin
 	struct FMaterialEntryRequirements
 	{
 		std::vector<FGuid> AttributeIDs;
-		std::vector<FGuid> ParameterIDs;
+		std::vector<FMaterialFieldKey> ParameterIDs;
 		std::vector<uint16> ResourceIndices;
 		std::vector<FGuid> CollectionIDs;
 		std::vector<FMaterialSceneTextureRequirement> SceneTextures;
@@ -404,7 +404,15 @@ namespace Durin
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
 		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
 		std::shared_ptr<const FMaterialShaderMap> ShaderMap;
+		// Bound with the defaults in layout order for this material publication.
+		std::vector<FMaterialParameterInfo> FieldParameters;
 		FMaterialInstanceParameterSet DefaultParameters;
+		auto FindParameterField(const FMaterialParameterInfo& Info) const -> std::optional<uint32>
+		{
+			const auto It = std::ranges::find(FieldParameters, Info);
+			if (It == FieldParameters.end()) return {};
+			return static_cast<uint32>(It - FieldParameters.begin());
+		}
 
 		ENGINE_API auto GetShaderMap() const -> const FMaterialShaderMap&;
 		ENGINE_API auto GetDebugData() const -> const FMaterialProgramDebugData&;

@@ -215,7 +215,7 @@ namespace Durin::MIR
 		{
 			const auto Definition = Parameter->GetParameterDefinition();
 			if (Definition.Type == EMaterialParameterType::Texture)
-				Shared->TextureUsages[Definition.Id] = Definition.TextureUsage;
+				Shared->TextureUsages[Definition.Name] = Definition.TextureUsage;
 		}
 		Expression.Build(Emitter);
 		SourceStack.pop_back();
@@ -566,9 +566,10 @@ namespace Durin::MIR
 		return Emit(std::move(Node));
 	}
 
-	auto FGraphBuilderImpl::Parameter(FGuid Id, EMaterialParameterType Type, EMaterialTextureDimension Dimension) -> uint32
+	auto FGraphBuilderImpl::Parameter(FName Name, EMaterialParameterType Type, EMaterialTextureDimension Dimension) -> uint32
 	{
-		if (!Id.IsValid()) return Fail("Parameter expression requires a valid parameter GUID.");
+		if (Name.IsNone()) return Fail("Parameter expression requires a name.");
+		const auto Id = StringUtils::FoldAscii(Name.ToString());
 		if (Dimension > EMaterialTextureDimension::TextureCube) return Fail("Texture parameter dimension is unsupported.");
 		EMaterialProgramValueType ValueType;
 		switch (Type)
@@ -581,7 +582,7 @@ namespace Durin::MIR
 		default: return Fail("Parameter expression has an unsupported type.");
 		}
 		const auto Existing = std::ranges::find(Result.Parameters, Id, &FMaterialCompilerParameterDeclaration::Id);
-		if (Existing != Result.Parameters.end() && (Existing->Type != Type || Existing->TextureDimension != Dimension)) return Fail("Parameter GUID has conflicting types.");
+		if (Existing != Result.Parameters.end() && (Existing->Type != Type || Existing->TextureDimension != Dimension)) return Fail("Parameter name has conflicting types.");
 		if (Existing == Result.Parameters.end()) Result.Parameters.push_back({Id, Type, Dimension});
 		if (Result.Parameters.size() > MaterialProgramMaxReferencedParameterCount) return Fail("Expression parameter count exceeds the bound.");
 		return Emit({.Opcode = Type == EMaterialParameterType::Texture ? EMaterialProgramOpcode::TextureParameter : EMaterialProgramOpcode::Parameter,

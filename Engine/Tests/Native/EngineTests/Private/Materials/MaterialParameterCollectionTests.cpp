@@ -190,28 +190,28 @@ TEST_F(FMaterialParameterCollectionTests,
 	ASSERT_NE(Second, nullptr);
 
 	FVector4 Read;
-	ASSERT_TRUE(First->GetValue(*Collection, Value.Id, Read));
+	ASSERT_TRUE(First->GetValue(*Collection, Value.Name, Read));
 	EXPECT_EQ(Read, Value.DefaultValue);
-	ASSERT_TRUE(First->SetValue(*Collection, Value.Id,
+	ASSERT_TRUE(First->SetValue(*Collection, Value.Name,
 		FVector4(8.0, 7.0, 6.0, 5.0)));
-	ASSERT_TRUE(First->GetValue(*Collection, Value.Id, Read));
+	ASSERT_TRUE(First->GetValue(*Collection, Value.Name, Read));
 	EXPECT_EQ(Read, FVector4(8.0, 7.0, 6.0, 5.0));
-	ASSERT_TRUE(Second->GetValue(*Collection, Value.Id, Read));
+	ASSERT_TRUE(Second->GetValue(*Collection, Value.Name, Read));
 	EXPECT_EQ(Read, Value.DefaultValue);
 
 	const std::array Invalid{
-		FMaterialParameterCollectionUpdate::Set(Value.Id, FVector4(9.0)),
-		FMaterialParameterCollectionUpdate::Clear(Value.Id)};
+		FMaterialParameterCollectionUpdate::Set(Value.Name, FVector4(9.0)),
+		FMaterialParameterCollectionUpdate::Clear("vAlUe")};
 	const auto Rejected = First->ApplyUpdates(*Collection, Invalid);
 	ASSERT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.error().RecordIndex, 1u);
 	EXPECT_EQ(Rejected.error().ParameterId, Value.Id);
 	EXPECT_EQ(Rejected.error().Code,
 		EMaterialParameterCollectionError::DuplicateUpdate);
-	ASSERT_TRUE(First->GetValue(*Collection, Value.Id, Read));
+	ASSERT_TRUE(First->GetValue(*Collection, Value.Name, Read));
 	EXPECT_EQ(Read, FVector4(8.0, 7.0, 6.0, 5.0));
-	ASSERT_TRUE(First->ClearValue(*Collection, Value.Id));
-	ASSERT_TRUE(First->GetValue(*Collection, Value.Id, Read));
+	ASSERT_TRUE(First->ClearValue(*Collection, Value.Name));
+	ASSERT_TRUE(First->GetValue(*Collection, Value.Name, Read));
 	EXPECT_EQ(Read, Value.DefaultValue);
 	const auto BeforeDefaultEdit = First->GetSnapshot(*Collection);
 	ASSERT_TRUE(BeforeDefaultEdit);
@@ -221,13 +221,61 @@ TEST_F(FMaterialParameterCollectionTests,
 	ASSERT_TRUE(AfterDefaultEdit);
 	EXPECT_GT(AfterDefaultEdit->Version, BeforeDefaultEdit->Version);
 	EXPECT_NE(AfterDefaultEdit->Payload, BeforeDefaultEdit->Payload);
-	ASSERT_TRUE(Second->GetValue(*Collection, Value.Id, Read));
+	ASSERT_TRUE(Second->GetValue(*Collection, Value.Name, Read));
 	EXPECT_EQ(Read, FVector4(4.0, 3.0, 2.0, 1.0));
 	const auto Counters = First->GetCounters();
 	EXPECT_EQ(Counters.ChangedCommits, 2u);
 	EXPECT_EQ(Counters.Publications, 3u);
 	EXPECT_EQ(Counters.AssetRefreshPublications, 1u);
 	EXPECT_EQ(Counters.RejectedCommits, 1u);
+}
+
+TEST_F(FMaterialParameterCollectionTests,
+	NamedBatchesPreserveOverridesAcrossRenameAndRejectPartialUpdates)
+{
+	auto* Collection = Make<DMaterialParameterCollection>("CollectionNamedUpdates");
+	auto A = MakeDeclaration("First");
+	auto B = MakeDeclaration("Second");
+	ASSERT_TRUE(Collection->SetDeclarations(std::array{A, B}));
+	auto* World = MakeWorld("CollectionNamedWorld");
+	auto* State = World->GetSubsystem<DMaterialParameterCollectionSubsystem>();
+	ASSERT_NE(State, nullptr);
+
+	const std::array Initial{
+		FMaterialParameterCollectionUpdate::Set(A.Name, FVector4(3.0)),
+		FMaterialParameterCollectionUpdate::Set(B.Name, FVector4(5.0))};
+	ASSERT_TRUE(State->ApplyUpdates(*Collection, Initial));
+	const FName OldName = A.Name;
+	A.Name = "Renamed";
+	ASSERT_TRUE(Collection->SetDeclarations(std::array{A, B}));
+	FVector4 Read;
+	EXPECT_FALSE(State->GetValue(*Collection, OldName, Read));
+	ASSERT_TRUE(State->GetValue(*Collection, A.Name, Read));
+	EXPECT_EQ(Read.x, 3.0);
+
+	const auto Before = State->GetSnapshot(*Collection);
+	const auto Publications = State->GetCounters().Publications;
+	const std::array Invalid{
+		FMaterialParameterCollectionUpdate::Clear(B.Name),
+		FMaterialParameterCollectionUpdate::Set(OldName, FVector4(9.0))};
+	const auto Rejected = State->ApplyUpdates(*Collection, Invalid);
+	ASSERT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.error().Code, EMaterialParameterCollectionError::DeclarationNotFound);
+	EXPECT_EQ(Rejected.error().RecordIndex, 1u);
+	EXPECT_EQ(State->GetSnapshot(*Collection), Before);
+	EXPECT_EQ(State->GetCounters().Publications, Publications);
+	ASSERT_TRUE(State->GetValue(*Collection, B.Name, Read));
+	EXPECT_EQ(Read.x, 5.0);
+
+	const std::array Update{
+		FMaterialParameterCollectionUpdate::Clear(A.Name),
+		FMaterialParameterCollectionUpdate::Set(B.Name, FVector4(7.0))};
+	ASSERT_TRUE(State->ApplyUpdates(*Collection, Update));
+	EXPECT_EQ(State->GetCounters().Publications, Publications + 1);
+	ASSERT_TRUE(State->GetValue(*Collection, A.Name, Read));
+	EXPECT_EQ(Read.x, 0.0);
+	ASSERT_TRUE(State->GetValue(*Collection, B.Name, Read));
+	EXPECT_EQ(Read.x, 7.0);
 }
 
 TEST_F(FMaterialParameterCollectionTests,

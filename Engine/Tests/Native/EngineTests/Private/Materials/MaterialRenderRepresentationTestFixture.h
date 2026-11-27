@@ -48,7 +48,7 @@ namespace
 	}
 
 	auto ReadParameterFloat(const Durin::FMaterialRenderData& Data,
-		const Durin::FGuid& Id, uint32 Component = 0) -> float
+		const Durin::FMaterialFieldKey& Id, uint32 Component = 0) -> float
 	{
 		const auto& Fields = Data.Representation.GetLayout().Fields;
 		const auto It = std::ranges::find(

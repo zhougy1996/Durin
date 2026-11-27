@@ -44,6 +44,7 @@ namespace Durin::MaterialEditor
 		TStrongObjectPtr<DMaterial> Source;
 		TStrongObjectPtr<DPackage> WorkingPackage;
 		TStrongObjectPtr<DMaterial> Working;
+		FDelegateHandle WorkingChangeHandle;
 		TObjectPtr<DTransactor> Transactor;
 		uint64 SourceRevision = 0;
 		uint64 RequestedWorkingRevision = 0;

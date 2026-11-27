@@ -381,7 +381,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	EXPECT_FALSE(Material->SetMaterialExpressions(Expressions, BrokenOutputs));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Applied);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), AuthoredRevision);
-	ASSERT_TRUE(Material->SetParameterValue(ParameterId, FMaterialParameterValue::MakeVector4({.6, .7, .8, 0})));
+	ASSERT_TRUE(Material->SetParameterValueByInfo({.Name = Parameter->Metadata.Name}, FMaterialParameterValue::MakeVector4({.6, .7, .8, 0})));
 	const auto* Owned = Cast<DMaterialExpressionVector4Parameter>(Applied[0].Get());
 	ASSERT_NE(Owned, nullptr); EXPECT_EQ(Owned->DefaultValue, FVector4(.6, .7, .8, 0));
 	FAssetWriteResult Saved;
@@ -1045,7 +1045,7 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[1]].ResultType, EMaterialProgramValueType::Float3);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[2]].ResultType, EMaterialProgramValueType::Texture2D);
 	ASSERT_EQ(Built.Parameters.size(), 1u);
-	EXPECT_EQ(Built.Parameters[0].Id, Sample->Metadata.Id);
+	EXPECT_EQ(Built.Parameters[0].Id, Sample->Metadata.Name.ToString());
 	Built.IR.bAggregateAttributes = true;
 	Built.IR.AggregateAttributesIndex = Built.Roots[0];
 	MIR::FCompilerInput CompilerInput{.IR = Built.IR, .Parameters = Built.Parameters, .Sources = Built.Sources};

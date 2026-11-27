@@ -269,7 +269,7 @@ struct VSOutput
             OutSource += Declaration(GetMaterialCollectionParameterName(Index));
 		}
 
-		auto FindField = [&](const FGuid& Id) -> const FMaterialRenderField* {
+		auto FindField = [&](const FMaterialFieldKey& Id) -> const FMaterialRenderField* {
 			const auto It = std::ranges::find(Layout.Fields, Id, &FMaterialRenderField::ParameterId);
 			return It == Layout.Fields.end() ? nullptr : &*It;
 		};
@@ -742,14 +742,14 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		-> FMaterialProgramValidationResult
 	{
 		FMaterialProgramValidationResult Result;
-		std::set<FGuid> ParameterIds;
+		std::set<FMaterialFieldKey> ParameterIds;
 		if (Parameters.size() > MaterialMaxParameterDefinitionCount)
 		{
 			Result.Diagnostics.push_back(MakeDiagnostic("IR parameter declaration count exceeds its bound."));
 			return Result;
 		}
 		for (const auto& Parameter : Parameters)
-			if (!Parameter.Id.IsValid() || !ParameterIds.insert(Parameter.Id).second
+			if (!Parameter.Id.GetName() || !Parameter.Id.IsValid() || !ParameterIds.insert(Parameter.Id).second
 				|| Parameter.TextureDimension > EMaterialTextureDimension::TextureCube
 				|| (Parameter.Type != EMaterialParameterType::Texture && Parameter.TextureDimension != EMaterialTextureDimension::Texture2D)
 				|| (Parameter.Type != EMaterialParameterType::Scalar && Parameter.Type != EMaterialParameterType::Vector2

@@ -349,8 +349,9 @@ namespace Durin::MaterialEditor
 				const auto Values = ReadMaterialNumericDefault(Input, Property);
 				const FMaterialProgramLiteral Literal{Values[0], Values.size() > 1 ? Values[1] : 0.0f, Values.size() > 2 ? Values[2] : 0.0f};
 				const auto Id = FGuid::NewGuid();
+				const FName Name("Preview_" + Id.ToString());
 				auto Parameter = GraphEditInternals::MakeParameterExpression({
-					.Id = Id, .Name = FName("Preview_" + Id.ToString()), .Type = *GetParameterType(Type),
+					.Id = Id, .Name = Name, .Type = *GetParameterType(Type),
 					.Value = MakeParameterValue(Type, Literal)});
 				if (!Parameter) return;
 				auto* Output = static_cast<DMaterialExpression*>(Parameter.Expression.Get());
@@ -364,7 +365,7 @@ namespace Durin::MaterialEditor
 					Expressions.push_back(Output);
 				}
 				Input.Connection = {Output};
-				RootInputPreviewParameters.emplace(Property, Id);
+				RootInputPreviewParameters.emplace(Property, Name);
 			}
 			if (RootInputPreviewParameters.empty()) return;
 
@@ -390,19 +391,19 @@ namespace Durin::MaterialEditor
 			if ((!Draft && !bShowCommitted) || !RootInputPreview || !RootInputPreview->GetMaterialCompileStatus().IsCurrent())
 				return &Working;
 
-			auto SetValue = [this](const FGuid& Id, FMaterialParameterValue Value) {
-				const auto* Existing = RootInputPreview->FindParameterDefinition(Id);
+			auto SetValue = [this](FName Name, FMaterialParameterValue Value) {
+				const auto* Existing = RootInputPreview->FindParameterDefinition(Name);
 				if (Existing && Existing->Value != Value)
-					(void)RootInputPreview->SetParameterValue(Id, std::move(Value));
+					(void)RootInputPreview->SetParameterValueByInfo({.Name = Name}, std::move(Value));
 			};
-			for (const auto& Parameter : Working.GetParameterDefinitions()) SetValue(Parameter.Id, Parameter.Value);
-			for (const auto& [Property, Id] : RootInputPreviewParameters)
+			for (const auto& Parameter : Working.GetParameterDefinitions()) SetValue(Parameter.Name, Parameter.Value);
+			for (const auto& [Property, Name] : RootInputPreviewParameters)
 			{
 				const auto Type = GetMaterialSurfaceOutputType(Property);
 				const auto Values = ReadMaterialNumericDefault(*Working.GetNumericInputForProperty(Property), Property);
 				const FMaterialProgramLiteral Literal = Draft && Draft->first == Property ? Draft->second.Literal
 					: FMaterialProgramLiteral{Values[0], Values.size() > 1 ? Values[1] : 0.0f, Values.size() > 2 ? Values[2] : 0.0f};
-				SetValue(Id, Type == EMaterialProgramValueType::Float3
+				SetValue(Name, Type == EMaterialProgramValueType::Float3
 					? FMaterialParameterValue::MakeVector4({Literal.X, Literal.Y, Literal.Z, 0.0})
 					: MakeParameterValue(Type, Literal));
 			}
@@ -493,7 +494,7 @@ namespace Durin::MaterialEditor
 		TObjectPtr<DStaticMeshComponent> WaterBed;
 		DMaterialInterface* CurrentMaterial = nullptr;
 		TStrongObjectPtr<DMaterial> RootInputPreview;
-		std::map<EMaterialProperty, FGuid> RootInputPreviewParameters;
+		std::map<EMaterialProperty, FName> RootInputPreviewParameters;
 		std::optional<uint64> RootInputPreviewRevision;
 		bool bRootInputPreviewCommitted = false;
 		FQuat PreviewRotation = FQuatConstants::Identity;

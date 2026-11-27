@@ -157,19 +157,19 @@ namespace Durin
 	{
 		EMaterialParameterCollectionUpdateOperation Operation =
 			EMaterialParameterCollectionUpdateOperation::Set;
-		FGuid ParameterId;
+		FName ParameterName;
 		FVector4 Value{0.0};
 
-		static auto Set(FGuid Id, const FVector4& InValue)
+		static auto Set(FName Name, const FVector4& InValue)
 			-> FMaterialParameterCollectionUpdate
 		{
 			return {.Operation = EMaterialParameterCollectionUpdateOperation::Set,
-				.ParameterId = Id, .Value = InValue};
+				.ParameterName = Name, .Value = InValue};
 		}
-		static auto Clear(FGuid Id) -> FMaterialParameterCollectionUpdate
+		static auto Clear(FName Name) -> FMaterialParameterCollectionUpdate
 		{
 			return {.Operation = EMaterialParameterCollectionUpdateOperation::Clear,
-				.ParameterId = Id};
+				.ParameterName = Name};
 		}
 	};
 
@@ -197,17 +197,10 @@ namespace Durin
 			std::span<const FMaterialParameterCollectionUpdate> Updates)
 			-> std::expected<void, FMaterialParameterCollectionError>;
 		ENGINE_API auto SetValue(DMaterialParameterCollection& Collection,
-			FGuid ParameterId, const FVector4& Value)
-			-> std::expected<void, FMaterialParameterCollectionError>;
-		ENGINE_API auto SetValue(DMaterialParameterCollection& Collection,
 			FName ParameterName, const FVector4& Value)
 			-> std::expected<void, FMaterialParameterCollectionError>;
 		ENGINE_API auto ClearValue(DMaterialParameterCollection& Collection,
-			FGuid ParameterId) -> std::expected<void, FMaterialParameterCollectionError>;
-		ENGINE_API auto ClearValue(DMaterialParameterCollection& Collection,
 			FName ParameterName) -> std::expected<void, FMaterialParameterCollectionError>;
-		ENGINE_API auto GetValue(const DMaterialParameterCollection& Collection,
-			FGuid ParameterId, FVector4& OutValue) const -> bool;
 		ENGINE_API auto GetValue(const DMaterialParameterCollection& Collection,
 			FName ParameterName, FVector4& OutValue) const -> bool;
 		ENGINE_API auto GetSnapshot(const DMaterialParameterCollection& Collection) const

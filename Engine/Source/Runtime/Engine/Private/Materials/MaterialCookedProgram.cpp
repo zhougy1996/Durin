@@ -10,12 +10,22 @@ namespace Durin
 
 	namespace
 	{
+		auto SerializeFieldName(FArchive& Ar, FMaterialFieldKey& Key) -> void
+		{
+			std::string Name;
+			if (!Ar.IsLoading() && Key.GetName()) Name = *Key.GetName();
+			SerializeBoundedString(Ar, Name, MaterialMaxParameterTextBytes);
+			if (Ar.IsLoading()) Key = std::move(Name);
+			if (!Key.GetName() || !Key.IsValid()) Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid material parameter name.");
+		}
+
 		struct FEntryArchiveTransfer
 		{
 			FArchive& Ar;
 			auto IsLoading() const -> bool { return Ar.IsLoading(); }
 			auto Check(bool Condition) -> void { if (!Condition) Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid typed material entry."); }
 			template<class T> auto Value(T& V) -> void { Ar << V; }
+			auto Value(FMaterialFieldKey& V) -> void { SerializeFieldName(Ar, V); }
 			auto Value(FXxHash128& V) -> void { Ar << V.HashLow << V.HashHigh; }
 			auto String(std::string& V, uint32 Limit) -> void { SerializeBoundedString(Ar, V, Limit); }
 			template<class T, class F> auto Sequence(T& V, uint32 Limit, F&& Visit) -> void
@@ -127,13 +137,20 @@ namespace Durin
 			}
 		}
 
-		auto SerializeLayout(FArchive& Ar, FMaterialRenderLayout& Layout) -> void
+		auto SerializeLayout(FArchive& Ar, FMaterialRenderLayout& Layout, bool bCollection = false) -> void
 		{
 			Ar << Layout.Identity.Version << Layout.Identity.Id << Layout.UniformPayloadSize
 				<< Layout.UniformFieldCount << Layout.ResourceFieldCount;
 			SerializeBoundedSequence(Ar, Layout.Fields, MaterialRenderMaxFieldCount,
-				[](FArchive& Inner, FMaterialRenderField& Field) {
-					Inner << Field.ParameterId << Field.Storage << Field.Type
+				[bCollection](FArchive& Inner, FMaterialRenderField& Field) {
+					if (bCollection)
+					{
+						auto Id = Field.ParameterId.GetCollectionMemberId();
+						Inner << Id;
+						if (Inner.IsLoading()) Field.ParameterId = Id;
+					}
+					else SerializeFieldName(Inner, Field.ParameterId);
+					Inner << Field.Storage << Field.Type
 						<< Field.CompactIndex << Field.Offset << Field.Size;
 				});
 		}
@@ -144,7 +161,7 @@ namespace Durin
 			SerializeBoundedString(Ar, Collection.AssetPath,
 				MaterialCookedProgramMaxStringBytes);
 			Ar << Collection.CollectionId << Collection.SchemaVersion;
-			SerializeLayout(Ar, Collection.UniformLayout);
+			SerializeLayout(Ar, Collection.UniformLayout, true);
 			SerializeByteBuffer(Ar, Collection.DefaultPayload,
 				MaterialRenderMaxUniformPayloadBytes);
 		}
@@ -209,7 +226,8 @@ namespace Durin
 			SerializeBoundedSequence(
 				Ar, Artifact.ActiveParameters, MaterialProgramMaxReferencedParameterCount,
 				[](FArchive& Inner, FMaterialCompilerParameterDeclaration& Parameter) {
-					Inner << Parameter.Id << Parameter.Type << Parameter.TextureDimension;
+					SerializeFieldName(Inner, Parameter.Id);
+					Inner << Parameter.Type << Parameter.TextureDimension;
 				});
 			SerializeBoundedSequence(Ar, Program.ActiveCollections,
 				MaterialParameterCollectionMaxPerMaterial,
@@ -262,7 +280,7 @@ namespace Durin
 			if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation) return std::unexpected(Validation.error());
 			if (Program.GetShaderMap().ActiveParameters.size() > MaterialProgramMaxReferencedParameterCount)
 				return std::unexpected("Material active parameter count exceeds its limit.");
-			FGuid PreviousId;
+			FMaterialFieldKey PreviousId;
 			for (const auto& Parameter : Program.GetShaderMap().ActiveParameters)
 			{
 
@@ -526,6 +544,9 @@ namespace Durin
 		std::vector<FByteBuffer> Artifacts;
 		FCanonicalMemoryReader Ar(Payload, EArchivePurpose::CookedPayload);
 		Ar << Magic << Version << Platform << Profile;
+		if (Magic != MaterialCookedProgramFamilyMagic
+			|| Version != MaterialCookedProgramPayloadSchemaVersion)
+			return std::unexpected("Material cooked program format is incompatible; recook from authored assets.");
 		SerializeBoundedSequence(Ar, Configurations,
 			MaterialCookedProgramMaxConfigurations, SerializeConfigurationRecord);
 		SerializeBoundedSequence(Ar, Artifacts,
@@ -535,9 +556,6 @@ namespace Durin
 			});
 		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 			return std::unexpected(std::format("{} [archive path {}] [archive code {}]", Ar.GetFailure()->Message, Ar.GetFailure()->Path, static_cast<uint8>(Ar.GetFailure()->Code)));
-		if (Magic != MaterialCookedProgramFamilyMagic
-			|| Version != MaterialCookedProgramPayloadSchemaVersion)
-			return std::unexpected("Material cooked program format is incompatible; recook from authored assets.");
 		if (Platform != ExpectedPlatform || Profile != ExpectedProfile)
 			return std::unexpected("Material cooked program target is incompatible; recook for this runtime.");
 		if (Configurations.empty() || Artifacts.empty())

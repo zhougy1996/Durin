@@ -151,7 +151,7 @@ namespace Durin
 				for (const auto Input : Node.Inputs) Hash.UpdateValue(Input);
 				Hash.UpdateValue(static_cast<uint32>(Node.Payload.index()));
 				if (const auto* Value = std::get_if<FMaterialProgramLiteral>(&Node.Payload)) Literal(*Value);
-				else if (const auto* Id = std::get_if<FGuid>(&Node.Payload)) Hash.UpdateValue(*Id);
+				else if (const auto* Name = std::get_if<std::string>(&Node.Payload)) Hash.Update(*Name);
 				else if (const auto* Read = std::get_if<MIR::FTextureRead>(&Node.Payload)) Hash.UpdateValue(Read->Mode);
 				else if (const auto* Read = std::get_if<MIR::FCustomDataRead>(&Node.Payload)) Hash.UpdateValue(Read->Index);
 				else if (const auto* Read = std::get_if<MIR::FSceneTextureRead>(&Node.Payload)) { Hash.UpdateValue(Read->SceneTextureId); Hash.UpdateValue(Read->Filter); }
@@ -283,14 +283,10 @@ namespace Durin
 			for (const auto& Override : Instance->GetStaticBoolOverrides())
 			{
 				if (!Override.bOverride) continue;
-				auto Id = Override.DeclarationId;
-				if (Override.ParameterInfo != FMaterialParameterInfo{})
-				{
-					const auto Named = StaticNames.find(Override.ParameterInfo.Name);
-					Id = Override.ParameterInfo.IsGlobal() && Named != StaticNames.end() ? Named->second : FGuid{};
-				}
-				auto Found = std::ranges::find(StaticBools, Id,
-					&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId);
+				const auto Named = StaticNames.find(Override.ParameterInfo.Name);
+				const auto Found = Override.ParameterInfo.IsGlobal() && Named != StaticNames.end()
+					? std::ranges::find(StaticBools, Named->second, &FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId)
+					: StaticBools.end();
 				if (Found == StaticBools.end())
 				{
 					Result.Diagnostics.push_back({.Message = "A static bool override does not match a root declaration."});
@@ -363,7 +359,8 @@ namespace Durin
 				Result->Validation.Diagnostics.push_back({.Message = "Material has no accepted compiled program."});
 				return Result;
 			}
-			for (const auto& Parameter : Program->GetShaderMap().ActiveParameters) Result->ParameterIds.insert(Parameter.Id);
+			for (const auto& Info : Program->FieldParameters)
+				Result->ParameterNames.insert(Info.Name);
 			Result->Validation.bSucceeded = true;
 			ParameterReachabilityProgramRevision = 0;
 			ParameterReachabilityFunctionOwners.clear();
@@ -405,7 +402,7 @@ namespace Durin
 			Visited[Index] = true;
 			const auto& Node = Snapshot.IR.Nodes[Index];
 			const auto Id = Node.GetParameterId();
-			if (Id.IsValid()) Result->ParameterIds.insert(Id);
+			if (const auto* Name = Id.GetName()) Result->ParameterNames.emplace(*Name);
 			Pending.insert(Pending.end(), Node.Inputs.begin(), Node.Inputs.end());
 		}
 		ParameterReachabilityCookedProgram.reset();

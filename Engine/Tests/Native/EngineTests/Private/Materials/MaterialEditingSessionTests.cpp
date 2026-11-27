@@ -567,6 +567,9 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	EXPECT_EQ(Label->DisplayName, "Reusable Surface");
 	EXPECT_EQ(GetCall(*Draft)->Function.Get(), First);
 	Call->Function = Second;
+	const auto& ReplacementOutput = Second->GetFunctionSignature().Outputs[0];
+	Call->FunctionOutputs = {{ReplacementOutput.Id, ReplacementOutput.Type}};
+	Outputs.Attributes = {Call.Get(), 0, ReplacementOutput.Id};
 	ASSERT_TRUE(Draft->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 	EXPECT_EQ(GetCall(*Source)->Function.Get(), First);

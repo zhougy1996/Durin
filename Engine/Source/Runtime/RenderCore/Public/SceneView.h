@@ -248,10 +248,11 @@ namespace Durin
 		Count,
 	};
 
-	// Carries optional value-owned content overrides for one renderer submission.
+	struct FCubeSkyViewEnvironment;
+
 	struct FSceneViewRenderOptions
 	{
-		std::optional<FViewEnvironmentOverride> Environment;
+		std::shared_ptr<const FCubeSkyViewEnvironment> Environment;
 		// Explicit per-view opt-in for production async-compute scheduling.
 		// Eligible passes still fall back to the graphics queue when the backend
 		// or execution allocator cannot provide an independent compute queue.

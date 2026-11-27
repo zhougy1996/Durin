@@ -116,7 +116,7 @@ namespace Durin
 			ENGINE_API auto Literal(std::span<const float> Components,
 				EMaterialSpatialKind Kind = EMaterialSpatialKind::None,
 				EMaterialCoordinateSpace Space = EMaterialCoordinateSpace::None) -> uint32;
-			ENGINE_API auto Parameter(FGuid Id, EMaterialParameterType Type, EMaterialTextureDimension Dimension = EMaterialTextureDimension::Texture2D) -> uint32;
+			ENGINE_API auto Parameter(FName Name, EMaterialParameterType Type, EMaterialTextureDimension Dimension = EMaterialTextureDimension::Texture2D) -> uint32;
 			ENGINE_API auto CollectionParameter(
 				const DMaterialParameterCollection& Collection, FGuid ParameterId) -> uint32;
 			ENGINE_API auto Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,

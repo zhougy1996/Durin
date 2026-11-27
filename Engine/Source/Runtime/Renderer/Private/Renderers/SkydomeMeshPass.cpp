@@ -1,7 +1,6 @@
 #include "Renderers/SkydomeMeshPass.h"
 
 #include "RenderPipelineCreation.h"
-#include "Resources/DefaultTextureResources.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "SkyBoxRendering.h"
 #include "Scene.h"
@@ -75,10 +74,9 @@ namespace Durin
 	};
 
 	FSkydomeMeshPass::FSkydomeMeshPass(
-		FDefaultTextureResources& InDefaultTextures, RendererPrivate::FSurfaceMaterialResources& InMaterials
+		RendererPrivate::FSurfaceMaterialResources& InMaterials
 	)
-		: DefaultTextures(InDefaultTextures)
-		, Materials(InMaterials)
+		: Materials(InMaterials)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -140,7 +138,7 @@ namespace Durin
 		using namespace RendererPrivate;
 		const auto& Sky = Environment.SkyBox;
 		const bool bProcedural = Sky.ProceduralSky.ToSunEnabled.w > 0.5f;
-		const auto Proxy = RequestSkyMaterialProxy_RenderThread(bProcedural);
+		const auto Proxy = bProcedural ? RequestProceduralSkyMaterialProxy_RenderThread() : Environment.CubeMaterial;
 		if (!Proxy) return false;
 		const auto& Data = Proxy->QueryMaterial_RenderThread();
 		if (Data.Representation.IsPending())
@@ -225,20 +223,7 @@ namespace Durin
 			|| !Materials.Resolve_RenderThread(Binding, ESurfaceMaterialPass::Background, {}, nullptr, nullptr, Material)) return false;
 		SkyBoxRendering::FSkyBoxUniform Uniform;
 		if (!SkyBoxRendering::BuildUniform(View, Sky, Uniform)) return false;
-		FByteBuffer Payload(Binding.CompiledUniformPayload.begin(), Binding.CompiledUniformPayload.end());
-		if (!bProcedural)
-		{
-			auto* Texture = Environment.Texture;
-			if (!Texture && Sky.TextureReference) Texture = Sky.TextureReference->GetReferencedTexture_RenderThread();
-			if (!Texture) Texture = DefaultTextures.GetCube_RenderThread();
-			if (!Texture) return false;
-			const auto* Slots = GetDefaultCubeSkyBindings_RenderThread(Binding.LayoutIdentity);
-			if (!Slots) return false;
-			Material.CompiledTextures.at(Slots->TextureIndex) = Texture;
-			const FVector4f Tint(FVector3f(Uniform.TintIntensity), 1.0f);
-			std::memcpy(Payload.data() + Slots->TintOffset, &Tint, sizeof(Tint));
-			std::memcpy(Payload.data() + Slots->IntensityOffset, &Uniform.TintIntensity.w, sizeof(Uniform.TintIntensity.w));
-		}
+		const auto Payload = Binding.CompiledUniformPayload;
 		Draw->Projection = Uniform.DomeProjection;
 		const auto MaterialBuffer = Payload.empty() ? FRHIUniformBufferRange{} : Commands.CreateUniformBufferRange(Payload.data(),Payload.size());
 		const auto SkyBuffer = Commands.CreateUniformBufferRange(&Sky.ProceduralSky, sizeof(Sky.ProceduralSky));
@@ -254,6 +239,19 @@ namespace Durin
 		FMeshDrawShaderBindings Bindings;
 		if (!PrepareCompiledSurfaceMaterial(Draw->Pipeline->Fragment, Draw->Pipeline->Layout, Material, MaterialBuffer,
 			{}, {}, ViewBuffer, {}, Collections, Bindings, {}, {}, SkyBuffer)) return false;
+		// RDG tracks the physical allocation. Admit the draw only if its finalized
+		// texture binding points to that exact allocation after reference resolution.
+		if (!bProcedural)
+		{
+			bool bBoundEnvironment = false;
+			for (const auto& Parameter : Bindings.Parameters)
+			{
+				if (Parameter.Type != ERHIBindingType::Texture) continue;
+				if (Parameter.Resource != Environment.Texture.GetReference()) return false;
+				bBoundEnvironment = true;
+			}
+			if (!bBoundEnvironment) return false;
+		}
 		Draw->VertexBuffer = State->VertexBuffer;
 		Draw->IndexBuffer = State->IndexBuffer;
 		auto& Mesh = Draw->Command;

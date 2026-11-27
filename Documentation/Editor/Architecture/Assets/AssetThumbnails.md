@@ -297,8 +297,8 @@ snapshot as a counted RHI environment value. Texture2D supplies an image rendere
 without creating or binding any preview world. The shared capture implementation
 contains no concrete asset casts, readiness rules, framing rules, or feature diagnostics.
 
-TextureCube previews pass their retained cube to the skydome DefaultCubeSky
-material. Stage 0 and material-backed captures agree byte for byte, so the cube
+Each TextureCube capture binds its retained cube through a private DefaultCubeSky
+material instance and reuses that instance across preparation retries. Stage 0 and material-backed captures agree byte for byte, so the cube
 thumbnail cache version is unchanged. The water preview regression captures
 DefaultWater on the ordinary sphere over an opaque studio clear and compares
 its center and corners against a capture without the sphere. The regular

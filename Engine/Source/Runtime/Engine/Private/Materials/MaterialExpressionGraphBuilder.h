@@ -35,7 +35,7 @@ namespace Durin::MIR
 		auto Literal(std::span<const float> Components,
 			EMaterialSpatialKind Kind = EMaterialSpatialKind::None,
 			EMaterialCoordinateSpace Space = EMaterialCoordinateSpace::None) -> uint32;
-		auto Parameter(FGuid Id, EMaterialParameterType Type, EMaterialTextureDimension Dimension = EMaterialTextureDimension::Texture2D) -> uint32;
+		auto Parameter(FName Name, EMaterialParameterType Type, EMaterialTextureDimension Dimension = EMaterialTextureDimension::Texture2D) -> uint32;
 		auto CollectionParameter(const DMaterialParameterCollection& Collection,
 			FGuid ParameterId) -> uint32;
 		auto Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
@@ -75,7 +75,7 @@ namespace Durin::MIR
 			uint64 ClosureBytes = 0;
 			std::vector<const DMaterialFunctionInterface*> ActiveFunctions;
 			std::map<const DMaterialFunctionInterface*, FFunctionBody> Functions;
-			std::map<FGuid, ETextureUsage> TextureUsages;
+			std::unordered_map<FName, ETextureUsage> TextureUsages;
 		};
 		FGraphBuilderImpl(FGraphBuilderImpl& Parent,
 			const FFunctionBody& Body, FGuid CallId);

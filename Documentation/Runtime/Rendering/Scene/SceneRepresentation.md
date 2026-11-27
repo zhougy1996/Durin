@@ -121,12 +121,11 @@ before mutation. This is not permission to mutate the scene concurrently.
 
 ## View-Local Environment Overrides
 
-A submission may carry one optional `FViewEnvironmentOverride` inside
-`FSceneViewRenderOptions`. This RenderCore value contains only a counted cube
-texture reference plus copied rotation, tint, and intensity. It is command-local
-content, not a primitive family: it has no Scene ID, transform, bounds,
-visibility record, typed SceneInfo list, reflected owner, or persistent scene
-selection state.
+A capture configures its cube, rotation, tint, and intensity through
+`FViewEnvironmentOverride` on the game thread. Its `FSceneViewRenderOptions`
+retains an immutable `FCubeSkyViewEnvironment` with the capture's material
+proxy, expected texture reference, and rotation. This state belongs to one
+submission and requires no scene registration.
 
 Renderer resolves the reference on the rendering thread. A valid override
 draws a camera-centered skydome for that view and skips authored sky mesh

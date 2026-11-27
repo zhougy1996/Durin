@@ -114,7 +114,7 @@ TEST(FMaterialGameReplayTests, IsolatedCorpusLoadsAndSharesWithoutCompilerModule
 			const auto Field=std::ranges::find(Map.Layout.Fields,EMaterialRenderValueType::Vector4,&FMaterialRenderField::Type);
 			if (Field!=Map.Layout.Fields.end())
 			{
-				ASSERT_TRUE(Instance->SetParameterValue(Field->ParameterId,FMaterialParameterValue(FVector4(.8,1,2,1))));
+				ASSERT_TRUE(Instance->SetParameterValueByInfo(Program->FieldParameters[Field - Map.Layout.Fields.begin()],FMaterialParameterValue(FVector4(.8,1,2,1))));
 				const auto Updated=Testing::CaptureMaterialRenderData(*Instance);
 				float Value;
 				std::memcpy(&Value,Updated.Representation.GetUniformPayload().data()+Field->Offset,sizeof(Value));

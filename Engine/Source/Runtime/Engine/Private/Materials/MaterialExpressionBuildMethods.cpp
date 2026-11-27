@@ -34,7 +34,7 @@ namespace Durin
 
 	auto DMaterialExpressionScalarParameter::Build(MIR::FEmitter& Emitter) const -> void
 	{
-		return Emitter.Output(0, Emitter.Parameter(Metadata.Id, EMaterialParameterType::Scalar));
+		return Emitter.Output(0, Emitter.Parameter(Metadata.Name, EMaterialParameterType::Scalar));
 	}
 
 	auto DMaterialExpressionVector2Constant::Build(MIR::FEmitter& Emitter) const -> void
@@ -59,13 +59,13 @@ namespace Durin
 
 	auto DMaterialExpressionVector4Parameter::Build(MIR::FEmitter& Emitter) const -> void
 	{
-		return Emitter.Output(0, Emitter.Parameter(Metadata.Id, EMaterialParameterType::Vector4));
+		return Emitter.Output(0, Emitter.Parameter(Metadata.Name, EMaterialParameterType::Vector4));
 	}
 
 	auto DMaterialExpressionTextureParameter::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		if (!DefaultValue.IsValid()) return Emitter.Fail("Texture parameter resource, dimension or sampling policy is invalid.");
-		return Emitter.Output(0, Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture, DefaultValue.Dimension));
+		return Emitter.Output(0, Emitter.Parameter(Metadata.Name, EMaterialParameterType::Texture, DefaultValue.Dimension));
 	}
 
 	auto DMaterialExpressionCollectionParameter::Build(MIR::FEmitter& Emitter) const -> void
@@ -618,7 +618,7 @@ namespace Durin
 	auto DMaterialExpressionTextureSampleParameter2D::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		if (DefaultValue.Dimension != EMaterialTextureDimension::Texture2D || !DefaultValue.IsValid()) return Emitter.Fail("Texture sample parameter 2D requires a 2D declaration.");
-		const auto Resource = Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture);
+		const auto Resource = Emitter.Parameter(Metadata.Name, EMaterialParameterType::Texture);
 		Emitter.Output(static_cast<uint8>(EMaterialSampleOutput::Texture), Resource);
 		if (ReadMode > EMaterialTextureReadMode::Grad) return Emitter.Fail("Texture read mode is unsupported.");
 		const auto Coordinates = ResolveUV(Emitter, UV);
@@ -646,7 +646,7 @@ namespace Durin
 	{
 		if (DefaultValue.Dimension != EMaterialTextureDimension::TextureCube || !DefaultValue.IsValid() || TextureUsage == ETextureUsage::Normal)
 			return Emitter.Fail("Cube sample parameter requires a Cube declaration and white/black fallback.");
-		const auto Resource = Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture, EMaterialTextureDimension::TextureCube);
+		const auto Resource = Emitter.Parameter(Metadata.Name, EMaterialParameterType::Texture, EMaterialTextureDimension::TextureCube);
 		Emitter.Output(static_cast<uint8>(EMaterialSampleOutput::Texture), Resource);
 		EmitSampleOutputs(Emitter, EmitTextureRead(Emitter, *this, Resource, ResolveCubeDirection(Emitter, Direction)), false);
 	}

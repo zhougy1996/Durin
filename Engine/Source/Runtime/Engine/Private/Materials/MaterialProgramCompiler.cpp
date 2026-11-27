@@ -136,7 +136,9 @@ namespace Durin
 			AppendLittleEndian(Bytes, static_cast<uint32>(Node.Inputs.size()));
 			for (uint32 Input : Node.Inputs) AppendLittleEndian(Bytes, Input);
 			AppendLiteral(Bytes, Node.GetLiteral());
-			AppendGuid(Bytes, Node.GetParameterId());
+			const auto* Name = std::get_if<std::string>(&Node.Payload);
+			AppendLittleEndian(Bytes, static_cast<uint32>(Name ? Name->size() : 0));
+			if (Name) for (const char Ch : *Name) Bytes.push_back(static_cast<std::byte>(Ch));
 			AppendLittleEndian(Bytes, Node.GetSwizzle().Length);
 			AppendLittleEndian(Bytes, Node.GetSwizzle().Components[0]);
 			AppendLittleEndian(Bytes, Node.GetSwizzle().Components[1]);

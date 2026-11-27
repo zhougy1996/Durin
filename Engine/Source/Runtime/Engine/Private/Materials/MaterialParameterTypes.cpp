@@ -30,73 +30,33 @@ namespace Durin
 		return 0;
 	}
 
-	auto FMaterialInstanceParameterSet::SetParameter(const FGuid& Id, const FMaterialParameterValue& Value) -> void
+	auto FMaterialInstanceParameterSet::SetParameter(uint32 FieldIndex, const FMaterialParameterValue& Value) -> void
 	{
-		// One identity has one concrete type, including after native layout changes.
-		const auto EraseOther = [&](auto& Parameters, EMaterialParameterType Type) {
-			if (Value.GetType() != Type) std::erase_if(Parameters, [&](const auto& Parameter) { return Parameter.ParameterId == Id; });
-		};
-		EraseOther(ScalarParameters, EMaterialParameterType::Scalar);
-		EraseOther(VectorParameters, EMaterialParameterType::Vector4);
-		EraseOther(TextureParameters, EMaterialParameterType::Texture);
-		if (Value.GetType() != EMaterialParameterType::Vector2) std::erase_if(Vector2Parameters, [&](const auto& Parameter) { return Parameter.first == Id; });
-		if (Value.GetType() != EMaterialParameterType::Vector) std::erase_if(Vector3Parameters, [&](const auto& Parameter) { return Parameter.first == Id; });
-		const auto Set = [&](auto& Parameters) {
-			using TParameter = typename std::decay_t<decltype(Parameters)>::value_type;
-			auto It = std::ranges::find(Parameters, Id, &TParameter::ParameterId);
-			if (It == Parameters.end() || It->ParameterId != Id) {
-				It = Parameters.emplace(It);
-				It->ParameterId = Id;
-			}
-			It->SetValue(Value);
-		};
-		const auto SetVector = [&]<typename T>(std::vector<std::pair<FGuid, T>>& Parameters, const T& Vector) {
-			auto It = std::ranges::find(Parameters, Id, &std::pair<FGuid, T>::first);
-			if (It != Parameters.end() && It->first == Id) It->second = Vector;
-			else Parameters.emplace(It, Id, Vector);
-		};
-		switch (Value.GetType()) {
-		case EMaterialParameterType::Scalar: Set(ScalarParameters); break;
-		case EMaterialParameterType::Vector2: SetVector(Vector2Parameters, Value.GetVector2()); break;
-		case EMaterialParameterType::Vector: SetVector(Vector3Parameters, Value.GetVector()); break;
-		case EMaterialParameterType::Vector4: Set(VectorParameters); break;
-		case EMaterialParameterType::Texture: Set(TextureParameters); break;
-		}
+		const auto It = std::ranges::lower_bound(Fields, FieldIndex, {}, &FEntry::FieldIndex);
+		const auto Stored = Value.GetType() == EMaterialParameterType::Vector4
+			? FMaterialParameterValue::MakeVector4(FVector4(FVector4f(Value.GetVector4()))) : Value;
+		if (It != Fields.end() && It->FieldIndex == FieldIndex) It->Value = Stored;
+		else Fields.insert(It, {FieldIndex, Stored});
 	}
 
-	auto FMaterialInstanceParameterSet::GetParameterValue(const FGuid& Id, FMaterialParameterValue& OutValue) const -> bool
+	auto FMaterialInstanceParameterSet::GetParameterValue(uint32 FieldIndex, FMaterialParameterValue& OutValue) const -> bool
 	{
-		const auto Find = [&](const auto& Parameters) {
-			using TParameter = typename std::decay_t<decltype(Parameters)>::value_type;
-			const auto It = std::ranges::find(Parameters, Id, &TParameter::ParameterId);
-			if (It == Parameters.end() || It->ParameterId != Id) return false;
-			OutValue = It->GetValue();
-			return true;
-		};
-		if (Find(ScalarParameters) || Find(VectorParameters) || Find(TextureParameters)) return true;
-		const auto FindVector = [&]<typename T>(const std::vector<std::pair<FGuid, T>>& Parameters) {
-			const auto It = std::ranges::find(Parameters, Id, &std::pair<FGuid, T>::first);
-			if (It == Parameters.end() || It->first != Id) return false;
-			OutValue = FMaterialParameterValue(It->second);
-			return true;
-		};
-		return FindVector(Vector2Parameters) || FindVector(Vector3Parameters);
+		const auto It = std::ranges::lower_bound(Fields, FieldIndex, {}, &FEntry::FieldIndex);
+		if (It == Fields.end() || It->FieldIndex != FieldIndex) return false;
+		OutValue = It->Value;
+		return true;
 	}
 
 	auto FMaterialInstanceParameterSet::ResolveTextureReferences() -> void
 	{
-		for (auto& Parameter : TextureParameters) {
-			auto Value = Parameter.GetValue();
-			Value.ResolveTextureReference();
-			Parameter.SetValue(Value);
-		}
+		for (auto& Field : Fields) Field.Value.ResolveTextureReference();
 	}
 
 	auto FMaterialInstanceParameterSet::GetPayloadBytes() const -> uint64
 	{
-		return ScalarParameters.size() * sizeof(float) + Vector2Parameters.size() * sizeof(FVector2)
-			+ Vector3Parameters.size() * sizeof(FVector3) + VectorParameters.size() * sizeof(FVector4)
-			+ TextureParameters.size() * (sizeof(FRHITextureReferenceRef) + sizeof(FMaterialSamplerState) + sizeof(EMaterialTextureFallback) + sizeof(EMaterialTextureDimension));
+		uint64 Bytes = 0;
+		for (const auto& Field : Fields) Bytes += Field.Value.GetPayloadBytes();
+		return Bytes;
 	}
 
 	auto FMaterialPropertyOverrides::ApplyTo(FMaterialStaticProperties& Properties) const -> void
@@ -223,7 +183,7 @@ namespace Durin
 	}
 
 	auto ValidateMaterialParameterDefinitions(
-		std::span<const FMaterialParameterDefinition> Definitions) -> FMaterialParameterValidationResult
+		std::span<const FMaterialParameterDefinition> Definitions, bool bRequireExpressionIds) -> FMaterialParameterValidationResult
 	{
 		if (Definitions.size() > MaterialMaxParameterDefinitionCount)
 		{
@@ -233,9 +193,9 @@ namespace Durin
 		std::unordered_set<FName> Names;
 		for (const auto& Definition : Definitions)
 		{
-			if (!Definition.Id.IsValid())
+			if (bRequireExpressionIds && !Definition.Id.IsValid())
 				return {EMaterialParameterError::InvalidId, Definition.Id};
-			if (!Ids.insert(Definition.Id).second)
+			if (bRequireExpressionIds && !Ids.insert(Definition.Id).second)
 				return {EMaterialParameterError::DuplicateId, Definition.Id};
 			if (Definition.Name.IsNone())
 				return {EMaterialParameterError::InvalidName, Definition.Id};

@@ -475,7 +475,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 	for (size_t Index = 0; Index < OriginalRequests.size(); ++Index)
 		if (OriginalRequests[Index].Frequencies.front() == EShaderFrequency::Vertex) EXPECT_NE(OriginalRequests[Index].VirtualPath, InterfaceRequests[Index].VirtualPath);
 	auto LayoutChange = Input;
-	const FGuid ParameterId(0, 0, 0, 905);
+	const std::string ParameterId = "layoutchange";
 	LayoutChange.Parameters.push_back({ParameterId, EMaterialParameterType::Scalar});
 	LayoutChange.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Parameter,
 		.ResultType = EMaterialProgramValueType::Float, .Payload = ParameterId});
@@ -1582,7 +1582,7 @@ TEST(FMaterialVertexEvaluationTests, VertexResourcesAndPixelInterpolationCompile
 
 	const auto CompilerEnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Input.Environment);
 	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
-	const FGuid ScaleId = FGuid::NewGuid();
+	const std::string ScaleId = "scale";
 	Input.Parameters = {{ScaleId, EMaterialParameterType::Scalar}};
 	auto Add = [&](MIR::FNode Node) {
 		ResolveNodeSemantics(Input.IR, Node);
@@ -2092,7 +2092,7 @@ TEST(FMaterialProgramSemanticTests, StaticSelectorsPruneBeforeNormalizationAndRe
 	const auto Enabled = NormalizeSelection(true);
 	ASSERT_TRUE(Enabled);
 	ASSERT_EQ(Enabled.ActiveParameters.size(), 1u);
-	EXPECT_EQ(Enabled.ActiveParameters.front().Id, SelectedParameter.Id);
+	EXPECT_EQ(Enabled.ActiveParameters.front().Id, SelectedParameter.Name.ToString());
 	EXPECT_NE(Enabled.Identity, Disabled.Identity);
 	for (const auto& Node : Enabled.IR.Nodes)
 	{
@@ -2433,7 +2433,7 @@ TEST(FMaterialProgramNormalizationTests,
 	for (const auto& Node : Before.IR.Nodes) EXPECT_TRUE(Node.HasValidPayload());
 	EXPECT_LT(Before.Parameters.size(), Material->GetParameterDefinitions().size());
 	for (const auto& Parameter : Before.Parameters)
-		EXPECT_NE(Material->FindParameterDefinition(Parameter.Id), nullptr);
+		EXPECT_NE(Material->FindParameterDefinitionByInfo({.Name = Parameter.Id.ToString()}), nullptr);
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(Durin::MIR::Normalize(Before));
@@ -2826,7 +2826,7 @@ TEST(FMaterialProgramCompilerTests, DirectIRNormalizationPrunesDeadCodeAndRemaps
 	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).ExpressionIndex = 3;
 	Input.Sources = {{.ExpressionIndex = 0, .NodeId = {1, 0, 0, 1}}, {.ExpressionIndex = 1, .NodeId = {1, 0, 0, 2}},
 		{.ExpressionIndex = 4, .NodeId = {1, 0, 0, 3}}};
-	for (uint32 Index = 0; Index < 40; ++Index) Input.Parameters.push_back({{2, 0, 0, Index + 1}, EMaterialParameterType::Texture});
+	for (uint32 Index = 0; Index < 40; ++Index) Input.Parameters.push_back({std::format("texture{}", Index), EMaterialParameterType::Texture});
 	const auto Baseline = MIR::Normalize(Input);
 	ASSERT_TRUE(Baseline);
 	EXPECT_EQ(Baseline.IR.Nodes.size(), 4u);
@@ -2879,11 +2879,11 @@ TEST(FMaterialProgramCompilerTests, DetachedIRRejectsMalformedInputsWithoutAutho
 	IR.Nodes[1].Inputs.clear(); Reject();
 	IR.Nodes[1].Opcode = EMaterialProgramOpcode::TextureCoordinates; Reject();
 	IR.Nodes[0].Payload = std::monostate{}; Reject();
-	IR.Nodes[1].Payload = FGuid{1, 2, 3, 4}; Reject();
+	IR.Nodes[1].Payload = std::string("invalid"); Reject();
 	IR.Nodes[0].ResultType = EMaterialProgramValueType::Float2; Reject();
 	IR.Nodes[0].Payload = FMaterialProgramLiteral{std::numeric_limits<float>::infinity()}; Reject();
 	IR.Nodes[0].Opcode = EMaterialProgramOpcode::Parameter;
-	IR.Nodes[0].Payload = FGuid{1, 2, 3, 4}; Reject();
+	IR.Nodes[0].Payload = std::string("invalid"); Reject();
 	IR.Nodes[1].Opcode = EMaterialProgramOpcode::Swizzle;
 	IR.Nodes[1].Payload = MIR::FSwizzle{1, {1}}; Reject();
 	for (uint32 Index = 2; Index <= MaterialProgramMaxDepth; ++Index)
@@ -2903,11 +2903,11 @@ TEST(FMaterialProgramCompilerTests, CompiledLayoutsAreTypedDeterministicAndDevic
 {
 	using namespace Durin;
 	std::vector<FMaterialCompilerParameterDeclaration> Parameters{
-		{{0, 0, 0, 5}, EMaterialParameterType::Texture},
-		{{0, 0, 0, 4}, EMaterialParameterType::Vector4},
-		{{0, 0, 0, 3}, EMaterialParameterType::Vector},
-		{{0, 0, 0, 2}, EMaterialParameterType::Vector2},
-		{{0, 0, 0, 1}, EMaterialParameterType::Scalar}};
+		{FGuid{0, 0, 0, 5}, EMaterialParameterType::Texture},
+		{FGuid{0, 0, 0, 4}, EMaterialParameterType::Vector4},
+		{FGuid{0, 0, 0, 3}, EMaterialParameterType::Vector},
+		{FGuid{0, 0, 0, 2}, EMaterialParameterType::Vector2},
+		{FGuid{0, 0, 0, 1}, EMaterialParameterType::Scalar}};
 	const auto Built = CompileMaterialLayout(Parameters);
 	ASSERT_TRUE(Built);
 	EXPECT_TRUE(ValidateCompiledMaterialLayout(Built.Layout));
@@ -2942,7 +2942,7 @@ TEST(FMaterialProgramCompilerTests, CompiledLayoutsAreTypedDeterministicAndDevic
 	EXPECT_EQ(CompileMaterialLayout(Parameters, Limits).Validation.Error, EMaterialLayoutError::ResourceLimit);
 	Parameters.clear();
 	for (uint32 Index = 0; Index < MaterialMaxParameterDefinitionCount; ++Index)
-		Parameters.push_back({{0, 0, 0, Index + 1}, EMaterialParameterType::Vector4});
+		Parameters.push_back({FGuid{0, 0, 0, Index + 1}, EMaterialParameterType::Vector4});
 	EXPECT_TRUE(CompileMaterialLayout(Parameters));
 	Parameters.push_back({FGuid::NewGuid(), EMaterialParameterType::Scalar});
 	EXPECT_FALSE(CompileMaterialLayout(Parameters));
@@ -2976,13 +2976,13 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	const auto CompilerEnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Input.Environment, VulkanShaderTarget);
 	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
 	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
-	const FGuid Tint{0, 0, 1, 1}, UV{0, 0, 1, 2}, Texture{0, 0, 1, 3}, Amount{0, 0, 1, 4};
+	const std::string Tint = "tint", UV = "uv", Texture = "texture", Amount = "amount";
 	Input.Parameters = {{Tint, EMaterialParameterType::Vector4}, {UV, EMaterialParameterType::Vector4},
 		{Texture, EMaterialParameterType::Texture}, {Amount, EMaterialParameterType::Scalar}};
 	auto Add = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
-		FGuid Parameter, std::vector<uint32> Links = {}) {
+		std::string Parameter, std::vector<uint32> Links = {}) {
 		MIR::FNode Node{.Opcode = Opcode, .ResultType = Type, .Inputs = std::move(Links)};
-		if (Parameter.IsValid()) Node.Payload = Parameter;
+		if (!Parameter.empty()) Node.Payload = Parameter;
 		ResolveNodeSemantics(Input.IR, Node);
 		const auto Index = static_cast<uint32>(Input.IR.Nodes.size());
 		Input.IR.Nodes.push_back(std::move(Node));
@@ -3008,7 +3008,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	const auto Shadow = std::ranges::find(Entries, "FSurfaceMaskedShadowFragmentShader", [](const auto& E) { return E.Shader.ShaderType; });
 	ASSERT_NE(Shadow, Entries.end());
 	EXPECT_EQ(Shadow->Requirements.AttributeIDs, (std::vector{FMaterialAttributeDefinitionMap::GetID(EMaterialProperty::MP_OpacityMask)}));
-	EXPECT_EQ(Shadow->Requirements.ParameterIDs, (std::vector{Amount}));
+	EXPECT_EQ(Shadow->Requirements.ParameterIDs, (std::vector<FMaterialFieldKey>{Amount}));
 	EXPECT_TRUE(Shadow->Requirements.ResourceIndices.empty());
 	EXPECT_TRUE(Shadow->Requirements.bUsesMask);
 	for (const auto Name : {"ShadowFragmentMain", "HitProxyFragmentMain"})
@@ -3066,7 +3066,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	{
 		auto Incompatible = CookedBytes;
 		ASSERT_TRUE(Testing::SetMaterialCookedProgramArtifactWordForTest(Incompatible, Word,
-			Word == 2 ? 11u : 0xffffffffu));
+			Word == 2 ? 11u : MaterialCookedProgramPayloadSchemaVersion - 1));
 		ASSERT_FALSE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Incompatible,
 			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled.Resource,
 			CookedProperties, Cooked)));
@@ -3099,7 +3099,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	}
 	auto LegacyCooked = CookedBytes;
 	ASSERT_TRUE(Testing::SetMaterialCookedProgramFamilyVersionForTest(
-		LegacyCooked, 3));
+		LegacyCooked, MaterialCookedProgramPayloadSchemaVersion - 1));
 	ASSERT_FALSE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(LegacyCooked,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled.Resource,
 		CookedProperties, Cooked)));
@@ -3164,13 +3164,13 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 
 	const auto CompilerEnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Input.Environment);
 	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
-	const FGuid Channel = FGuid::NewGuid(), Angle = FGuid::NewGuid();
+	const std::string Channel = "channel", Angle = "angle";
 	Input.Parameters = {{Channel, EMaterialParameterType::Scalar}, {Angle, EMaterialParameterType::Scalar}};
 	auto Add = [&](EMaterialProgramOpcode Op, EMaterialProgramValueType Type,
-		std::vector<uint32> Links = {}, FGuid Parameter = {}, FMaterialProgramLiteral Literal = {}) {
+		std::vector<uint32> Links = {}, std::string Parameter = {}, FMaterialProgramLiteral Literal = {}) {
 		MIR::FNode Node{.Opcode = Op, .ResultType = Type, .Inputs = std::move(Links)};
 		if (Op == EMaterialProgramOpcode::Constant) Node.Payload = Literal;
-		else if (Parameter.IsValid()) Node.Payload = Parameter;
+		else if (!Parameter.empty()) Node.Payload = Parameter;
 		ResolveNodeSemantics(Input.IR, Node);
 		const auto Index = static_cast<uint32>(Input.IR.Nodes.size());
 		Input.IR.Nodes.push_back(std::move(Node));
@@ -3469,7 +3469,7 @@ TEST(FMaterialTextureReadTests, ModesCompileReflectAndRoundTripDetachedTranslati
 		MIR::FCompilerInput Input;
 		Input.IR = MakeDefaultMaterialCompilerIR();
 		ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, VulkanShaderTarget));
-		const FGuid TextureId{1, 2, 3, 4};
+		const std::string TextureId = "texture";
 		Input.Parameters = {{TextureId, EMaterialParameterType::Texture, Dimension}};
 		const bool Cube = Dimension == EMaterialTextureDimension::TextureCube;
 		const auto Add = [&](MIR::FNode Node) {
@@ -3644,7 +3644,7 @@ TEST(FMaterialSpecularTests, DefaultsReachabilityEntryIdentityAndSourceFreeCookR
     EXPECT_EQ(FindGBuffer(Baseline).Shader.OutputLayout, FindGBuffer(NonDefault).Shader.OutputLayout);
     EXPECT_NE(Baseline.GetShaderMap().ShaderMapId,NonDefault.GetShaderMap().ShaderMapId);
     Input.IR.GetAttribute(EMaterialProperty::MP_Specular).Literal = {.5f};
-    const FGuid Id{1,2,3,45};
+    const std::string Id = "specular";
     Input.Parameters = {{Id, EMaterialParameterType::Scalar}};
     Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Parameter, .ResultType = EMaterialProgramValueType::Float, .Payload = Id});
     auto& Specular = Input.IR.GetAttribute(EMaterialProperty::MP_Specular);
@@ -3682,7 +3682,7 @@ TEST(FMaterialClearCoatTests, ModelAttributesReachBothEntriesAndSurviveSourceFre
 	const auto Default = MIR::Compile(Input);
 	ASSERT_TRUE(Default) << FormatMaterialProgramDiagnostics(Default.Diagnostics);
 	Input.StaticProperties.ShadingModel = EMaterialShadingModel::ClearCoat;
-	const FGuid WeightId{19, 28, 37, 46}, RoughId{18, 27, 36, 45};
+	const std::string WeightId = "weight", RoughId = "roughness";
 	Input.Parameters = {{WeightId, EMaterialParameterType::Scalar}, {RoughId, EMaterialParameterType::Scalar}};
 	for (const auto [Property, Id] : {std::pair{EMaterialProperty::MP_ClearCoat, WeightId}, std::pair{EMaterialProperty::MP_ClearCoatRoughness, RoughId}})
 	{

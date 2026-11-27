@@ -6,7 +6,8 @@
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Materials/Material.h"
-#include "Materials/MaterialShaderMap.h"
+#include "Materials/MaterialInstance.h"
+#include "SceneView.h"
 #include "RenderingThread.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
@@ -35,33 +36,8 @@ namespace Durin
 			Tasks::TTask<void> Load;
 			bool bPublished = false;
 		};
-		FSkyMaterialRequest GCubeSky_RenderThread;
 		FSkyMaterialRequest GProceduralSky_RenderThread;
 		uint64 GMaterialGeneration_RenderThread = 0;
-		std::optional<FDefaultCubeSkyBindings> GCubeSkyBindings_RenderThread;
-		FMaterialRenderLayoutIdentity GCubeSkyLayout_RenderThread;
-
-		auto ResolveCubeSkyBindings(const DMaterialInterface& Material, const FMaterialRenderLayout& Layout)
-			-> std::optional<FDefaultCubeSkyBindings>
-		{
-			auto Find = [&](const char* Name, EMaterialRenderValueType Type) -> const FMaterialRenderField*
-			{
-				const auto* Parameter = Material.FindParameterDefinition(FName(Name));
-				if (Parameter)
-				{
-					const auto Field = std::ranges::find(Layout.Fields, Parameter->Id, &FMaterialRenderField::ParameterId);
-					if (Field != Layout.Fields.end() && Field->Type == Type) return &*Field;
-				}
-				DURIN_ERROR_CATEGORY("Material", "DefaultCubeSky requires active parameter '{}' with render type {}.", Name, static_cast<int>(Type));
-				return nullptr;
-			};
-			const auto* Texture = Find(FDefaultCubeSkyBindings::TextureName, EMaterialRenderValueType::TextureCube);
-			const auto* Tint = Find(FDefaultCubeSkyBindings::TintName, EMaterialRenderValueType::Vector4);
-			const auto* Intensity = Find(FDefaultCubeSkyBindings::IntensityName, EMaterialRenderValueType::Scalar);
-			if (!Texture || !Tint || !Intensity) return std::nullopt;
-			return FDefaultCubeSkyBindings{Texture->CompactIndex, Tint->Offset, Intensity->Offset};
-		}
-
 		constexpr std::array<std::string_view, 3> GBuiltInCookRoots{
 			DefaultMaterialPackagePath, "/Engine/Materials/DefaultCubeSky", "/Engine/Materials/DefaultProceduralSky"};
 
@@ -85,57 +61,69 @@ namespace Durin
 				EnqueueRenderCommand("PublishDefaultMaterialProxy", [Proxy = std::move(Proxy), Generation](FRHICommandListImmediate&) {
 					GDefaultMaterialProxy_RenderThread = Proxy;
 					GMaterialGeneration_RenderThread = Generation;
-					GCubeSky_RenderThread = {};
 					GProceduralSky_RenderThread = {};
-					GCubeSkyBindings_RenderThread.reset();
 				});
 		}
 
-		auto PrepareSkyMaterial_GameThread(bool bProcedural, uint64 Generation) -> void
+		auto PrepareProceduralSkyMaterial_GameThread(uint64 Generation) -> void
 		{
 			if (!GDefaultMaterialService.bAcceptingBindings || Generation != GDefaultMaterialService.Generation) return;
-			auto*& Material = bProcedural ? GDefaultMaterialService.ProceduralSky : GDefaultMaterialService.CubeSky;
-			Material = LoadSkyMaterial(bProcedural);
+			auto*& Material = GDefaultMaterialService.ProceduralSky;
+			Material = LoadSkyMaterial(true);
 			FMaterialRenderProxyRef Proxy;
 			if (Material)
 			{
 				AddToRoot(Material);
 				Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
-				const auto Program = Material->GetAcceptedCompiledProgram();
-				if (Program)
-				{
-					if (!bProcedural) RefreshDefaultCubeSkyBindings_GameThread(*Material, Program.get());
-					Proxy = Material->GetRenderProxy();
-				}
+				if (Material->GetAcceptedCompiledProgram()) Proxy = Material->GetRenderProxy();
 			}
 			if (!Proxy)
-				DURIN_ERROR_CATEGORY("Material", "Unable to prepare {} skydome material: {}", bProcedural ? "procedural" : "cubemap",
+				DURIN_ERROR_CATEGORY("Material", "Unable to prepare procedural skydome material: {}",
 					Material ? Material->GetMaterialCookDiagnostic() : "asset unavailable");
-			EnqueueRenderCommand("PublishSkyMaterial", [bProcedural, Generation, Proxy = std::move(Proxy)](FRHICommandListImmediate&) {
+			EnqueueRenderCommand("PublishSkyMaterial", [Generation, Proxy = std::move(Proxy)](FRHICommandListImmediate&) {
 				if (Generation != GMaterialGeneration_RenderThread) return;
-				auto& Slot = bProcedural ? GProceduralSky_RenderThread : GCubeSky_RenderThread;
+				auto& Slot = GProceduralSky_RenderThread;
 				Slot.Proxy = Proxy;
 				Slot.bPublished = true;
 			});
 		}
 	}
 
-	auto RefreshDefaultCubeSkyBindings_GameThread(const DMaterialInterface& Material, const FMaterialProgram* Program) -> void
+	auto FCubeSkyCaptureMaterial::Create(const FViewEnvironmentOverride& Input)
+		-> std::expected<std::unique_ptr<FCubeSkyCaptureMaterial>, std::string>
 	{
-		if (&Material != GDefaultMaterialService.CubeSky) return;
-		const auto* Layout = Program ? &Program->GetShaderMap().Layout : nullptr;
-		auto Bindings = Layout ? ResolveCubeSkyBindings(Material, *Layout) : std::nullopt;
-		EnqueueRenderCommand("PublishDefaultCubeSkyBindings",
-			[Bindings, Identity = Layout ? Layout->Identity : FMaterialRenderLayoutIdentity{}](FRHICommandListImmediate&) {
-				GCubeSkyBindings_RenderThread = Bindings;
-				GCubeSkyLayout_RenderThread = Identity;
-			});
+		CheckDefaultMaterialGameThread();
+		if (!GDefaultMaterialService.bAcceptingBindings || !Input.TextureReference)
+			return std::unexpected("Cube sky material or texture reference is unavailable.");
+		auto*& Parent = GDefaultMaterialService.CubeSky;
+		if (!Parent)
+		{
+			Parent = LoadSkyMaterial(false);
+			if (!Parent) return std::unexpected("DefaultCubeSky asset is unavailable.");
+			AddToRoot(Parent);
+		}
+		if (!Parent->GetAcceptedCompiledProgram())
+			Parent->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+		if (!Parent->GetAcceptedCompiledProgram())
+			return std::unexpected("DefaultCubeSky program is unavailable: " + Parent->GetMaterialCookDiagnostic());
+		auto Capture = std::unique_ptr<FCubeSkyCaptureMaterial>(new FCubeSkyCaptureMaterial);
+		Capture->Instance = DMaterialInstance::CreateDynamic(Parent);
+		if (!Capture->Instance) return std::unexpected("Cannot create a DefaultCubeSky material instance.");
+		const std::array Updates{
+			FMaterialDynamicParameterUpdate::SetTextureReferenceByInfo({.Name = FName("SkyTexture")}, Input.TextureReference),
+			FMaterialDynamicParameterUpdate::SetByInfo({.Name = FName("SkyTint")}, FMaterialParameterValue::MakeVector4(FVector4(Input.Tint, 1.0))),
+			FMaterialDynamicParameterUpdate::SetByInfo({.Name = FName("SkyIntensity")}, FMaterialParameterValue::MakeScalar(std::max(Input.Intensity, 0.0f)))};
+		if (auto Result = Capture->Instance->ApplyDynamicParameterUpdates(Updates); !Result)
+			return std::unexpected(Result.error());
+		auto Proxy = Capture->Instance->GetRenderProxy();
+		if (!Proxy) return std::unexpected("DefaultCubeSky material instance has no render proxy.");
+		Capture->Environment = std::make_shared<FCubeSkyViewEnvironment>(std::move(Proxy), Input.TextureReference, Input.Rotation);
+		return Capture;
 	}
 
-	auto GetDefaultCubeSkyBindings_RenderThread(const FMaterialRenderLayoutIdentity& Layout) -> const FDefaultCubeSkyBindings*
+	FCubeSkyCaptureMaterial::~FCubeSkyCaptureMaterial()
 	{
-		CheckRenderingThread();
-		return GCubeSkyBindings_RenderThread && Layout == GCubeSkyLayout_RenderThread ? &*GCubeSkyBindings_RenderThread : nullptr;
+		if (Instance) Instance->ClearParameterValueByInfo({.Name = FName("SkyTexture")});
 	}
 
 	auto InitializeDefaultMaterialService() -> bool
@@ -242,15 +230,15 @@ namespace Durin
 			: FMaterialRenderProxyRef{};
 	}
 
-	auto RequestSkyMaterialProxy_RenderThread(bool bProcedural) -> FMaterialRenderProxyRef
+	auto RequestProceduralSkyMaterialProxy_RenderThread() -> FMaterialRenderProxyRef
 	{
 		CheckRenderingThread();
 		if (!GMaterialGeneration_RenderThread) return {};
-		auto& Slot = bProcedural ? GProceduralSky_RenderThread : GCubeSky_RenderThread;
+		auto& Slot = GProceduralSky_RenderThread;
 		if (Slot.bPublished) return Slot.Proxy;
 		if (!Slot.Load.IsValid())
-			Slot.Load = Tasks::LaunchTask("PrepareSkyMaterial", [bProcedural, Generation = GMaterialGeneration_RenderThread] {
-				PrepareSkyMaterial_GameThread(bProcedural, Generation);
+			Slot.Load = Tasks::LaunchTask("PrepareSkyMaterial", [Generation = GMaterialGeneration_RenderThread] {
+				PrepareProceduralSkyMaterial_GameThread(Generation);
 			}, Tasks::ETaskThread::GameThread);
 		// Publication follows material and binding updates on the render command pipe.
 		if (Slot.Load.IsValid() && (!Slot.Load.IsCompleted() || Slot.Load.GetState() == ETaskState::Succeeded))

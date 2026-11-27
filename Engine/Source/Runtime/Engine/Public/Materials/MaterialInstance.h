@@ -14,6 +14,7 @@ namespace Durin
 	{
 		Set,
 		Clear,
+		SetTextureReference,
 	};
 
 	// Borrowed by ApplyDynamicParameterUpdates for one GameThread call.
@@ -21,7 +22,6 @@ namespace Durin
 	{
 		EMaterialDynamicParameterUpdateOperation Operation =
 			EMaterialDynamicParameterUpdateOperation::Set;
-		FGuid ParameterId;
 		FMaterialParameterValue Value;
 
 		FMaterialParameterInfo ParameterInfo;
@@ -30,21 +30,19 @@ namespace Durin
 		{
 			return {.Value = std::move(InValue), .ParameterInfo = Info};
 		}
+		// Bind an external texture to a transient instance using the declared dimension and sampler.
+		static auto SetTextureReferenceByInfo(FMaterialParameterInfo Info, FRHITextureReferenceRef Reference) -> FMaterialDynamicParameterUpdate
+		{
+			FMaterialTextureValue Texture;
+			Texture.TextureReference = std::move(Reference);
+			return {.Operation = EMaterialDynamicParameterUpdateOperation::SetTextureReference,
+				.Value = FMaterialParameterValue(Texture), .ParameterInfo = Info};
+		}
 		static auto ClearByInfo(FMaterialParameterInfo Info) -> FMaterialDynamicParameterUpdate
 		{
 			return {.Operation = EMaterialDynamicParameterUpdateOperation::Clear, .ParameterInfo = Info};
 		}
-		static auto Set(FGuid Id, FMaterialParameterValue InValue)
-			-> FMaterialDynamicParameterUpdate
-		{
-			return {.Operation = EMaterialDynamicParameterUpdateOperation::Set,
-				.ParameterId = Id, .Value = std::move(InValue)};
-		}
-		static auto Clear(FGuid Id) -> FMaterialDynamicParameterUpdate
-		{
-			return {.Operation = EMaterialDynamicParameterUpdateOperation::Clear,
-				.ParameterId = Id};
-		}
+
 	};
 
 	struct FMaterialDynamicParameterCounters
@@ -91,7 +89,7 @@ namespace Durin
 			return GetLocalParameterValueByInfo(Info, Value);
 		}
 		ENGINE_API auto ClearParameterValueByInfo(const FMaterialParameterInfo& Info) -> bool;
-		ENGINE_API auto GetLocalParameterValue(const FGuid& Id, FMaterialParameterValue& OutValue) const -> bool;
+		ENGINE_API auto IsParameterValueOrphanByInfo(const FMaterialParameterInfo& Info) const -> bool;
 		auto GetLocalParameterValueCount() const -> size_t
 		{
 			return ScalarParameterValues.size() + VectorParameterValues.size() + TextureParameterValues.size();
@@ -103,12 +101,6 @@ namespace Durin
 				for (const auto& Record : Records) Visitor(Record.ParameterInfo, Record.ParameterId, Record.GetValue());
 			});
 		}
-		template<typename TVisitor> auto VisitLocalParameterValues(TVisitor&& Visitor) const -> void
-		{
-			VisitLocalParameterOverrides([&](const FMaterialParameterInfo&, const FGuid& Id, const auto& Value) {
-				Visitor(Id, Value);
-			});
-		}
 		ENGINE_API auto SetPropertyOverrides(const FMaterialPropertyOverrides& Overrides) -> bool;
 		auto GetPropertyOverrides() const -> const FMaterialPropertyOverrides& { return PropertyOverrides; }
 		auto GetStaticBoolOverrides() const -> std::span<const FMaterialStaticBoolOverride>
@@ -117,25 +109,16 @@ namespace Durin
 		}
 		ENGINE_API auto SetStaticBoolOverrideByInfo(const FMaterialParameterInfo& Info, bool Value, bool bOverride = true) -> bool;
 		ENGINE_API auto ClearStaticBoolOverrideByInfo(const FMaterialParameterInfo& Info) -> bool;
-		ENGINE_API auto SetStaticBoolOverride(FGuid DeclarationId, bool Value) -> bool;
-		ENGINE_API auto ClearStaticBoolOverride(FGuid DeclarationId) -> bool;
+		ENGINE_API auto ClearOrphanedStaticBoolOverride(FGuid DeclarationId) -> bool;
 		ENGINE_API auto ResolveParameterValueByInfo(const FMaterialParameterInfo& Info, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		// Authored assets admit edits before compilation; cooked assets use the compiled contract.
 		ENGINE_API auto SetParameterValueByInfo(const FMaterialParameterInfo& Info, const FMaterialParameterValue& Value) -> std::expected<void, std::string>;
-		ENGINE_API auto SetParameterValue(
-			const FGuid& Id,
-			const FMaterialParameterValue& Value
-			) -> std::expected<void, std::string>;
 		// Dynamic instances only. Validates the complete borrowed batch against one
 		// accepted parent contract for Set. A pending cooked parent uses serialized
-		// declarations and retains overrides until publication. Clear only needs a valid local GUID,
-		// including orphaned values. Commits and publishes at most once.
+		// declarations and retains overrides until publication. Clear accepts orphaned names. Commits and publishes at most once.
 		ENGINE_API auto ApplyDynamicParameterUpdates(
 			std::span<const FMaterialDynamicParameterUpdate> Updates)
 			-> std::expected<void, std::string>;
-		ENGINE_API auto ClearParameterValue(const FGuid& Id) -> bool;
-		ENGINE_API auto HasLocalParameterValue(const FGuid& Id) const -> bool;
-		ENGINE_API auto IsParameterValueOrphan(const FGuid& Id) const -> bool;
 		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> std::expected<void, std::string>;
 		ENGINE_API auto SetVector2ParameterValue(FName Name, const FVector2& Value) -> std::expected<void, std::string>;
 		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> std::expected<void, std::string>;
@@ -163,7 +146,6 @@ namespace Durin
 		// Factory-only lifecycle, never serialized or switched on a live asset.
 		bool bDynamicInstance = false;
 		friend class DMaterialInterface;
-		auto StoreStaticBoolParameter(const FMaterialStaticBoolOverride& Record) -> bool;
 		auto RefreshParameterBindings(bool bParentChanged = false) -> void;
 
 		DPROPERTY(Edit)

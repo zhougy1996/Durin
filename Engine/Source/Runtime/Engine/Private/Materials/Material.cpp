@@ -281,13 +281,6 @@ namespace Durin
 	}
 #endif
 
-	auto DMaterial::SetParameterValue(const FGuid& Id, const FMaterialParameterValue& Value) -> std::expected<void, std::string>
-	{
-		const auto* Definition = FindParameterDefinition(Id);
-		if (!Definition) return std::unexpected(std::format("Material declaration does not exist. [parameter {}]", Id.ToString()));
-		return SetParameterValueByInfo(Definition->GetParameterInfo(), Value);
-	}
-
 	auto DMaterial::SetParameterValueByInfo(const FMaterialParameterInfo& Info, const FMaterialParameterValue& Value) -> std::expected<void, std::string>
 	{
 		auto Entry = std::ranges::find(ParameterSchema, Info, &FMaterialParameterDefinition::GetParameterInfo);
@@ -297,7 +290,7 @@ namespace Durin
 		if (!Entry->Value.HasSameType(Value)) return std::unexpected("Material parameter value has an incompatible texture dimension or type.");
 		auto Definition = *Entry;
 		Definition.Value = Value;
-		const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1));
+		const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1), !bCooked);
 		if (!Validation) return std::unexpected(std::format("{} [parameter {}]", GetMaterialParameterErrorText(Validation.Error), Validation.ParameterId.ToString()));
 		if (*Entry == Definition) return {};
 		if (!bCooked)
@@ -313,7 +306,7 @@ namespace Durin
 				require(bMatched);
 			}
 #else
-			return std::unexpected(std::format("{} [parameter {}]", "The parameter has no authored expression owner.", Id.ToString()));
+			return std::unexpected(std::format("{} [parameter {}]", "The parameter has no authored expression owner.", Info.Name.ToString()));
 #endif
 		}
 
@@ -391,7 +384,6 @@ namespace Durin
 		Super::SerializeCooked(Ar);
 		if (Ar.IsError()) return;
 		std::vector<FMaterialParameterDefinition> Loaded;
-		std::vector<uint32> LoadedOrder;
 		for (const auto Type : {EMaterialParameterType::Scalar, EMaterialParameterType::Vector2,
 			EMaterialParameterType::Vector, EMaterialParameterType::Vector4, EMaterialParameterType::Texture})
 		{
@@ -399,6 +391,7 @@ namespace Durin
 			if (Ar.IsSaving())
 				for (const auto& Definition : ParameterSchema)
 					if (Definition.Type == Type) Values.push_back(Definition);
+			std::ranges::sort(Values, {}, [](const auto& Definition) { return StringUtils::FoldAscii(Definition.Name.ToString()); });
 			const FName RecordName(std::format("Durin::CookedMaterialParameter{}", static_cast<uint32>(Type)));
 			auto Field = EnterArchiveField(Ar, {FName("Durin::DMaterial"),
 				FName(std::format("TypedParameters{}", static_cast<uint32>(Type))),
@@ -412,11 +405,6 @@ namespace Durin
 						auto Scope = EnterArchiveField(Inner, {RecordName, FName(Name), std::move(LogicalType)});
 						Inner << Value;
 					};
-					Member("Id", Definition.Id, FArchiveLogicalTypeDescriptor::Guid());
-					uint32 Order = Ar.IsSaving() ? static_cast<uint32>(std::ranges::find(ParameterSchema,
-						Definition.Id, &FMaterialParameterDefinition::Id) - ParameterSchema.begin()) : 0;
-					Member("Order", Order, FArchiveLogicalTypeDescriptor::Scalar(false, 32));
-					if (Inner.IsLoading()) LoadedOrder.push_back(Order);
 					Member("Name", Definition.Name, FArchiveLogicalTypeDescriptor::Name());
 					{
 						auto Scope = EnterArchiveField(Inner, {RecordName, FName("DisplayName"), FArchiveLogicalTypeDescriptor::String()});
@@ -485,29 +473,8 @@ namespace Durin
 			if (Ar.IsError()) return;
 			if (Ar.IsLoading()) Loaded.insert(Loaded.end(), Values.begin(), Values.end());
 		}
-		if (Ar.IsLoading())
-		{
-			if (Loaded.size() > MaterialProgramMaxNodeCount || Loaded.size() != LoadedOrder.size())
-			{
-				Ar.Fail(EArchiveFailureCode::LimitExceeded, "Cooked parameter schema exceeds its bound.");
-				return;
-			}
-			std::vector<FMaterialParameterDefinition> Ordered(Loaded.size());
-			std::vector<bool> Seen(Loaded.size(), false);
-			for (size_t Index = 0; Index < Loaded.size(); ++Index)
-			{
-				const auto Order = LoadedOrder[Index];
-				if (Order >= Loaded.size() || Seen[Order])
-				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid cooked parameter declaration order.");
-					return;
-				}
-				Seen[Order] = true;
-				Ordered[Order] = std::move(Loaded[Index]);
-			}
-			ParameterSchema = std::move(Ordered);
-		}
-		if (!Ar.IsError() && !ValidateMaterialParameterDefinitions(ParameterSchema))
+		if (Ar.IsLoading()) ParameterSchema = std::move(Loaded);
+		if (!Ar.IsError() && !ValidateMaterialParameterDefinitions(ParameterSchema, false))
 			Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid generated cooked material parameter schema.");
 	}
 

@@ -110,20 +110,20 @@ namespace Durin
 			const FMaterialRenderRepresentation& Source);
 
 		ENGINE_API explicit FMaterialRenderRepresentationBuilder(const FMaterialRenderLayout& Layout);
-		// Uses a prebound field index, checking GUID and concrete type before writing.
+		// Uses a prebound field index, checking the field key and concrete type before writing.
 		// The index is local to this builder's exact immutable layout.
 		ENGINE_API auto SetParameterAtIndex(uint32 FieldIndex,
-			const FGuid& Id, const FMaterialParameterValue& Value) -> bool;
-		ENGINE_API auto SetParameter(const FGuid& Id, const FMaterialParameterValue& Value) -> bool;
+			const FMaterialFieldKey& Id, const FMaterialParameterValue& Value) -> bool;
+		ENGINE_API auto SetParameter(const FMaterialFieldKey& Id, const FMaterialParameterValue& Value) -> bool;
 
-		ENGINE_API auto SetScalar(const FGuid& ParameterId, float Value) -> bool;
-		ENGINE_API auto SetVector(const FGuid& ParameterId, const FVector3& Value) -> bool;
+		ENGINE_API auto SetScalar(const FMaterialFieldKey& ParameterId, float Value) -> bool;
+		ENGINE_API auto SetVector(const FMaterialFieldKey& ParameterId, const FVector3& Value) -> bool;
 		// Vector2 values occupy XY of a 16-byte render slot; authored values remain
 		// two-dimensional.
-		ENGINE_API auto SetVector4(const FGuid& ParameterId, const FVector4& Value) -> bool;
-		ENGINE_API auto SetVector2(const FGuid& ParameterId, const FVector2& Value) -> bool;
+		ENGINE_API auto SetVector4(const FMaterialFieldKey& ParameterId, const FVector4& Value) -> bool;
+		ENGINE_API auto SetVector2(const FMaterialFieldKey& ParameterId, const FVector2& Value) -> bool;
 		ENGINE_API auto SetTexture(
-			const FGuid& ParameterId,
+			const FMaterialFieldKey& ParameterId,
 			const FRHITextureReferenceRef& Value,
 			FMaterialSamplerState Sampler = {},
 			EMaterialTextureFallback Fallback = EMaterialTextureFallback::White
@@ -134,13 +134,15 @@ namespace Durin
 		) -> bool;
 
 	private:
-		ENGINE_API auto FindField(const FGuid& ParameterId) const
+		friend class FMaterialRenderProxy;
+		auto WriteBoundParameter(uint32 FieldIndex, const FMaterialParameterValue& Value) -> bool;
+		ENGINE_API auto FindField(const FMaterialFieldKey& ParameterId) const
 			-> const FMaterialRenderField*;
-		ENGINE_API auto RejectField(const FGuid& ParameterId) -> bool;
+		ENGINE_API auto RejectField(const FMaterialFieldKey& ParameterId) -> bool;
 
 		FMaterialRenderRepresentationInput Input;
 		bool bInvalid = false;
-		FGuid InvalidParameterId;
+		FMaterialFieldKey InvalidParameterId;
 	};
 
 	ENGINE_API auto MakeErrorMaterialRenderLayout() -> FMaterialRenderLayout;

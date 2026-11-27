@@ -2579,7 +2579,7 @@ TEST(FMaterialGraphOperationsTests,
 	const auto& PromotedDependencies = PromotedGraph.ActiveParameters;
 	ASSERT_EQ(PromotedDependencies.size(), 1u);
 	EXPECT_EQ(PromotedDependencies.front().Id,
-		ParameterId);
+		Material->FindParameterDefinition(ParameterId)->Name.ToString());
 	const uint64 CompileGeneration =
 		Material->GetMaterialCompileDebugInfo().RequestId;
 	ASSERT_TRUE(Testing::WritePreviewParameter(*Material, ParameterId, FVector4(0.7, 0.6, 0.5, 0)));
@@ -3076,10 +3076,10 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	const auto Built = MIR::FGraphBuilder(Expressions).FinishSurface(Material->CaptureRootInputs());
 	ASSERT_TRUE(Built.Diagnostics.empty());
 	ASSERT_EQ(Built.Parameters.size(), 1u);
-	EXPECT_EQ(Built.Parameters.front().Id, Id);
+	EXPECT_EQ(Built.Parameters.front().Id, Material->FindParameterDefinition(Id)->Name.ToString());
 	auto* Instance = NewObject<DMaterialInstance>(nullptr, "SharedParameterInstance");
 	ASSERT_TRUE(Instance->SetParent(Material));
-	ASSERT_TRUE(Instance->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.8f)));
+	ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = CreatedParameter->Metadata.Name}, FMaterialParameterValue::MakeScalar(.8f)));
 	ASSERT_TRUE(Testing::WritePreviewParameter(*Material, Id, .6f));
 	ASSERT_EQ(Transactions->GetQueueLength(), 1u);
 	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 3u);
@@ -3110,7 +3110,7 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(MaterialEditing::RenameParameter(*Material, Id, "RenamedAmount"));
 	FResolvedMaterialParameter Resolved;
-	ASSERT_TRUE(Instance->ResolveParameterValue(Id, Resolved));
+	ASSERT_TRUE(Instance->ResolveParameterValueByInfo(Instance->FindParameterDefinition(Id)->GetParameterInfo(), Resolved));
 	EXPECT_FLOAT_EQ(Resolved.Value.GetScalar(), .8f);
 	EXPECT_EQ(Resolved.Definition->Name, FName("RenamedAmount"));
 	ASSERT_TRUE(AuthoringGraph->RemoveNodes(B.value()));
@@ -3154,7 +3154,7 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	ASSERT_EQ(Target->GetParameterDefinitions().size(), 1u);
 	const auto TargetId = Target->GetParameterDefinitions().front().Id;
 	EXPECT_NE(TargetId, A->Metadata.Id);
-	ASSERT_TRUE(Target->SetParameterValue(TargetId, FMaterialParameterValue::MakeScalar(.9f)));
+	ASSERT_TRUE(Target->SetParameterValueByInfo(Target->GetParameterDefinitions().front().GetParameterInfo(), FMaterialParameterValue::MakeScalar(.9f)));
 	ASSERT_TRUE(TargetEditorGraph->Paste(Payload, 100, 0, false));
 	EXPECT_EQ(Target->GetParameterDefinitions().size(), 1u);
 	for (const auto& E : Target->GetExpressionCollection().Expressions)
@@ -4569,12 +4569,12 @@ TEST(FMaterialGraphOperationsTests, BaseParameterMutationRetainsFailuresBeforePu
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	const auto Invalid = Material->SetParameterValue({}, FMaterialParameterValue::MakeScalar(.5f));
+	const auto Invalid = Material->SetParameterValueByInfo({}, FMaterialParameterValue::MakeScalar(.5f));
 	EXPECT_FALSE(Invalid);
-	const auto MissingId = FGuid::NewGuid();
-	const auto Missing = Material->SetParameterValue(MissingId, FMaterialParameterValue::MakeScalar(.5f));
+	const FName MissingName("MissingParameter");
+	const auto Missing = Material->SetParameterValueByInfo({.Name = MissingName}, FMaterialParameterValue::MakeScalar(.5f));
 	ASSERT_FALSE(Missing);
-	EXPECT_NE(Missing.error().find(MissingId.ToString()), std::string::npos);
+	EXPECT_NE(Missing.error().find(MissingName.ToString()), std::string::npos);
 	FMaterialParameterDefinition Definition;
 	Definition.Name = "MutationCause";
 	Definition.Type = EMaterialParameterType::Scalar;
@@ -4594,7 +4594,7 @@ TEST(FMaterialGraphOperationsTests, BaseParameterMutationRetainsFailuresBeforePu
 	EXPECT_FLOAT_EQ(Owner->DefaultValue, .1f);
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .25f);
 	Owner->DefaultValue = .25f;
-	ASSERT_TRUE(Material->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.75f)));
+	ASSERT_TRUE(Material->SetParameterValueByInfo(Definition.GetParameterInfo(), FMaterialParameterValue::MakeScalar(.75f)));
 	EXPECT_FLOAT_EQ(Owner->DefaultValue, .75f);
 }
 

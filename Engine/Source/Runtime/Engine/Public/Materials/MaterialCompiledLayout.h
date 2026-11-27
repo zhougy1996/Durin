@@ -3,14 +3,40 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
+#include "Misc/StringHelper.h"
 #include "Materials/MaterialTypes.h"
 #include "Shader/MaterialShaderIdentity.h"
 
 namespace Durin
 {
+	// Material layouts use parameter names. Collection layouts use member GUIDs.
+	struct FMaterialFieldKey
+	{
+		std::variant<FGuid, std::string> Key;
+		FMaterialFieldKey() = default;
+		FMaterialFieldKey(FGuid Id) : Key(Id) {}
+		FMaterialFieldKey(std::string_view Name) : Key(StringUtils::FoldAscii(Name)) {}
+		FMaterialFieldKey(const std::string& Name) : FMaterialFieldKey(std::string_view(Name)) {}
+		auto GetName() const -> const std::string* { return std::get_if<std::string>(&Key); }
+		auto GetCollectionMemberId() const -> FGuid
+		{
+			const auto* Id = std::get_if<FGuid>(&Key);
+			return Id ? *Id : FGuid{};
+		}
+		auto IsValid() const -> bool
+		{
+			if (const auto* Name = GetName())
+				return !Name->empty() && *Name != "none" && Name->size() <= MaterialMaxParameterTextBytes
+					&& Name->find('\0') == std::string::npos;
+			return GetCollectionMemberId().IsValid();
+		}
+		auto ToString() const -> std::string { return GetName() ? *GetName() : GetCollectionMemberId().ToString(); }
+		auto operator<=>(const FMaterialFieldKey&) const = default;
+	};
+
 	struct FMaterialCompilerParameterDeclaration
 	{
-		FGuid Id;
+		FMaterialFieldKey Id;
 		EMaterialParameterType Type = EMaterialParameterType::Scalar;
 		EMaterialTextureDimension TextureDimension = EMaterialTextureDimension::Texture2D;
 
@@ -45,8 +71,8 @@ namespace Durin
 
 	struct FMaterialRenderField
 	{
-		// The GUID is retained for Engine-side compilation and diagnostics only.
-		FGuid ParameterId;
+		// Symbol used to compile and validate the layout.
+		FMaterialFieldKey ParameterId;
 		EMaterialRenderFieldStorage Storage = EMaterialRenderFieldStorage::Uniform;
 		EMaterialRenderValueType Type = EMaterialRenderValueType::Scalar;
 		uint16 CompactIndex = 0;
@@ -67,7 +93,7 @@ namespace Durin
 		auto operator==(const FMaterialRenderLayout&) const -> bool = default;
 	};
 
-	inline constexpr uint32 CompiledMaterialRenderLayoutVersion = 5;
+	inline constexpr uint32 CompiledMaterialRenderLayoutVersion = CurrentMaterialRenderLayoutVersion;
 	// Reserved padding keeps authored offsets stable; view/pass controls are separate.
 	inline constexpr uint32 MaterialUniformHeaderBytes = 16;
 
@@ -99,7 +125,7 @@ namespace Durin
 	struct FMaterialLayoutValidationResult
 	{
 		EMaterialLayoutError Error = EMaterialLayoutError::None;
-		FGuid ParameterId;
+		FMaterialFieldKey ParameterId;
 		uint32 FieldIndex = 0;
 		explicit operator bool() const { return Error == EMaterialLayoutError::None; }
 	};

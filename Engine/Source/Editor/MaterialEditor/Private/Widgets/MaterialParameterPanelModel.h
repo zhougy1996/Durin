@@ -95,8 +95,7 @@ namespace Durin::MaterialEditor
 		DMaterialInstance* Instance = nullptr;
 		// Values and presentation metadata do not invalidate graph reachability.
 		DMaterial* DependencyMaterial = nullptr;
-		std::vector<std::pair<FGuid, EMaterialParameterType>> DependencySchema;
-		std::vector<FGuid> ParameterIds;
+		std::vector<std::pair<FMaterialParameterInfo, EMaterialParameterType>> DependencySchema;
 		std::shared_ptr<const FMaterialParameterReachability> DependencyReachability;
 		bool bDependenciesInitialized = false;
 		std::vector<FMaterialParameterPanelEntry> Entries;

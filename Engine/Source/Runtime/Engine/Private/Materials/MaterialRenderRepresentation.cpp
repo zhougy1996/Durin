@@ -225,7 +225,7 @@ namespace Durin
 			OutBinding.CompiledTextureFallbacks = Representation.GetTextureFallbacks();
 			return true;
 		}
-		return SetValidationFailure(OutDiagnostic, "Only compiled material layout v5 can bind.");
+		return SetValidationFailure(OutDiagnostic, "The material binding requires the current compiled layout version.");
 	}
 
 	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(
@@ -254,19 +254,25 @@ namespace Durin
 		Input.TextureFallbacks.resize(Layout.ResourceFieldCount, EMaterialTextureFallback::White);
 	}
 
-	auto FMaterialRenderRepresentationBuilder::SetParameter(const FGuid& Id, const FMaterialParameterValue& Value) -> bool
+	auto FMaterialRenderRepresentationBuilder::SetParameter(const FMaterialFieldKey& Id, const FMaterialParameterValue& Value) -> bool
 	{
 		const auto* Field = FindField(Id);
 		if (!Field) return RejectField(Id);
-		return SetParameterAtIndex(static_cast<uint32>(Field - Input.Layout.Fields.data()), Id, Value);
+		return WriteBoundParameter(static_cast<uint32>(Field - Input.Layout.Fields.data()), Value);
 	}
 
 	auto FMaterialRenderRepresentationBuilder::SetParameterAtIndex(uint32 FieldIndex,
-		const FGuid& Id, const FMaterialParameterValue& Value) -> bool
+		const FMaterialFieldKey& Id, const FMaterialParameterValue& Value) -> bool
 	{
-		if (bInvalid || FieldIndex >= Input.Layout.Fields.size()) return RejectField(Id);
+		if (FieldIndex >= Input.Layout.Fields.size() || Input.Layout.Fields[FieldIndex].ParameterId != Id) return RejectField(Id);
+		return WriteBoundParameter(FieldIndex, Value);
+	}
+
+	auto FMaterialRenderRepresentationBuilder::WriteBoundParameter(uint32 FieldIndex, const FMaterialParameterValue& Value) -> bool
+	{
+		if (bInvalid || FieldIndex >= Input.Layout.Fields.size()) return RejectField({});
 		const auto& Field = Input.Layout.Fields[FieldIndex];
-		if (Field.ParameterId != Id) return RejectField(Id);
+		const auto& Id = Field.ParameterId;
 		if (Value.GetType() == EMaterialParameterType::Texture)
 		{
 			const auto& Texture = Value.GetTexture();
@@ -294,7 +300,7 @@ namespace Durin
 	}
 
 	auto FMaterialRenderRepresentationBuilder::FindField(
-		const FGuid& ParameterId) const -> const FMaterialRenderField*
+		const FMaterialFieldKey& ParameterId) const -> const FMaterialRenderField*
 	{
 		const auto It = std::ranges::find(
 			Input.Layout.Fields,
@@ -304,7 +310,7 @@ namespace Durin
 	}
 
 	auto FMaterialRenderRepresentationBuilder::RejectField(
-		const FGuid& ParameterId) -> bool
+		const FMaterialFieldKey& ParameterId) -> bool
 	{
 		bInvalid = true;
 		InvalidParameterId = ParameterId;
@@ -312,7 +318,7 @@ namespace Durin
 	}
 
 	auto FMaterialRenderRepresentationBuilder::SetScalar(
-		const FGuid& ParameterId,
+		const FMaterialFieldKey& ParameterId,
 		float Value
 	) -> bool
 	{
@@ -329,7 +335,7 @@ namespace Durin
 	}
 
 	auto FMaterialRenderRepresentationBuilder::SetVector(
-		const FGuid& ParameterId,
+		const FMaterialFieldKey& ParameterId,
 		const FVector3& Value
 	) -> bool
 	{
@@ -347,7 +353,7 @@ namespace Durin
 	}
 
 	auto FMaterialRenderRepresentationBuilder::SetVector2(
-		const FGuid& ParameterId,
+		const FMaterialFieldKey& ParameterId,
 		const FVector2& Value
 	) -> bool
 	{
@@ -364,7 +370,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FMaterialRenderRepresentationBuilder::SetVector4(const FGuid& ParameterId, const FVector4& Value) -> bool
+	auto FMaterialRenderRepresentationBuilder::SetVector4(const FMaterialFieldKey& ParameterId, const FVector4& Value) -> bool
 	{
 		const auto* Field = FindField(ParameterId);
 		if (!Field) return false;
@@ -378,7 +384,7 @@ namespace Durin
 	}
 
 	auto FMaterialRenderRepresentationBuilder::SetTexture(
-		const FGuid& ParameterId,
+		const FMaterialFieldKey& ParameterId,
 		const FRHITextureReferenceRef& Value,
 		FMaterialSamplerState Sampler,
 		EMaterialTextureFallback Fallback

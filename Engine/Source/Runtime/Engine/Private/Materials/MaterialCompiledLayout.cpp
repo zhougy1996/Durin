@@ -20,8 +20,18 @@ namespace Durin
 			Append(Layout.ResourceFieldCount);
 			for (const auto& Field : Layout.Fields)
 			{
-				Append(Field.ParameterId.A); Append(Field.ParameterId.B);
-				Append(Field.ParameterId.C); Append(Field.ParameterId.D);
+				const auto* Name = Field.ParameterId.GetName();
+				Append(Name ? 1u : 0u);
+				if (Name)
+				{
+					Append(static_cast<uint32>(Name->size()));
+					for (const char Ch : *Name) Bytes.push_back(static_cast<std::byte>(Ch));
+				}
+				else
+				{
+					const auto Id = Field.ParameterId.GetCollectionMemberId();
+					Append(Id.A); Append(Id.B); Append(Id.C); Append(Id.D);
+				}
 				Append(static_cast<uint32>(Field.Storage));
 				Append(static_cast<uint32>(Field.Type));
 				Append(Field.CompactIndex); Append(Field.Offset); Append(Field.Size);
@@ -36,7 +46,7 @@ namespace Durin
 		const FMaterialCompilerResourceLimits& Limits) -> FMaterialLayoutBuildResult
 	{
 		FMaterialLayoutBuildResult Result;
-		auto Reject = [&](EMaterialLayoutError Error, FGuid Id = {}) {
+		auto Reject = [&](EMaterialLayoutError Error, FMaterialFieldKey Id = {}) {
 			Result.Validation = {.Error = Error, .ParameterId = Id};
 			Result.Layout = {};
 			return Result;
@@ -47,7 +57,7 @@ namespace Durin
 		std::ranges::sort(Ordered, {}, &FMaterialCompilerParameterDeclaration::Id);
 		auto& Layout = Result.Layout;
 		Layout.UniformPayloadSize = MaterialUniformHeaderBytes;
-		FGuid Previous;
+		FMaterialFieldKey Previous;
 		for (const auto& Parameter : Ordered)
 		{
 			if (!Parameter.Id.IsValid()) return Reject(EMaterialLayoutError::InvalidParameter);

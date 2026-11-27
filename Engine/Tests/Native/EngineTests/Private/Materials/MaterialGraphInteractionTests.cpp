@@ -443,7 +443,7 @@ TEST(FMaterialGraphInteractionTests, PreviewBindingRejectsWrongTypesAndStaleSour
 	ASSERT_TRUE(Preview);
 	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), {}, false));
 	ASSERT_TRUE(Edit.SetValue(.5f));
-	ASSERT_TRUE(Material->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.8f)));
+	ASSERT_TRUE(Material->SetParameterValueByInfo(Definition.GetParameterInfo(), FMaterialParameterValue::MakeScalar(.8f)));
 	EXPECT_FALSE(Edit.Commit());
 	EXPECT_FALSE(Edit.IsActive());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .8f);
@@ -456,7 +456,7 @@ TEST(FMaterialGraphInteractionTests, PreviewBindingRejectsWrongTypesAndStaleSour
 	EXPECT_TRUE(OldHandle.IsEditable());
 	Controls.Observe(7, OldHandle, EEnd::None, .5f);
 	ASSERT_TRUE(Controls.EndFrame(false, false));
-	ASSERT_TRUE(Material->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.7f)));
+	ASSERT_TRUE(Material->SetParameterValueByInfo(Definition.GetParameterInfo(), FMaterialParameterValue::MakeScalar(.7f)));
 	EXPECT_FALSE(OldHandle.IsEditable());
 	Controls.Observe(7, OldHandle, EEnd::Commit, std::nullopt);
 	Preview = Parameters.Find(Id);
@@ -1287,7 +1287,7 @@ TEST(FMaterialGraphInteractionTests, CanvasPositionRefreshPreservesTopologyStora
 	EXPECT_EQ(FindViewNode(View, ParameterId)->PrimaryLabel, Details->PrimaryLabel);
 	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);
 	const auto AuthoredRevision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
-	ASSERT_TRUE(Material->SetParameterValue(Definition.Id, FMaterialParameterValue::MakeScalar(.75f)));
+	ASSERT_TRUE(Material->SetParameterValueByInfo({.Name = "RenamedCanvasParameter"}, FMaterialParameterValue::MakeScalar(.75f)));
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, AuthoredRevision);
 	FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
@@ -1529,7 +1529,7 @@ TEST(FMaterialGraphInteractionTests, ParameterCanvasDragMovesNodeWithoutEditingI
 		const auto Id = Created->front();
 		const auto ParameterId = AuthoringGraph->FindNode(Id)->GetView().Node.GetParameterId();
 		FResolvedMaterialParameter Initial;
-		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, Initial));
+		ASSERT_TRUE(Material->ResolveParameterValueByInfo(Material->FindParameterDefinition(ParameterId)->GetParameterInfo(), Initial));
 		const auto Presentation = Material->GetMaterialGraphPresentation();
 		ImGuiContext* Context = ImGui::CreateContext();
 		auto& IO = ImGui::GetIO();
@@ -1560,12 +1560,12 @@ TEST(FMaterialGraphInteractionTests, ParameterCanvasDragMovesNodeWithoutEditingI
 		Frame({Start.x + 20, Start.y}, true);
 		Frame({Start.x + 40, Start.y}, true);
 		FResolvedMaterialParameter During;
-		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, During));
+		ASSERT_TRUE(Material->ResolveParameterValueByInfo(Material->FindParameterDefinition(ParameterId)->GetParameterInfo(), During));
 		EXPECT_EQ(During.Value, Initial.Value);
 		EXPECT_FALSE(Transactions->Undo());
 		Frame({Start.x + 60, Start.y}, true);
 		FResolvedMaterialParameter Final;
-		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, Final));
+		ASSERT_TRUE(Material->ResolveParameterValueByInfo(Material->FindParameterDefinition(ParameterId)->GetParameterInfo(), Final));
 		EXPECT_EQ(Final.Value, Initial.Value);
 		Frame({Start.x + 60, Start.y}, false);
 		EXPECT_EQ(Errors, 0);
@@ -1573,11 +1573,11 @@ TEST(FMaterialGraphInteractionTests, ParameterCanvasDragMovesNodeWithoutEditingI
 		EXPECT_TRUE(Transactions->Undo());
 		EXPECT_EQ(Material->GetMaterialGraphPresentation(), Presentation);
 		FResolvedMaterialParameter Restored;
-		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, Restored));
+		ASSERT_TRUE(Material->ResolveParameterValueByInfo(Material->FindParameterDefinition(ParameterId)->GetParameterInfo(), Restored));
 		EXPECT_EQ(Restored.Value, Initial.Value);
 		EXPECT_FALSE(Transactions->Undo());
 		EXPECT_TRUE(Transactions->Redo());
-		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, Restored));
+		ASSERT_TRUE(Material->ResolveParameterValueByInfo(Material->FindParameterDefinition(ParameterId)->GetParameterInfo(), Restored));
 		EXPECT_EQ(Restored.Value, Final.Value);
 		ImGui::DestroyContext(Context);
 		MarkAsGarbage(Material); CollectGarbage(Durin::EObjectFlags::Standalone);

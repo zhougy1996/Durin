@@ -130,14 +130,12 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 6u);
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "MRInstance"));
 	ASSERT_TRUE(Instance->SetParent(Material.Get()));
-	const auto MetallicId = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_Metallic, Kind::Value);
-	const auto RoughnessId = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_Roughness, Kind::Value);
-	ASSERT_TRUE(Instance->SetParameterValue(MetallicId, FMaterialParameterValue::MakeScalar(.8f)));
-	ASSERT_TRUE(Instance->SetParameterValue(RoughnessId, FMaterialParameterValue::MakeScalar(.2f)));
+	ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = AssetForge::Builtins::MaterialParameters::MetallicName()}, FMaterialParameterValue::MakeScalar(.8f)));
+	ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = AssetForge::Builtins::MaterialParameters::RoughnessName()}, FMaterialParameterValue::MakeScalar(.2f)));
 	FResolvedMaterialParameter Resolved;
-	ASSERT_TRUE(Instance->ResolveParameterValue(MetallicId, Resolved));
+	ASSERT_TRUE(Instance->ResolveParameterValueByInfo({.Name = AssetForge::Builtins::MaterialParameters::MetallicName()}, Resolved));
 	EXPECT_FLOAT_EQ(Resolved.Value.GetScalar(), .8f);
-	ASSERT_TRUE(Instance->ResolveParameterValue(RoughnessId, Resolved));
+	ASSERT_TRUE(Instance->ResolveParameterValueByInfo({.Name = AssetForge::Builtins::MaterialParameters::RoughnessName()}, Resolved));
 	EXPECT_FLOAT_EQ(Resolved.Value.GetScalar(), .2f);
 }
 
@@ -272,20 +270,20 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 				? FMaterialParameterValue::MakeVector4({1.25f + Index, -.125f * Index, 0, 0})
 				: FMaterialParameterValue::MakeScalar(ParameterKind == Kind::UVChannel
 					? static_cast<float>(Index % 4) : .2f * (Index + 1));
-			ASSERT_TRUE(Parent->SetParameterValue(Id, Value));
+			ASSERT_TRUE(Parent->SetParameterValueByInfo(Definition->GetParameterInfo(), Value));
 			FResolvedMaterialParameter Resolved;
-			ASSERT_TRUE(Child->ResolveParameterValue(Id, Resolved));
+			ASSERT_TRUE(Child->ResolveParameterValueByInfo(Definition->GetParameterInfo(), Resolved));
 			EXPECT_EQ(Resolved.Value, Value);
-			EXPECT_FALSE(Child->IsParameterValueOrphan(Id));
+			EXPECT_FALSE(Child->IsParameterValueOrphanByInfo(Definition->GetParameterInfo()));
 		}
 	}
 	// Switching to the new recipe must preserve inherited values by GUID.
 	ASSERT_TRUE(Parent->SetParent(Current));
-	Parent->VisitLocalParameterValues([&](const FGuid& Id, const FMaterialParameterValue& Value) {
+	Parent->VisitLocalParameterOverrides([&](const auto& Info, const FGuid& Id, const FMaterialParameterValue& Value) {
 		FResolvedMaterialParameter Resolved;
-		ASSERT_TRUE(Child->ResolveParameterValue(Id, Resolved));
+		ASSERT_TRUE(Child->ResolveParameterValueByInfo(Info, Resolved));
 		EXPECT_EQ(Resolved.Value, Value);
-		EXPECT_FALSE(Parent->IsParameterValueOrphan(Id));
+		EXPECT_FALSE(Parent->IsParameterValueOrphanByInfo(Info));
 	});
 	MarkAsGarbage(Child);
 	MarkAsGarbage(Parent);
@@ -489,13 +487,13 @@ TEST(FMaterialFunctionTests, ResourceOutputSkipsOwnerUVAndPreservesIndependentSa
 	ASSERT_TRUE(SnapshotCapture);
 	auto& Snapshot = SnapshotCapture.Snapshot->Input;
 	EXPECT_TRUE(std::ranges::any_of(Snapshot.Parameters, [&](const auto& Declaration) {
-		return Declaration.Id == Owner->Metadata.Id && Declaration.Type == EMaterialParameterType::Texture;
+		return Declaration.Id == Owner->Metadata.Name.ToString() && Declaration.Type == EMaterialParameterType::Texture;
 	}));
 	for (const auto& Node : Snapshot.IR.Nodes) EXPECT_TRUE(Node.HasValidPayload());
 	const auto Normalized = MIR::Normalize(Snapshot);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Normalized.Diagnostics.front().Message);
 	ASSERT_EQ(Normalized.ActiveParameters.size(), 1u);
-	EXPECT_EQ(Normalized.ActiveParameters.front().Id, Owner->Metadata.Id);
+	EXPECT_EQ(Normalized.ActiveParameters.front().Id, Owner->Metadata.Name.ToString());
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 2);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::UVChannel, &MIR::FNode::Opcode), 0);
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 1u);
@@ -1143,7 +1141,7 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	EXPECT_EQ(Connected.Layout.ResourceFieldCount, 1u);
 	EXPECT_EQ(std::ranges::count(Connected.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 1);
 	ASSERT_EQ(Connected.ActiveParameters.size(), 1u);
-	EXPECT_EQ(Connected.ActiveParameters[0].Id, ParameterId);
+	EXPECT_EQ(Connected.ActiveParameters[0].Id, Parameter->Metadata.Name.ToString());
 	EXPECT_TRUE(GenerateMaterialProgramSlang(Connected.IR, Connected.Layout));
 	// Compose the sampled texture into a Surface function and compile real shaders.
 	Graph.Signature.Inputs.push_back(FunctionPort(4, EMaterialProgramValueType::MaterialAttributes, "BaseSurface"));

@@ -37,7 +37,7 @@ namespace Durin
 	struct FMaterialParameterReachability
 	{
 		FMaterialProgramValidationResult Validation;
-		std::unordered_set<FGuid> ParameterIds;
+		std::unordered_set<FName> ParameterNames;
 	};
 
 	// GameThread resolution reports source owners without retaining their lifetimes.
@@ -179,7 +179,6 @@ namespace Durin
 		// current graph, including transitive function revisions, independently of compilation.
 		// Cooked queries follow the accepted program. Failed analyses are not cached.
 		ENGINE_API auto GetParameterReachability() const -> std::shared_ptr<const FMaterialParameterReachability>;
-		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool;
 
 		ENGINE_API virtual auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool;
 		ENGINE_API virtual auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool;
@@ -299,19 +298,19 @@ namespace Durin
 			bool bOnlyIfShaderChanged = false, FObjectCacheContext* Context = nullptr) -> void;
 		FMaterialCompilationState CompilationState;
 
-		ENGINE_API auto PublishMaterialRenderProxyState(EMaterialRenderDirtyFlags Flags = EMaterialRenderDirtyFlags::AllRenderState, std::span<const FGuid> ChangedParameters = {}) -> void;
+		ENGINE_API auto PublishMaterialRenderProxyState(EMaterialRenderDirtyFlags Flags = EMaterialRenderDirtyFlags::AllRenderState, std::span<const FMaterialParameterInfo> ChangedParameters = {}) -> void;
 		ENGINE_API auto NotifyParameterChanges() -> void;
 		// Optional parameter notifications run only after every affected owner's
 		// render state has been updated.
 		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags,
-			bool bNotifyParameterChanges = false, FObjectCacheContext* Context = nullptr, std::span<const FGuid> ChangedParameters = {}) -> void;
+			bool bNotifyParameterChanges = false, FObjectCacheContext* Context = nullptr, std::span<const FMaterialParameterInfo> ChangedParameters = {}) -> void;
 
 	private:
 		auto ResolveResourceProperties(const FMaterialResource& Resource) const -> FMaterialStaticProperties;
 		auto BindMaterialDefaultParameters(std::shared_ptr<const FMaterialProgram> Program) const -> std::shared_ptr<const FMaterialProgram>;
 		auto BuildMaterialParameterOverrides(const FMaterialResource& Resource) const -> FMaterialInstanceParameterSet;
 		auto BuildMaterialRenderParameters(const FMaterialResource& Resource) const -> FMaterialInstanceParameterSet;
-		auto PublishCompilationResources(EMaterialRenderDirtyFlags Flags = EMaterialRenderDirtyFlags::AllRenderState, std::span<const FGuid> ChangedParameters = {}) const -> void;
+		auto PublishCompilationResources(EMaterialRenderDirtyFlags Flags = EMaterialRenderDirtyFlags::AllRenderState, std::span<const FMaterialParameterInfo> ChangedParameters = {}) const -> void;
 		auto ReleaseCompilationResources() -> void;
 		auto PumpResourcePreparations(const FAssetCompileProcessParams& Params) -> bool;
 		auto CancelResourceCompilation() -> void;
@@ -337,8 +336,8 @@ namespace Durin
 		// Retires the failed owner's complete renderable generation and publishes ErrorMaterial.
 		auto RetireFailedMaterialGeneration(FObjectCacheContext* Context = nullptr) -> void;
 
-		auto SubmitMaterialRenderProxyState(EMaterialRenderDirtyFlags Flags = EMaterialRenderDirtyFlags::AllRenderState, std::span<const FGuid> ChangedParameters = {}) const -> void;
-		auto SubmitMaterialProxyUpdates(FMaterialRenderProxy& Proxy, const FMaterialResource* Resource, EMaterialRenderDirtyFlags Flags, std::span<const FGuid> ChangedParameters = {}) const -> void;
+		auto SubmitMaterialRenderProxyState(EMaterialRenderDirtyFlags Flags = EMaterialRenderDirtyFlags::AllRenderState, std::span<const FMaterialParameterInfo> ChangedParameters = {}) const -> void;
+		auto SubmitMaterialProxyUpdates(FMaterialRenderProxy& Proxy, const FMaterialResource* Resource, EMaterialRenderDirtyFlags Flags, std::span<const FMaterialParameterInfo> ChangedParameters = {}) const -> void;
 
 		FMaterialParameterChangedEvent ParameterChanges;
 		uint64 RenderChangeCount = 1;

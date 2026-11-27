@@ -9,6 +9,7 @@
 #include "IRendererModule.h"
 #include "Rendering/SceneInterface.h"
 #include "Math/Operations.h"
+#include "Materials/DefaultMaterialService.h"
 #include "PSOPrecacheComponent.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -163,6 +164,7 @@ namespace Durin
 		FTextureRHIRef RenderTarget;
 		FThumbnailPreviewView View;
 		std::optional<FViewEnvironmentOverride> Environment;
+		std::unique_ptr<FCubeSkyCaptureMaterial> CubeSky;
 		FThumbnailImageRenderer ImageRenderer;
 		std::shared_ptr<FCapture> Capture = std::make_shared<FCapture>();
 		std::string Error;
@@ -237,6 +239,7 @@ namespace Durin
 	auto FThumbnailCapture::SetViewEnvironment(const FViewEnvironmentOverride& Environment) -> void
 	{
 		Impl->CheckCanConfigure();
+		Impl->CubeSky.reset();
 		Impl->Environment = Environment;
 	}
 
@@ -268,15 +271,25 @@ namespace Durin
 				|| Environment->Intensity < 0.0f))
 			return std::unexpected("The rendered-thumbnail view environment is invalid.");
 
-		uint64 Generation = 0;
+		bool bRetry = false;
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
 			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
 				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
-			{
 				return std::unexpected("A rendered-thumbnail capture is already in flight.");
-			}
-			if (Impl->Capture->State != EThumbnailCaptureState::Preparing)
+			bRetry = Impl->Capture->State == EThumbnailCaptureState::Preparing;
+		}
+		if (Impl->Environment && !bRetry)
+		{
+			auto Material = FCubeSkyCaptureMaterial::Create(*Impl->Environment);
+			if (!Material) return std::unexpected(Material.error());
+			Impl->CubeSky = std::move(*Material);
+		}
+
+		uint64 Generation = 0;
+		{
+			std::lock_guard Lock(Impl->Capture->Mutex);
+			if (!bRetry)
 				Impl->Capture->Preparation = FRenderResourcePreparation::Create();
 			Impl->Capture->State = EThumbnailCaptureState::Rendering;
 			Impl->Capture->Pixels.clear();
@@ -320,11 +333,7 @@ namespace Durin
 			std::lock_guard Lock(Capture->Mutex);
 			Capture->Shaders = Shaders;
 		}
-		FSceneViewRenderOptions Options{
-			.Environment = Impl->Environment
-		};
-		if (Options.Environment)
-			Options.Environment->Rotation = Math::Normalize(Options.Environment->Rotation);
+		FSceneViewRenderOptions Options{.Environment = Impl->CubeSky ? Impl->CubeSky->GetEnvironment() : nullptr};
 		ENQUEUE_RENDER_COMMAND(RenderAssetThumbnailPreview)(
 			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options, ImageRenderer, Output, Preparation = Capture->Preparation, Shaders = std::move(Shaders)](
 				FRHICommandListImmediate& CommandList
@@ -455,6 +464,7 @@ namespace Durin
 			Impl->Capture->Error.clear();
 		}
 		Impl->View = MakeDefaultPreviewView();
+		Impl->CubeSky.reset();
 		Impl->Environment.reset();
 		Impl->ImageRenderer = {};
 		if (Impl->Scene && Impl->Scene->BindingOwner == this) Impl->Scene->BindingOwner = nullptr;

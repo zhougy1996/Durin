@@ -834,8 +834,8 @@ TEST_F(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 	ASSERT_TRUE(Base->GetAcceptedCompiledProgram());
 	AddToRoot(Base);
 	std::vector<const FMaterialParameterDefinition*> Numeric;
-	for (const auto& Active : Base->GetAcceptedCompiledProgram()->GetShaderMap().ActiveParameters)
-		if (const auto* Definition = Base->FindParameterDefinition(Active.Id);
+	for (const auto& Info : Base->GetAcceptedCompiledProgram()->FieldParameters)
+		if (const auto* Definition = Base->FindParameterDefinitionByInfo(Info);
 			Definition && (Definition->Type == EMaterialParameterType::Scalar
 				|| Definition->Type == EMaterialParameterType::Vector4))
 			Numeric.push_back(Definition);
@@ -877,7 +877,7 @@ TEST_F(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 				const float Seed = (Sample & 1) ? 0.21f : 0.41f;
 				for (auto* Instance : Instances)
 					for (uint32 Parameter = 0; Parameter < ParameterCount; ++Parameter)
-						ASSERT_TRUE(Instance->SetParameterValue(Numeric[Parameter]->Id,
+						ASSERT_TRUE(Instance->SetParameterValueByInfo(Numeric[Parameter]->GetParameterInfo(),
 							MakeMeasuredValue(*Numeric[Parameter], Seed + Parameter * 0.001f)));
 			});
 			FlushRenderingCommands();
@@ -897,8 +897,8 @@ TEST_F(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 				std::vector<FMaterialDynamicParameterUpdate> Updates;
 				Updates.reserve(ParameterCount);
 				for (uint32 Parameter = 0; Parameter < ParameterCount; ++Parameter)
-					Updates.push_back(FMaterialDynamicParameterUpdate::Set(
-						Numeric[Parameter]->Id,
+					Updates.push_back(FMaterialDynamicParameterUpdate::SetByInfo(
+						Numeric[Parameter]->GetParameterInfo(),
 						MakeMeasuredValue(*Numeric[Parameter], Seed + Parameter * 0.001f)));
 				for (auto* Instance : Instances)
 					ASSERT_TRUE(Instance->ApplyDynamicParameterUpdates(Updates));
@@ -914,17 +914,17 @@ TEST_F(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 			const float FinalSeed = 0.61f;
 			std::vector<FMaterialDynamicParameterUpdate> NoOpUpdates;
 			for (uint32 Parameter = 0; Parameter < ParameterCount; ++Parameter)
-				NoOpUpdates.push_back(FMaterialDynamicParameterUpdate::Set(
-					Numeric[Parameter]->Id,
+				NoOpUpdates.push_back(FMaterialDynamicParameterUpdate::SetByInfo(
+					Numeric[Parameter]->GetParameterInfo(),
 					MakeMeasuredValue(*Numeric[Parameter], FinalSeed + Parameter * 0.001f)));
 			const auto NoOp = Measure([&](uint32) {
 				for (auto* Instance : Instances)
 					ASSERT_TRUE(Instance->ApplyDynamicParameterUpdates(NoOpUpdates));
 			});
 			std::array RejectedUpdates{
-				FMaterialDynamicParameterUpdate::Set(Numeric[0]->Id,
+				FMaterialDynamicParameterUpdate::SetByInfo(Numeric[0]->GetParameterInfo(),
 					MakeMeasuredValue(*Numeric[0], 0.17f)),
-				FMaterialDynamicParameterUpdate::Clear(Numeric[0]->Id),
+				FMaterialDynamicParameterUpdate::ClearByInfo(Numeric[0]->GetParameterInfo()),
 			};
 			const auto Rejected = Measure([&](uint32) {
 				for (auto* Instance : Instances)

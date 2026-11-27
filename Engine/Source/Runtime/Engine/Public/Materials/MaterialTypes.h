@@ -447,7 +447,7 @@ namespace Durin
 	ENGINE_API auto GetMaterialParameterErrorText(EMaterialParameterError Error) -> std::string_view;
 	// Validates material-owned authored declarations.
 	ENGINE_API auto ValidateMaterialParameterDefinitions(
-		std::span<const FMaterialParameterDefinition> Definitions) -> FMaterialParameterValidationResult;
+		std::span<const FMaterialParameterDefinition> Definitions, bool bRequireExpressionIds = true) -> FMaterialParameterValidationResult;
 	[[nodiscard]] ENGINE_API auto ValidateMaterialStaticProperties(
 		const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>;
     [[nodiscard]] ENGINE_API auto ValidateMaterialConfiguration(EMaterialDomain Domain,

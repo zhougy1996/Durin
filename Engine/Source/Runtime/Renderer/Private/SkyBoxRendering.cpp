@@ -36,9 +36,6 @@ namespace Durin::SkyBoxRendering
 			if (!std::isfinite(Row.x) || !std::isfinite(Row.y) || !std::isfinite(Row.z)) return false;
 			OutUniform.DomeProjection[Axis] = FVector4f(Row, Axis == 2 ? FarDepth : 0.0f);
 		}
-		OutUniform.TintIntensity = FVector4f(SkyBox.Tint, std::max(0.0f, SkyBox.Intensity));
-		return std::isfinite(OutUniform.TintIntensity.x)
-			&& std::isfinite(OutUniform.TintIntensity.y) && std::isfinite(OutUniform.TintIntensity.z)
-			&& std::isfinite(OutUniform.TintIntensity.w);
+		return true;
 	}
 }

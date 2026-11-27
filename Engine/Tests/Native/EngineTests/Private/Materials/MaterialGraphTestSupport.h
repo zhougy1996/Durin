@@ -126,7 +126,7 @@ namespace
 	{
 		const auto* Definition = Material.FindParameterDefinition(Name);
 		FResolvedMaterialParameter Resolved;
-		if (!Definition || !Material.ResolveParameterValue(Definition->Id, Resolved)
+		if (!Definition || !Material.ResolveParameterValueByInfo(Definition->GetParameterInfo(), Resolved)
 			|| Resolved.Value.GetType() != EMaterialParameterType::Vector4) return false;
 		Value = Resolved.Value.GetVector4();
 		return true;

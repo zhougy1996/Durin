@@ -130,7 +130,8 @@ namespace Durin::MaterialEditor
 		else if (Node.Node.Opcode == EMaterialProgramOpcode::Parameter && Material)
 		{
 			FResolvedMaterialParameter Resolved;
-			if (Material->ResolveParameterValue(Node.Node.GetParameterId(), Resolved))
+			if (const auto* Definition = Material->FindParameterDefinition(Node.Node.GetParameterId());
+				Definition && Material->ResolveParameterValueByInfo(Definition->GetParameterInfo(), Resolved))
 			{
 				Display.Value = ReadParameterLiteral(Node.Node.ResultType, Resolved.Value);
 				Display.Subtitle = FormatGraphNumericValue(Node.Node.ResultType, *Display.Value);

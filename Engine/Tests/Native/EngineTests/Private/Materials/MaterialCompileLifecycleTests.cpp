@@ -1606,7 +1606,7 @@ TEST_F(FMaterialAsyncCompileTests, FeatureLevelResourcesSelectBranchesWithoutRep
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Default);
 	EXPECT_NE(Resource.CompiledProgram->GetShaderMap().ShaderMapId, Default->GetShaderMap().ShaderMapId);
 	ASSERT_EQ(Resource.Parameters.size(), 1u);
-	EXPECT_EQ(Resource.Parameters.front().Id, Low->Metadata.Id);
+	EXPECT_EQ(Resource.Parameters.front().Id, Low->Metadata.Name.ToString());
 	EXPECT_FLOAT_EQ(Resource.Parameters.front().Value.GetScalar(), 0.25f);
 	auto* Dynamic = DMaterialInstance::CreateDynamic(Material);
 	ASSERT_NE(Dynamic, nullptr);
@@ -1628,7 +1628,7 @@ TEST_F(FMaterialAsyncCompileTests, FeatureLevelResourcesSelectBranchesWithoutRep
 	ASSERT_NE(LowResource, nullptr);
 	ASSERT_TRUE(LowResource->CompiledProgram);
 	ASSERT_EQ(LowResource->CompiledProgram->DefaultParameters.GetParameterCount(), 1u);
-	EXPECT_FLOAT_EQ(LowResource->CompiledProgram->DefaultParameters.ScalarParameters.front().Value, 0.625f);
+	EXPECT_FLOAT_EQ(LowResource->CompiledProgram->DefaultParameters.GetFields().front().Value.GetScalar(), 0.625f);
 	Outputs.Get(EMaterialProperty::MP_Roughness) = {High};
 	const std::array<DMaterialExpression*, 1> RemainingExpressions{High};
 	ASSERT_TRUE(Material->SetMaterialExpressions(RemainingExpressions, Outputs));
