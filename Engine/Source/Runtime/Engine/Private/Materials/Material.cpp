@@ -149,9 +149,9 @@ namespace Durin
 		return ParameterSchema;
 	}
 
-	auto DMaterial::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
+	auto DMaterial::ResolveParameterValueByInfo(const FMaterialParameterInfo& Info, FResolvedMaterialParameter& OutParameter) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
+		const FMaterialParameterDefinition* Definition = FindParameterDefinitionByInfo(Info);
 		if (!Definition) return false;
 		OutParameter.Definition = Definition;
 		OutParameter.Value = Definition->Value;
@@ -219,7 +219,7 @@ namespace Durin
 		const auto* Definition = FindParameterDefinition(Name);
 		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Scalar);
 		if (!Validated) return Validated;
-		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeScalar(Value));
+		return SetParameterValueByInfo(Definition->GetParameterInfo(), FMaterialParameterValue::MakeScalar(Value));
 	}
 
 	auto DMaterial::SetVector2ParameterValue(FName Name, const FVector2& Value) -> std::expected<void, std::string>
@@ -227,7 +227,7 @@ namespace Durin
 		const auto* Definition = FindParameterDefinition(Name);
 		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Vector4);
 		if (!Validated) return Validated;
-		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0)));
+		return SetParameterValueByInfo(Definition->GetParameterInfo(), FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0)));
 	}
 
 	auto DMaterial::SetVectorParameterValue(FName Name, const FVector3& Value) -> std::expected<void, std::string>
@@ -235,7 +235,7 @@ namespace Durin
 		const auto* Definition = FindParameterDefinition(Name);
 		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Vector4);
 		if (!Validated) return Validated;
-		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
+		return SetParameterValueByInfo(Definition->GetParameterInfo(), FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
 	}
 
 	auto DMaterial::SetTextureParameterValue(FName Name, DTexture* Value) -> std::expected<void, std::string>
@@ -245,7 +245,7 @@ namespace Durin
 		if (!Validated) return Validated;
 		auto Candidate = Definition->Value;
 		Candidate.GetTexture().Texture = Value;
-		return SetParameterValue(Definition->Id, Candidate);
+		return SetParameterValueByInfo(Definition->GetParameterInfo(), Candidate);
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA
@@ -283,9 +283,16 @@ namespace Durin
 
 	auto DMaterial::SetParameterValue(const FGuid& Id, const FMaterialParameterValue& Value) -> std::expected<void, std::string>
 	{
-		if (!Id.IsValid()) return std::unexpected(std::format("{} [parameter {}]", "Material declaration GUID is invalid.", Id.ToString()));
-		auto Entry = std::ranges::find(ParameterSchema, Id, &FMaterialParameterDefinition::Id);
-		if (Entry == ParameterSchema.end()) return std::unexpected(std::format("{} [parameter {}]", "Material declaration does not exist.", Id.ToString()));
+		const auto* Definition = FindParameterDefinition(Id);
+		if (!Definition) return std::unexpected(std::format("Material declaration does not exist. [parameter {}]", Id.ToString()));
+		return SetParameterValueByInfo(Definition->GetParameterInfo(), Value);
+	}
+
+	auto DMaterial::SetParameterValueByInfo(const FMaterialParameterInfo& Info, const FMaterialParameterValue& Value) -> std::expected<void, std::string>
+	{
+		auto Entry = std::ranges::find(ParameterSchema, Info, &FMaterialParameterDefinition::GetParameterInfo);
+		if (Entry == ParameterSchema.end() || !Info.IsGlobal())
+			return std::unexpected("Material parameter does not exist: " + Info.Name.ToString());
 		const bool bCooked = GetAssetRuntimeConfiguration().RequiresCookedPayload();
 		if (!Entry->Value.HasSameType(Value)) return std::unexpected("Material parameter value has an incompatible texture dimension or type.");
 		auto Definition = *Entry;

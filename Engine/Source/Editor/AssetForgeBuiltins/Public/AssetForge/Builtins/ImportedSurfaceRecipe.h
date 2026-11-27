@@ -30,7 +30,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		EMaterialProperty Role;
 		MaterialParameters::EMaterialBuiltinParameterKind Kind;
-		FGuid ParameterId;
+		FMaterialParameterInfo ParameterInfo;
 	};
 	struct FImportedSurfaceRecipe
 	{

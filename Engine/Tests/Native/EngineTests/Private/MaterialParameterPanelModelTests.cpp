@@ -270,6 +270,19 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 	EXPECT_TRUE(Instance->GetLocalParameterValueCount() == 0);
 	EXPECT_TRUE(Error.empty());
 
+	auto* Property = Instance->GetClass()->FindPropertyByName(Durin::FMaterialScalarParameterValue::PropertyName());
+	ASSERT_NE(Property, nullptr);
+	auto* Records = Property->ContainerPtrToValuePtr<std::vector<Durin::FMaterialScalarParameterValue>>(Instance);
+	Records->push_back({.Value = 1.f, .ParameterInfo = {.Name = "FirstOrphan"}});
+	Records->push_back({.Value = 2.f, .ParameterInfo = {.Name = "SecondOrphan"}});
+	Durin::MaterialEditor::FMaterialParameterPanelModel NamedOrphans(Instance);
+	ASSERT_EQ(NamedOrphans.GetEntries().size(), 2u);
+	ASSERT_TRUE(NamedOrphans.RemoveOrphan(PropertyView, Context, NamedOrphans.GetEntries()[1]));
+	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = "FirstOrphan"}));
+	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = "SecondOrphan"}));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = "SecondOrphan"}));
+
 	Transactions->Reset();
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);

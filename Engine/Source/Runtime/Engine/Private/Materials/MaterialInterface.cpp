@@ -449,14 +449,26 @@ namespace Durin
 
 	auto DMaterialInterface::FindParameterDefinition(FName Name) const -> const FMaterialParameterDefinition*
 	{
+		return FindParameterDefinitionByInfo({.Name = Name});
+	}
+
+	auto DMaterialInterface::ResolveParameterValueByInfo(const FMaterialParameterInfo& Info, FResolvedMaterialParameter& OutParameter) const -> bool
+	{
+		return false;
+	}
+
+	auto DMaterialInterface::FindParameterDefinitionByInfo(const FMaterialParameterInfo& Info) const -> const FMaterialParameterDefinition*
+	{
+		if (!Info.IsGlobal()) return nullptr;
 		const std::span Definitions = GetParameterDefinitions();
-		const auto It = std::ranges::find(Definitions, Name, &FMaterialParameterDefinition::Name);
+		const auto It = std::ranges::find(Definitions, Info.Name, &FMaterialParameterDefinition::Name);
 		return It == Definitions.end() ? nullptr : &*It;
 	}
 
 	auto DMaterialInterface::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
 	{
-		return false;
+		const auto* Definition = FindParameterDefinition(Id);
+		return Definition && ResolveParameterValueByInfo(Definition->GetParameterInfo(), OutParameter);
 	}
 
 	auto DMaterialInterface::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
@@ -718,11 +730,13 @@ namespace Durin
 		if (!ResolveMaterialProperties(*this, Properties)) return Result;
 		for (const auto& Parameter : Resource.CompiledProgram->GetShaderMap().ActiveParameters)
 		{
+			const auto* Definition = FindParameterDefinition(Parameter.Id);
+			if (!Definition) continue;
 			for (auto* Owner = this; Owner && Owner->GetParent(); Owner = Owner->GetParent())
 			{
 				const auto* Instance = Cast<DMaterialInstance>(Owner);
 				FMaterialParameterValue Value;
-				if (Instance && Instance->GetLocalParameterValue(Parameter.Id, Value) && Parameter.MatchesValue(Value))
+				if (Instance && Instance->GetLocalParameterValueByInfo(Definition->GetParameterInfo(), Value) && Parameter.MatchesValue(Value))
 				{
 					Result.SetParameter(Parameter.Id, Value);
 					break;
@@ -835,7 +849,10 @@ namespace Durin
 		bool bNotifyParameterChanges, FObjectCacheContext* Context, std::span<const FGuid> ChangedParameters) -> void
 	{
 		if (DirtyFlags == EMaterialRenderDirtyFlags::None) return;
-		auto Publish = [DirtyFlags, ChangedParameters](DMaterialInterface& Owner) {
+		auto Publish = [DirtyFlags, ChangedParameters, bNotifyParameterChanges](DMaterialInterface& Owner) {
+			if (bNotifyParameterChanges && ChangedParameters.empty())
+				if (auto* Instance = Cast<DMaterialInstance>(&Owner))
+					Instance->RefreshParameterBindings(EnumHasAnyFlags(DirtyFlags, EMaterialRenderDirtyFlags::ParentChain));
 			if (EnumHasAnyFlags(DirtyFlags,
 				EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState | EMaterialRenderDirtyFlags::ParentChain))
 				Owner.PSOPrecacheOwner.Invalidate();

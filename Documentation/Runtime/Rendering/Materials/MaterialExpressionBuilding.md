@@ -120,8 +120,9 @@ fold diagnostic.
 
 Static selection is resolved by the graph builder before normalized IR and
 resource discovery. `DMaterialExpressionStaticBool` names one root declaration
-by stable GUID; base defaults and the compiling instance's sorted overrides form
-the effective compiler environment. `StaticSwitch` requests only its selected
+by stable GUID. Starting from the base defaults, compilation applies enabled
+instance overrides by parameter info in parent-to-child order, then sorts the
+effective values by declaration GUID. `StaticSwitch` requests only its selected
 branch; a disconnected False or True branch resolves through its retained
 numeric value. `QualitySwitch` selects Low or High and `FeatureLevelSwitch` selects
 ES3_1, SM5, or SM6, with each node's Default input used when its exact input is

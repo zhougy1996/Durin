@@ -92,7 +92,7 @@ The package domains are registered when Engine loads. Their source authority is
 | Domain | Current version | Authored data |
 | --- | ---: | --- |
 | `FMaterialGraphVersion` | 10 | `DMaterial` and `DMaterialFunction` expression graphs |
-| `FMaterialInstanceVersion` | 3 | Typed instance parameter storage |
+| `FMaterialInstanceVersion` | 5 | Requires named parameter info and explicit static switch override flags. |
 | `FMaterialFunctionVersion` | 6 | Terminal-owned function port definitions |
 | `FMaterialOutputVersion` | 6 | Direct typed material fields and connection-only Make/Set inputs |
 

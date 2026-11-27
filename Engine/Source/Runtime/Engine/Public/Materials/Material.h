@@ -85,7 +85,7 @@ namespace Durin
 			std::span<const FMaterialGraphNodePresentation> Positions,
 			uint64 ExpectedAuthoredRevision) -> EMaterialGraphPresentationResult;
 #endif
-		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
+		ENGINE_API auto ResolveParameterValueByInfo(const FMaterialParameterInfo& Info, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
 		ENGINE_API auto SetStaticProperties(const FMaterialStaticProperties& InProperties) -> std::expected<void, std::string>;
 
@@ -93,6 +93,7 @@ namespace Durin
 		ENGINE_API auto SetVector2ParameterValue(FName Name, const FVector2& Value) -> std::expected<void, std::string>;
 		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> std::expected<void, std::string>;
 		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture* Value) -> std::expected<void, std::string>;
+		ENGINE_API auto SetParameterValueByInfo(const FMaterialParameterInfo& Info, const FMaterialParameterValue& Value) -> std::expected<void, std::string>;
 		ENGINE_API auto SetParameterValue(
 			const FGuid& Id, const FMaterialParameterValue& Value) -> std::expected<void, std::string>;
 		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;

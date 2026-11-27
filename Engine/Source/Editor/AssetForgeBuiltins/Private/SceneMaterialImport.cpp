@@ -9,34 +9,29 @@ namespace Durin::AssetForge::Builtins
 {
 	namespace
 	{
-		auto CheckParent(DMaterial& Parent, FMaterialExpressionRecipe& Graph,
-			std::vector<std::pair<FGuid, FGuid>>& OutParameterIds) -> std::string
+		auto CheckParent(DMaterial& Parent, FMaterialExpressionRecipe& Graph) -> std::string
 		{
 			if (Parent.GetDomain() != EMaterialDomain::Surface)
 				return "The selected parent must be a Surface material.";
 			// Compare actual wiring, including UVs, shared samples and channel selection.
 			// Defaults and presentation metadata may differ; instance overrides replace values.
-			std::unordered_map<FGuid, FGuid> Bindings;
-			std::unordered_set<FGuid> BoundParameters;
+			std::unordered_map<FGuid, FName> BoundParameters;
 			for (auto& Expression : Graph.Expressions)
 				if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 				{
 					const auto Expected = Parameter->GetParameterDefinition();
-					const auto* Definition = Parent.FindParameterDefinition(Expected.Name);
-					// Older template assets can retain the original declaration ID after a rename.
-					if (!Definition) Definition = Parent.FindParameterDefinition(Expected.Id);
+					const auto* Definition = Parent.FindParameterDefinitionByInfo(Expected.GetParameterInfo());
 					if (!Definition || Definition->Type != Expected.Type ||
 						(Expected.Type == EMaterialParameterType::Texture && Definition->TextureUsage != Expected.TextureUsage))
 						return "Parent is missing a compatible PBR parameter: " + Expected.DisplayName;
-					const auto [Binding, Inserted] = Bindings.emplace(Expected.Id, Definition->Id);
-					if (Binding->second != Definition->Id || (Inserted && !BoundParameters.insert(Definition->Id).second))
+					const auto [Binding, Inserted] = BoundParameters.emplace(Definition->Id, Expected.Name);
+					if (!Inserted && Binding->second != Expected.Name)
 						return "Parent shares incompatible PBR parameter roles: " + Expected.DisplayName;
 					if (!Parameter->SetParameterDefinition(*Definition))
 						return "Parent has an incompatible PBR parameter: " + Expected.DisplayName;
 				}
 			if (!Graph.MatchesGraph(Parent))
 				return "Parent sampling, channels or UV graph does not match this source. Select a material created from a compatible source, or choose Create Materials.";
-			OutParameterIds.assign(Bindings.begin(), Bindings.end());
 			return {};
 		}
 	}
@@ -77,7 +72,6 @@ namespace Durin::AssetForge::Builtins
 			auto Summary = std::ranges::find(Outputs, Output.StableIdentity, &FImportOutputSummary::StableIdentity);
 			Output.bExistingMaterialMapping = false;
 			Output.bStandardPBRParent = false;
-			Output.ParentParameterIds.clear();
 			if (Row.Selection.Mode == ESceneMaterialImportMode::UseExisting)
 			{
 				FSoftObjectPath Path;
@@ -128,11 +122,11 @@ namespace Durin::AssetForge::Builtins
 				else
 				{
 					auto Standard = MakePBRSurfaceMaterialMRExpressions();
-					Output.bStandardPBRParent = CheckParent(*Output.Parent, Standard, Output.ParentParameterIds).empty();
+					Output.bStandardPBRParent = CheckParent(*Output.Parent, Standard).empty();
 					if (!Output.bStandardPBRParent)
 					{
 						auto Recipe = MakeImportedSurfaceRecipe(MakeSceneSurfaceRoles(Plan, Output));
-						Row.Message = CheckParent(*Output.Parent, Recipe.Graph, Output.ParentParameterIds);
+						Row.Message = CheckParent(*Output.Parent, Recipe.Graph);
 					}
 				}
 				Row.bCompatible = Row.Message.empty();

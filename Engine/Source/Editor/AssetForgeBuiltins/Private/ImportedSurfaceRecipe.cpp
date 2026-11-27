@@ -31,14 +31,18 @@ namespace Durin::AssetForge::Builtins
 		std::vector<Link> Samples;
 		Private::FMaterialExpressionRecipeBuilder Builder{Result.Graph, 0x36b41f8e, 0x71984aca};
 		const auto PositionX = [&] { return static_cast<int32>((Result.Graph.Expressions.size() + 1) % 4) * 240; };
+		const auto DefinitionFor = [&](EMaterialProperty Role, Kind ParameterKind) -> const FMaterialParameterDefinition& {
+			const auto Id = GetMaterialSurfaceParameterId(Role, ParameterKind);
+			const auto It = std::ranges::find(Definitions, Id, &FMaterialParameterDefinition::Id);
+			require(It != Definitions.end());
+			return *It;
+		};
 		const auto Parameter = [&](uint32 Role, Kind ParameterKind) {
 			const auto SurfaceRole = MaterialParameters::PBRMaterialProperties.at(Role);
-			const auto Id = GetMaterialSurfaceParameterId(SurfaceRole, ParameterKind);
-			const auto Definition = std::ranges::find(Definitions, Id, &FMaterialParameterDefinition::Id);
-			require(Definition != Definitions.end());
-			auto* Expression = Builder.Parameter(*Definition, Role, PositionX(), static_cast<int32>(Role) * 300, ParameterKind == Kind::UVScale || ParameterKind == Kind::UVOffset
+			const auto& Definition = DefinitionFor(SurfaceRole, ParameterKind);
+			auto* Expression = Builder.Parameter(Definition, Role, PositionX(), static_cast<int32>(Role) * 300, ParameterKind == Kind::UVScale || ParameterKind == Kind::UVOffset
 					? EMaterialProgramValueType::Float2 : ParameterKind == Kind::Value ? GetMaterialSurfaceOutputType(SurfaceRole) : EMaterialProgramValueType::Float4);
-			Result.Owners.push_back({SurfaceRole, ParameterKind, Id});
+			Result.Owners.push_back({SurfaceRole, ParameterKind, Definition.GetParameterInfo()});
 			return Link{Expression};
 		};
 		for (uint32 I = 0; I < Roles.size(); ++I)
@@ -84,9 +88,9 @@ namespace Durin::AssetForge::Builtins
 			else
 			{
 				const auto OwnerRole = MaterialParameters::PBRMaterialProperties.at(Groups[Group]);
-				Result.Owners.push_back({Role, Kind::Texture, GetMaterialSurfaceParameterId(OwnerRole, Kind::Texture)});
+				Result.Owners.push_back({Role, Kind::Texture, DefinitionFor(OwnerRole, Kind::Texture).GetParameterInfo()});
 				for (uint32 U = 0; U < 4; ++U)
-					if (UVMask & (1u << U)) Result.Owners.push_back({Role, UVKinds[U], GetMaterialSurfaceParameterId(OwnerRole, UVKinds[U])});
+					if (UVMask & (1u << U)) Result.Owners.push_back({Role, UVKinds[U], DefinitionFor(OwnerRole, UVKinds[U]).GetParameterInfo()});
 			}
 			Output = Samples[Group];
 			Output.OutputIndex = Sample.OutputIndex;

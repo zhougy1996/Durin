@@ -36,6 +36,7 @@ namespace Durin::MaterialEditor
 		// edit may reallocate the material's live definition array.
 		std::optional<FMaterialParameterDefinition> Definition;
 		FGuid ParameterId;
+		FMaterialParameterInfo ParameterInfo;
 		FMaterialParameterValue Value;
 		DMaterialInterface* Source = nullptr;
 		EMaterialParameterControlKind Control = EMaterialParameterControlKind::Unsupported;

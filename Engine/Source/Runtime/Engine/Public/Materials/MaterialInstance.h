@@ -24,6 +24,16 @@ namespace Durin
 		FGuid ParameterId;
 		FMaterialParameterValue Value;
 
+		FMaterialParameterInfo ParameterInfo;
+
+		static auto SetByInfo(FMaterialParameterInfo Info, FMaterialParameterValue InValue) -> FMaterialDynamicParameterUpdate
+		{
+			return {.Value = std::move(InValue), .ParameterInfo = Info};
+		}
+		static auto ClearByInfo(FMaterialParameterInfo Info) -> FMaterialDynamicParameterUpdate
+		{
+			return {.Operation = EMaterialDynamicParameterUpdateOperation::Clear, .ParameterInfo = Info};
+		}
 		static auto Set(FGuid Id, FMaterialParameterValue InValue)
 			-> FMaterialDynamicParameterUpdate
 		{
@@ -51,7 +61,7 @@ namespace Durin
 	// GameThread-only reset; callers must first drain any relevant render work.
 	ENGINE_API auto ResetMaterialDynamicParameterCounters() -> void;
 
-	// Resolves inherited material parameters and stores local values by stable identifier.
+	// Resolves named overrides through the parent chain and retains declaration IDs for rename tracking.
 	DCLASS()
 	class DMaterialInstance : public DMaterialInterface
 	{
@@ -74,16 +84,29 @@ namespace Durin
 		ENGINE_API auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialProgram> override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
+		ENGINE_API auto GetLocalParameterValueByInfo(const FMaterialParameterInfo& Info, FMaterialParameterValue& OutValue) const -> bool;
+		auto HasLocalParameterValueByInfo(const FMaterialParameterInfo& Info) const -> bool
+		{
+			FMaterialParameterValue Value;
+			return GetLocalParameterValueByInfo(Info, Value);
+		}
+		ENGINE_API auto ClearParameterValueByInfo(const FMaterialParameterInfo& Info) -> bool;
 		ENGINE_API auto GetLocalParameterValue(const FGuid& Id, FMaterialParameterValue& OutValue) const -> bool;
 		auto GetLocalParameterValueCount() const -> size_t
 		{
 			return ScalarParameterValues.size() + VectorParameterValues.size() + TextureParameterValues.size();
 		}
 		// Visits selected values directly from typed storage; no cached alternate record array.
-		template<typename TVisitor> auto VisitLocalParameterValues(TVisitor&& Visitor) const -> void
+		template<typename TVisitor> auto VisitLocalParameterOverrides(TVisitor&& Visitor) const -> void
 		{
 			VisitParameterValueArrays([&](const auto& Records) {
-				for (const auto& Record : Records) Visitor(Record.ParameterId, Record.GetValue());
+				for (const auto& Record : Records) Visitor(Record.ParameterInfo, Record.ParameterId, Record.GetValue());
+			});
+		}
+		template<typename TVisitor> auto VisitLocalParameterValues(TVisitor&& Visitor) const -> void
+		{
+			VisitLocalParameterOverrides([&](const FMaterialParameterInfo&, const FGuid& Id, const auto& Value) {
+				Visitor(Id, Value);
 			});
 		}
 		ENGINE_API auto SetPropertyOverrides(const FMaterialPropertyOverrides& Overrides) -> bool;
@@ -92,10 +115,13 @@ namespace Durin
 		{
 			return StaticBoolOverrides;
 		}
+		ENGINE_API auto SetStaticBoolOverrideByInfo(const FMaterialParameterInfo& Info, bool Value, bool bOverride = true) -> bool;
+		ENGINE_API auto ClearStaticBoolOverrideByInfo(const FMaterialParameterInfo& Info) -> bool;
 		ENGINE_API auto SetStaticBoolOverride(FGuid DeclarationId, bool Value) -> bool;
 		ENGINE_API auto ClearStaticBoolOverride(FGuid DeclarationId) -> bool;
-		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
+		ENGINE_API auto ResolveParameterValueByInfo(const FMaterialParameterInfo& Info, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		// Authored assets admit edits before compilation; cooked assets use the compiled contract.
+		ENGINE_API auto SetParameterValueByInfo(const FMaterialParameterInfo& Info, const FMaterialParameterValue& Value) -> std::expected<void, std::string>;
 		ENGINE_API auto SetParameterValue(
 			const FGuid& Id,
 			const FMaterialParameterValue& Value
@@ -136,6 +162,9 @@ namespace Durin
 	private:
 		// Factory-only lifecycle, never serialized or switched on a live asset.
 		bool bDynamicInstance = false;
+		friend class DMaterialInterface;
+		auto StoreStaticBoolParameter(const FMaterialStaticBoolOverride& Record) -> bool;
+		auto RefreshParameterBindings(bool bParentChanged = false) -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DMaterialInterface> Parent;

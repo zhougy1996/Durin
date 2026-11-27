@@ -57,13 +57,23 @@ namespace Durin::MaterialEditor
 			const FGuid& ParameterId,
 			EPropertyChangeType::Type ChangeType,
 			bool bContinuous,
-			const std::function<void(const FArrayProperty&, void*, uint32)>& Mutate
+			const std::function<void(const FArrayProperty&, void*, uint32)>& Mutate,
+			FName OrphanName = NAME_None
 		) -> bool
 		{
 			if (!Object || !Property || !Mutate) return false;
 			FPropertyEditTarget Target = FPropertyEditTarget::ForMember(Object, Property);
-			Target.LogicalIdentity.resize(sizeof(ParameterId));
-			std::memcpy(Target.LogicalIdentity.data(), &ParameterId, sizeof(ParameterId));
+			if (ParameterId.IsValid())
+			{
+				Target.LogicalIdentity.resize(sizeof(ParameterId));
+				std::memcpy(Target.LogicalIdentity.data(), &ParameterId, sizeof(ParameterId));
+			}
+			else
+			{
+				const auto Name = OrphanName.ToString();
+				Target.LogicalIdentity.resize(Name.size());
+				std::memcpy(Target.LogicalIdentity.data(), Name.data(), Name.size());
+			}
 			Target.ChangeType = ChangeType;
 			const auto Assign = [Mutate](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 					Mutate(*static_cast<FArrayProperty*>(ScratchProperty), ScratchContainer, ScratchArrayIndex);
@@ -76,7 +86,7 @@ namespace Durin::MaterialEditor
 			const FArrayProperty& Property,
 			void* Container,
 			uint32 ArrayIndex,
-			const FGuid& ParameterId
+			const FGuid& ParameterId, FMaterialParameterInfo Info = {}
 		) -> void
 		{
 			const uint64 Count = Property.Num(Container, ArrayIndex);
@@ -84,7 +94,7 @@ namespace Durin::MaterialEditor
 			{
 				auto* Entry = static_cast<TRecord*>(
 					Property.GetMutableElementPtr(Container, Index, ArrayIndex));
-				if (!Entry || Entry->ParameterId != ParameterId) continue;
+				if (!Entry || (ParameterId.IsValid() ? Entry->ParameterId != ParameterId : Entry->ParameterInfo != Info)) continue;
 				for (uint64 MoveIndex = Index + 1; MoveIndex < Count; ++MoveIndex)
 				{
 					auto* Destination = static_cast<TRecord*>(
@@ -160,6 +170,7 @@ namespace Durin::MaterialEditor
 			Entries.push_back({
 				.Definition = *Definition,
 				.ParameterId = Definition->Id,
+				.ParameterInfo = Definition->GetParameterInfo(),
 				.Value = Resolved.Value,
 				.Source = Resolved.Source,
 				.Control = SelectControl(*Definition),
@@ -168,10 +179,10 @@ namespace Durin::MaterialEditor
 			});
 		}
 		if (!Instance) return bRebuildDependencies;
-		Instance->VisitLocalParameterValues([&](const FGuid& Id, const FMaterialParameterValue& Value) {
+		Instance->VisitLocalParameterOverrides([&](const FMaterialParameterInfo& Info, const FGuid& Id, const FMaterialParameterValue& Value) {
 			const auto* Definition = Material->FindParameterDefinition(Id);
 			if (Definition && Definition->Type == Value.GetType() && Reachability->ParameterIds.contains(Id)) return;
-			Entries.push_back({.ParameterId = Id, .Value = Value, .bCanOverride = true,
+			Entries.push_back({.ParameterId = Id, .ParameterInfo = Info, .Value = Value, .bCanOverride = true,
 				.bHasLocalOverride = true, .bOrphan = true});
 		});
 		return bRebuildDependencies;
@@ -270,7 +281,7 @@ namespace Durin::MaterialEditor
 			FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
 			return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
 				bEnabled ? EPropertyChangeType::ArrayAdd : EPropertyChangeType::ArrayRemove, false,
-				[Id = Entry.ParameterId, Value = CanonicalizeValue(*Entry.Definition, Entry.Value), bEnabled](
+				[Id = Entry.ParameterId, Info = Entry.Definition->GetParameterInfo(), Value = CanonicalizeValue(*Entry.Definition, Entry.Value), bEnabled](
 					const FArrayProperty& ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 					if (bEnabled)
 					{
@@ -280,6 +291,7 @@ namespace Durin::MaterialEditor
 						auto* Override = static_cast<TRecord*>(
 							ScratchProperty.GetMutableElementPtr(ScratchContainer, Count, ScratchArrayIndex));
 						Override->ParameterId = Id;
+						Override->ParameterInfo = Info;
 						Override->SetValue(Value);
 					}
 					else RemoveScratchOverride<TRecord>(ScratchProperty, ScratchContainer, ScratchArrayIndex, Id);
@@ -295,15 +307,16 @@ namespace Durin::MaterialEditor
 	{
 		if (!Instance || !Entry.bOrphan) return false;
 		FMaterialParameterValue Override;
-		if (!Instance->GetLocalParameterValue(Entry.ParameterId, Override)) return false;
+		if (Entry.ParameterId.IsValid() ? !Instance->GetLocalParameterValue(Entry.ParameterId, Override)
+			: !Instance->GetLocalParameterValueByInfo(Entry.ParameterInfo, Override)) return false;
 		return VisitMaterialParameterValueType(Override.GetType(), [&]<typename TRecord>() {
 			FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
 			return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
 				EPropertyChangeType::ArrayRemove, false,
-				[Id = Entry.ParameterId](const FArrayProperty& ScratchProperty,
+				[Id = Entry.ParameterId, Info = Entry.ParameterInfo](const FArrayProperty& ScratchProperty,
 					void* ScratchContainer, uint32 ScratchArrayIndex) {
-					RemoveScratchOverride<TRecord>(ScratchProperty, ScratchContainer, ScratchArrayIndex, Id);
-				});
+					RemoveScratchOverride<TRecord>(ScratchProperty, ScratchContainer, ScratchArrayIndex, Id, Info);
+				}, Entry.ParameterInfo.Name);
 		});
 	}
 }

@@ -924,6 +924,7 @@ auto FSceneImportState::Run() -> FSceneRoutine
 				                                        &FImportedMaterial::SourceMaterialIndex);
 				const auto Roles = MakeSceneSurfaceRoles(Data, Descriptor);
 				auto Recipe = MakeImportedSurfaceRecipe(Roles);
+				const auto StandardDefinitions = GetPBRMaterialParameterDefinitions();
 				if (Descriptor.bStandardPBRParent)
 				{
 					Recipe.Owners.clear();
@@ -933,16 +934,18 @@ auto FSceneImportState::Run() -> FSceneRoutine
 							const auto Surface = MaterialParameters::PBRMaterialProperties.at(Role);
 							const auto ParameterKind =
 							    static_cast<MaterialParameters::EMaterialBuiltinParameterKind>(Kind);
-							Recipe.Owners.push_back({Surface, ParameterKind,
-							                         GetMaterialSurfaceParameterId(Surface, ParameterKind)});
+							const auto Id = GetMaterialSurfaceParameterId(Surface, ParameterKind);
+							const auto It = std::ranges::find(StandardDefinitions, Id, &FMaterialParameterDefinition::Id);
+							require(It != StandardDefinitions.end());
+							Recipe.Owners.push_back({Surface, ParameterKind, It->GetParameterInfo()});
 						}
 				}
 				auto *Standard = Descriptor.Kind == ESceneOutputKind::Material
 				                     ? Cast<DMaterial>(Output.Candidate)
 				                     : Descriptor.Parent.Get();
-				std::unordered_map<FGuid, FGuid> ParameterIds(Descriptor.ParentParameterIds.begin(), Descriptor.ParentParameterIds.end());
 				if (Descriptor.Kind == ESceneOutputKind::Material && Standard)
 				{
+					std::unordered_map<FGuid, FGuid> ParameterIds;
 					for (const auto& Expression : Recipe.Graph.Expressions)
 						if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 						{
@@ -990,15 +993,14 @@ auto FSceneImportState::Run() -> FSceneRoutine
 				                                  .StructuralKey = Recipe.CanonicalKey,
 				                                  .SourceIdentity = RootFilename,
 				                                  .OutputIdentity = Descriptor.StableIdentity};
-				const auto StandardDefinitions = GetPBRMaterialParameterDefinitions();
 				for (const auto &Owner : Recipe.Owners)
 				{
 					using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
-					const auto Binding = ParameterIds.find(Owner.ParameterId);
-					const auto *Definition = Binding == ParameterIds.end() ? nullptr : Standard->FindParameterDefinition(Binding->second);
-					const auto StandardDefinition = std::ranges::find(StandardDefinitions, Owner.ParameterId,
-					                                                  &FMaterialParameterDefinition::Id);
-					if (StandardDefinition == StandardDefinitions.end() || !Definition || Definition->Type != StandardDefinition->Type)
+					const auto StandardDefinition = std::ranges::find(StandardDefinitions, Owner.ParameterInfo.Name,
+					                                                  &FMaterialParameterDefinition::Name);
+					require(StandardDefinition != StandardDefinitions.end());
+					const auto* Definition = Standard->FindParameterDefinitionByInfo(Owner.ParameterInfo);
+					if (!Definition || Definition->Type != StandardDefinition->Type)
 						co_return AddError(Result, EImportDiagnosticCategory::ValidationFailure, "scene-material-parameters",
 						                   "The material no longer exposes the expected PBR parameter.", Descriptor.StableIdentity);
 					const auto &Role = Roles[static_cast<uint32>(Owner.Role)];
@@ -1036,8 +1038,8 @@ auto FSceneImportState::Run() -> FSceneRoutine
 						                  {Literal.X, Literal.Y, Literal.Z, Literal.W})
 						            : FMaterialParameterValue::MakeScalar(Literal.X);
 					}
-					if (const auto Applied = Instance ? Instance->SetParameterValue(Binding->second, Value)
-					                                  : Standard->SetParameterValue(Binding->second, Value);
+					if (const auto Applied = Instance ? Instance->SetParameterValueByInfo(Definition->GetParameterInfo(), Value)
+					                                  : Standard->SetParameterValueByInfo(Definition->GetParameterInfo(), Value);
 					    !Applied)
 					{
 						co_return AddError(Result, EImportDiagnosticCategory::ValidationFailure,

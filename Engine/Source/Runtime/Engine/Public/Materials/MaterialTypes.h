@@ -31,6 +31,35 @@ namespace Durin
 	ENGINE_API auto GetMaterialQualityLevel() -> EMaterialQualityLevel;
 	ENGINE_API auto SetMaterialQualityLevel(EMaterialQualityLevel Quality) -> bool;
 
+	DENUM()
+	enum class EMaterialParameterAssociation : uint8
+	{
+		LayerParameter,
+		BlendParameter,
+		GlobalParameter,
+	};
+
+	DSTRUCT()
+	struct FMaterialParameterInfo
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		FName Name;
+
+		DPROPERTY()
+		EMaterialParameterAssociation Association = EMaterialParameterAssociation::GlobalParameter;
+
+		DPROPERTY()
+		int32 Index = -1;
+
+		auto IsGlobal() const -> bool
+		{
+			return !Name.IsNone() && Association == EMaterialParameterAssociation::GlobalParameter && Index == -1;
+		}
+		auto operator==(const FMaterialParameterInfo&) const -> bool = default;
+	};
+
 	DSTRUCT()
 	struct FMaterialStaticBoolOverride
 	{
@@ -39,6 +68,10 @@ namespace Durin
 		FGuid DeclarationId;
 		DPROPERTY(Edit)
 		bool Value = false;
+		DPROPERTY()
+		FMaterialParameterInfo ParameterInfo;
+		DPROPERTY(Edit)
+		bool bOverride = true;
 		auto operator==(const FMaterialStaticBoolOverride&) const -> bool = default;
 	};
 
@@ -324,6 +357,8 @@ namespace Durin
 		FGuid Id;
 
 		FName Name;
+
+		auto GetParameterInfo() const -> FMaterialParameterInfo { return {.Name = Name}; }
 
 		// Derived declaration type; validation requires agreement with Value.GetType().
 		EMaterialParameterType Type = EMaterialParameterType::Scalar;

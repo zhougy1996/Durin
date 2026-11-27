@@ -173,11 +173,13 @@ namespace Durin
 		ENGINE_API virtual auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>;
 		ENGINE_API auto FindParameterDefinition(const FGuid& Id) const -> const FMaterialParameterDefinition*;
 		ENGINE_API auto FindParameterDefinition(FName Name) const -> const FMaterialParameterDefinition*;
+		ENGINE_API auto FindParameterDefinitionByInfo(const FMaterialParameterInfo& Info) const -> const FMaterialParameterDefinition*;
+		ENGINE_API virtual auto ResolveParameterValueByInfo(const FMaterialParameterInfo& Info, FResolvedMaterialParameter& OutParameter) const -> bool;
 		// GameThread only. Share one result across a batch. Authored queries follow the
 		// current graph, including transitive function revisions, independently of compilation.
 		// Cooked queries follow the accepted program. Failed analyses are not cached.
 		ENGINE_API auto GetParameterReachability() const -> std::shared_ptr<const FMaterialParameterReachability>;
-		ENGINE_API virtual auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool;
+		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool;
 
 		ENGINE_API virtual auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool;
 		ENGINE_API virtual auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool;

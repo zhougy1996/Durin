@@ -282,7 +282,14 @@ namespace Durin
 		for (const auto* Instance : Instances | std::views::reverse)
 			for (const auto& Override : Instance->GetStaticBoolOverrides())
 			{
-				auto Found = std::ranges::find(StaticBools, Override.DeclarationId,
+				if (!Override.bOverride) continue;
+				auto Id = Override.DeclarationId;
+				if (Override.ParameterInfo != FMaterialParameterInfo{})
+				{
+					const auto Named = StaticNames.find(Override.ParameterInfo.Name);
+					Id = Override.ParameterInfo.IsGlobal() && Named != StaticNames.end() ? Named->second : FGuid{};
+				}
+				auto Found = std::ranges::find(StaticBools, Id,
 					&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId);
 				if (Found == StaticBools.end())
 				{

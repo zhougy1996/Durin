@@ -224,7 +224,7 @@ validation reject nonfinite values before they can reach render publication.
   Render publication uses a separate selected value whose texture alternative
   owns counted RHI references; no texture objects cross into the render thread.
 - `DMaterialInstance` references a parent material interface and persists separate
-  scalar, vector, and texture parameter-value arrays. Each record owns its GUID
+  scalar, vector, and texture parameter-value arrays. Each record stores its parameter info, expression GUID
   and concrete value; all vector widths use `FMaterialVectorParameterValue` with
   `FVector4f` storage and a validated declaration-type marker. Reads restore the
   declared width; writes clear unused components and compare at float precision.
@@ -233,15 +233,19 @@ validation reject nonfinite values before they can reach render publication.
   `VisitLocalParameterValues` enumerates GUID/value pairs without an alternate cached
   record array, and `GetLocalParameterValueCount` reports their combined size.
   Reflected storage owns texture references. Duplicate GUIDs across arrays
-  fail property-edit admission and package serialization. Missing/unsupported
-  `ParameterStorageVersion` (current version 2) fails loading and requires rebuilding the instance.
+  fail property-edit admission and package serialization. Instance package version 5 stores
+  parameter info alongside the expression GUID and persists the static switch override flag.
+  A disabled switch retains its stored value and inherits the effective value from its parent.
   Explicit equal-to-parent values remain overrides. The separately reflected
   `FMaterialPropertyOverrides` has five flags that independently select blend,
   shading, cutoff, two-sided and depth-write values. `SetPropertyOverrides`
   validates the entire edit before applying it; clearing a flag retains its
   inactive value. Dynamic resolution walks the current
   instance, its parent instances, and the root material, and reports the object
-  that supplied the value. Only matching GUID/type overrides resolve; valid
+  that supplied the value. Parameter lookup uses the name, association and index.
+  Current declarations are global with index -1. A compatible new parent can
+  supply the same named parameter under a different GUID. Within a material,
+  the expression GUID tracks a renamed declaration. Valid
   type-mismatched overrides survive load as inspectable orphans. Parent cycles
   are rejected. `ResolveMaterialProperties` iteratively resolves at most 64
   owners on GameThread and returns effective authored values, canonical shader
@@ -284,10 +288,9 @@ rotation are ordinary numeric declarations and expressions. Sampler and fallback
 policy are typed data on each Texture2D value and preserve glTF minification,
 magnification, mip filtering, independent U/V addressing, and explicit white,
 black, or flat-RG-normal recovery.
-Their GUIDs are permanent because serialized overrides must survive renames.
-The built-in identities are maintained by one explicit role-to-parameter-group
-registry. Callers use its shared role/kind lookup rather than duplicating GUID
-switches, individual aliases, or parallel-array knowledge.
+The standard template retains its published declaration GUIDs. Imported scene
+materials assign their own GUIDs. Callers can address either material through
+its named parameter interface.
 Engine compiles reachable declarations in GUID order into layout v5. Numeric
 fields occupy zero-padded 16-byte slots after the reserved view-control slot;
 Texture2D and TextureCube fields receive compact resource/sampler indices. Layout identity,
@@ -377,7 +380,7 @@ runtime compatibility path. No saved instance overrides exist for this sample;
 its old parameter identities are replaced by the named builtin texture identities.
 Import/template roles use an explicit property map; global attribute enumeration
 uses the definition map rather than assuming dense property ordinals.
-Instances use parameter-storage version 3.
+Instances require material-instance package version 5.
 `MIR::FGraphBuilder::ValidateSurface` and `ValidateFunction` check
 concrete expressions directly before publication: identifiers, typed links,
 cycles, bounds, defaults, parameter metadata and function terminals. Local validation
@@ -1372,7 +1375,7 @@ fragments using the old time interpolator and prior Cook hits require rebuilding
 DMAT has no authored Program version word. Materials use ordinary DAST v11
 default-relative owned-object serialization. Materials and functions require graph version 10.
 Material output writers use version 6, function ports require version 6, and
-material instances require version 3. A standalone Set requires the material-output version even when its prototype is open.
+material instances require version 5. A standalone Set requires the material-output version even when its prototype is open.
 
 Mesh components persist the positional `DMeshComponent::OverrideMaterials`
 collection. StaticMesh and SplineMesh components serialize only the base

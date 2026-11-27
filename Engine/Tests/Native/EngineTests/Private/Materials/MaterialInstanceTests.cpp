@@ -172,6 +172,36 @@ namespace
 	}
 }
 
+TEST(FMaterialInstanceTests, NamedOrphanRoundTripsAndClearsWithoutAnExpressionGuid)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Root = Testing::CreateTestFixtureDirectory("NamedMaterialOrphan");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/NamedMaterialOrphan/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/NamedMaterialOrphan/Instance", Path));
+	DMaterialInstance* Instance = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Instance));
+	auto* Property = Instance->GetClass()->FindPropertyByName(FMaterialScalarParameterValue::PropertyName());
+	ASSERT_NE(Property, nullptr);
+	const FMaterialParameterInfo Info{.Name = "LostParameter"};
+	auto* Records = Property->ContainerPtrToValuePtr<std::vector<FMaterialScalarParameterValue>>(Instance);
+	Records->push_back({.Value = .375f, .ParameterInfo = Info});
+	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Path));
+	Instance = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	ASSERT_NE(Instance, nullptr);
+	FMaterialParameterValue Value;
+	ASSERT_TRUE(Instance->GetLocalParameterValueByInfo(Info, Value));
+	EXPECT_FLOAT_EQ(Value.GetScalar(), .375f);
+	EXPECT_TRUE(Instance->ClearParameterValueByInfo(Info));
+	EXPECT_EQ(Instance->GetLocalParameterValueCount(), 0u);
+}
+
 TEST(FMaterialInstanceTests, ParameterWritesRejectNonFiniteValuesWithoutMutation)
 {
 	using namespace Durin;
@@ -399,7 +429,7 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	ResetMaterialDynamicParameterCounters();
 	const uint64 Version = Dynamic->GetRenderChangeCount();
 	const std::array Updates{
-		FMaterialDynamicParameterUpdate::Set(Metallic->Id,
+		FMaterialDynamicParameterUpdate::SetByInfo(Metallic->GetParameterInfo(),
 			FMaterialParameterValue::MakeScalar(0.31f)),
 		FMaterialDynamicParameterUpdate::Set(Roughness->Id,
 			FMaterialParameterValue::MakeScalar(0.72f)),
@@ -422,7 +452,7 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	EXPECT_EQ(ChangedCounters.RejectedCommitCount, 0u);
 
 	const std::array NoOpUpdates{
-		FMaterialDynamicParameterUpdate::Set(Metallic->Id,
+		FMaterialDynamicParameterUpdate::SetByInfo(Metallic->GetParameterInfo(),
 			FMaterialParameterValue::MakeScalar(0.31f)),
 		FMaterialDynamicParameterUpdate::Set(FGuid::NewGuid(),
 			FMaterialParameterValue::MakeScalar(0.5f)),
@@ -435,7 +465,7 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	EXPECT_EQ(Notifications, 1u);
 
 	const std::array DuplicateUpdates{
-		FMaterialDynamicParameterUpdate::Set(Metallic->Id,
+		FMaterialDynamicParameterUpdate::SetByInfo(Metallic->GetParameterInfo(),
 			FMaterialParameterValue::MakeScalar(0.9f)),
 		FMaterialDynamicParameterUpdate::Clear(Metallic->Id),
 	};
@@ -962,6 +992,45 @@ TEST(FMaterialInstanceTests, ParentRemovalPreservesOrphansAndExcludesThemFromRen
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
+}
+
+TEST(FMaterialInstanceTests, ParameterInfoFindsOverridesAcrossIndependentParentsAndTracksRenames)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const FMaterialParameterInfo Info{.Name = "Metallic"};
+	auto* Original = MakeExpandedMaterial(nullptr, "OriginalInfoParent");
+	auto* Replacement = NewObject<DMaterial>(nullptr, "ReplacementInfoParent");
+	auto Graph = Testing::MakePBRMaterialExpressionsForTest();
+	const auto NewId = FGuid::NewGuid();
+	for (const auto& Node : Graph.Expressions)
+		if (auto* Parameter = Cast<DMaterialExpressionParameter>(Node.Get()); Parameter && Parameter->Metadata.Name == Info.Name)
+			Parameter->Metadata.Id = NewId;
+	ASSERT_TRUE(Graph.Apply(*Replacement));
+	auto* Instance = NewObject<DMaterialInstance>(nullptr, "ParameterInfoInstance");
+	ASSERT_TRUE(Instance->SetParent(Original));
+	const auto Value = FMaterialParameterValue::MakeScalar(.375f);
+	ASSERT_TRUE(Instance->SetParameterValueByInfo(Info, Value));
+	ASSERT_TRUE(Instance->SetParent(Replacement));
+	FResolvedMaterialParameter Resolved;
+	ASSERT_TRUE(Instance->ResolveParameterValueByInfo(Info, Resolved));
+	EXPECT_TRUE(Resolved.bHasLocalOverride);
+	EXPECT_EQ(Resolved.Value, Value);
+	EXPECT_EQ(Resolved.Definition->Id, NewId);
+	const FMaterialParameterInfo Layer{.Name = Info.Name, .Association = EMaterialParameterAssociation::LayerParameter, .Index = 0};
+	EXPECT_FALSE(Instance->SetParameterValueByInfo(Layer, Value));
+	EXPECT_FALSE(Instance->ResolveParameterValueByInfo(Layer, Resolved));
+	const FMaterialParameterInfo Renamed{.Name = "MetalAmount"};
+	for (const auto& Node : Graph.Expressions)
+		if (auto* Parameter = Cast<DMaterialExpressionParameter>(Node.Get()); Parameter && Parameter->Metadata.Id == NewId)
+			Parameter->Metadata.Name = Renamed.Name;
+	ASSERT_TRUE(Graph.Apply(*Replacement));
+	EXPECT_FALSE(Instance->ResolveParameterValueByInfo(Info, Resolved));
+	ASSERT_TRUE(Instance->ResolveParameterValueByInfo(Renamed, Resolved));
+	EXPECT_TRUE(Resolved.bHasLocalOverride);
+	EXPECT_EQ(Resolved.Value, Value);
+	EXPECT_TRUE(Instance->ClearParameterValueByInfo(Renamed));
+	EXPECT_EQ(Instance->GetLocalParameterValueCount(), 0u);
 }
 
 TEST(FMaterialInstanceTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)

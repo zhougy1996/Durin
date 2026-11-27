@@ -21,6 +21,9 @@ namespace Durin
 		DPROPERTY()
 		float Value = 0.0f;
 
+		DPROPERTY()
+		FMaterialParameterInfo ParameterInfo;
+
 		static constexpr EMaterialParameterType Type = EMaterialParameterType::Scalar;
 		static auto SupportsType(EMaterialParameterType InType) -> bool { return InType == Type; }
 		static auto PropertyName() -> FName { return FName("ScalarParameterValues"); }
@@ -40,6 +43,9 @@ namespace Durin
 
 		DPROPERTY()
 		FVector4f Value{0.0f};
+
+		DPROPERTY()
+		FMaterialParameterInfo ParameterInfo;
 
 		static constexpr EMaterialParameterType Type = EMaterialParameterType::Vector4;
 		static auto SupportsType(EMaterialParameterType InType) -> bool { return InType == Type; }
@@ -61,6 +67,9 @@ namespace Durin
 
 		DPROPERTY()
 		FMaterialTextureValue Value = {};
+
+		DPROPERTY()
+		FMaterialParameterInfo ParameterInfo;
 
 		static constexpr EMaterialParameterType Type = EMaterialParameterType::Texture;
 		static auto SupportsType(EMaterialParameterType InType) -> bool { return InType == Type; }

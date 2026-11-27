@@ -792,10 +792,10 @@ namespace Durin::MaterialEditor
 		const FMaterialParameterPanelEntry& Entry
 	) -> void
 	{
-		const std::string Id = Entry.ParameterId.ToString();
+		const std::string Id = Entry.ParameterId.IsValid() ? Entry.ParameterId.ToString() : Entry.ParameterInfo.Name.ToString();
 		ImGui::PushID(Id.c_str());
 		MonaImGui::PropertyEdit::BeginRow("Orphan Override");
-		ImGui::TextDisabled("%s", Id.c_str());
+		ImGui::TextDisabled("%s", Entry.ParameterInfo.IsGlobal() ? Entry.ParameterInfo.Name.ToString().c_str() : Id.c_str());
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Remove"))
 			Model.RemoveOrphan(PropertyView, MakePropertyViewContext(), Entry);

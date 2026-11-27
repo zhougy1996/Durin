@@ -13,7 +13,7 @@ namespace Durin
 		const FCustomVersionRegistration FunctionRegistration{
 			FMaterialFunctionVersion::Guid, FMaterialFunctionVersion::CurrentVersion, "MaterialFunctionPorts"};
 		const FCustomVersionRegistration InstanceRegistration{
-			FMaterialInstanceVersion::Guid, FMaterialInstanceVersion::CurrentVersion, "MaterialInstanceParameters"};
+			FMaterialInstanceVersion::Guid, FMaterialInstanceVersion::CurrentVersion, "MaterialInstanceParameters", FMaterialInstanceVersion::CurrentVersion};
 
 		auto SerializePackageVersion(FArchive& Ar, FGuid Guid, int32 CurrentVersion,
 			std::string_view Name) -> bool

@@ -5,6 +5,8 @@
 #include "Components/PropertyEditValidation.h"
 #include "Materials/ObjectCacheContext.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialExpressionSwitch.h"
 #include "Materials/MaterialObjectValidation.h"
 #include "Materials/MaterialCustomVersion.h"
 #include "Logging/LogMacros.h"
@@ -37,7 +39,7 @@ namespace Durin
 			const auto* Definition = Material.FindParameterDefinition(Name);
 			if (!Definition || Definition->Type != Type) return false;
 			FResolvedMaterialParameter Resolved;
-			if (!Material.ResolveParameterValue(Definition->Id, Resolved)) return false;
+			if (!Material.ResolveParameterValueByInfo(Definition->GetParameterInfo(), Resolved)) return false;
 			OutValue = ReadValue(Resolved.Value);
 			return true;
 		}
@@ -49,7 +51,23 @@ namespace Durin
 		{
 			const auto* Definition = Instance.FindParameterDefinition(Name);
 			return Definition && Definition->Type == Type
-				&& (Instance.*Operation)(Definition->Id);
+				&& (Instance.*Operation)(Definition->GetParameterInfo());
+		}
+
+		auto FindStaticBool(const DMaterialInstance& Instance, const FMaterialParameterInfo& Info, FGuid Id)
+			-> const DMaterialExpressionStaticBool*
+		{
+#if DURIN_WITH_EDITORONLY_DATA
+			const DMaterialInterface* Root = Instance.GetParent();
+			for (uint32 Depth = 0; Root && Root->GetParent() && Depth < MaterialMaximumParentDepth; ++Depth)
+				Root = Root->GetParent();
+			if (const auto* Material = Cast<DMaterial>(Root))
+				for (const auto& Node : Material->GetExpressionCollection().Expressions)
+					if (const auto* Bool = Cast<DMaterialExpressionStaticBool>(Node.Get());
+						Bool && (Id.IsValid() ? Bool->DeclarationId == Id : Info.IsGlobal() && Info.Name == Bool->Name))
+						return Bool;
+#endif
+			return nullptr;
 		}
 
 		auto WouldCreateParentCycle(
@@ -122,6 +140,7 @@ namespace Durin
 			if (!Result) return;
 			using TArray = std::decay_t<decltype(Stored)>;
 			using TRecord = typename TArray::value_type;
+			std::unordered_set<FName> Names;
 			const TArray* Records = &Stored;
 			if (Proposal && Proposal->MemberProperty && Proposal->MemberProperty->NamePrivate == TRecord::PropertyName())
 			{
@@ -136,8 +155,10 @@ namespace Durin
 			for (uint32 Index = 0; Index < Records->size(); ++Index)
 			{
 				const auto& Record = (*Records)[Index];
-				if (!Record.ParameterId.IsValid()) Result = std::unexpected("Material parameter value has an invalid identity.");
-				else if (!Ids.insert(Record.ParameterId).second) Result = std::unexpected("Material parameter value identity is duplicated.");
+				if (!Record.ParameterId.IsValid() && !Record.ParameterInfo.IsGlobal()) Result = std::unexpected("Material parameter value has an invalid identity.");
+				else if (Record.ParameterId.IsValid() && !Ids.insert(Record.ParameterId).second) Result = std::unexpected("Material parameter value identity is duplicated.");
+				else if (Record.ParameterInfo != FMaterialParameterInfo{} && (!Record.ParameterInfo.IsGlobal() || !Names.insert(Record.ParameterInfo.Name).second))
+					Result = std::unexpected("Material parameter info is invalid or duplicated.");
 				else if (!Private::IsFiniteMaterialParameterValue(Record.GetValue())) Result = std::unexpected("Material declaration default must be finite.");
 				else if constexpr (std::is_same_v<TRecord, FMaterialTextureParameterValue>)
 					if (!Record.Value.IsValid())
@@ -161,15 +182,15 @@ namespace Durin
 					Proposal->DraftRootContainer, Proposal->DraftRootArrayIndex);
 		}
 		std::unordered_set<FGuid> StaticIds;
+		std::unordered_set<FName> StaticNames;
 		if (StaticRecords->size() > MaterialMaxStaticBoolDeclarations)
 			Result = std::unexpected("Material parameter value identity is duplicated.");
 		for (uint32 Index = 0; Result && Index < StaticRecords->size(); ++Index)
 		{
 			const auto& Override = (*StaticRecords)[Index];
-			if (!Override.DeclarationId.IsValid()) Result = std::unexpected("Material parameter value has an invalid identity.");
-			else if (!StaticIds.insert(Override.DeclarationId).second)
-				Result = std::unexpected("Material parameter value identity is duplicated.");
-			else if (Index && (*StaticRecords)[Index - 1].DeclarationId > Override.DeclarationId)
+			if (!Override.DeclarationId.IsValid() && !Override.ParameterInfo.IsGlobal()) Result = std::unexpected("Material parameter value has an invalid identity.");
+			else if ((Override.DeclarationId.IsValid() && !StaticIds.insert(Override.DeclarationId).second)
+				|| (Override.ParameterInfo != FMaterialParameterInfo{} && (!Override.ParameterInfo.IsGlobal() || !StaticNames.insert(Override.ParameterInfo.Name).second)))
 				Result = std::unexpected("Material parameter value identity is duplicated.");
 			if (!Result)
 			{
@@ -221,6 +242,7 @@ namespace Durin
 		const bool bParentChanged = Parent != InParent;
 		if (!bParentChanged && PropertyOverrides == Overrides) return true;
 		Parent = InParent;
+		if (bParentChanged) RefreshParameterBindings(true);
 		Private::RefreshMaterialDependency(*this);
 		PropertyOverrides = Overrides;
 		FObjectCacheContext Context;
@@ -273,6 +295,7 @@ namespace Durin
 	auto DMaterialInstance::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		if (bDynamicInstance) return;
+		RefreshParameterBindings(Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Parent"));
 		Private::RefreshMaterialDependency(*this);
 		FObjectCacheContext Context;
 		Super::PostEditChangePropertyWithContext(Event, Context);
@@ -321,18 +344,51 @@ namespace Durin
 		return SetParentAndPropertyOverrides(Parent.Get(), Overrides);
 	}
 
+	auto DMaterialInstance::SetStaticBoolOverrideByInfo(const FMaterialParameterInfo& Info, bool Value, bool bOverride) -> bool
+	{
+		const auto* Declaration = FindStaticBool(*this, Info, {});
+		return Declaration && StoreStaticBoolParameter({Declaration->DeclarationId, Value, Info, bOverride});
+	}
+
+	auto DMaterialInstance::ClearStaticBoolOverrideByInfo(const FMaterialParameterInfo& Info) -> bool
+	{
+		if (bDynamicInstance || !Info.IsGlobal()) return false;
+		const auto It = std::ranges::find(StaticBoolOverrides, Info, &FMaterialStaticBoolOverride::ParameterInfo);
+		if (It == StaticBoolOverrides.end()) return false;
+		StaticBoolOverrides.erase(It);
+		InvalidateMaterialCompilation();
+		MarkPackageDirty();
+		return true;
+	}
+
 	auto DMaterialInstance::SetStaticBoolOverride(FGuid DeclarationId, bool Value) -> bool
 	{
 		if (bDynamicInstance || !DeclarationId.IsValid()) return false;
-		auto Found = std::ranges::find(StaticBoolOverrides, DeclarationId,
-			&FMaterialStaticBoolOverride::DeclarationId);
-		if (Found != StaticBoolOverrides.end() && Found->Value == Value) return true;
-		if (Found == StaticBoolOverrides.end()
-			&& StaticBoolOverrides.size() >= MaterialMaxStaticBoolDeclarations) return false;
+		if (const auto* Declaration = FindStaticBool(*this, {}, DeclarationId))
+			return StoreStaticBoolParameter({DeclarationId, Value, {.Name = Declaration->Name}});
+		auto Found = std::ranges::find(StaticBoolOverrides, DeclarationId, &FMaterialStaticBoolOverride::DeclarationId);
+		return StoreStaticBoolParameter({DeclarationId, Value, Found == StaticBoolOverrides.end()
+			? FMaterialParameterInfo{} : Found->ParameterInfo});
+	}
+
+	auto DMaterialInstance::StoreStaticBoolParameter(const FMaterialStaticBoolOverride& Record) -> bool
+	{
+		if (bDynamicInstance) return false;
+		auto Found = std::ranges::find_if(StaticBoolOverrides, [&](const auto& Entry) {
+			if (Entry.ParameterInfo.IsGlobal() && Record.ParameterInfo.IsGlobal())
+				return Entry.ParameterInfo == Record.ParameterInfo;
+			return Entry.DeclarationId == Record.DeclarationId;
+		});
 		if (Found == StaticBoolOverrides.end())
-			StaticBoolOverrides.push_back({DeclarationId, Value});
-		else Found->Value = Value;
-		std::ranges::sort(StaticBoolOverrides, {}, &FMaterialStaticBoolOverride::DeclarationId);
+		{
+			if (StaticBoolOverrides.size() >= MaterialMaxStaticBoolDeclarations) return false;
+			StaticBoolOverrides.push_back(Record);
+		}
+		else
+		{
+			if (*Found == Record) return true;
+			*Found = Record;
+		}
 		InvalidateMaterialCompilation();
 		MarkPackageDirty();
 		return true;
@@ -340,7 +396,7 @@ namespace Durin
 
 	auto DMaterialInstance::ClearStaticBoolOverride(FGuid DeclarationId) -> bool
 	{
-		if (bDynamicInstance) return false;
+		if (bDynamicInstance || !DeclarationId.IsValid()) return false;
 		const auto Before = StaticBoolOverrides.size();
 		std::erase_if(StaticBoolOverrides, [&](const auto& Entry) {
 			return Entry.DeclarationId == DeclarationId;
@@ -360,8 +416,89 @@ namespace Durin
 		return Root ? Root->GetParameterDefinitions() : std::span<const FMaterialParameterDefinition>{};
 	}
 
+	auto DMaterialInstance::RefreshParameterBindings(bool bParentChanged) -> void
+	{
+		for (auto& Override : StaticBoolOverrides)
+		{
+			auto* Declaration = bParentChanged ? FindStaticBool(*this, Override.ParameterInfo, {}) : nullptr;
+			if (!Declaration) Declaration = FindStaticBool(*this, {}, Override.DeclarationId);
+			if (!Declaration && Override.ParameterInfo.IsGlobal())
+				Declaration = FindStaticBool(*this, Override.ParameterInfo, {});
+			if (Declaration)
+			{
+				Override.DeclarationId = Declaration->DeclarationId;
+				Override.ParameterInfo = {.Name = Declaration->Name};
+			}
+		}
+		if (!GetLocalParameterValueCount()) return;
+		std::unordered_set<FGuid> PreviousIds;
+		VisitParameterValueArrays([&](const auto& Records) {
+			for (const auto& Record : Records)
+				if (Record.ParameterId.IsValid()) PreviousIds.insert(Record.ParameterId);
+		});
+		const auto Definitions = GetParameterDefinitions();
+		VisitParameterValueArrays([&](auto& Records) {
+			for (auto& Record : Records)
+			{
+				const auto ById = std::ranges::find(Definitions, Record.ParameterId, &FMaterialParameterDefinition::Id);
+				auto ByName = std::ranges::find(Definitions, Record.ParameterInfo, &FMaterialParameterDefinition::GetParameterInfo);
+				// An existing declaration owns its override when a rename and a stale name converge.
+				if (ByName != Definitions.end() && ByName != ById && PreviousIds.contains(ByName->Id))
+				{
+					ByName = Definitions.end();
+					if (ById == Definitions.end() && Record.ParameterId.IsValid()) Record.ParameterInfo = {};
+				}
+				const auto It = ByName != Definitions.end() && (bParentChanged || ById == Definitions.end()) ? ByName : ById;
+				if (It != Definitions.end() && It->Value.HasSameType(Record.GetValue()))
+				{
+					Record.ParameterInfo = It->GetParameterInfo();
+					Record.ParameterId = It->Id;
+				}
+			}
+		});
+	}
+
+	auto DMaterialInstance::GetLocalParameterValueByInfo(const FMaterialParameterInfo& Info, FMaterialParameterValue& OutValue) const -> bool
+	{
+		if (!Info.IsGlobal()) return false;
+		bool Found = false;
+		VisitParameterValueArrays([&](const auto& Records) {
+			using TRecord = typename std::decay_t<decltype(Records)>::value_type;
+			const auto It = std::ranges::find(Records, Info, &TRecord::ParameterInfo);
+			if (It == Records.end()) return;
+			if (Found)
+			{
+				const auto* Definition = FindParameterDefinitionByInfo(Info);
+				if (!Definition || !TRecord::SupportsType(Definition->Type)) return;
+			}
+			OutValue = It->GetValue();
+			Found = true;
+		});
+		return Found;
+	}
+
+	auto DMaterialInstance::ClearParameterValueByInfo(const FMaterialParameterInfo& Info) -> bool
+	{
+		if (!Info.IsGlobal()) return false;
+		if (bDynamicInstance)
+		{
+			const bool bHadValue = HasLocalParameterValueByInfo(Info);
+			const std::array Updates{FMaterialDynamicParameterUpdate::ClearByInfo(Info)};
+			return ApplyDynamicParameterUpdates(Updates) && bHadValue;
+		}
+		bool bRemoved = false;
+		VisitParameterValueArrays([&](auto& Records) {
+			bRemoved |= std::erase_if(Records, [&](const auto& Record) { return Record.ParameterInfo == Info; }) != 0;
+		});
+		if (!bRemoved) return false;
+		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
+		return true;
+	}
+
 	auto DMaterialInstance::GetLocalParameterValue(const FGuid& Id, FMaterialParameterValue& OutValue) const -> bool
 	{
+		if (!Id.IsValid()) return false;
 		bool bFound = false;
 		VisitParameterValueArrays([&](const auto& Records) {
 			using TRecord = typename std::decay_t<decltype(Records)>::value_type;
@@ -371,9 +508,9 @@ namespace Durin
 		return bFound;
 	}
 
-	auto DMaterialInstance::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
+	auto DMaterialInstance::ResolveParameterValueByInfo(const FMaterialParameterInfo& Info, FResolvedMaterialParameter& OutParameter) const -> bool
 	{
-		const auto* Definition = FindParameterDefinition(Id);
+		const auto* Definition = FindParameterDefinitionByInfo(Info);
 		if (!Definition) return false;
 		// Property resolution already bounded and validated this chain. Walk it
 		// once instead of recursively repeating declaration lookup at every layer.
@@ -381,9 +518,9 @@ namespace Durin
 		for (uint32 Depth = 0; Owner && Depth < MaterialMaximumParentDepth; ++Depth)
 		{
 			const auto* Instance = Cast<DMaterialInstance>(Owner);
-			if (!Instance) return Owner->ResolveParameterValue(Id, OutParameter);
+			if (!Instance) return Owner->ResolveParameterValueByInfo(Info, OutParameter);
 			FMaterialParameterValue LocalValue;
-			if (Instance->GetLocalParameterValue(Id, LocalValue) && LocalValue.HasSameType(Definition->Value))
+			if (Instance->GetLocalParameterValueByInfo(Info, LocalValue) && LocalValue.HasSameType(Definition->Value))
 			{
 				OutParameter.Definition = Definition;
 				OutParameter.Value = std::move(LocalValue);
@@ -396,25 +533,29 @@ namespace Durin
 		return false;
 	}
 
-	auto DMaterialInstance::SetParameterValue(
-		const FGuid& Id,
-		const FMaterialParameterValue& Value
-	) -> std::expected<void, std::string>
+	auto DMaterialInstance::SetParameterValue(const FGuid& Id, const FMaterialParameterValue& Value) -> std::expected<void, std::string>
+	{
+		const auto* Definition = FindParameterDefinition(Id);
+		if (!Definition) return std::unexpected(std::format("Material declaration does not exist. [parameter {}]", Id.ToString()));
+		return SetParameterValueByInfo(Definition->GetParameterInfo(), Value);
+	}
+
+	auto DMaterialInstance::SetParameterValueByInfo(const FMaterialParameterInfo& Info, const FMaterialParameterValue& Value) -> std::expected<void, std::string>
 	{
 		if (bDynamicInstance)
 		{
-			const std::array Updates{
-				FMaterialDynamicParameterUpdate::Set(Id, Value)};
+			const std::array Updates{FMaterialDynamicParameterUpdate::SetByInfo(Info, Value)};
 			return ApplyDynamicParameterUpdates(Updates);
 		}
+		const auto* Definition = FindParameterDefinitionByInfo(Info);
+		if (!Definition) return std::unexpected("Material parameter does not exist: " + Info.Name.ToString());
+		const auto Id = Definition->Id;
 		const auto Type = Value.GetType();
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
 		const auto Fail = [&](std::string_view Message) -> std::expected<void, std::string>
 		{
 			return std::unexpected(std::format("{} [parameter {}]", Message, Id.ToString()));
 		};
 		if (!Private::IsAuthoringMaterialParameterValue(Value)) return Fail("Material texture overrides must reference assets, not render resources.");
-		if (!Definition) return Fail("Material declaration does not exist.");
 		if (!Definition->Value.HasSameType(Value)) return Fail("Material declaration type is invalid.");
 		if (!GetParameterReachability()->ParameterIds.contains(Id)) return Fail("The parameter is not reachable from the material outputs.");
 		if (!Private::IsFiniteMaterialParameterValue(Value)) return Fail("Material declaration default must be finite.");
@@ -429,7 +570,7 @@ namespace Durin
 		}
 		if (!Private::IsFiniteMaterialParameterValue(StoredValue)) return Fail("Material declaration default must be finite.");
 		FMaterialParameterValue Existing;
-		if (GetLocalParameterValue(Id, Existing))
+		if (GetLocalParameterValue(Id, Existing) || GetLocalParameterValueByInfo(Info, Existing))
 		{
 			if (Existing.GetType() != Type) return Fail("The existing parameter override has a different type.");
 			if (Existing == StoredValue) return {};
@@ -437,12 +578,13 @@ namespace Durin
 		VisitParameterValueArrays([&](auto& Records) {
 			using TRecord = typename std::decay_t<decltype(Records)>::value_type;
 			if (!TRecord::SupportsType(Type)) return;
-			auto It = std::ranges::find(Records, Id, &TRecord::ParameterId);
+			auto It = std::ranges::find(Records, Definition->GetParameterInfo(), &TRecord::ParameterInfo);
 			if (It == Records.end())
 			{
 				Records.emplace_back();
 				It = std::prev(Records.end());
 				It->ParameterId = Id;
+				It->ParameterInfo = Definition->GetParameterInfo();
 			}
 			It->SetValue(StoredValue);
 		});
@@ -479,13 +621,29 @@ namespace Durin
 		auto CandidateVectors = VectorParameterValues;
 		auto CandidateTextures = TextureParameterValues;
 		std::unordered_set<FGuid> Seen;
+		std::vector<FGuid> ChangedParameters;
+		bool bHasClear = false;
 		bool bChanged = false;
 		for (uint32 Index = 0; Index < Updates.size(); ++Index)
 		{
-			const auto& Update = Updates[Index];
+			auto Update = Updates[Index];
+			if (Update.ParameterInfo != FMaterialParameterInfo{})
+			{
+				if (Update.ParameterId.IsValid() || !Update.ParameterInfo.IsGlobal())
+					return Reject("Invalid material parameter selector.", Index, Update.ParameterId);
+				const auto* Definition = FindParameterDefinitionByInfo(Update.ParameterInfo);
+				if (Definition) Update.ParameterId = Definition->Id;
+				else if (Update.Operation == EMaterialDynamicParameterUpdateOperation::Clear && Update.ParameterInfo.IsGlobal())
+					VisitParameterValueArrays([&](const auto& Records) {
+						for (const auto& Record : Records)
+							if (Record.ParameterInfo == Update.ParameterInfo) Update.ParameterId = Record.ParameterId;
+					});
+				if (!Update.ParameterId.IsValid()) return Reject("Unknown material parameter.", Index, {});
+			}
 			if (!Update.ParameterId.IsValid())
 				return Reject("Material parameter value has an invalid identity.",
 					Index, Update.ParameterId);
+			ChangedParameters.push_back(Update.ParameterId);
 			if (!Seen.insert(Update.ParameterId).second)
 				return Reject("Material parameter value identity is duplicated.",
 					Index, Update.ParameterId);
@@ -495,6 +653,7 @@ namespace Durin
 					Index, Update.ParameterId);
 			if (Update.Operation == EMaterialDynamicParameterUpdateOperation::Clear)
 			{
+				bHasClear = true;
 				bool bRemoved = false;
 				const auto Erase = [&](auto& Records) {
 					bRemoved |= std::erase_if(Records, [&](const auto& Record) {
@@ -516,6 +675,9 @@ namespace Durin
 			if (!Definition)
 				return Reject("Material declaration does not exist.",
 					Index, Update.ParameterId);
+			FMaterialParameterValue Existing;
+			if (GetLocalParameterValue(Update.ParameterId, Existing) && !Existing.HasSameType(Update.Value))
+				return Reject("The existing parameter override has a different type.", Index, Update.ParameterId);
 			const EMaterialParameterType Type = Update.Value.GetType();
 			if (Program)
 			{
@@ -561,8 +723,7 @@ namespace Durin
 			const auto Apply = [&](auto& Records) {
 				using TRecord = typename std::decay_t<decltype(Records)>::value_type;
 				if (!TRecord::SupportsType(Type)) return;
-				auto It = std::ranges::find(Records, Update.ParameterId,
-					&TRecord::ParameterId);
+				auto It = std::ranges::find(Records, Definition->GetParameterInfo(), &TRecord::ParameterInfo);
 				if (It != Records.end() && It->GetValue() == StoredValue)
 				{
 					bApplied = true;
@@ -572,6 +733,7 @@ namespace Durin
 				{
 					It = Records.emplace(Records.end());
 					It->ParameterId = Update.ParameterId;
+					It->ParameterInfo = Definition->GetParameterInfo();
 				}
 				It->SetValue(StoredValue);
 				bApplied = true;
@@ -594,13 +756,6 @@ namespace Durin
 		TextureParameterValues.swap(CandidateTextures);
 		GMaterialDynamicParameterCounters.ChangedCommitCount.fetch_add(1);
 		GMaterialDynamicParameterCounters.OwnerPublicationCount.fetch_add(1);
-		std::vector<FGuid> ChangedParameters;
-		bool bHasClear = false;
-		for (const auto& Update : Updates)
-		{
-			ChangedParameters.push_back(Update.ParameterId);
-			bHasClear |= Update.Operation == EMaterialDynamicParameterUpdateOperation::Clear;
-		}
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true, nullptr,
 			bHasClear ? std::span<const FGuid>{} : std::span<const FGuid>(ChangedParameters));
 		return {};
@@ -608,6 +763,7 @@ namespace Durin
 
 	auto DMaterialInstance::ClearParameterValue(const FGuid& Id) -> bool
 	{
+		if (!Id.IsValid()) return false;
 		if (bDynamicInstance)
 		{
 			const bool bHadValue = HasLocalParameterValue(Id);
@@ -644,7 +800,7 @@ namespace Durin
 		const auto* Definition = FindParameterDefinition(Name);
 		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Scalar);
 		if (!Validated) return Validated;
-		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeScalar(Value));
+		return SetParameterValueByInfo(Definition->GetParameterInfo(), FMaterialParameterValue::MakeScalar(Value));
 	}
 
 	auto DMaterialInstance::SetVector2ParameterValue(FName Name, const FVector2& Value) -> std::expected<void, std::string>
@@ -652,7 +808,7 @@ namespace Durin
 		const auto* Definition = FindParameterDefinition(Name);
 		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Vector4);
 		if (!Validated) return Validated;
-		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0)));
+		return SetParameterValueByInfo(Definition->GetParameterInfo(), FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0)));
 	}
 
 	auto DMaterialInstance::SetVectorParameterValue(FName Name, const FVector3& Value) -> std::expected<void, std::string>
@@ -660,7 +816,7 @@ namespace Durin
 		const auto* Definition = FindParameterDefinition(Name);
 		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Vector4);
 		if (!Validated) return Validated;
-		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
+		return SetParameterValueByInfo(Definition->GetParameterInfo(), FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
 	}
 
 	auto DMaterialInstance::SetTextureParameterValue(FName Name, DTexture* Value) -> std::expected<void, std::string>
@@ -669,58 +825,58 @@ namespace Durin
 		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Texture);
 		if (!Validated) return Validated;
 		FResolvedMaterialParameter Resolved;
-		if (!ResolveParameterValue(Definition->Id, Resolved))
+		if (!ResolveParameterValueByInfo(Definition->GetParameterInfo(), Resolved))
 			return std::unexpected(std::format("{} [parameter {}]", "The parameter value could not be resolved.", Definition->Id.ToString()));
 		Resolved.Value.GetTexture().Texture = Value;
-		return SetParameterValue(Definition->Id, Resolved.Value);
+		return SetParameterValueByInfo(Definition->GetParameterInfo(), Resolved.Value);
 	}
 
 	auto DMaterialInstance::ClearScalarParameterValue(FName Name) -> bool
 	{
 		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Scalar,
-			&DMaterialInstance::ClearParameterValue);
+			&DMaterialInstance::ClearParameterValueByInfo);
 	}
 
 	auto DMaterialInstance::ClearVector2ParameterValue(FName Name) -> bool
 	{
 		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
-			&DMaterialInstance::ClearParameterValue);
+			&DMaterialInstance::ClearParameterValueByInfo);
 	}
 
 	auto DMaterialInstance::ClearVectorParameterValue(FName Name) -> bool
 	{
 		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
-			&DMaterialInstance::ClearParameterValue);
+			&DMaterialInstance::ClearParameterValueByInfo);
 	}
 
 	auto DMaterialInstance::ClearTextureParameterValue(FName Name) -> bool
 	{
 		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Texture,
-			&DMaterialInstance::ClearParameterValue);
+			&DMaterialInstance::ClearParameterValueByInfo);
 	}
 
 	auto DMaterialInstance::HasLocalScalarParameterValue(FName Name) const -> bool
 	{
 		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Scalar,
-			&DMaterialInstance::HasLocalParameterValue);
+			&DMaterialInstance::HasLocalParameterValueByInfo);
 	}
 
 	auto DMaterialInstance::HasLocalVector2ParameterValue(FName Name) const -> bool
 	{
 		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
-			&DMaterialInstance::HasLocalParameterValue);
+			&DMaterialInstance::HasLocalParameterValueByInfo);
 	}
 
 	auto DMaterialInstance::HasLocalVectorParameterValue(FName Name) const -> bool
 	{
 		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
-			&DMaterialInstance::HasLocalParameterValue);
+			&DMaterialInstance::HasLocalParameterValueByInfo);
 	}
 
 	auto DMaterialInstance::HasLocalTextureParameterValue(FName Name) const -> bool
 	{
 		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Texture,
-			&DMaterialInstance::HasLocalParameterValue);
+			&DMaterialInstance::HasLocalParameterValueByInfo);
 	}
 
 	auto DMaterialInstance::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
@@ -770,6 +926,7 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': material instance parent cycle; clearing parent.", GetObjectPath());
 			Parent = nullptr;
 		}
+		RefreshParameterBindings();
 		Private::RefreshMaterialDependency(*this);
 		const auto Error = ValidateMaterialStaticProperties(PropertyOverrides.Values);
 		if (!Error)
