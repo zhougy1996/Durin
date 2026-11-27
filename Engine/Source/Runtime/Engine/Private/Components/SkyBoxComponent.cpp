@@ -10,6 +10,7 @@ namespace Durin
 	DSkyBoxComponent::DSkyBoxComponent(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+		bSelectable = false;
 	}
 
 	auto DSkyBoxComponent::SetStaticMesh(DStaticMesh* InStaticMesh) -> void

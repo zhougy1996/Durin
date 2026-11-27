@@ -87,6 +87,8 @@ namespace Durin
 		ENGINE_API auto SetCustomPrimitiveData(uint32 First, std::span<const float> Values) -> bool;
 		auto GetCustomPrimitiveData() const -> const FPrimitiveCustomData& { return CustomPrimitiveData; }
 		auto IsVisible() const -> bool { return bVisible; }
+		auto IsSelectable() const -> bool { return bSelectable; }
+		ENGINE_API auto SetSelectable(bool bInSelectable) -> void;
 		ENGINE_API auto SetCollisionProfileName(FName ProfileName) -> bool;
 		ENGINE_API auto SetCollisionEnabled(ECollisionEnabled Enabled) -> void;
 		ENGINE_API auto SetCollisionObjectType(ECollisionChannel Channel) -> void;
@@ -111,6 +113,10 @@ namespace Durin
 
 
 	protected:
+		// Controls whether this component is a target for editor viewport picking.
+		DPROPERTY()
+		bool bSelectable = true;
+
 		ENGINE_API auto MoveComponentImpl(const FVector3& Delta, const FQuat& NewRotation,
 			bool bSweep, FHitResult* OutHit) -> bool override;
 		ENGINE_API auto OnComponentPendingKill() -> void override;

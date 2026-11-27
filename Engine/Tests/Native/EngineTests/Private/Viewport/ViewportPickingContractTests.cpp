@@ -94,6 +94,32 @@ TEST(FViewportPickingContractTests, RejectsOutsideViewAndPreservesExactPrimitive
 	EXPECT_EQ(Pick.Hit->PrimitiveId, Fixture.Actor->GetStaticMeshComponent()->GetPrimitiveComponentId());
 }
 
+TEST(FViewportPickingContractTests, SelectabilityBelongsToEachMeshComponent)
+{
+	using namespace Durin;
+	using namespace Durin::LevelEditor;
+	FPickingFixture Fixture;
+	auto State = std::make_shared<FFakePickingState>();
+	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FImmediatePickingBackend>(State));
+	auto* First = Fixture.Actor->GetStaticMeshComponent();
+	auto* Other = Fixture.Level->SpawnActor<AStaticMeshActor>("Other")->GetStaticMeshComponent();
+	Other->SetStaticMesh(First->GetStaticMesh());
+	ASSERT_TRUE(First->IsSelectable());
+	First->SetSelectable(false);
+	const auto Pick = [&] { return Fixture.Client.PickViewport(Fixture.Level, Fixture.View, {400.f, 300.f}); };
+	auto Result = Pick();
+	ASSERT_TRUE(Result.Hit);
+	EXPECT_EQ(Result.Hit->Component.Get(), Other);
+	EXPECT_EQ(State->Requests.back().Primitives.size(), 1u);
+	Other->SetSelectable(false);
+	Result = Pick();
+	EXPECT_EQ(Result.Status, EViewportPickStatus::Completed);
+	EXPECT_FALSE(Result.Hit);
+	First->SetSelectable(true);
+	State->DuringPick = [&] { First->SetSelectable(false); };
+	EXPECT_EQ(Pick().Status, EViewportPickStatus::Invalid);
+}
+
 TEST(FViewportPickingContractTests, ReturnsBlankSpaceAndRenderingFailureImmediately)
 {
 	using namespace Durin::LevelEditor;
@@ -292,6 +318,11 @@ TEST(FViewportPickingContractTests, ResolvesOverlayElementAndRejectsRetiredHandl
 		Fixture.Actor->GetStaticMeshComponent()->RegisterComponent();
 	};
 	EXPECT_EQ(Service.Pick(Request, &Collector).Status, EViewportPickStatus::Invalid);
+	State->DuringPick = {};
+	Fixture.Actor->GetStaticMeshComponent()->SetSelectable(false);
+	const auto Ignored = Service.Pick(Request, &Collector);
+	EXPECT_EQ(Ignored.Status, EViewportPickStatus::Completed);
+	EXPECT_FALSE(Ignored.Hit);
 }
 
 TEST(FViewportPickingContractTests, WholeMapSharesImmutablePixelsAndRetainsIndependentSnapshots)

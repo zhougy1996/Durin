@@ -23,6 +23,7 @@ namespace Durin::LevelEditor
 				auto* Actor = Source.Actor.Get();
 				auto* Component = Source.Component.Get();
 				if (!Actor || !Component || !Component->IsRegistered() || Actor->IsHidden()) return;
+				if (auto* Primitive = Cast<DPrimitiveComponent>(Component); Primitive && !Primitive->IsSelectable()) return;
 				if (Overlays.size() >= 65536) { bOverflow = true; return; }
 				const uint32 Token = uint32(Targets.size() + 1);
 				Targets.push_back({Token, FPrimitiveComponentId{}, Actor, Component,
@@ -162,7 +163,7 @@ namespace Durin::LevelEditor
 				for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetComponents())
 				{
 					auto* Component = Cast<DPrimitiveComponent>(ComponentPtr.Get());
-					if (!Component || !Component->IsRegistered() || !Component->IsVisible()) continue;
+					if (!Component || !Component->IsRegistered() || !Component->IsVisible() || !Component->IsSelectable()) continue;
 					const FPrimitiveComponentId PrimitiveId = Component->GetPrimitiveComponentId();
 					if (PrimitiveId == InvalidPrimitiveComponentId) continue;
 					Targets.push_back({static_cast<uint32>(Targets.size() + 1), PrimitiveId,
@@ -214,9 +215,10 @@ namespace Durin::LevelEditor
 		if (!Level || Level != CurrentLevel.Get() || !Actor || !Component
 			|| Actor->IsHidden() || !Level->ContainsActor(Actor) || !Actor->OwnsComponent(Component)
 			|| Component->GetOwner() != Actor || !Component->IsRegistered() || Component->IsBeingDestroyed()) return false;
+		auto* Primitive = Cast<DPrimitiveComponent>(Component);
+		if (Primitive && !Primitive->IsSelectable()) return false;
 		if (Hit.Kind == EViewportPickHitKind::SceneGeometry)
 		{
-			auto* Primitive = Cast<DPrimitiveComponent>(Component);
 			if (!Primitive || !Primitive->IsVisible() || Hit.PrimitiveId == InvalidPrimitiveComponentId || Primitive->GetPrimitiveComponentId() != Hit.PrimitiveId) return false;
 		}
 		return true;

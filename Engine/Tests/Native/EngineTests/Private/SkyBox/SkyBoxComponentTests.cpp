@@ -168,6 +168,7 @@ TEST(FSkyBoxTests, ActorDefaultsDuplicateAndRetainCubeReference)
 	Durin::DSkyBoxComponent* Component = Actor->GetSkyBoxComponent();
 	auto* Cube = Durin::NewObject<Durin::DTextureCube>(nullptr, "ReferencedCube");
 	ASSERT_NE(Component, nullptr);
+	EXPECT_FALSE(Component->IsSelectable());
 
 	Component->SetTextureCube(Cube);
 	EXPECT_EQ(Component->CreateSceneProxy(), nullptr);
@@ -180,12 +181,14 @@ TEST(FSkyBoxTests, ActorDefaultsDuplicateAndRetainCubeReference)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(CubeHandle), Cube);
 	Component->SetTextureCube(nullptr);
+	Component->SetSelectable(true);
 
 	const auto Copy = Durin::DuplicateObject(Actor, nullptr, "CopiedSkyBox");
 	ASSERT_TRUE(Copy) << Durin::ToString(Copy.error());
 	auto* LoadedActor = *Copy;
 	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
 	ASSERT_NE(LoadedComponent, nullptr);
+	EXPECT_TRUE(LoadedComponent->IsSelectable());
 	EXPECT_EQ(LoadedComponent->GetTextureCube(), nullptr);
 	EXPECT_EQ(LoadedComponent->GetTint(), (Durin::FLinearColor(0.25f, 0.5f, 0.75f, 1.0f)));
 	EXPECT_EQ(LoadedComponent->GetIntensity(), 0.0f);

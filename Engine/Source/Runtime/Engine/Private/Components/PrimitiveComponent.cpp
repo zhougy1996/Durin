@@ -395,6 +395,13 @@ namespace Durin
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Visibility);
 	}
 
+	auto DPrimitiveComponent::SetSelectable(bool bInSelectable) -> void
+	{
+		if (bSelectable == bInSelectable) return;
+		bSelectable = bInSelectable;
+		MarkPackageDirty();
+	}
+
 	auto DPrimitiveComponent::SetVisible(bool bInVisible) -> void
 	{
 		if (bVisible == bInVisible) return;
