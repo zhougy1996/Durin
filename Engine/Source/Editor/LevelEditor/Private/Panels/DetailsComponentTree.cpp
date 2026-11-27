@@ -3,6 +3,7 @@
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/SkyBoxComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "Engine/Actor.h"
@@ -283,6 +284,7 @@ namespace Durin::LevelEditor
 			bool bFoundClass = false;
 			for (DClass* Class : GetDerivedClasses(RequiredBase, true))
 			{
+				if (Class == DSkyBoxComponent::StaticClass()) continue;
 				if (!CanConstructObjectOfClass(Class, RequiredBase)) continue;
 				const std::string DisplayName = ClassDisplayName(Class);
 				if (!ContainsInsensitive(DisplayName, ComponentTypeSearchText.data())) continue;

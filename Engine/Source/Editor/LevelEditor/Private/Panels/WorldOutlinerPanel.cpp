@@ -7,6 +7,7 @@
 #include "Panels/WorldOutlinerPresentation.h"
 
 #include "Actors/CameraActor.h"
+#include "Actors/SkyBoxActor.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -393,6 +394,7 @@ namespace Durin::LevelEditor
 				ImGui::InputTextWithHint("###ActorTypeSearch", "Search actor types...", ActorTypeSearchText.data(), ActorTypeSearchText.size());
 				for (DClass* Class : GetDerivedClasses(AActor::StaticClass(), true))
 				{
+					if (Class == ASkyBoxActor::StaticClass()) continue;
 					if (!CanConstructObjectOfClass(Class, AActor::StaticClass())) continue;
 					const std::string DisplayName = ClassDisplayName(Class);
 					if (!ContainsInsensitive(DisplayName, ActorTypeSearchText.data())) continue;
