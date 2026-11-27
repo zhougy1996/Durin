@@ -204,21 +204,64 @@ TEST(FMaterialRenderProxyTests, IndexedFieldsMatchSymbolicWritesAfterLayoutRepla
 		Layer.Parameters[0].Value = 0.5f; // An orphan type must not reuse the old vector write.
 		Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
 		EXPECT_FALSE(Proxy->GetMaterialWithFallback().Representation.IsError());
-		FMaterialRenderValidationDiagnostic Diagnostic;
-		for (const uint32 Index : {0u, 1u, 99u})
-		{
-			FMaterialRenderRepresentationBuilder Invalid(Program->GetShaderMap().Layout);
-			EXPECT_FALSE(Invalid.SetParameterAtIndex(Index, Layer.Parameters[0].Id, Layer.Parameters[0].Value));
-			FMaterialRenderRepresentation Output;
-			EXPECT_FALSE(Invalid.Build(Output, Diagnostic));
-			EXPECT_TRUE(Output.IsError());
-		}
+		const auto Failures = GetMaterialRenderProxyCounters().RepresentationValidationFailureCount;
+		// Supply prebound records directly so neither invalid write is filtered by name lookup.
+		const uint32 PastEnd = static_cast<uint32>(ReplacementArtifact->Layout.Fields.size());
+		FMaterialInstanceParameterSet Invalid;
+		Invalid.SetParameter(PastEnd, 0.5f);
+		Proxy->InitParameters_RenderThread(std::move(Invalid));
+		EXPECT_TRUE(Proxy->GetMaterialWithFallback().Representation.IsError());
+		EXPECT_EQ(GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, Failures + 1);
+
+		Proxy->InitParameters_RenderThread({});
+		Proxy->UpdateParameter_RenderThread(0, 0.5f); // Field zero now requires a Vector2.
+		EXPECT_TRUE(Proxy->GetMaterialWithFallback().Representation.IsError());
+		EXPECT_EQ(GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, Failures + 2);
 	});
 	FlushRenderingCommands();
 	Proxy = {};
 	// Retire World children while their stack-owned Engine outer is still alive.
 	Harness.Shutdown();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
+}
+
+TEST(FMaterialRenderProxyTests, RecompiledParentRebindsDynamicOverrideToShiftedField)
+{
+	using namespace Durin;
+	FRenderSceneHarness Harness;
+	auto* Parent = MakeExpandedMaterial(nullptr, "ShiftedMaterialFields");
+	ASSERT_NE(Parent, nullptr);
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Parent);
+	ASSERT_NE(Dynamic, nullptr);
+	const FMaterialParameterInfo Metallic{.Name = "Metallic"};
+	auto Proxy = Dynamic->GetRenderProxy();
+	ASSERT_TRUE(Dynamic->SetScalarParameterValue(Metallic.Name, 0.375f));
+	const auto Initial = CaptureMaterialProxy(Proxy);
+	ASSERT_TRUE(Initial.RenderData.CompiledProgram);
+	const auto OldField = Initial.RenderData.CompiledProgram->FindParameterField(Metallic);
+	ASSERT_TRUE(OldField);
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Initial.RenderData).Metallic, 0.375f);
+
+	auto Graph = Testing::MakePBRMaterialExpressionsForTest();
+	for (const auto& Node : Graph.Expressions)
+		if (auto* Scalar = Cast<DMaterialExpressionScalarParameter>(Node.Get()); Scalar && Scalar->Metadata.Name == FName("Roughness"))
+			Scalar->Metadata.Name = "BeforeMetallic";
+	ASSERT_TRUE(Graph.Apply(*Parent));
+	ASSERT_TRUE(FinishMaterialCompileForTest(*Parent));
+	const auto Rebound = CaptureMaterialProxy(Proxy);
+	ASSERT_TRUE(Rebound.RenderData.CompiledProgram);
+	const auto NewField = Rebound.RenderData.CompiledProgram->FindParameterField(Metallic);
+	ASSERT_TRUE(NewField);
+	ASSERT_NE(*OldField, *NewField);
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Rebound.RenderData).Metallic, 0.375f);
+	ASSERT_TRUE(Dynamic->SetScalarParameterValue(Metallic.Name, 0.625f));
+	EXPECT_FLOAT_EQ(GetMaterialBinding(CaptureMaterialProxy(Proxy).RenderData).Metallic, 0.625f);
+
+	ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
+	MarkAsGarbage(Dynamic);
+	MarkAsGarbage(Parent);
+	Harness.Shutdown();
+	CollectGarbage(EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
@@ -473,18 +516,18 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 		InstanceBinding.UVScales[1],
 		Durin::FVector2f(2048.0f, -2048.0f));
 
-	ASSERT_TRUE(Instance->ClearScalarParameterValue(
-		Durin::AssetForge::Builtins::MaterialParameters::MetallicName()));
-	ASSERT_TRUE(Instance->ClearScalarParameterValue(
-		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName()));
-	ASSERT_TRUE(Instance->ClearVectorParameterValue(
-		Durin::AssetForge::Builtins::MaterialParameters::NormalName()));
-	ASSERT_TRUE(Instance->ClearVectorParameterValue(
-		Durin::AssetForge::Builtins::MaterialParameters::EmissiveName()));
-	ASSERT_TRUE(Instance->ClearScalarParameterValue(
-		Durin::FName("RoughnessUVChannel")));
-	ASSERT_TRUE(Instance->ClearVector2ParameterValue(
-		Durin::FName("NormalUVScale")));
+	ASSERT_TRUE(Instance->ClearParameterValueByInfo(
+		{.Name = Durin::AssetForge::Builtins::MaterialParameters::MetallicName()}));
+	ASSERT_TRUE(Instance->ClearParameterValueByInfo(
+		{.Name = Durin::AssetForge::Builtins::MaterialParameters::RoughnessName()}));
+	ASSERT_TRUE(Instance->ClearParameterValueByInfo(
+		{.Name = Durin::AssetForge::Builtins::MaterialParameters::NormalName()}));
+	ASSERT_TRUE(Instance->ClearParameterValueByInfo(
+		{.Name = Durin::AssetForge::Builtins::MaterialParameters::EmissiveName()}));
+	ASSERT_TRUE(Instance->ClearParameterValueByInfo(
+		{.Name = Durin::FName("RoughnessUVChannel")}));
+	ASSERT_TRUE(Instance->ClearParameterValueByInfo(
+		{.Name = Durin::FName("NormalUVScale")}));
 
 	size_t DefinitionIndex = 0;
 	size_t TextureRole = 0;
@@ -551,26 +594,7 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 			++TextureRole;
 		}
 
-		bool bCleared = false;
-		switch (Definition.Type)
-		{
-		case Durin::EMaterialParameterType::Scalar:
-			bCleared = Instance->ClearScalarParameterValue(Definition.Name);
-			break;
-		case Durin::EMaterialParameterType::Vector:
-			bCleared = Instance->ClearVectorParameterValue(Definition.Name);
-			break;
-		case Durin::EMaterialParameterType::Vector2:
-			bCleared = Instance->ClearVector2ParameterValue(Definition.Name);
-			break;
-		case Durin::EMaterialParameterType::Vector4:
-			bCleared = Instance->ClearParameterValueByInfo(Definition.GetParameterInfo());
-			break;
-		case Durin::EMaterialParameterType::Texture:
-			bCleared = Instance->ClearTextureParameterValue(Definition.Name);
-			break;
-		}
-		ASSERT_TRUE(bCleared) << Definition.Name.ToString();
+		ASSERT_TRUE(Instance->ClearParameterValueByInfo(Definition.GetParameterInfo())) << Definition.Name.ToString();
 		EXPECT_FALSE(Instance->HasLocalParameterValueByInfo(Definition.GetParameterInfo()));
 		const FMaterialProxySnapshot Inherited =
 			CaptureMaterialProxy(InstanceProxy);
@@ -1240,6 +1264,47 @@ TEST(FMaterialResourceTests, DetachedSnapshotsSurviveOwnerRetirement)
 	EXPECT_EQ(Snapshot.CompiledProgram, Program);
 	EXPECT_TRUE(Snapshot.StaticProperties);
 	EXPECT_EQ(Snapshot.Parameters.front().Value.GetScalar(), .75f);
+}
+
+TEST(FMaterialRenderProxyTests, DynamicInstanceSwitchesFromAssetToExternalTextureAndBack)
+{
+	using namespace Durin;
+	FRenderSceneHarness Harness;
+	auto* Root = MakeExpandedMaterial(nullptr, "SwitchTextureBinding");
+	ASSERT_NE(Root, nullptr);
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Root);
+	ASSERT_NE(Dynamic, nullptr);
+	auto* Asset = NewObject<DTexture2D>(nullptr, "BoundTextureAsset");
+	auto* External = NewObject<DTexture2D>(nullptr, "ExternalTextureSource");
+	{
+		const FMaterialParameterInfo Info{.Name = AssetForge::Builtins::MaterialParameters::BaseColorTextureName()};
+		const auto AssetRef = Asset->GetTextureReferenceRHI();
+		const auto ExternalRef = External->GetTextureReferenceRHI();
+		ASSERT_TRUE(AssetRef && ExternalRef);
+		ASSERT_NE(AssetRef, ExternalRef);
+		const auto Proxy = Dynamic->GetRenderProxy();
+		ASSERT_TRUE(Dynamic->SetTextureParameterValue(Info.Name, Asset));
+		EXPECT_EQ(GetMaterialBinding(CaptureMaterialProxy(Proxy).RenderData).Textures[0], AssetRef);
+
+		const std::array BindExternal{FMaterialDynamicParameterUpdate::SetTextureReferenceByInfo(Info, ExternalRef)};
+		ASSERT_TRUE(Dynamic->ApplyDynamicParameterUpdates(BindExternal));
+		EXPECT_EQ(GetMaterialBinding(CaptureMaterialProxy(Proxy).RenderData).Textures[0], ExternalRef);
+
+		ASSERT_TRUE(Dynamic->SetTextureParameterValue(Info.Name, Asset));
+		FMaterialParameterValue Local;
+		ASSERT_TRUE(Dynamic->GetLocalParameterValueByInfo(Info, Local));
+		EXPECT_EQ(Local.GetTexture().Texture.Get(), Asset);
+		EXPECT_FALSE(Local.GetTexture().TextureReference);
+		EXPECT_EQ(GetMaterialBinding(CaptureMaterialProxy(Proxy).RenderData).Textures[0], AssetRef);
+	}
+	MarkAsGarbage(Dynamic);
+	MarkAsGarbage(Root);
+	MarkAsGarbage(Asset);
+	MarkAsGarbage(External);
+	CollectGarbage(EObjectFlags::Standalone);
+	WaitForRenderingThread();
+	Harness.Shutdown();
+	CollectGarbage(EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, ClassifiedTextureValuesSeparateAuthoringFromPublication)

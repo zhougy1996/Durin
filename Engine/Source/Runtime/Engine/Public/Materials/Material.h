@@ -94,10 +94,6 @@ namespace Durin
 		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> std::expected<void, std::string>;
 		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture* Value) -> std::expected<void, std::string>;
 		ENGINE_API auto SetParameterValueByInfo(const FMaterialParameterInfo& Info, const FMaterialParameterValue& Value) -> std::expected<void, std::string>;
-		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
-		ENGINE_API auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool override;
-		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
-		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture*& OutValue) const -> bool override;
 		ENGINE_API static auto AppendToClassSchema(FObjectCookContext& Context) -> void;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;

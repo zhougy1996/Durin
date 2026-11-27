@@ -31,29 +31,6 @@ namespace Durin
 
 		FMaterialDynamicParameterAtomicCounters GMaterialDynamicParameterCounters;
 
-		template <typename TValue, typename TReadValue>
-		auto GetTypedParameterValue(
-			const DMaterialInstance& Material, FName Name, EMaterialParameterType Type,
-			TValue& OutValue, TReadValue ReadValue) -> bool
-		{
-			const auto* Definition = Material.FindParameterDefinition(Name);
-			if (!Definition || Definition->Type != Type) return false;
-			FResolvedMaterialParameter Resolved;
-			if (!Material.ResolveParameterValueByInfo(Definition->GetParameterInfo(), Resolved)) return false;
-			OutValue = ReadValue(Resolved.Value);
-			return true;
-		}
-
-		template <typename TInstance, typename TOperation>
-		auto ApplyTypedParameterOperation(
-			TInstance& Instance, FName Name, EMaterialParameterType Type,
-			TOperation Operation) -> bool
-		{
-			const auto* Definition = Instance.FindParameterDefinition(Name);
-			return Definition && Definition->Type == Type
-				&& (Instance.*Operation)(Definition->GetParameterInfo());
-		}
-
 		auto FindStaticBool(const DMaterialInstance& Instance, const FMaterialParameterInfo& Info, FGuid Id)
 			-> const DMaterialExpressionStaticBool*
 		{
@@ -409,12 +386,18 @@ namespace Durin
 
 	auto DMaterialInstance::RefreshParameterBindings(bool bParentChanged) -> void
 	{
+		std::unordered_set<FGuid> PreviousStaticIds;
+		for (const auto& Override : StaticBoolOverrides)
+			if (Override.DeclarationId.IsValid()) PreviousStaticIds.insert(Override.DeclarationId);
 		for (auto& Override : StaticBoolOverrides)
 		{
-			auto* Declaration = bParentChanged ? FindStaticBool(*this, Override.ParameterInfo, {}) : nullptr;
-			if (!Declaration) Declaration = FindStaticBool(*this, {}, Override.DeclarationId);
-			if (!Declaration && Override.ParameterInfo.IsGlobal())
-				Declaration = FindStaticBool(*this, Override.ParameterInfo, {});
+			const auto* Declaration = Override.DeclarationId.IsValid() ? FindStaticBool(*this, {}, Override.DeclarationId) : nullptr;
+			if ((bParentChanged || !Declaration) && Override.ParameterInfo.IsGlobal())
+			{
+				const auto* Named = FindStaticBool(*this, Override.ParameterInfo, {});
+				if (Named && !PreviousStaticIds.contains(Named->DeclarationId)) Declaration = Named;
+				else if (Named && !Declaration && Override.DeclarationId.IsValid()) Override.ParameterInfo = {};
+			}
 			if (Declaration)
 			{
 				Override.DeclarationId = Declaration->DeclarationId;
@@ -776,79 +759,8 @@ namespace Durin
 		if (!ResolveParameterValueByInfo(Definition->GetParameterInfo(), Resolved))
 			return std::unexpected(std::format("{} [parameter {}]", "The parameter value could not be resolved.", Definition->Id.ToString()));
 		Resolved.Value.GetTexture().Texture = Value;
+		Resolved.Value.GetTexture().TextureReference = {};
 		return SetParameterValueByInfo(Definition->GetParameterInfo(), Resolved.Value);
-	}
-
-	auto DMaterialInstance::ClearScalarParameterValue(FName Name) -> bool
-	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Scalar,
-			&DMaterialInstance::ClearParameterValueByInfo);
-	}
-
-	auto DMaterialInstance::ClearVector2ParameterValue(FName Name) -> bool
-	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
-			&DMaterialInstance::ClearParameterValueByInfo);
-	}
-
-	auto DMaterialInstance::ClearVectorParameterValue(FName Name) -> bool
-	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
-			&DMaterialInstance::ClearParameterValueByInfo);
-	}
-
-	auto DMaterialInstance::ClearTextureParameterValue(FName Name) -> bool
-	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Texture,
-			&DMaterialInstance::ClearParameterValueByInfo);
-	}
-
-	auto DMaterialInstance::HasLocalScalarParameterValue(FName Name) const -> bool
-	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Scalar,
-			&DMaterialInstance::HasLocalParameterValueByInfo);
-	}
-
-	auto DMaterialInstance::HasLocalVector2ParameterValue(FName Name) const -> bool
-	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
-			&DMaterialInstance::HasLocalParameterValueByInfo);
-	}
-
-	auto DMaterialInstance::HasLocalVectorParameterValue(FName Name) const -> bool
-	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
-			&DMaterialInstance::HasLocalParameterValueByInfo);
-	}
-
-	auto DMaterialInstance::HasLocalTextureParameterValue(FName Name) const -> bool
-	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Texture,
-			&DMaterialInstance::HasLocalParameterValueByInfo);
-	}
-
-	auto DMaterialInstance::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
-	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Scalar, OutValue,
-			[](const FMaterialParameterValue& Value) { return Value.GetScalar(); });
-	}
-
-	auto DMaterialInstance::GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool
-	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector4, OutValue,
-			[](const FMaterialParameterValue& Value) { return FVector2(Value.GetVector4()); });
-	}
-
-	auto DMaterialInstance::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
-	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector4, OutValue,
-			[](const FMaterialParameterValue& Value) { return FVector3(Value.GetVector4()); });
-	}
-
-	auto DMaterialInstance::GetTextureParameterValue(FName Name, DTexture*& OutValue) const -> bool
-	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Texture, OutValue,
-			[](const FMaterialParameterValue& Value) { return Value.GetTexture().Texture.Get(); });
 	}
 
 	auto DMaterialInstance::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>

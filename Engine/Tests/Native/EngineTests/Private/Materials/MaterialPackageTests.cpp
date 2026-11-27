@@ -197,6 +197,43 @@ TEST(FMaterialPackageTests, StaticOverrideRecoversItsNameOnReparentAndTracksRena
 	EXPECT_TRUE(Instance->ClearStaticBoolOverrideByInfo({.Name = "DetailEnabled"}));
 }
 
+TEST(FMaterialPackageTests, ReusingDeletedStaticSwitchNamePreservesSurvivingOverride)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Parent(NewObject<DMaterial>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, NAME_None));
+	auto Graph = Testing::MakePBRMaterialExpressionsForTest();
+	const auto AddSwitch = [&](FName Name) {
+		auto& Node = Graph.Add(EMaterialProgramOpcode::StaticBool, EMaterialProgramValueType::StaticBool, {}, {}, {});
+		auto* Switch = Cast<DMaterialExpressionStaticBool>(&Node);
+		if (Switch) Switch->Name = Name;
+		return Switch;
+	};
+	auto* Survivor = AddSwitch("Detail");
+	auto* Removed = AddSwitch("UseDetail");
+	ASSERT_NE(Survivor, nullptr);
+	ASSERT_NE(Removed, nullptr);
+	const FGuid RemovedId = Removed->DeclarationId;
+	ASSERT_TRUE(Graph.Apply(*Parent));
+	ASSERT_TRUE(Instance->SetParent(Parent.Get()));
+	ASSERT_TRUE(Instance->SetStaticBoolOverrideByInfo({.Name = Survivor->Name}, true));
+	ASSERT_TRUE(Instance->SetStaticBoolOverrideByInfo({.Name = Removed->Name}, false));
+
+	Graph.Expressions.pop_back();
+	ASSERT_TRUE(Graph.Apply(*Parent));
+	Survivor->Name = "UseDetail";
+	ASSERT_TRUE(Graph.Apply(*Parent));
+	const auto Overrides = Instance->GetStaticBoolOverrides();
+	ASSERT_EQ(Overrides.size(), 2u);
+	EXPECT_EQ(Overrides[0], (FMaterialStaticBoolOverride{Survivor->DeclarationId, true, {.Name = Survivor->Name}, true}));
+	EXPECT_EQ(Overrides[1], (FMaterialStaticBoolOverride{RemovedId, false, {}, true}));
+	EXPECT_FALSE(Instance->ClearOrphanedStaticBoolOverride(Survivor->DeclarationId));
+	ASSERT_TRUE(Instance->ClearOrphanedStaticBoolOverride(RemovedId));
+	ASSERT_EQ(Instance->GetStaticBoolOverrides().size(), 1u);
+	EXPECT_TRUE(Instance->ClearStaticBoolOverrideByInfo({.Name = Survivor->Name}));
+}
+
 TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformedSaves)
 {
 	std::optional<Durin::UnifiedError::FError> RejectedError;

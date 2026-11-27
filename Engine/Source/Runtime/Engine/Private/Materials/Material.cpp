@@ -25,17 +25,6 @@ namespace Durin
 {
 	namespace
 	{
-		template <typename TValue, typename TReadValue>
-		auto GetTypedParameterValue(
-			const DMaterial& Material, FName Name, EMaterialParameterType Type,
-			TValue& OutValue, TReadValue ReadValue) -> bool
-		{
-			const auto* Definition = Material.FindParameterDefinition(Name);
-			if (!Definition || Definition->Type != Type) return false;
-			OutValue = ReadValue(Definition->Value);
-			return true;
-		}
-
 		auto AdvanceRevision(uint64& Revision) -> void
 		{
 			Revision = Revision == std::numeric_limits<uint64>::max()
@@ -317,30 +306,6 @@ namespace Durin
 		GraphChanges.Publish(*this);
 #endif
 		return {};
-	}
-
-	auto DMaterial::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
-	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Scalar, OutValue,
-			[](const FMaterialParameterValue& Value) { return Value.GetScalar(); });
-	}
-
-	auto DMaterial::GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool
-	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector4, OutValue,
-			[](const FMaterialParameterValue& Value) { return FVector2(Value.GetVector4()); });
-	}
-
-	auto DMaterial::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
-	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector4, OutValue,
-			[](const FMaterialParameterValue& Value) { return FVector3(Value.GetVector4()); });
-	}
-
-	auto DMaterial::GetTextureParameterValue(FName Name, DTexture*& OutValue) const -> bool
-	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Texture, OutValue,
-			[](const FMaterialParameterValue& Value) { return Value.GetTexture().Texture.Get(); });
 	}
 
 	auto DMaterial::Serialize(FArchive& Ar) -> void

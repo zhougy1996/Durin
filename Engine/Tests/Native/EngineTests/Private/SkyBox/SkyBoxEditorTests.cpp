@@ -219,7 +219,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 		ASSERT_TRUE(Material->SetTextureParameterValue("SkyTexture", CubeResult.Asset));
 	}
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_FALSE(Material->HasLocalTextureParameterValue("SkyTexture"));
+	EXPECT_FALSE(Material->HasLocalParameterValueByInfo({.Name = "SkyTexture"}));
 	ASSERT_TRUE(Transactions->Redo());
 	Durin::DTexture* Texture = nullptr;
 	ASSERT_TRUE(Material->GetTextureParameterValue("SkyTexture", Texture));

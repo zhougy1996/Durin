@@ -261,13 +261,6 @@ namespace Durin
 		return WriteBoundParameter(static_cast<uint32>(Field - Input.Layout.Fields.data()), Value);
 	}
 
-	auto FMaterialRenderRepresentationBuilder::SetParameterAtIndex(uint32 FieldIndex,
-		const FMaterialFieldKey& Id, const FMaterialParameterValue& Value) -> bool
-	{
-		if (FieldIndex >= Input.Layout.Fields.size() || Input.Layout.Fields[FieldIndex].ParameterId != Id) return RejectField(Id);
-		return WriteBoundParameter(FieldIndex, Value);
-	}
-
 	auto FMaterialRenderRepresentationBuilder::WriteBoundParameter(uint32 FieldIndex, const FMaterialParameterValue& Value) -> bool
 	{
 		if (bInvalid || FieldIndex >= Input.Layout.Fields.size()) return RejectField({});

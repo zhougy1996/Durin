@@ -614,7 +614,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyViewTracksMaterialOverrideS
 	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Instance, 0, Original));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.5f));
 	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Instance, 0, Proposed));
-	ASSERT_TRUE(Instance->ClearScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));
+	ASSERT_TRUE(Instance->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	std::string Error;
 	Durin::PropertyEditor::FPropertyEdit Session;
@@ -622,12 +622,12 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyViewTracksMaterialOverrideS
 	const bool EditResult2 = Session.Apply(Proposed, &Error);
 	EXPECT_TRUE(EditResult2);
 	EXPECT_TRUE(Session.Commit());
-	EXPECT_TRUE(Instance->HasLocalScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));
+	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
 	EXPECT_TRUE(Error.empty());
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_FALSE(Instance->HasLocalScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));
+	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_TRUE(Instance->HasLocalScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));
+	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
 	Transactions->Reset();
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);

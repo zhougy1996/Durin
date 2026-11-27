@@ -345,7 +345,7 @@ TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwn
 	FPropertyEditProposal Proposal;
 	EXPECT_FALSE(First->PreEditChangeProperty(Proposal));
 	EXPECT_FALSE(DuplicateObject(First, nullptr, "ForbiddenDynamicCopy"));
-	ASSERT_TRUE(First->ClearScalarParameterValue(MaterialParameters::RoughnessName()));
+	ASSERT_TRUE(First->ClearParameterValueByInfo({.Name = MaterialParameters::RoughnessName()}));
 	EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*First)).Roughness, Original);
 	EXPECT_FALSE(Base->GetPackage()->IsDirty());
 	// Transient children do not enter the saved asset's object graph.
@@ -553,7 +553,7 @@ TEST(FMaterialInstanceTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	const uint64 InstanceNoOpVersion = Instance->GetRenderChangeCount();
 	EXPECT_TRUE(Instance->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.7, 0.6)));
 	EXPECT_EQ(Instance->GetRenderChangeCount(), InstanceNoOpVersion);
-	Instance->ClearVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName());
+	Instance->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()});
 	Base->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.9, 0.1, 0.3));
 	const FSceneSnapshot Final = CaptureScene(Harness.Scene);
 	EXPECT_EQ(Final.Proxy, Initial.Proxy);
@@ -808,7 +808,7 @@ TEST(FMaterialInstanceTests, BoundTextureChangesUpdateProxyResourceSnapshotInPla
 
 	EXPECT_EQ(GetMaterialBinding(Overridden.Material).Textures[0], OverrideTexture->GetTextureReferenceRHI());
 
-	EXPECT_TRUE(Instance->ClearTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()));
+	EXPECT_TRUE(Instance->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
 	FSceneSnapshot Inherited = CaptureScene(Harness.Scene);
 	EXPECT_EQ(Inherited.Proxy, Initial.Proxy);
 	EXPECT_EQ(GetMaterialBinding(Inherited.Material).Textures[0], BaseTexture->GetTextureReferenceRHI());
@@ -921,9 +921,9 @@ TEST(FMaterialInstanceTests, RenderLayerResolvesMixedOverridesAndRefreshesEachBu
 			&FMaterialCompilerParameterDeclaration::Id), Data.CompiledProgram->GetShaderMap().ActiveParameters.end());
 	};
 	CheckLayer(.3f, FVector3(FVector3f(.2f, .4f, .6f)));
-	ASSERT_TRUE(Child->ClearScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));
+	ASSERT_TRUE(Child->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
 	CheckLayer(.7f, FVector3(FVector3f(.2f, .4f, .6f)));
-	ASSERT_TRUE(Parent->ClearVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()));
+	ASSERT_TRUE(Parent->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
 	CheckLayer(.7f, FVector3(Root->FindParameterDefinition(ColorId)->Value.GetVector4()));
 	MarkAsGarbage(Child);
 	MarkAsGarbage(Parent);
@@ -1126,23 +1126,23 @@ TEST(FMaterialInstanceTests, InstanceOverrideStateTracksSetAndClear)
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "OverrideStateBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "OverrideStateInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
-	EXPECT_FALSE(Instance->HasLocalScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));
-	EXPECT_FALSE(Instance->HasLocalVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()));
-	EXPECT_FALSE(Instance->HasLocalTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()));
+	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
+	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
+	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
 
 	Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.5f);
 	Instance->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
 	Instance->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), nullptr);
-	EXPECT_TRUE(Instance->HasLocalScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));
-	EXPECT_TRUE(Instance->HasLocalVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()));
-	EXPECT_TRUE(Instance->HasLocalTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()));
+	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
+	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
+	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
 
-	EXPECT_TRUE(Instance->ClearScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));
-	EXPECT_TRUE(Instance->ClearVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()));
-	EXPECT_TRUE(Instance->ClearTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()));
-	EXPECT_FALSE(Instance->HasLocalScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));
-	EXPECT_FALSE(Instance->HasLocalVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()));
-	EXPECT_FALSE(Instance->HasLocalTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()));
+	EXPECT_TRUE(Instance->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
+	EXPECT_TRUE(Instance->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
+	EXPECT_TRUE(Instance->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
+	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
+	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
+	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
@@ -1168,9 +1168,9 @@ TEST(FMaterialInstanceTests, TextureParametersInheritOverrideAndPreserveExplicit
 	EXPECT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Textures[0], OverrideTexture->GetTextureReferenceRHI());
 	Second->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), nullptr);
 	EXPECT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Textures[0], nullptr);
-	EXPECT_TRUE(Second->ClearTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()));
+	EXPECT_TRUE(Second->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
 	EXPECT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Textures[0], OverrideTexture->GetTextureReferenceRHI());
-	EXPECT_TRUE(First->ClearTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()));
+	EXPECT_TRUE(First->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
 	EXPECT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Textures[0], BaseTexture->GetTextureReferenceRHI());
 
 	Durin::MarkAsGarbage(Second);
@@ -1307,10 +1307,10 @@ TEST(FMaterialInstanceTests, ProgramDefaultsRemainSeparateFromInstanceOverrides)
 	float Value = 0;
 	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::RoughnessName(), Value));
 	EXPECT_FLOAT_EQ(Value, 0.6f);
-	ASSERT_TRUE(Dynamic->ClearScalarParameterValue(MaterialParameters::RoughnessName()));
+	ASSERT_TRUE(Dynamic->ClearParameterValueByInfo({.Name = MaterialParameters::RoughnessName()}));
 	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::RoughnessName(), Value));
 	EXPECT_FLOAT_EQ(Value, 0.4f);
-	ASSERT_TRUE(Instance->ClearScalarParameterValue(MaterialParameters::RoughnessName()));
+	ASSERT_TRUE(Instance->ClearParameterValueByInfo({.Name = MaterialParameters::RoughnessName()}));
 	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::RoughnessName(), Value));
 	EXPECT_FLOAT_EQ(Value, 0.8f);
 	MarkAsGarbage(Dynamic);

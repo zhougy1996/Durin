@@ -44,6 +44,17 @@ namespace Durin
 
 	namespace
 	{
+		template <typename TValue, typename TReadValue>
+		auto GetTypedParameterValue(const DMaterialInterface& Material, FName Name,
+			EMaterialParameterType Type, TValue& OutValue, TReadValue ReadValue) -> bool
+		{
+			FResolvedMaterialParameter Resolved;
+			if (!Material.ResolveParameterValueByInfo({.Name = Name}, Resolved) || Resolved.Value.GetType() != Type)
+				return false;
+			OutValue = ReadValue(Resolved.Value);
+			return true;
+		}
+
 		FMaterialLoadedQueryDiagnostics GMaterialLoadedQueryDiagnostics;
 
 		auto CheckMaterialQueryThread() -> void
@@ -467,22 +478,26 @@ namespace Durin
 
 	auto DMaterialInterface::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
 	{
-		return false;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Scalar, OutValue,
+			[](const FMaterialParameterValue& Value) { return Value.GetScalar(); });
 	}
 
 	auto DMaterialInterface::GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool
 	{
-		return false;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector4, OutValue,
+			[](const FMaterialParameterValue& Value) { return FVector2(Value.GetVector4()); });
 	}
 
 	auto DMaterialInterface::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
 	{
-		return false;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector4, OutValue,
+			[](const FMaterialParameterValue& Value) { return FVector3(Value.GetVector4()); });
 	}
 
 	auto DMaterialInterface::GetTextureParameterValue(FName Name, DTexture*& OutValue) const -> bool
 	{
-		return false;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Texture, OutValue,
+			[](const FMaterialParameterValue& Value) { return Value.GetTexture().Texture.Get(); });
 	}
 
 	auto DMaterialInterface::GetParent() const -> DMaterialInterface*

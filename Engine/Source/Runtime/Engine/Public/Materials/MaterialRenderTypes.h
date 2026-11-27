@@ -110,10 +110,6 @@ namespace Durin
 			const FMaterialRenderRepresentation& Source);
 
 		ENGINE_API explicit FMaterialRenderRepresentationBuilder(const FMaterialRenderLayout& Layout);
-		// Uses a prebound field index, checking the field key and concrete type before writing.
-		// The index is local to this builder's exact immutable layout.
-		ENGINE_API auto SetParameterAtIndex(uint32 FieldIndex,
-			const FMaterialFieldKey& Id, const FMaterialParameterValue& Value) -> bool;
 		ENGINE_API auto SetParameter(const FMaterialFieldKey& Id, const FMaterialParameterValue& Value) -> bool;
 
 		ENGINE_API auto SetScalar(const FMaterialFieldKey& ParameterId, float Value) -> bool;

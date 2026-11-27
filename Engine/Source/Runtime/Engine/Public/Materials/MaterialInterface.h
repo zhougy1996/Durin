@@ -180,10 +180,10 @@ namespace Durin
 		// Cooked queries follow the accepted program. Failed analyses are not cached.
 		ENGINE_API auto GetParameterReachability() const -> std::shared_ptr<const FMaterialParameterReachability>;
 
-		ENGINE_API virtual auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool;
-		ENGINE_API virtual auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool;
-		ENGINE_API virtual auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool;
-		ENGINE_API virtual auto GetTextureParameterValue(FName Name, DTexture*& OutValue) const -> bool;
+		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool;
+		ENGINE_API auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool;
+		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool;
+		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture*& OutValue) const -> bool;
 		ENGINE_API virtual auto GetParent() const -> DMaterialInterface*;
 		ENGINE_API virtual auto GetStaticProperties() const -> const FMaterialStaticProperties&;
 		// Returns the accepted program without initiating loading or compilation.
