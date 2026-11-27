@@ -4,7 +4,6 @@
 
 #include "Components/ActorComponent.h"
 #include "DObject/ObjectPtr.h"
-#include "DObject/WeakObjectPtr.h"
 
 #include "SceneComponent.gen.h"
 
@@ -48,7 +47,6 @@ namespace Durin
 		ENGINE_API auto OnUnregister() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
-		ENGINE_API auto PreEditUndo() -> void override;
 		ENGINE_API auto PostEditUndo() -> void override;
 		using Super::PostEditUndo;
 
@@ -107,7 +105,6 @@ private:
 		DPROPERTY(ReadOnly, Transient, NonTransactional)
 		FTransform ComponentToWorld;
 
-		auto ReconcileAttachmentAfterUndo() -> void;
 		auto UpdateSubtreeToWorld() -> void;
 		auto CanAttachTo(const DSceneComponent* Parent) const -> bool;
 		auto RemoveAttachChild(DSceneComponent* Child) -> void;
@@ -117,10 +114,6 @@ private:
 
 		DPROPERTY(Transient, NonTransactional)
 		std::vector<TObjectPtr<DSceneComponent>> AttachChildren;
-
-		// Runtime attachment before replay; the reflected parent is overwritten by history.
-		TWeakObjectPtr<DSceneComponent> PreUndoAttachParent;
-		bool bAttachmentUndoPending = false;
 
 		FSceneInterface* RenderScene = nullptr;
 

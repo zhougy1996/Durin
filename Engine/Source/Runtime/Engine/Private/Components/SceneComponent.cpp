@@ -75,7 +75,7 @@ namespace Durin
 	auto DSceneComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (!bAttachmentUndoPending && Event.MemberProperty
+		if (Event.Origin == EPropertyChangeOrigin::Edit && Event.MemberProperty
 			&& Event.MemberProperty->NamePrivate == FName("RelativeTransform")) UpdateComponentToWorld();
 	}
 
@@ -83,50 +83,27 @@ namespace Durin
 	{
 		auto* Previous = GetAttachParent();
 		Super::Serialize(Ar);
-		if (Ar.IsLoading() && Ar.IsTransacting() && bAttachmentUndoPending && Previous != GetAttachParent())
-		{
-			// Membership records later in this replay inspect the reverse links.
-			if (Previous) Previous->RemoveAttachChild(this);
-			if (AttachParent && !std::ranges::contains(AttachParent->AttachChildren, TObjectPtr<DSceneComponent>(this)))
-				AttachParent->AttachChildren.emplace_back(this);
-		}
-	}
-
-	auto DSceneComponent::PreEditUndo() -> void
-	{
-		Super::PreEditUndo();
-		PreUndoAttachParent = AttachParent.Get();
-		bAttachmentUndoPending = true;
-	}
-
-	auto DSceneComponent::ReconcileAttachmentAfterUndo() -> void
-	{
-		if (!bAttachmentUndoPending) return;
-		DSceneComponent* PreviousParent = PreUndoAttachParent.Get();
-		DSceneComponent* Parent = AttachParent.Get();
-		if (PreviousParent && PreviousParent != Parent) PreviousParent->RemoveAttachChild(this);
-		if (Parent && std::ranges::none_of(Parent->AttachChildren,
-			[this](const TObjectPtr<DSceneComponent>& Child) { return Child.Get() == this; }))
-		{
-			Parent->AttachChildren.emplace_back(this);
-		}
-		PreUndoAttachParent.Reset();
-		bAttachmentUndoPending = false;
-#if DURIN_WITH_EDITOR
-		if (AActor* Owner = GetOwner(); Owner && Owner->GetRootComponent() == this)
-		{
-			AActor* PreviousParentActor = PreviousParent ? PreviousParent->GetOwner() : nullptr;
-			if (PreviousParentActor == Owner) PreviousParentActor = nullptr;
-			if (PreviousParentActor != Owner->GetAttachParentActor())
-				if (auto* Level = Cast<DLevel>(Owner->GetOuter())) FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*Level);
-		}
-#endif
-		UpdateComponentToWorld();
+		if (Ar.IsLoading() && Ar.IsTransacting() && Previous && Previous != GetAttachParent())
+			Previous->RemoveAttachChild(this);
 	}
 
 	auto DSceneComponent::PostEditUndo() -> void
 	{
-		if (bAttachmentUndoPending) ReconcileAttachmentAfterUndo();
+		auto* Parent = GetAttachParent();
+		if (Parent && !std::ranges::contains(Parent->AttachChildren, TObjectPtr<DSceneComponent>(this)))
+		{
+			if (!AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative))
+			{
+				AttachParent = nullptr;
+				UpdateComponentToWorld();
+			}
+		}
+		else UpdateComponentToWorld();
+#if DURIN_WITH_EDITOR
+		if (auto* Owner = GetOwner(); Owner && Owner->GetRootComponent() == this)
+			if (auto* Level = Cast<DLevel>(Owner->GetOuter()))
+				FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*Level);
+#endif
 		Super::PostEditUndo();
 	}
 
@@ -367,11 +344,20 @@ namespace Durin
 
 	auto DSceneComponent::IsAttachedTo(const DSceneComponent* Component) const -> bool
 	{
-		for (const DSceneComponent* Parent = AttachParent.Get(); Parent; Parent = Parent->GetAttachParent())
+		// During replay a parent chain can temporarily close on itself. Once the
+		// two walkers meet, finish one lap to check every component in the cycle.
+		const DSceneComponent* Fast = this;
+		const DSceneComponent* Meeting = nullptr;
+		for (auto* Parent = GetAttachParent(); Parent; Parent = Parent->GetAttachParent())
 		{
-			if (Parent == Component)
+			if (Parent == Component) return true;
+			if (Parent == Meeting) break;
+			if (Fast) Fast = Fast->GetAttachParent();
+			if (Fast) Fast = Fast->GetAttachParent();
+			if (Fast == Parent)
 			{
-				return true;
+				Meeting = Parent;
+				Fast = nullptr;
 			}
 		}
 		return false;

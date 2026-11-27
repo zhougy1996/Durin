@@ -50,6 +50,13 @@ namespace Durin
 		auto InitializeComponent() -> void override { Super::InitializeComponent(); ++Initialized; }
 		auto UninitializeComponent() -> void override { Super::UninitializeComponent(); ++Uninitialized; }
 		auto PostLoad() -> void override { Super::PostLoad(); if (PostLoadProbe) PostLoadProbe(*this); }
+		auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override
+		{
+			Super::PostEditChangeProperty(Event);
+			if (ObserveParentLoad && Event.Origin != EPropertyChangeOrigin::Edit && Event.MemberProperty
+				&& Event.MemberProperty->NamePrivate == FName("AttachParent")) ObserveParentLoad();
+		}
+		std::function<void()> ObserveParentLoad;
 		inline static std::function<void(FStructuralTestLight&)> PostLoadProbe;
 		inline static std::function<void(FStructuralTestLight&)> CreationProbe;
 		inline static std::function<void(FStructuralTestLight&)> RegisterProbe;
@@ -401,7 +408,7 @@ TEST(FActorMutationTests, CancellationDuringFirstDetachLeavesSecondChildAndActor
 	EXPECT_FALSE(F.Transactions->CanUndo());
 }
 
-TEST(FActorMutationTests, CombinedAttachmentCyclesRejectRestorationBeforeAnyMembershipWrite)
+TEST(FActorMutationTests, UndoRestoresActorDespiteConflictingExternalAttachment)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
@@ -413,16 +420,33 @@ TEST(FActorMutationTests, CombinedAttachmentCyclesRejectRestorationBeforeAnyMemb
 	AActor* Target = F.Actor;
 	ASSERT_TRUE(F.Editor.GetActorEditor()->DestroyActors(*Level, {&Target, 1}, {false}));
 	ASSERT_TRUE(Other->GetRootComponent()->AttachToComponent(ExternalChild, EAttachmentTransformRule::KeepWorld));
-	const auto Head = F.Transactions->GetUndoContext().TransactionId;
-	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
-	EXPECT_FALSE(Level->ContainsActor(F.Actor));
-	EXPECT_EQ(F.Actor->GetRootComponent()->GetAttachParent(), nullptr);
-	EXPECT_EQ(ExternalChild->GetAttachParent(), nullptr);
-	ASSERT_TRUE(Other->GetRootComponent()->DetachFromComponent());
 	ASSERT_TRUE(F.Transactions->Undo());
-	EXPECT_EQ(ExternalChild->GetAttachParent(), Internal);
-	EXPECT_EQ(F.Actor->GetAttachParentActor(), Other);
+	EXPECT_TRUE(Level->ContainsActor(F.Actor));
+	EXPECT_EQ(Other->GetRootComponent()->GetAttachParent(), ExternalChild);
+	EXPECT_FALSE(ExternalChild->IsAttachedTo(ExternalChild));
+	ASSERT_TRUE(F.Transactions->Redo());
+	EXPECT_FALSE(Level->ContainsActor(F.Actor));
+}
+
+TEST(FActorMutationTests, ReversingAnAttachmentRestoresBothDirectionsAcrossRecordOrder)
+{
+	FComponentFixture F;
+	auto* First = F.Actor->GetRootComponent();
+	auto* Second = F.World->GetCurrentLevel()->SpawnActor<AStaticMeshActor>("Second")->GetRootComponent();
+	ASSERT_TRUE(Second->AttachToComponent(First, EAttachmentTransformRule::KeepRelative));
+	{
+		FScopedTransaction Scope("Reverse attachment");
+		ASSERT_TRUE(First->Modify());
+		ASSERT_TRUE(Second->Modify());
+		ASSERT_TRUE(Second->DetachFromComponent());
+		ASSERT_TRUE(First->AttachToComponent(Second, EAttachmentTransformRule::KeepRelative));
+	}
+	ASSERT_TRUE(F.Transactions->Undo());
+	EXPECT_EQ(First->GetAttachParent(), nullptr);
+	EXPECT_EQ(Second->GetAttachParent(), First);
+	ASSERT_TRUE(F.Transactions->Redo());
+	EXPECT_EQ(First->GetAttachParent(), Second);
+	EXPECT_EQ(Second->GetAttachParent(), nullptr);
 }
 
 TEST(FActorMutationTests, UndoRenameDisplacesTheActorUsingTheHistoricalName)
@@ -849,6 +873,13 @@ TEST(FComponentMutationTests, ReparentRestoresBothSidesDescendantsAndRenderTrans
 	Child->SetRelativeLocation({2.0, 0.0, 0.0});
 	const auto Instances = F.Actor->GetInstanceComponents();
 	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Light, Parent, {false}));
+	int ParentLoads = 0;
+	Light->ObserveParentLoad = [&] {
+		++ParentLoads;
+		auto* RestoredParent = Light->GetAttachParent();
+		ASSERT_NE(RestoredParent, nullptr);
+		EXPECT_FALSE(std::ranges::contains(RestoredParent->GetAttachChildren(), TObjectPtr<DSceneComponent>(Light)));
+	};
 	EXPECT_EQ(Light->GetWorldLocation(), FVector3(14.0, 0.0, 0.0));
 	EXPECT_EQ(Light->GetRelativeLocation(), FVector3(-16.0, 0.0, 0.0));
 	for (int Repeat = 0; Repeat < 2; ++Repeat)
@@ -874,6 +905,8 @@ TEST(FComponentMutationTests, ReparentRestoresBothSidesDescendantsAndRenderTrans
 		Root->SetWorldLocation({10.0, 0.0, 0.0});
 	}
 	EXPECT_EQ(F.Actor->GetInstanceComponents(), Instances);
+	EXPECT_EQ(ParentLoads, 4);
+	Light->ObserveParentLoad = {};
 	EXPECT_EQ(Light->Created, 1u);
 	EXPECT_EQ(Light->Registered, 1u);
 }
@@ -906,7 +939,7 @@ TEST(FComponentMutationTests, ReparentSupportsDetachedStateAndRejectsInvalidEdit
 	EXPECT_EQ(Component->GetAttachParent(), nullptr);
 }
 
-TEST(FComponentMutationTests, ReparentRestoresSnapshotAndRejectsCyclesWithoutMovingHistory)
+TEST(FComponentMutationTests, ReparentRestoresSnapshotAndCompletesRedoWhenParentWouldCycle)
 {
 	FComponentFixture F;
 	auto* Moving = static_cast<DSceneComponent*>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Moving"));
@@ -922,12 +955,10 @@ TEST(FComponentMutationTests, ReparentRestoresSnapshotAndRejectsCyclesWithoutMov
 	ASSERT_TRUE(F.Transactions->Undo());
 	ASSERT_TRUE(Parent->AttachToComponent(Moving, EAttachmentTransformRule::KeepWorld));
 	const auto Redo = F.Transactions->GetRedoContext().TransactionId;
-	EXPECT_FALSE(F.Transactions->Redo());
-	EXPECT_EQ(F.Transactions->GetRedoContext().TransactionId, Redo);
-	EXPECT_EQ(Moving->GetAttachParent(), nullptr);
-	ASSERT_TRUE(Parent->AttachToComponent(F.Actor->GetRootComponent(), EAttachmentTransformRule::KeepWorld));
 	ASSERT_TRUE(F.Transactions->Redo());
-	EXPECT_EQ(Moving->GetAttachParent(), Parent);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Redo);
+	EXPECT_EQ(Moving->GetAttachParent(), nullptr);
+	EXPECT_EQ(Parent->GetAttachParent(), Moving);
 }
 
 TEST(FComponentMutationTests, AllComponentStructureCommandsShareOneHistoryAcrossCollection)

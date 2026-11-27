@@ -3,10 +3,8 @@
 #include "Editor/EditorEngine.h"
 #include "Asset/PackageRemoval.h"
 #include "Components/ActorComponent.h"
-#include "Components/SceneComponent.h"
 
 #include "PropertyEditor/PropertyEditing.h"
-#include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
@@ -712,41 +710,6 @@ namespace Durin
 			if (const auto* Whole = std::get_if<FWholeObjectData>(&Records[Index].Data))
 				if (auto Valid = Whole->ValidateSource(); !Valid)
 					return std::unexpected(std::format("record {}: {}", Index, Valid.error()));
-		}
-		// Validate the complete destination graph before any replay callback can observe a write.
-		std::unordered_map<DSceneComponent*, DSceneComponent*> Parents;
-		for (size_t Index : ReplayIndices)
-		{
-			const auto* Whole = std::get_if<FWholeObjectData>(&Records[Index].Data);
-			auto* Scene = Whole ? Cast<DSceneComponent>(Whole->GetTarget().Get()) : nullptr;
-			if (!Scene) continue;
-			const auto& Saved = Whole->SerializedObject->Observation;
-			for (const auto& Tag : Saved.SerializedTaggedData)
-			{
-				if (!Tag.bReflected || Tag.Name != FName("AttachParent")) continue;
-				const auto& Slots = Saved.SerializationContext->ReferenceSlots;
-				const auto Slot = std::ranges::find_if(Slots, [&](const auto& Item) {
-					return !Item.bWeak && Item.Offset >= Tag.Begin && Item.Offset < Tag.End;
-				});
-				if (Slot == Slots.end()) continue;
-				FObjectMemoryReader Reader(FByteView(Saved.SerializedObject->Bytes).subspan(Slot->Offset, Tag.End - Slot->Offset), EArchivePurpose::Transaction);
-				FObjectKey Key;
-				Key.SerializeForSnapshot(Reader);
-				const auto& References = Saved.SerializedObject->HardReferences;
-				const auto Ref = std::ranges::find(References, Key, &FPersistentObjectRef::GetKey);
-				Parents[Scene] = Ref == References.end() ? nullptr : Cast<DSceneComponent>(Ref->Get());
-			}
-		}
-		for (const auto& Edge : Parents)
-		{
-			std::unordered_set<DSceneComponent*> Visited;
-			for (auto* Node = Edge.first; Node;)
-			{
-				if (!Visited.insert(Node).second)
-					return std::unexpected("Restoring the recorded attachment would create a cycle.");
-				const auto It = Parents.find(Node);
-				Node = It == Parents.end() ? Node->GetAttachParent() : It->second;
-			}
 		}
 		return {};
 	}
