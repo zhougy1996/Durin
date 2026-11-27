@@ -1,12 +1,9 @@
 #include "Panels/SceneViewportPanel.h"
-#include "Misc/UnifiedError.h"
 
 #include "Profiling/Profiling.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
-#include "Asset/Asset.h"
 #include "Components/CameraComponent.h"
-#include "Components/StaticMeshComponent.h"
 #include "Asset/AssetDragDrop.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
@@ -15,8 +12,6 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "Actors/StaticMeshActor.h"
-#include "Actors/SkyBoxActor.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Math/Vector.h"
@@ -29,11 +24,8 @@
 #include "Viewport/ViewportPresentation.h"
 #include "Widgets/MViewport.h"
 #include "Widgets/MWindow.h"
-#include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshResources.h"
 #include "Actors/EditorActorSubsystem.h"
-#include "Operations/SkyBoxPlacement.h"
-#include "Texture/TextureCube.h"
+#include "Subsystems/PlacementSubsystem.h"
 
 namespace Durin::LevelEditor
 {
@@ -355,49 +347,28 @@ namespace Durin::LevelEditor
 				{
 					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
 					{
-						std::optional<Durin::UnifiedError::FError> ResultError;
 						const auto* AssetPayload = static_cast<const FAssetDragDropPayload*>(Payload->Data);
 						FSoftObjectPath AssetPath;
-						DObject* Asset = nullptr;
-						AActor* Actor = nullptr;
+						auto* Placement = Context.EditorHost ? Context.EditorHost->GetEditorSubsystem<DPlacementSubsystem>() : nullptr;
 						if (!FSoftObjectPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
 							Context.SetError("Dropped asset path is invalid.");
-						else if (const auto Result = LoadObject<DObject>(AssetPath, nullptr, &ResultError); !Result)
-							Context.SetError(ResultError->ToString());
-						else if (DStaticMesh* StaticMesh = Cast<DStaticMesh>(Asset = Result))
+						else if (!Placement)
+							Context.SetError("The placement subsystem is unavailable.");
+						else
 						{
-							FTransform PlacementTransform;
+							FAssetPlacementInfo Info{AssetPath, *Context.Level};
 							FSceneView View;
 							uint32 Width = 0;
 							uint32 Height = 0;
 							FLevelEditorViewportClient::ResolveViewportExtent({VpMax.x - VpMin.x, VpMax.y - VpMin.y}, Width, Height);
-							ViewportClient->BuildViewMatrices(Width, Height, View);
 							const ImVec2 Mouse = ImGui::GetMousePos();
 							FVector3 Origin, Direction;
-							if (SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
-								PlacementTransform.Translation = Origin + Direction * 5.0;
-
-							const auto ApplyResult = (Context.GetActorEditor() ? Context.GetActorEditor()->SpawnActor(*Context.Level, AStaticMeshActor::StaticClass(), FName(AssetPath.GetAssetPath().GetAssetName()), PlacementTransform, {Context.bReadOnly}, [StaticMesh](AActor& Created) { static_cast<AStaticMeshActor&>(Created).GetStaticMeshComponent()->SetStaticMesh(StaticMesh); }) : nullptr);
-							if (!ApplyResult)
-								Context.SetError("Actor creation failed.");
-							else Actor = ApplyResult;
-						}
-						else if (DTextureCube* TextureCube = Cast<DTextureCube>(Asset))
-						{
-							if (auto* ActorEditor = Context.GetActorEditor())
-							{
-								const auto Result = PlaceSkyBox(*ActorEditor, *Context.Level, TextureCube,
-									FName(std::format("{}_SkyBox", AssetPath.GetAssetPath().GetAssetName())), {Context.bReadOnly});
-								if (Result) Actor = *Result;
-								else Context.SetError(Result.error());
-							}
-							else Context.SetError("The actor editor subsystem is unavailable.");
-						}
-						else
-							Context.SetError("Only StaticMesh and TextureCube assets can be placed in the scene viewport.");
-						if (Actor)
-						{
-							Context.SelectActor(Actor);
+							if (ViewportClient->BuildViewMatrices(Width, Height, View)
+								&& SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
+								Info.FinalizedTransform.Translation = Origin + Direction * 5.0;
+							const auto Result = Placement->PlaceAsset(Info, {Context.bReadOnly});
+							if (Result) Context.SelectActor(*Result);
+							else Context.SetError(Result.error());
 						}
 					}
 					ImGui::EndDragDropTarget();

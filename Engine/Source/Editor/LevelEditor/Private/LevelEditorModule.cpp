@@ -8,6 +8,7 @@
 #include "Toolkits/ToolkitHost.h"
 #include "LevelEditorSubsystem.h"
 #include "Tools/PIEToolset.h"
+#include "Operations/ActorFactoryStaticMesh.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -89,6 +90,7 @@ namespace Durin
 		std::unique_ptr<FEditorSubsystemRegistration> Levels;
 		std::unique_ptr<FNativeToolset> PIE;
 		FModularFeatureRegistration PIERegistration;
+		FModularFeatureRegistration StaticMeshPlacement;
 		std::vector<ContentBrowser::FScopedExtensionRegistration>
 			ContentBrowserExtensions;
 	};
@@ -103,6 +105,7 @@ namespace Durin
 	LEVELEDITOR_API auto FLevelEditorModule::StartupModule() -> void
 	{
 		Integration->Provider = FModuleStartup::GetModuleName();
+		Integration->StaticMeshPlacement = RegisterStaticMeshActorFactory();
 		ProjectDefaultLevelReferenceStore =
 			std::make_unique<FProjectDefaultLevelReferenceStore>(
 				[this](const FPackagePath& Path) {
@@ -156,6 +159,7 @@ namespace Durin
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
 		Integration->ContentBrowserExtensions.clear();
+		Integration->StaticMeshPlacement.Reset();
 		Integration->PIERegistration.Reset();
 		Integration->PIE.reset();
 		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits())

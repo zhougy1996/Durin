@@ -40,10 +40,9 @@ and connect the sky color to Emissive. Assign the material or an instance to
 the mesh slot. For a dome viewed from inside, use inward-facing geometry or
 enable **Two Sided**.
 
-For a cubemap, drop the TextureCube into the level. The editor creates a Sky
-Box Actor with the built-in sphere and cube material. Adjust its mesh, scale,
-tint and intensity in Details. Dropping another cube updates the existing Sky
-Box. Placement requires at most one visible Sky Box Actor.
+For an existing Sky Box Actor, select its component and assign the cubemap
+to **Texture Cube** in Details. Adjust its mesh, scale, tint and intensity
+there as well.
 
 To supply your own sky material on that component, assign it to **Material
 Override**. It supplies its own parameters. Clearing it restores the stored

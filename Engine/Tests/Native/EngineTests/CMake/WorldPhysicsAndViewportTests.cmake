@@ -99,9 +99,11 @@ set(_durin_viewport_test_sources
 	Private/Viewport/ViewportCustomizationTests.cpp
 	Private/Viewport/ViewportInteractionTests.cpp
 	Private/Viewport/ViewportPickingContractTests.cpp
+	Private/Viewport/AssetPlacementTests.cpp
 	Private/Viewport/DetailsSelectionTests.cpp
 )
 set(_durin_viewport_private_sources
+	${_durin_level_editor_private}/Operations/ActorFactoryStaticMesh.cpp
 	${_durin_level_editor_private}/Panels/DetailsPanelTargeting.cpp
 	${_durin_level_editor_private}/Viewport/ViewportCameraTransform.cpp
 	${_durin_level_editor_private}/Viewport/CameraPreviewViewportClient.cpp

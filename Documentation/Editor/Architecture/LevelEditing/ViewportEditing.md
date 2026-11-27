@@ -255,6 +255,18 @@ and scale target per selected point. The selected-point overlay samples the
 runtime transform on incident segments and draws Up and Right lines outside the
 hit-test pass.
 
+## Asset Placement
+
+The viewport supplies an asset path, the current level and a world transform in
+`FAssetPlacementInfo`. DurinEd's `DPlacementSubsystem` resolves the asset and
+dispatches to the first registered `IAssetFactoryInterface` that accepts its
+`FAssetData`. The viewport selects the actor returned by successful placement.
+
+Editor modules register a factory with `RegisterModularFeature` and retain the
+registration until shutdown. Use `FActorFactory` to spawn a single actor through
+`DEditorActorSubsystem` and configure it before component registration.
+The Level Editor supplies the StaticMesh factory.
+
 ## Actor Structure Commands
 
 DurinEd's `DEditorActorSubsystem` owns editor Actor addition, batch deletion,

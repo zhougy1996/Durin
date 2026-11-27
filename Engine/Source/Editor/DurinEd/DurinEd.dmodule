@@ -22,6 +22,7 @@
         "Public/Toolkits/AssetEditor.h",
         "Private/Toolkits/GenericAssetEditor.h",
         "Public/Subsystems/AssetEditorSubsystem.h",
+        "Public/Subsystems/PlacementSubsystem.h",
         "Public/Actors/EditorActorSubsystem.h",
         "Public/Tools/EditorToolSubsystem.h",
         "Public/Editor/EditorSubsystem.h",

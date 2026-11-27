@@ -58,13 +58,12 @@ durin_add_native_test(SkyBoxTests
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
-		"Sky-box tests exercise private viewport placement and customization."
+		"Sky-box tests exercise private viewport customization."
 	SOURCES
 		Private/SkyBox/SkyBoxRenderingTests.cpp
 		Private/SkyBox/SkyBoxComponentTests.cpp
 		Private/SkyBox/SkyBoxEditorTests.cpp
 	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Operations/SkyBoxPlacement.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES Core CoreDObject Engine AssetTools MeshBuilder AssetForgeBuiltins RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
