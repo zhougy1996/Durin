@@ -257,10 +257,17 @@ hit-test pass.
 
 ## Asset Placement
 
-The viewport supplies an asset path, the current level and a world transform in
-`FAssetPlacementInfo`. DurinEd's `DPlacementSubsystem` resolves the asset and
-dispatches to the first registered `IAssetFactoryInterface` that accepts its
-`FAssetData`. The viewport selects the actor returned by successful placement.
+The viewport submits one `FAssetPlacementInfo` per dragged asset, with its path,
+target level, edit context and world transform. A Content Browser multi-selection
+uses the captured drag order and the same cursor location for each asset.
+Native callers can supply a different transform per request.
+
+`DPlacementSubsystem::PlaceAsset` forwards one request to `PlaceAssets`.
+The subsystem dispatches each request to the first factory that accepts its
+`FAssetData`. Each factory returns zero or more weak actor handles. The viewport
+selects the live results and one Undo reverses the batch. Unsupported assets are
+skipped. Callers can request diagnostics for failed items while collecting
+successful placements in request order.
 
 Editor modules register a factory with `RegisterModularFeature` and retain the
 registration until shutdown. Use `FActorFactory` to spawn a single actor through

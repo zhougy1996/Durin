@@ -17,6 +17,10 @@ namespace Durin
 } // namespace Durin
 namespace Durin::ContentBrowser
 {
+	inline constexpr const char* ContentItemsDragPayloadType = "DURIN_CONTENT_ITEMS";
+	// Resolves placeable asset paths from the current browser drag snapshot in selection order.
+	CONTENTBROWSER_API auto GetDraggedAssetPaths(uint64 Serial) -> std::vector<FSoftObjectPath>;
+
 	// Identifies the extension surface contributed by an asset-family module.
 	enum class EExtensionCategory : uint8
 	{

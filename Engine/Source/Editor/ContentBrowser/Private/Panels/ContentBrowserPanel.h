@@ -14,6 +14,11 @@
 namespace Durin::ContentBrowser::Private
 {
 	class FContentBrowserThumbnailReferences;
+	struct FDragSnapshot
+	{
+		uint64 Serial = 0;
+		std::vector<FContentBrowserItem> Items;
+	};
 
 	// Selects grid or list presentation for content-browser items.
 	enum class EContentBrowserViewMode : uint8
@@ -47,11 +52,6 @@ namespace Durin::ContentBrowser::Private
 
 	private:
 		friend struct FContentBrowserPanelTestAccess;
-		struct FDragSnapshot
-		{
-			uint64 Serial = 0;
-			std::vector<FContentBrowserItem> Items;
-		};
 		std::shared_ptr<const FDragSnapshot> DragSnapshot;
 		auto CanMutateContent() const -> bool;
 		auto CanDeleteSelection() const -> bool;

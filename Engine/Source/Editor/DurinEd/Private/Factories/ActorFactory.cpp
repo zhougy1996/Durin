@@ -14,14 +14,14 @@ namespace Durin
 	}
 
 	auto FActorFactory::PlaceAsset(DEditorActorSubsystem& Editor, const FAssetPlacementInfo& Info,
-		DObject& Asset, const FActorEditContext& Context) const -> std::expected<AActor*, std::string>
+		DObject& Asset, std::string* OutError) const -> std::vector<TWeakObjectPtr<AActor>>
 	{
-		if (!Asset.IsA(AssetClass)) return std::unexpected("The asset is incompatible with the actor factory.");
-		std::string Error;
-		auto* Actor = Editor.SpawnActor(Info.PreferredLevel, ActorClass, FName(Info.AssetToPlace.GetAssetPath().GetAssetName()),
-			Info.FinalizedTransform, Context, [&](AActor& Created) { ConfigureActor(Asset, Created); },
-			ESpawnActorNameMode::Requested, {}, &Error);
-		if (!Actor) return std::unexpected(std::move(Error));
-		return Actor;
+		auto* Level = Info.PreferredLevel.Get();
+		if (!Level || !Asset.IsA(AssetClass)) return {};
+		auto* Actor = Editor.SpawnActor(*Level, ActorClass, FName(Info.AssetToPlace.GetAssetPath().GetAssetName()),
+			Info.FinalizedTransform, Info.EditContext, [&](AActor& Created) { ConfigureActor(Asset, Created); },
+			ESpawnActorNameMode::Requested, {}, OutError);
+		if (!Actor) return {};
+		return {Actor};
 	}
 }

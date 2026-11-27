@@ -27,9 +27,9 @@ TEST(FAssetPlacementTests, BuiltInFactoriesLeaveCubemapsUnplaced)
 	auto* Level = Editor.GetWorld()->GetCurrentLevel();
 	const auto ActorCount = Level->GetActors().size();
 	const auto* ResidentBefore = FindResidentPackage(Path.GetPackagePath());
-	auto Result = Placement->PlaceAsset({Path, *Level}, {false});
-	ASSERT_FALSE(Result);
-	EXPECT_TRUE(Result.error().contains("No placement factory")) << Result.error();
+	std::string Error = "previous error";
+	EXPECT_TRUE(Placement->PlaceAsset({Path, Level, {false}}, &Error).empty());
+	EXPECT_TRUE(Error.empty());
 	EXPECT_EQ(Level->GetActors().size(), ActorCount);
 	EXPECT_EQ(FindResidentPackage(Path.GetPackagePath()), ResidentBefore);
 	EXPECT_FALSE(Editor.GetTransactions()->CanUndo());
@@ -52,17 +52,15 @@ TEST(FAssetPlacementTests, ModuleFactoryIsUsedOnlyWhileRegistered)
 	ASSERT_NE(Placement, nullptr);
 	FSoftObjectPath Path;
 	ASSERT_TRUE(FSoftObjectPath::TryCreate(DefaultMaterialObjectPath, Path));
-	FAssetPlacementInfo Info{Path, *Editor.GetWorld()->GetCurrentLevel()};
+	FAssetPlacementInfo Info{Path, Editor.GetWorld()->GetCurrentLevel(), {false}};
 	FTestMaterialFactory Factory;
 	auto Registration = RegisterModularFeature(Factory);
-	auto Placed = Placement->PlaceAsset(Info, {false});
-	ASSERT_TRUE(Placed) << Placed.error();
-	ASSERT_TRUE(Info.PreferredLevel.ContainsActor(*Placed));
+	auto Placed = Placement->PlaceAsset(Info);
+	ASSERT_EQ(Placed.size(), 1u);
+	ASSERT_TRUE(Info.PreferredLevel.Get()->ContainsActor(Placed.front().Get()));
 	Registration.Reset();
 	const auto HistorySize = Editor.GetTransactions()->GetQueueLength();
-	auto Unsupported = Placement->PlaceAsset(Info, {false});
-	ASSERT_FALSE(Unsupported);
-	EXPECT_TRUE(Unsupported.error().contains("No placement factory"));
+	EXPECT_TRUE(Placement->PlaceAsset(Info).empty());
 	EXPECT_EQ(Editor.GetTransactions()->GetQueueLength(), HistorySize);
 }
 
@@ -70,7 +68,11 @@ TEST(FAssetPlacementTests, RegisteredMeshFactoryPlacesAtRequestedTransformAndSup
 {
 	using namespace Durin;
 	Tests::FActorEditorFixture Editor;
-	Testing::RegisterMountPointForTests("/PlacementTests/", Testing::GetTestWorkDirectory().generic_string());
+	const auto Root = Testing::CreateTestFixtureDirectory("PlacementMesh");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/PlacementTests/", .Owner = EMountOwner::Test,
+		.Root = Root.generic_string(), .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	auto* Placement = Editor.GetEditor()->GetEditorSubsystem<DPlacementSubsystem>();
 	ASSERT_NE(Placement, nullptr);
 	FPackagePath PackagePath;
@@ -78,22 +80,77 @@ TEST(FAssetPlacementTests, RegisteredMeshFactoryPlacesAtRequestedTransformAndSup
 	DStaticMesh* Mesh = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(PackagePath, Mesh));
 	const auto Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath);
-	FAssetPlacementInfo Info{Path, *Editor.GetWorld()->GetCurrentLevel()};
+	FAssetPlacementInfo Info{Path, Editor.GetWorld()->GetCurrentLevel(), {false}};
 	Info.FinalizedTransform.Translation = FVector3(3.0, 7.0, 12.0);
 	const auto Registration = LevelEditor::RegisterStaticMeshActorFactory();
-	ASSERT_FALSE(Placement->PlaceAsset(Info, {true}));
+	std::string Error;
+	EXPECT_TRUE(Placement->PlaceAsset({Path, Info.PreferredLevel, {true}}, &Error).empty());
+	EXPECT_TRUE(Error.contains("read-only"));
 	TStrongObjectPtr<DLevel> Foreign(NewObject<DLevel>(nullptr, "ForeignPlacementLevel"));
-	ASSERT_FALSE(Placement->PlaceAsset({Path, *Foreign}, {false}));
+	EXPECT_TRUE(Placement->PlaceAsset({Path, Foreign.Get(), {false}}, &Error).empty());
+	EXPECT_TRUE(Error.contains("current editor level"));
 	EXPECT_FALSE(Editor.GetTransactions()->CanUndo());
-	auto Result = Placement->PlaceAsset(Info, {false});
-	ASSERT_TRUE(Result) << Result.error();
-	auto* Actor = Cast<AStaticMeshActor>(*Result);
+	auto Result = Placement->PlaceAsset(Info, &Error);
+	ASSERT_EQ(Result.size(), 1u) << Error;
+	EXPECT_TRUE(Error.empty());
+	auto* Actor = Cast<AStaticMeshActor>(Result.front().Get());
 	ASSERT_NE(Actor, nullptr);
 	auto* Component = Actor->GetStaticMeshComponent();
 	EXPECT_EQ(Component->GetStaticMesh(), Mesh);
 	EXPECT_EQ(Component->GetWorldLocation(), Info.FinalizedTransform.Translation);
 	ASSERT_TRUE(Editor.GetTransactions()->Undo());
-	EXPECT_FALSE(Info.PreferredLevel.ContainsActor(Actor));
+	EXPECT_FALSE(Info.PreferredLevel.Get()->ContainsActor(Actor));
 	ASSERT_TRUE(Editor.GetTransactions()->Redo());
-	EXPECT_TRUE(Info.PreferredLevel.ContainsActor(Actor));
+	EXPECT_TRUE(Info.PreferredLevel.Get()->ContainsActor(Actor));
+}
+
+TEST(FAssetPlacementTests, BatchCollectsMultipleActorsPerAssetAndUndoesAsOneEdit)
+{
+	using namespace Durin;
+	class FPairFactory final : public FActorFactory
+	{
+	public:
+		FPairFactory() : FActorFactory(DMaterial::StaticClass(), AStaticMeshActor::StaticClass()) {}
+		auto ConfigureActor(DObject&, AActor&) const -> void override {}
+		auto PlaceAsset(DEditorActorSubsystem& Editor, const FAssetPlacementInfo& Info, DObject& Asset,
+			std::string* OutError) const -> std::vector<TWeakObjectPtr<AActor>> override
+		{
+			auto Pair = FActorFactory::PlaceAsset(Editor, Info, Asset, OutError);
+			Pair.append_range(FActorFactory::PlaceAsset(Editor, Info, Asset, OutError));
+			return Pair;
+		}
+	};
+	Tests::FActorEditorFixture Editor;
+	Testing::RegisterMountPointForTests("/Engine/", FPaths::EngineContentDir());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	auto* Placement = Editor.GetEditor()->GetEditorSubsystem<DPlacementSubsystem>();
+	ASSERT_NE(Placement, nullptr);
+	FPairFactory Factory;
+	auto Registration = RegisterModularFeature(Factory);
+	FSoftObjectPath Path, Cube;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate(DefaultMaterialObjectPath, Path));
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/Engine/Renderer/DefaultSkyCube.DefaultSkyCube", Cube));
+	auto* Level = Editor.GetWorld()->GetCurrentLevel();
+	FAssetPlacementInfo First{Path, Level, {false}}, Last = First;
+	Last.FinalizedTransform.Translation = FVector3(4.0, 5.0, 6.0);
+	const std::array Infos{First, FAssetPlacementInfo{Cube, Level, {false}},
+		FAssetPlacementInfo{Path, Level, {true}}, Last};
+	std::string Error;
+	const auto Placed = Placement->PlaceAssets(Infos, &Error);
+	ASSERT_EQ(Placed.size(), 4u) << Error;
+	EXPECT_TRUE(Error.contains("read-only"));
+	EXPECT_FALSE(Error.contains(Cube.ToString()));
+	for (size_t Index = 0; Index < Placed.size(); ++Index)
+	{
+		auto* Actor = Placed[Index].Get();
+		ASSERT_NE(Actor, nullptr);
+		EXPECT_TRUE(Level->ContainsActor(Actor));
+		EXPECT_EQ(Actor->GetActorTransform().Translation,
+			(Index < 2 ? First : Last).FinalizedTransform.Translation);
+	}
+	ASSERT_EQ(Editor.GetTransactions()->GetQueueLength(), 1u);
+	ASSERT_TRUE(Editor.GetTransactions()->Undo());
+	for (const auto& Actor : Placed) EXPECT_FALSE(Level->ContainsActor(Actor.Get()));
+	ASSERT_TRUE(Editor.GetTransactions()->Redo());
+	for (const auto& Actor : Placed) EXPECT_TRUE(Level->ContainsActor(Actor.Get()));
 }

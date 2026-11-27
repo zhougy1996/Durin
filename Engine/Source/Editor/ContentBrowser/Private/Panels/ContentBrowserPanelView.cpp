@@ -32,7 +32,7 @@ namespace Durin::ContentBrowser::Private
 	{
 		using ContentStorage::Filesystem::NormalizePath;
 
-		std::weak_ptr<const void> ActiveDragSnapshot;
+		std::weak_ptr<const FDragSnapshot> ActiveDragSnapshot;
 		uint64 DragSerial = 0;
 		ImGuiID BrowserDragSource = 0, BrowserDragParent = 0;
 
@@ -1155,8 +1155,8 @@ namespace Durin::ContentBrowser::Private
 		const auto ResourcePath = ItemAttributes::String(Item, ContentBrowserItemAttributes::AssetPath);
 		if (Items.size() != 1 || (!Items.front().IsAsset() || Items.front().IsRedirector()) || ResourcePath.empty())
 		{
-			ImGui::SetDragDropPayload("DURIN_CONTENT_ITEMS", &DragSnapshot->Serial, sizeof(uint64), ImGuiCond_Once);
-			ImGui::Text("Move %zu content item(s)", Items.size());
+			ImGui::SetDragDropPayload(ContentItemsDragPayloadType, &DragSnapshot->Serial, sizeof(uint64), ImGuiCond_Once);
+			ImGui::Text("%zu content items", DragSnapshot->Items.size());
 			ImGui::EndDragDropSource();
 			return;
 		}
@@ -1179,10 +1179,9 @@ namespace Durin::ContentBrowser::Private
 	{
 		if (!bAllowAssetMutation) return;
 		if (!ImGui::BeginDragDropTarget()) return;
-		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload("DURIN_CONTENT_ITEMS"); Payload && Payload->IsDelivery())
+		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ContentItemsDragPayloadType); Payload && Payload->IsDelivery())
 		{
-			auto Opaque = ActiveDragSnapshot.lock();
-			auto Snapshot = std::static_pointer_cast<const FDragSnapshot>(Opaque);
+			auto Snapshot = ActiveDragSnapshot.lock();
 			const auto Destination = bPhysicalDirectory ? Model.PhysicalToVirtualDirectory(DestinationDirectory) : std::string(DestinationDirectory);
 			if (Snapshot && Payload->DataSize == sizeof(uint64) && *static_cast<const uint64*>(Payload->Data) == Snapshot->Serial)
 				QueueContentAction([this, Items = Snapshot->Items, Destination] { MoveItems(Items, Destination); });
@@ -1192,8 +1191,7 @@ namespace Durin::ContentBrowser::Private
 			const auto Destination = bPhysicalDirectory ? Model.PhysicalToVirtualDirectory(DestinationDirectory) : std::string(DestinationDirectory);
 			if (Payload->SourceId == BrowserDragSource && Payload->SourceParentId == BrowserDragParent)
 			{
-				auto Opaque = ActiveDragSnapshot.lock();
-				auto Snapshot = std::static_pointer_cast<const FDragSnapshot>(Opaque);
+				auto Snapshot = ActiveDragSnapshot.lock();
 				if (Snapshot) QueueContentAction([this, Items = Snapshot->Items, Destination] { MoveItems(Items, Destination); });
 			}
 			else
@@ -1302,3 +1300,21 @@ namespace Durin::ContentBrowser::Private
 	}
 
 } // namespace Durin::ContentBrowser::Private
+
+namespace Durin::ContentBrowser
+{
+	auto GetDraggedAssetPaths(uint64 Serial) -> std::vector<FSoftObjectPath>
+	{
+		std::vector<FSoftObjectPath> Paths;
+		const auto Snapshot = Private::ActiveDragSnapshot.lock();
+		if (!Snapshot || Snapshot->Serial != Serial) return Paths;
+		for (const auto& Item : Snapshot->Items)
+		{
+			FSoftObjectPath Path;
+			if (Item.IsAsset() && !Item.IsRedirector()
+				&& FSoftObjectPath::TryCreate(Private::ItemAttributes::String(Item, ContentBrowserItemAttributes::AssetPath), Path))
+				Paths.push_back(std::move(Path));
+		}
+		return Paths;
+	}
+}

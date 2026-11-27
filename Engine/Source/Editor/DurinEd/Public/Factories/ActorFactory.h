@@ -15,7 +15,7 @@ namespace Durin
 		FActorFactory(DClass* InAssetClass, DClass* InActorClass);
 		auto CanPlaceElementsFromAssetData(const FAssetData& AssetData) const -> bool override;
 		auto PlaceAsset(DEditorActorSubsystem& Editor, const FAssetPlacementInfo& Info,
-			DObject& Asset, const FActorEditContext& Context) const -> std::expected<AActor*, std::string> override;
+			DObject& Asset, std::string* OutError) const -> std::vector<TWeakObjectPtr<AActor>> override;
 	protected:
 		// Runs before the actor's components are registered and its history is captured.
 		virtual auto ConfigureActor(DObject& Asset, AActor& Actor) const -> void = 0;

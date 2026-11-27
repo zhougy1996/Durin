@@ -24,7 +24,7 @@
 #include "Viewport/ViewportPresentation.h"
 #include "Widgets/MViewport.h"
 #include "Widgets/MWindow.h"
-#include "Actors/EditorActorSubsystem.h"
+#include "ContentBrowser/ContentBrowserContracts.h"
 #include "Subsystems/PlacementSubsystem.h"
 
 namespace Durin::LevelEditor
@@ -345,18 +345,25 @@ namespace Durin::LevelEditor
 				if (!Context.bReadOnly && !bStatisticsInitiallyHovered
 					&& ImGui::BeginDragDropTarget())
 				{
-					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
+					std::vector<FSoftObjectPath> Paths;
+					if (const auto* Payload = ImGui::AcceptDragDropPayload(ContentBrowser::ContentItemsDragPayloadType);
+						Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(uint64))
+						Paths = ContentBrowser::GetDraggedAssetPaths(*static_cast<const uint64*>(Payload->Data));
+					else if (const auto* Single = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType);
+						Single && Single->IsDelivery() && Single->DataSize == sizeof(FAssetDragDropPayload))
 					{
-						const auto* AssetPayload = static_cast<const FAssetDragDropPayload*>(Payload->Data);
-						FSoftObjectPath AssetPath;
+						FSoftObjectPath Path;
+						const auto& Asset = *static_cast<const FAssetDragDropPayload*>(Single->Data);
+						if (FSoftObjectPath::TryCreate(Asset.AssetPath.data(), Path)) Paths.push_back(std::move(Path));
+						else Context.SetError("Dropped asset path is invalid.");
+					}
+					if (!Paths.empty())
+					{
 						auto* Placement = Context.EditorHost ? Context.EditorHost->GetEditorSubsystem<DPlacementSubsystem>() : nullptr;
-						if (!FSoftObjectPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
-							Context.SetError("Dropped asset path is invalid.");
-						else if (!Placement)
-							Context.SetError("The placement subsystem is unavailable.");
+						if (!Placement) Context.SetError("The placement subsystem is unavailable.");
 						else
 						{
-							FAssetPlacementInfo Info{AssetPath, *Context.Level};
+							FTransform Transform;
 							FSceneView View;
 							uint32 Width = 0;
 							uint32 Height = 0;
@@ -365,10 +372,15 @@ namespace Durin::LevelEditor
 							FVector3 Origin, Direction;
 							if (ViewportClient->BuildViewMatrices(Width, Height, View)
 								&& SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
-								Info.FinalizedTransform.Translation = Origin + Direction * 5.0;
-							const auto Result = Placement->PlaceAsset(Info, {Context.bReadOnly});
-							if (Result) Context.SelectActor(*Result);
-							else Context.SetError(Result.error());
+								Transform.Translation = Origin + Direction * 5.0;
+							std::vector<FAssetPlacementInfo> Infos;
+							for (auto& Path : Paths) Infos.push_back({std::move(Path), Context.Level, {Context.bReadOnly}, Transform});
+							std::string Error;
+							std::vector<AActor*> Selection;
+							for (const auto& Placed : Placement->PlaceAssets(Infos, &Error))
+								if (auto* Actor = Placed.Get()) Selection.push_back(Actor);
+							if (!Selection.empty()) Context.SetSelectedActors(Selection);
+							if (!Error.empty()) Context.SetError(std::move(Error));
 						}
 					}
 					ImGui::EndDragDropTarget();

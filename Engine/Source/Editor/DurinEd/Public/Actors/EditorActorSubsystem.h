@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Actors/ActorChange.h"
+#include "Actors/ActorEditContext.h"
 #include "Editor/EditorSubsystem.h"
 #include "DObject/Class.h"
 #include "Transactions/Transactor.h"
@@ -10,16 +11,6 @@
 #include "EditorActorSubsystem.gen.h"
 
 namespace Durin { class DClass; }
-
-namespace Durin
-{
-	// Document owners and native adapters must state editability explicitly.
-	struct FActorEditContext
-	{
-		bool bReadOnly;
-		FActorEditContext(bool bInReadOnly) : bReadOnly(bInReadOnly) {}
-	};
-}
 
 namespace Durin
 {

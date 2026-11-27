@@ -759,7 +759,7 @@ namespace Durin::ContentBrowser::Private
 			.VirtualPath = "/BrowserDrag/Asset.Asset", .PhysicalPath = Root + "/Asset.dasset"};
 		const FContentBrowserItem File = Durin::ContentBrowser::Private::FStorageItemFixture{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt", .VirtualPath = "/BrowserDrag/notes.txt",
 			.PhysicalPath = Root + "/notes.txt"};
-		auto Drag = [&](std::vector<FContentBrowserItem> Items, const char* ExpectedType) {
+		auto Drag = [&](std::vector<FContentBrowserItem> Items, const char* ExpectedType, size_t AssetCount) {
 			FContentBrowserPanelTestAccess::SetSelection(Panel, Root, std::move(Items));
 			IO.MouseDown[0] = true;
 			ImGui::NewFrame();
@@ -779,6 +779,9 @@ namespace Durin::ContentBrowser::Private
 				{
 					EXPECT_EQ(Payload->DataSize, sizeof(uint64));
 					EXPECT_TRUE(FContentBrowserPanelTestAccess::HasDragSnapshot(Panel, 2));
+					const auto Serial = *static_cast<const uint64*>(Payload->Data);
+					EXPECT_EQ(GetDraggedAssetPaths(Serial).size(), AssetCount);
+					EXPECT_TRUE(GetDraggedAssetPaths(Serial + 1).empty());
 				}
 			}
 			ImGui::End();
@@ -786,8 +789,11 @@ namespace Durin::ContentBrowser::Private
 			ImGui::ClearDragDrop();
 			ImGui::ClearActiveID();
 		};
-		Drag({Asset, File}, "DURIN_CONTENT_ITEMS");
-		Drag({Asset}, ::Durin::AssetDragDropPayloadType);
+		const FContentBrowserItem Second = FStorageItemFixture{.Kind = EContentBrowserItemKind::Asset,
+			.Name = "Second", .VirtualPath = "/BrowserDrag/Second.Second", .PhysicalPath = Root + "/Second.dasset"};
+		Drag({Asset, Second}, ContentItemsDragPayloadType, 2);
+		Drag({Asset, File}, ContentItemsDragPayloadType, 1);
+		Drag({Asset}, ::Durin::AssetDragDropPayloadType, 1);
 	}
 	TEST_F(FContentBrowserPanelExtensionTests, VirtualProviderUsesOrdinaryCommandsAndRefreshesIndependentBrowsers)
 	{
