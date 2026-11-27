@@ -393,7 +393,11 @@ No new shared `Materials/ImportedParents` assets are generated.
 and reports compatibility per material. Both import forms consume `PreviewOutputs`;
 there is no independent material preview capture or execution path.
 The mapping contract accepts the built-in full PBR Metallic/Roughness template
-and compatible imported PBR graphs with stable parameter IDs. The full template
+and compatible imported PBR graphs. CreateMaterials assigns fresh parameter IDs
+to each new material. CreateInstances looks up each expected name in the selected
+parent, checks its type and writes overrides using the parent's ID. A renamed
+legacy declaration can also resolve by its original template parameter ID.
+Shared texture fetches retain a single parameter owner. The full template
 receives all factors, textures and UV parameters, resetting absent maps to their
 canonical fallbacks. Its additive emissive input receives zero when source
 emissive factors were already baked into the image. Its opacity input reads the

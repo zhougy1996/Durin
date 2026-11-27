@@ -28,6 +28,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/MountPaths.h"
 #include "Misc/Paths.h"
@@ -939,8 +940,16 @@ auto FSceneImportState::Run() -> FSceneRoutine
 				auto *Standard = Descriptor.Kind == ESceneOutputKind::Material
 				                     ? Cast<DMaterial>(Output.Candidate)
 				                     : Descriptor.Parent.Get();
+				std::unordered_map<FGuid, FGuid> ParameterIds(Descriptor.ParentParameterIds.begin(), Descriptor.ParentParameterIds.end());
 				if (Descriptor.Kind == ESceneOutputKind::Material && Standard)
 				{
+					for (const auto& Expression : Recipe.Graph.Expressions)
+						if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
+						{
+							auto [Binding, Inserted] = ParameterIds.try_emplace(Parameter->Metadata.Id);
+							if (Inserted) Binding->second = FGuid::NewGuid();
+							Parameter->Metadata.Id = Binding->second;
+						}
 					Standard->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 					if (!Recipe.Graph.Apply(*Standard))
 					{
@@ -981,11 +990,17 @@ auto FSceneImportState::Run() -> FSceneRoutine
 				                                  .StructuralKey = Recipe.CanonicalKey,
 				                                  .SourceIdentity = RootFilename,
 				                                  .OutputIdentity = Descriptor.StableIdentity};
+				const auto StandardDefinitions = GetPBRMaterialParameterDefinitions();
 				for (const auto &Owner : Recipe.Owners)
 				{
 					using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
-					const auto *Definition = Standard->FindParameterDefinition(Owner.ParameterId);
-					require(Definition);
+					const auto Binding = ParameterIds.find(Owner.ParameterId);
+					const auto *Definition = Binding == ParameterIds.end() ? nullptr : Standard->FindParameterDefinition(Binding->second);
+					const auto StandardDefinition = std::ranges::find(StandardDefinitions, Owner.ParameterId,
+					                                                  &FMaterialParameterDefinition::Id);
+					if (StandardDefinition == StandardDefinitions.end() || !Definition || Definition->Type != StandardDefinition->Type)
+						co_return AddError(Result, EImportDiagnosticCategory::ValidationFailure, "scene-material-parameters",
+						                   "The material no longer exposes the expected PBR parameter.", Descriptor.StableIdentity);
 					const auto &Role = Roles[static_cast<uint32>(Owner.Role)];
 					const auto *Sample = Role.Sample ? &*Role.Sample : nullptr;
 					// The full template reads opacity from alpha, while compact imports use
@@ -993,9 +1008,6 @@ auto FSceneImportState::Run() -> FSceneRoutine
 					if (Descriptor.bStandardPBRParent && Owner.Role == EMaterialProperty::MP_Opacity &&
 					    Sample)
 						Sample = &*Roles[0].Sample;
-					const auto StandardDefinitions = GetPBRMaterialParameterDefinitions();
-					const auto StandardDefinition = std::ranges::find(StandardDefinitions, Owner.ParameterId,
-					                                                  &FMaterialParameterDefinition::Id);
 					FMaterialParameterValue Value;
 					if (Descriptor.bStandardPBRParent && Owner.Kind != Kind::Value && !Sample)
 						Value = StandardDefinition->Value;
@@ -1024,8 +1036,8 @@ auto FSceneImportState::Run() -> FSceneRoutine
 						                  {Literal.X, Literal.Y, Literal.Z, Literal.W})
 						            : FMaterialParameterValue::MakeScalar(Literal.X);
 					}
-					if (const auto Applied = Instance ? Instance->SetParameterValue(Owner.ParameterId, Value)
-					                                  : Standard->SetParameterValue(Owner.ParameterId, Value);
+					if (const auto Applied = Instance ? Instance->SetParameterValue(Binding->second, Value)
+					                                  : Standard->SetParameterValue(Binding->second, Value);
 					    !Applied)
 					{
 						co_return AddError(Result, EImportDiagnosticCategory::ValidationFailure,

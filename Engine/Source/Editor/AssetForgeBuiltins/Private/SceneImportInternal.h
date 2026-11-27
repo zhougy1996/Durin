@@ -44,6 +44,8 @@ namespace Durin::AssetForge::Builtins
 		FVector3f TextureDerivationColorScale{1.0f};
 		std::vector<FSceneMaterialTextureBinding> TextureBindings;
 		TStrongObjectPtr<DMaterial> Parent;
+		// Template declaration to the parameter owned by the selected parent.
+		std::vector<std::pair<FGuid, FGuid>> ParentParameterIds;
 		bool bStandardPBRParent = false;
 		bool bExistingMaterialMapping = false;
 		TStrongObjectPtr<DMaterialInterface> PreservedMaterial;
