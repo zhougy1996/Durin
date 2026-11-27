@@ -65,10 +65,10 @@ namespace Durin
 			DURINED_API auto CaptureAfter() -> void;
 			DURINED_API auto Apply(EPropertyChangeOrigin Origin) -> void;
 			DURINED_API auto CaptureInverse() -> void;
-			// Build after native completion; replay's opposite side owns the live inverse.
-			DURINED_API auto BuildObjectEvents(const FTransactionContext& Context,
+			// Notify after native completion; replay's opposite side owns the live inverse.
+			DURINED_API auto NotifyObject(const FTransactionContext& Context,
 				ETransactionObjectEventType Type, const std::shared_ptr<ITransactionObjectAnnotation>& Annotation) const
-				-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>;
+				-> FTransactionCaptureResult;
 			auto GetReplayAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation> { return SerializedObjectFlip->Annotation; }
 			DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 			DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
@@ -188,9 +188,7 @@ namespace Durin
 			const FObjectRecord* Record;
 			std::shared_ptr<ITransactionObjectAnnotation> Annotation;
 		};
-		using FObjectEvents = std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>;
 		auto NotifyRecords(std::vector<FChangedObject>& ChangedObjects, ETransactionObjectEventType Type) -> void;
-		auto DispatchObjectEvents(const FObjectEvents& Events) -> FTransactionCaptureResult;
 		mutable bool bBusy = false;
 		bool bFinalized = false;
 		bool bNotifyingPreFinalize = false;

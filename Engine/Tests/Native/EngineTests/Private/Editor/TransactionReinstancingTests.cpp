@@ -531,37 +531,8 @@ TEST_F(FTransactionReinstancingTests, ActorAnnotationRebindsTypedSceneCacheInPla
 	ASSERT_TRUE(Cache.Validate(AfterActor));
 	Cache.ApplyToActor(*AfterActor);
 	EXPECT_EQ(AfterRoot->GetRelativeLocation().x, 17.0);
-	AfterRoot->SetRelativeLocation({19.0, 0.0, 0.0});
-	FActorTransactionAnnotation CurrentAnnotation(*AfterActor);
-	const auto Changes = CurrentAnnotation.ComputeAdditionalObjectChanges(Annotation);
-	ASSERT_EQ(Changes.size(), 1u); EXPECT_EQ(Changes[0].first, AfterRoot);
-	EXPECT_EQ(Changes[0].second.ChangedProperties, std::vector<FName>{"RelativeTransform"});
 	EXPECT_TRUE(Source->Validate());
 	EXPECT_THROW(Annotation->CreateSnapshot(*BeforeActor), std::runtime_error);
-}
-
-TEST_F(FTransactionReinstancingTests, ComponentObservationsRebindAbsentGenerationsAndTheirHistoricalReferencePaths)
-{
-	using namespace Durin;
-	auto* BeforeActor = NewObject<DTransactionConstructionActor>(Current, "Actor");
-	auto* AfterActor = NewObject<DTransactionConstructionActor>(Candidate, "Actor");
-	TStrongObjectPtr<DTransactionConstructionActor> BeforeRoot(BeforeActor), AfterRoot(AfterActor);
-	BeforeActor->GeneratedCount = 2; ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
-	auto Scene = [](auto* Actor, uint32 Index) { return static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(Index))); };
-	ASSERT_TRUE(Scene(BeforeActor, 1)->AttachToComponent(Scene(BeforeActor, 0), EAttachmentTransformRule::KeepRelative));
-	std::shared_ptr<ITransactionObjectAnnotation> Source = std::make_shared<FActorTransactionAnnotation>(*BeforeActor);
-	BeforeActor->GeneratedCount = 0; ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
-	AfterActor->GeneratedCount = 0; ASSERT_TRUE(AfterActor->RerunConstructionScripts());
-	CollectGarbage(Durin::EObjectFlags::Standalone);
-	FObjectReplacementMap Map; auto Built = Map.Build(std::span(&Pair, 1)); ASSERT_TRUE(Built) << ToString(Built.error());
-	auto Replaced = ReinstanceTransactionAnnotation(Source, Map); ASSERT_TRUE(Replaced) << Replaced.error();
-	AfterActor->GeneratedCount = 2; ASSERT_TRUE(AfterActor->RerunConstructionScripts());
-	ASSERT_TRUE(Scene(AfterActor, 1)->AttachToComponent(Scene(AfterActor, 0), EAttachmentTransformRule::KeepRelative));
-	// Prepared packages suppress admission until publication; compare equivalent
-	// published component flags so this test isolates historical reference paths.
-	Scene(AfterActor, 0)->SetFlags(EObjectFlags::Transactional); Scene(AfterActor, 1)->SetFlags(EObjectFlags::Transactional);
-	FActorTransactionAnnotation CurrentAnnotation(*AfterActor);
-	EXPECT_TRUE(CurrentAnnotation.ComputeAdditionalObjectChanges(Source.get()).empty());
 }
 
 TEST_F(FTransactionReinstancingTests, WritableCommandKeepsItsInstanceAndRebindsParticipantsAndPackages)
@@ -647,20 +618,30 @@ TEST_F(FTransactionReinstancingTests, GeneratedSourceRejectsSameNamedAuthoredCom
 	EXPECT_FALSE(Cache.Validate(AfterActor));
 }
 
-TEST_F(FTransactionReinstancingTests, ActorHistoryReinstancingRestoresGeneratedInstanceDataAfterReconstruction)
+TEST_F(FTransactionReinstancingTests, PackageReloadRebindsGeneratedPoseAndExternalChildAcrossReplay)
 {
-	using namespace Durin; using namespace Durin;
-	auto* BeforeActor = NewObject<DTransactionConstructionActor>(Current, "Actor", EObjectFlags::Transactional);
-	auto* AfterActor = NewObject<DTransactionConstructionActor>(Candidate, "Actor", EObjectFlags::Transactional);
+	using namespace Durin;
+	auto* BeforeLevel = NewObject<DLevel>(Old, "Level");
+	auto* AfterLevel = NewObject<DLevel>(New, "Level");
+	auto* BeforeActor = NewObject<DTransactionConstructionActor>(BeforeLevel, "Actor", EObjectFlags::Transactional);
+	auto* AfterActor = NewObject<DTransactionConstructionActor>(AfterLevel, "Actor", EObjectFlags::Transactional);
+	auto* BeforeChild = NewObject<DTransactionConstructionActor>(BeforeLevel, "AttachedActor")->GetRootComponent();
+	auto* AfterChild = NewObject<DTransactionConstructionActor>(AfterLevel, "AttachedActor")->GetRootComponent();
 	ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
-	static_cast<DSceneComponent*>(BeforeActor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)))->SetRelativeLocation({17.0, 0.0, 0.0});
+	auto Scene = [](auto* Actor) { return Cast<DSceneComponent>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0))); };
+	ASSERT_TRUE(BeforeChild->AttachToComponent(Scene(BeforeActor)));
+	BeforeChild->SetRelativeLocation({3.0, 0.0, 0.0});
+	Scene(BeforeActor)->SetRelativeLocation({17.0, 0.0, 0.0});
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Generated history", BeforeActor});
-		ASSERT_TRUE(BeforeActor->Modify()); BeforeActor->GeneratedCount = 2;
+		ASSERT_TRUE(BeforeActor->Modify());
+		ASSERT_TRUE(BeforeChild->DetachFromComponent(EDetachmentTransformRule::KeepWorld));
+		BeforeActor->GeneratedCount = 2;
 		ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
 	}
 	AfterActor->GeneratedCount = 2; ASSERT_TRUE(AfterActor->RerunConstructionScripts());
-	static_cast<DSceneComponent*>(AfterActor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)))->SetRelativeLocation({77.0, 0.0, 0.0});
+	Scene(AfterActor)->SetRelativeLocation({77.0, 0.0, 0.0});
+	AfterChild->SetRelativeLocation({30.0, 0.0, 0.0});
 	const auto ConstructionCalls = AfterActor->ConstructionCalls;
 	auto Ready = Prepare(); ASSERT_TRUE(Ready) << ToString(Ready.error());
 	EXPECT_EQ(AfterActor->ConstructionCalls, ConstructionCalls);
@@ -670,9 +651,13 @@ TEST_F(FTransactionReinstancingTests, ActorHistoryReinstancingRestoresGeneratedI
 	{
 		ASSERT_TRUE(Buffer->Undo());
 		EXPECT_EQ(AfterActor->GeneratedCount, 1);
-		EXPECT_EQ(static_cast<DSceneComponent*>(AfterActor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)))->GetRelativeLocation().x, 17.0);
+		EXPECT_EQ(Scene(AfterActor)->GetRelativeLocation().x, 17.0);
+		EXPECT_EQ(AfterChild->GetAttachParent(), Scene(AfterActor));
+		EXPECT_EQ(AfterChild->GetWorldLocation().x, 20.0);
 		ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(AfterActor->GeneratedCount, 2);
-		EXPECT_EQ(static_cast<DSceneComponent*>(AfterActor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)))->GetRelativeLocation().x, 77.0);
+		EXPECT_EQ(Scene(AfterActor)->GetRelativeLocation().x, 77.0);
+		EXPECT_EQ(AfterChild->GetAttachParent(), nullptr);
+		EXPECT_EQ(AfterChild->GetWorldLocation().x, 30.0);
 	}
 }
 

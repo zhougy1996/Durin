@@ -200,7 +200,7 @@ record marks itself finalized before capturing its terminal state. A capture
 fault reports the transaction ID, Finalize phase, original record index and cause.
 A second direct Finalize, including one invoked by a Finalized listener, can
 deliver the stored primary delta again in the current operation. Only the first
-capture supplies the terminal annotation and its additional-object events.
+capture supplies the terminal annotation.
 Listeners that call Finalize must bound their own recursion.
 
 Required capture, inspection, synchronous lifecycle or dirty-notification faults
@@ -215,10 +215,8 @@ object. After all loads, each object's PostEditUndo immediately precedes its
 UndoRedo notifications. Both finalization and replay visit components first,
 preserving encounter order within each group. Events carry the
 transaction ID, live operation ID, recorded delta, original identity and
-current annotation. Record events precede their annotation's additional events;
-`CreatedBy` distinguishes these sources, matching the pinned UE implementation.
-An object can receive both sources; additional events carry no primary annotation.
-Finalize computes field and annotation changes from the initial and final state.
+current annotation. Each whole-object record notifies only its target. Finalize
+computes its field changes from the initial and final state.
 During a multi-frame edit, the property editor delivers interactive updates and its
 terminal property notification. Transaction object events begin at finalization.
 

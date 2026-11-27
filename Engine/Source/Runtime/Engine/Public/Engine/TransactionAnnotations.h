@@ -4,9 +4,7 @@
 #include "EngineAPI.h"
 #include "DObject/TransactionObjectAnnotation.h"
 #include "DObject/TransactionObjectReference.h"
-#include "DObject/TransactionDiff.h"
 #include "Engine/ComponentInstanceDataCache.h"
-#include "Math/Transform.h"
 #include "Misc/Transaction.h"
 
 namespace Durin
@@ -26,7 +24,6 @@ namespace Durin
 	public:
 		ENGINE_API explicit FActorTransactionAnnotation(const AActor& Actor, const FActorTransactionAnnotation* Previous = nullptr);
 		ENGINE_API static auto CreateIfRequired(const AActor& Actor) -> std::shared_ptr<FActorTransactionAnnotation>;
-		ENGINE_API auto HasInstanceData() const -> bool;
 		ENGINE_API auto CreateSnapshot(const DObject& Object) const -> std::shared_ptr<ITransactionObjectAnnotation> override;
 		ENGINE_API auto Validate() const -> FTransactionCaptureResult override;
 		auto GetComponentInstanceDataCache() const -> const FComponentInstanceDataCache& { return Data.ComponentInstanceData; }
@@ -34,16 +31,7 @@ namespace Durin
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		ENGINE_API auto GetAllocatedSize() const -> size_t override;
 		ENGINE_API auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult override;
-		ENGINE_API auto ComputeAdditionalObjectChanges(const ITransactionObjectAnnotation* Original) const
-			-> std::vector<std::pair<DObject*, FTransactionObjectChange>> override;
 	private:
 		FActorTransactionAnnotationData Data;
-		// Field observations for additional events on live generated components.
-		struct FDiffableComponentInfo
-		{
-			FActorComponentInstanceSourceInfo ComponentSourceInfo;
-			FDiffableObject DiffableComponent;
-		};
-		std::vector<FDiffableComponentInfo> DiffableComponentInfos;
 	};
 }

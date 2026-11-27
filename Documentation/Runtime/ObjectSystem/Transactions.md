@@ -105,8 +105,7 @@ The [serialization contract](Serialization.md) owns archive filtering and
 detached parent-baseline requirements.
 
 `DObject/TransactionObjectAnnotation.h` declares supplemental reconstruction data,
-collector traversal, serialization, owned allocation accounting and optional
-additional object changes. `DObject/TransactionObjectEvent.h` declares owned
+collector traversal, reference rebinding and owned allocation accounting. `DObject/TransactionObjectEvent.h` declares owned
 identity/change summaries, Finalized and UndoRedo event kinds and shared annotation
 ownership. These contracts contain no editor history or presentation service.
 
@@ -133,11 +132,8 @@ coordinator.
 ordinary virtual Serialize path and shared undo allocations. Properties-only
 observation uses the same archive/property machinery but bypasses native
 Serialize overrides and includes references to generated components. It is not
-a historical transfer payload. The properties-only writer records reference paths directly for
-generation-independent Actor annotation comparisons; ordinary undo
-continues to exclude construction-owned references. See
-[Actor transaction reconstruction](../World/NativeConstruction.md#transaction-reconstruction)
-for observation lifetime, filtering and checked path replacement.
+a historical transfer payload. The properties-only writer records reference paths directly. Ordinary undo
+excludes construction-owned references.
 
 `FDiffableObject::TryGetAllocatedSize` accounts its actual retained identity,
 shared transfer allocations and tagged-range capacity. It shares the transfer

@@ -69,16 +69,7 @@ namespace Durin::Tests::ObjectState
 			: Value(InValue), Reference(InReference), Bytes(InBytes) {}
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override { Reference.AddReferencedObjects(Collector); }
 		auto GetAllocatedSize() const -> size_t override { return Bytes; }
-		auto ComputeAdditionalObjectChanges(const Durin::ITransactionObjectAnnotation* Original) const
-			-> std::vector<std::pair<Durin::DObject*, Durin::FTransactionObjectChange>> override
-		{
-			const auto* Previous = dynamic_cast<const FRecordTestAnnotation*>(Original);
-			if (!bReportChanges || !Reference.Resolve() || (Previous && Previous->Value == Value)) return {};
-			Durin::FTransactionObjectChange Change(Durin::CaptureTransactionObjectIdentity(*Reference.Resolve()), Reference.Resolve()->GetObjectFlags()); Change.bNonPropertyDataChanged = true;
-			return {{Reference.Resolve(), std::move(Change)}};
-		}
 		size_t Bytes;
-		bool bReportChanges = false;
 		int32 Value;
 		Durin::FPersistentObjectRef Reference;
 	};
@@ -317,7 +308,6 @@ namespace Durin::Tests::ObjectState
 			++AnnotationCaptures;
 			if (CaptureTrace) CaptureTrace->push_back("annotation");
 			auto Annotation = std::make_shared<FRecordTestAnnotation>(SupplementalValue, AnnotationReference, AnnotationBytes);
-			Annotation->bReportChanges = bReportAnnotationChanges;
 			if (bRequestCollectionDuringAnnotation) Durin::RequestGarbageCollection();
 			return Annotation;
 		}
@@ -333,7 +323,7 @@ namespace Durin::Tests::ObjectState
 		std::vector<std::string>* CaptureTrace = nullptr;
 		mutable uint32 AnnotationCaptures = 0;
 		size_t AnnotationBytes = sizeof(FRecordTestAnnotation);
-		bool bAnnotationEnabled = false, bRequestCollectionDuringAnnotation = false, bReportAnnotationChanges = false;
+		bool bAnnotationEnabled = false, bRequestCollectionDuringAnnotation = false;
 		int32 SupplementalValue = 0, AnnotationCompletions = 0;
 		Durin::DObject* AnnotationReference = nullptr;
 		int32 UndoBegins = 0;

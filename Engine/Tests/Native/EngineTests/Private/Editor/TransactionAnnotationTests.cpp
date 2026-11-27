@@ -3,118 +3,40 @@
 
 using namespace Durin::Tests::ObjectState;
 
-TEST(FEngineTransactionAnnotationTests, ActorAndGeneratedComponentEventsFollowTransactionEndpoints)
+TEST(FEngineTransactionAnnotationTests, ActorRecordRestoresGeneratedOverrideAndNotifiesOnlyActor)
 {
-	using namespace Durin; using namespace Durin;
+	using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedEvents"); ASSERT_NE(Actor, nullptr);
 	auto Scene = [&] { return static_cast<DTransactionLifecycleScene*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0))); };
-	std::vector<FTransactionObjectEvent> Events;
-	std::vector<FTransactionObjectEvent> ActorEvents;
+	ASSERT_NE(Scene(), nullptr);
+	ASSERT_EQ(Scene()->GetRelativeLocation(), FVector3(0.0));
+	std::vector<ETransactionObjectEventType> Events;
 	Actor->TransactionObserver = [&](const auto& Event) {
 		EXPECT_TRUE(Event.Annotation);
-		EXPECT_EQ(Event.CreatedBy, ETransactionObjectChangeCreatedBy::TransactionRecord);
-		ActorEvents.push_back(Event);
-	};
-	Actor->GeneratedTransactionObserver = [&](auto& Component, const auto& Event) {
-		EXPECT_EQ(&Component, Scene()); EXPECT_TRUE(Component.IsRegistered());
-		EXPECT_EQ(Event.CreatedBy, ETransactionObjectChangeCreatedBy::TransactionAnnotation);
-		EXPECT_EQ(Event.Change.ChangedProperties, std::vector<FName>{"RelativeTransform"});
 		EXPECT_NE(Event.TransactionId, 0u); EXPECT_NE(Event.OperationId, 0u);
-		Events.push_back(Event);
+		EXPECT_FALSE(std::ranges::contains(Event.Change.ChangedProperties, FName("RelativeTransform")));
+		Events.push_back(Event.Type);
 	};
+	Actor->GeneratedTransactionObserver = [](auto&, const auto&) { ADD_FAILURE() << "Actor record notified a generated component"; };
 	Scene()->TransactionObserver = Actor->GeneratedTransactionObserver;
 	const auto Retired = FObjectKey(Scene());
-	ASSERT_EQ(Buffer->Begin("test", "Generated events"), 0); ASSERT_TRUE(Actor->Modify());
+	ASSERT_EQ(Buffer->Begin("test", "Generated override"), 0); ASSERT_TRUE(Actor->Modify());
 	Scene()->SetRelativeLocation({12.0, 0.0, 0.0});
 	ASSERT_TRUE(Actor->RerunConstructionScripts());
-	EXPECT_TRUE(Events.empty()); EXPECT_TRUE(ActorEvents.empty());
-	EXPECT_EQ(Buffer->End(), 1);
-	auto CheckEvents = [&](size_t Count, ETransactionObjectEventType Type) {
-		ASSERT_EQ(ActorEvents.size(), Count); ASSERT_EQ(Events.size(), Count);
-		EXPECT_EQ(ActorEvents.back().Type, Type); EXPECT_EQ(Events.back().Type, Type);
-		EXPECT_EQ(ActorEvents.back().TransactionId, Events.front().TransactionId);
-		EXPECT_EQ(ActorEvents.back().OperationId, Events.back().OperationId);
-	};
-	CheckEvents(1, ETransactionObjectEventType::Finalized);
+	EXPECT_TRUE(Events.empty()); EXPECT_EQ(Buffer->End(), 1);
+	EXPECT_EQ(Events, std::vector{ETransactionObjectEventType::Finalized});
 	CollectGarbage(EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Retired), nullptr);
-	const auto Bytes = Buffer->GetUndoSize();
-	for (size_t Cycle = 0; Cycle < 2; ++Cycle)
+	for (int Cycle = 0; Cycle < 2; ++Cycle)
 	{
-		ASSERT_TRUE(Buffer->Undo());
-		CheckEvents(2 + 2 * Cycle, ETransactionObjectEventType::UndoRedo);
+		Events.clear();
+		ASSERT_TRUE(Buffer->Undo()); ASSERT_NE(Scene(), nullptr);
 		EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(0.0));
-		ASSERT_TRUE(Buffer->Redo());
-		CheckEvents(3 + 2 * Cycle, ETransactionObjectEventType::UndoRedo);
+		ASSERT_TRUE(Buffer->Redo()); ASSERT_NE(Scene(), nullptr);
 		EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(12.0, 0.0, 0.0));
-		EXPECT_EQ(Buffer->GetUndoSize(), Bytes);
+		EXPECT_EQ(Events, (std::vector{ETransactionObjectEventType::UndoRedo, ETransactionObjectEventType::UndoRedo}));
 	}
 	Actor->TransactionObserver = {};
-	Actor->GeneratedTransactionObserver = {}; Scene()->TransactionObserver = {};
-	Buffer->Reset(); EXPECT_EQ(Buffer->GetUndoSize(), 0u);
-}
-
-TEST(FEngineTransactionAnnotationTests, GeneratedComponentReturningToInitialTransformProducesNoAdditionalEvent)
-{
-	using namespace Durin; using namespace Durin;
-	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
-	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedNetZero");
-	auto* Scene = static_cast<DTransactionLifecycleScene*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
-	std::vector<FTransactionObjectEvent> Events;
-	Scene->TransactionObserver = [&](auto&, const auto& Event) { Events.push_back(Event); };
-	ASSERT_EQ(Buffer->Begin("test", "Generated net zero"), 0); ASSERT_TRUE(Actor->Modify());
-	Scene->SetRelativeLocation({7.0, 0.0, 0.0});
-	EXPECT_TRUE(Events.empty());
-	Scene->SetRelativeLocation({0.0, 0.0, 0.0}); EXPECT_EQ(Buffer->End(), 1);
-	EXPECT_TRUE(Events.empty());
-	Scene->TransactionObserver = {};
-}
-
-TEST(FEngineTransactionAnnotationTests, ComponentObservationFiltersConstructionTransformsAndReportsLiveAdditions)
-{
-	using namespace Durin;
-	FTransactionEngineWorld Fixture;
-	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedObservationPolicy");
-	FActorTransactionAnnotation Before(*Actor);
-	Actor->ConstructionLocation = FVector3(9.0, 0.0, 0.0); Actor->GeneratedCount = 2;
-	ASSERT_TRUE(Actor->RerunConstructionScripts());
-	FActorTransactionAnnotation After(*Actor);
-	auto Changes = After.ComputeAdditionalObjectChanges(&Before);
-	ASSERT_EQ(Changes.size(), 1u);
-	EXPECT_EQ(Changes[0].first, Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(1)));
-	EXPECT_TRUE(Changes[0].second.bEditorPresenceChanged);
-	EXPECT_FALSE(std::ranges::contains(Changes[0].second.ChangedProperties, FName("RelativeTransform")));
-	EXPECT_FALSE(std::ranges::contains(Changes[0].second.ChangedProperties, FName("CreationMethod")));
-	Actor->SetRootComponent(static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0))));
-	Changes = After.ComputeAdditionalObjectChanges(&Before);
-	EXPECT_TRUE(std::ranges::any_of(Changes, [](const auto& Change) { return std::ranges::contains(Change.second.ChangedProperties, FName("RelativeTransform")); }));
-	Actor->GeneratedCount = 0; ASSERT_TRUE(Actor->RerunConstructionScripts());
-	FActorTransactionAnnotation Removed(*Actor); EXPECT_TRUE(Removed.ComputeAdditionalObjectChanges(&After).empty());
-}
-
-TEST(FEngineTransactionAnnotationTests, GeneratedAttachmentReferencesUsePathsAndDoNotRetainRetiredGenerations)
-{
-	using namespace Durin; using namespace Durin;
-	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
-	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedAttachmentEvents");
-	Actor->GeneratedCount = 2; ASSERT_TRUE(Actor->RerunConstructionScripts());
-	auto Parent = [&] { return static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0))); };
-	auto Child = [&] { return static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(1))); };
-	ASSERT_TRUE(Child()->AttachToComponent(Parent(), EAttachmentTransformRule::KeepRelative));
-	ASSERT_EQ(Buffer->Begin("test", "Generated attachment observation"), 0); ASSERT_TRUE(Actor->Modify());
-	const auto OldParent = FObjectKey(Parent()), OldChild = FObjectKey(Child());
-	FActorTransactionAnnotation Before(*Actor);
-	ASSERT_TRUE(Actor->RerunConstructionScripts());
-	ASSERT_TRUE(Child()->AttachToComponent(Parent(), EAttachmentTransformRule::KeepRelative));
-	FActorTransactionAnnotation After(*Actor);
-	EXPECT_TRUE(After.ComputeAdditionalObjectChanges(&Before).empty());
-	EXPECT_EQ(Buffer->End(), 1);
-	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OldParent), nullptr); EXPECT_EQ(ResolveObjectKey(OldChild), nullptr);
-	ASSERT_TRUE(Child()->DetachFromComponent(EDetachmentTransformRule::KeepRelative));
-	FActorTransactionAnnotation Detached(*Actor);
-	const auto Changes = Detached.ComputeAdditionalObjectChanges(&After);
-	ASSERT_EQ(Changes.size(), 1u); EXPECT_EQ(Changes[0].first, Child());
-	EXPECT_EQ(Changes[0].second.ChangedProperties, std::vector<FName>{"AttachParent"});
 }
 
 TEST(FTransBufferTests, AnnotationOnlyHistoryRestoresDesiredSideAndFlipsLiveSupplementalState)
@@ -204,7 +126,12 @@ TEST(FEngineTransactionAnnotationTests, StandaloneComponentRecordsAuthoredFields
 		Component->SetComponentTickEnabled(true);
 	}
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-	Component->TransactionObserver = [](auto&, const FTransactionObjectEvent& Event) { EXPECT_FALSE(Event.Annotation); };
+	std::vector<ETransactionObjectEventType> Events;
+	Component->TransactionObserver = [&](auto& Target, const FTransactionObjectEvent& Event) {
+		EXPECT_EQ(&Target, Component.Get()); EXPECT_FALSE(Event.Annotation);
+		EXPECT_EQ(Event.Change.ChangedProperties, std::vector<FName>{"RelativeTransform"});
+		Events.push_back(Event.Type);
+	};
 	const auto Before = Component->GetRelativeLocation();
 	{
 		Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Move component"});
@@ -216,6 +143,7 @@ TEST(FEngineTransactionAnnotationTests, StandaloneComponentRecordsAuthoredFields
 	EXPECT_EQ(Component->GetRelativeLocation(), Before); EXPECT_FALSE(Component->IsComponentTickEnabled());
 	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_EQ(Component->GetRelativeLocation().x, 17.0);
+	EXPECT_EQ(Events, (std::vector{ETransactionObjectEventType::Finalized, ETransactionObjectEventType::UndoRedo, ETransactionObjectEventType::UndoRedo}));
 }
 
 TEST(FEngineTransactionAnnotationTests, ActorReplayUsesNormalComponentRegistrationAndPreservesLiveComponentTick)

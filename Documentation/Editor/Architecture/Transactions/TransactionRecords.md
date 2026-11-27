@@ -107,12 +107,11 @@ observation and annotation ownership.
 
 Finalize compares the initial and final captures. An edit that returns to its initial
 value contributes no field difference. Events carry the original capture identity and
-the live transaction and operation IDs. Annotation changes compare the same endpoints.
+the live transaction and operation IDs.
 Ordinary replay events use the stored finalized delta. Resurrection also compares
 the live object after completion with its native archetype.
-Actor annotations now supply generated-component additional changes through this
-same path; their property-only observations, construction filtering and reference
-path matching are owned by
+Each whole-object record delivers its event to its own target. Actor annotations supply
+component and attachment state for
 [native construction](../../../Runtime/World/NativeConstruction.md#transaction-reconstruction).
 
 An always-serialized reflected property marked `ValidateTransactionSource=true` opts into Durin's
@@ -195,7 +194,7 @@ Immutable serialized payloads use copy-on-write when embedded object keys change
 Weak slots are remapped without adding GC ownership. Commands and ordinary
 annotations expose writable references through `AddReferencedObjects`; the
 buffer retains their instances. Actor annotations additionally remap
-typed reconstruction data, including historical paths of absent generated objects.
+the Actor target, typed instance data and historical root and attachment endpoints.
 
 Explicit instance maps update mapped references on both sides of the cursor.
 Unmapped peers keep their existing state. Package reload also makes eligible

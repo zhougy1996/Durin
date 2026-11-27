@@ -11,7 +11,6 @@ namespace Durin
 	class DObject;
 
 	enum class ETransactionObjectEventType : uint8 { Finalized, UndoRedo };
-	enum class ETransactionObjectChangeCreatedBy : uint8 { TransactionRecord, TransactionAnnotation };
 
 	// Owns an object's original identity and actual changed-field summary.
 	struct FTransactionObjectChange : FTransactionObjectId
@@ -25,9 +24,8 @@ namespace Durin
 		bool bOuterChanged = false;
 		bool bNonPropertyDataChanged = false;
 		bool bHasPendingKillChange = false;
-		bool bEditorPresenceChanged = false;
 		auto HasChanges() const -> bool
-		{ return !ChangedProperties.empty() || bNameChanged || bOuterChanged || bNonPropertyDataChanged || bHasPendingKillChange || bEditorPresenceChanged; }
+		{ return !ChangedProperties.empty() || bNameChanged || bOuterChanged || bNonPropertyDataChanged || bHasPendingKillChange; }
 	};
 
 	// Delivered synchronously while the operation context and annotation are live.
@@ -39,6 +37,5 @@ namespace Durin
 		ETransactionObjectEventType Type = ETransactionObjectEventType::Finalized;
 		FTransactionObjectChange Change;
 		std::shared_ptr<ITransactionObjectAnnotation> Annotation;
-		ETransactionObjectChangeCreatedBy CreatedBy = ETransactionObjectChangeCreatedBy::TransactionRecord;
 	};
 }

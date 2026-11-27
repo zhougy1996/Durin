@@ -487,24 +487,10 @@ namespace Durin
 					Object->PostEditUndo(Annotation);
 				else Object->PostEditUndo();
 			}
-			std::expected<FObjectEvents, std::string> Events;
 			if (const auto* Whole = std::get_if<FWholeObjectData>(&Record->Data))
-				Events = Whole->BuildObjectEvents(GetContext(), Type, Annotation);
-			else continue;
-			if (!Events) throw std::runtime_error(Events.error());
-			if (auto Sent = DispatchObjectEvents(*Events); !Sent) throw std::runtime_error(Sent.error());
+				if (auto Sent = Whole->NotifyObject(GetContext(), Type, Annotation); !Sent)
+					throw std::runtime_error(Sent.error());
 		}
-	}
-
-	auto FTransaction::DispatchObjectEvents(const FObjectEvents& Events) -> FTransactionCaptureResult
-	{
-		for (auto& [Target, Event] : Events)
-		{
-			auto* Object = Target.Get();
-			if (!Object) return std::unexpected("Transaction event target became unavailable.");
-			Object->PostTransacted(Event);
-		}
-		return {};
 	}
 
 

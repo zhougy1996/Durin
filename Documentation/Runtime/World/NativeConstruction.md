@@ -215,31 +215,16 @@ reconstruction request, activates the Actor in its owning Level, and publishes t
 full-object completion. Already settled registration/creation/initialization
 states do not run their callbacks again. Restored members of an active Level follow normal registration even if they were manually unregistered before the edit.
 
-`FActorTransactionAnnotation::CreateIfRequired` and `HasInstanceData` omit an
-Actor annotation when it has no component instance data, root recovery data or generated component observations.
+`FActorTransactionAnnotation::CreateIfRequired` retains an annotation when the Actor
+has generated components, instance overrides or root recovery data. An empty
+instance cache on a recorded side restores construction defaults for that side.
 Class defaults expose the reflected `PrimaryActorTick.TickGroup` property. Ordinary Actor serialization
 and transactions capture its value. Runtime Tick enablement stays live across replay, and Level membership governs registration.
 Previous annotation snapshots retain their external-child capture scope.
 
-Actor annotations also retain `FDiffableComponentInfo` observations for generated
-components, matching UE's construction-script component event policy. Native and
-instance components report through their own object records; child-Actor support
-is not implemented. Observations use the shared serializer and diff engine, with
-reference slots projected to path FNames as in UE's diffable writer. The annotation uses these observations to compute events
-for live components after reconstruction. The shared instance-source matcher pairs each
-live generated component with the captured generation. Construction-owned
-`CreationMethod` and construction-modified `RelativeTransform` are excluded;
-the current root's relative transform remains observable. A newly generated live
-component reports presence and its captured fields, without an unsupported
-archetype comparison; removed components have no live event target.
-
-These changes feed the existing annotation additional-change contract for
-Finalize and UndoRedo. Each comparison uses the annotations at the two endpoints.
-Replay observes components after Actor reconciliation. Retained observation
-allocations count toward annotation memory, and checked graph replacement remaps
-their metadata and reference paths without live serialization or construction.
-Source matching permits a generated key to be temporarily absent. Replaced
-annotations remain independent of the original immutable snapshot.
+An Actor record delivers `PostTransacted` only to that Actor. A persistent
+component receives a transaction event from its own whole-object record.
+Recreating a generated component runs its normal construction and registration callbacks.
 
 Actor annotations compose the shared component cache and root reconstruction
 data. The shared root data reconciles root identity and conditionally captures a

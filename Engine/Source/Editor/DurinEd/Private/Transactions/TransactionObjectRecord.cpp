@@ -224,14 +224,13 @@ namespace Durin
 		SerializedObject.swap(SerializedObjectFlip);
 	}
 
-	auto FTransaction::FWholeObjectData::BuildObjectEvents(const FTransactionContext& Context,
+	auto FTransaction::FWholeObjectData::NotifyObject(const FTransactionContext& Context,
 		ETransactionObjectEventType Type, const std::shared_ptr<ITransactionObjectAnnotation>& CurrentAnnotation) const
-		-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>
+		-> FTransactionCaptureResult
 	{
-		std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>> Events;
-		if (!FinalizedChange && !CurrentAnnotation) return Events;
+		if (!FinalizedChange && !CurrentAnnotation) return {};
 		auto* Object = Target.Get();
-		if (!Object) return Events;
+		if (!Object) return {};
 		const auto& Baseline = SerializedObject;
 		FTransactionObjectChange Change = FinalizedChange.value_or(FTransactionObjectChange{});
 		static_cast<FTransactionObjectId&>(Change) = Baseline->Observation.ObjectInfo.Identity;
@@ -247,24 +246,10 @@ namespace Durin
 			if (!Diff) return std::unexpected(Diff.error());
 			Change = std::move(*Diff);
 		}
-		const auto& OriginalAnnotation = Baseline->GetAnnotation();
-		auto Add = [&](FPersistentObjectRef TargetRef, FTransactionObjectChange Value, std::shared_ptr<ITransactionObjectAnnotation> Annotation) {
-			Events.emplace_back(TargetRef, FTransactionObjectEvent{Context.TransactionId, Context.OperationId, Type, std::move(Value), std::move(Annotation)});
-		};
-		Add(Target, std::move(Change), CurrentAnnotation);
-		if (CurrentAnnotation)
-		{
-			for (auto& [AdditionalObject, AdditionalChange] : CurrentAnnotation->ComputeAdditionalObjectChanges(OriginalAnnotation.get()))
-			{
-				if (!IsValid(AdditionalObject)) return std::unexpected("An annotation reported an unavailable event target.");
-				if (AdditionalChange.HasChanges())
-				{
-					Add(FPersistentObjectRef(AdditionalObject), std::move(AdditionalChange), {});
-					Events.back().second.CreatedBy = ETransactionObjectChangeCreatedBy::TransactionAnnotation;
-				}
-			}
-		}
-		return Events;
+		Object = Target.Get();
+		if (!Object) return std::unexpected("Transaction event target became unavailable.");
+		Object->PostTransacted({Context.TransactionId, Context.OperationId, Type, std::move(Change), CurrentAnnotation});
+		return {};
 	}
 
 	auto FTransaction::FWholeObjectData::AddReferencedObjects(FReferenceCollector& Collector) const -> void

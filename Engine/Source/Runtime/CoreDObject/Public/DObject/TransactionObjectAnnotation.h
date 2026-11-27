@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "CoreDObjectAPI.h"
-#include "DObject/TransactionObjectEvent.h"
 #include "Misc/Transaction.h"
 
 namespace Durin
@@ -29,8 +28,6 @@ namespace Durin
 		COREDOBJECT_API virtual auto CreateSnapshot(const DObject& Object) const -> std::shared_ptr<ITransactionObjectAnnotation>;
 		// Typed reconstruction caches also rebind encoded component identities.
 		COREDOBJECT_API virtual auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
-		virtual auto ComputeAdditionalObjectChanges(const ITransactionObjectAnnotation* Original) const
-			-> std::vector<std::pair<DObject*, FTransactionObjectChange>> { return {}; }
 	};
 	COREDOBJECT_API auto ReinstanceTransactionAnnotation(const std::shared_ptr<ITransactionObjectAnnotation>& Source,
 		const FObjectReplacementMap& Map) -> FTransactionCaptureResult;

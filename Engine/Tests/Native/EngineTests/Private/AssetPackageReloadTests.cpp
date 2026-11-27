@@ -349,9 +349,9 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadInvalidatesNestedCallersUntilExpl
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	const auto Name = Function->GetFName();
 	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "ReloadWrapper"));
-	const auto Output = Function->GetFunctionSignature().Outputs[0];
 	const FGuid InnerCall{61, 1, 1, 1}, RootCall{61, 1, 1, 2};
 	ASSERT_TRUE(ConnectFunction(*Wrapper, *Function, InnerCall));
+	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "ReloadFunctionCaller"));
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "ReloadFunctionInstance"));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);

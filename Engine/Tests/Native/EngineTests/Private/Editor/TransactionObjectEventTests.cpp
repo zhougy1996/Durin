@@ -199,13 +199,13 @@ TEST(FTransactionObjectEventTests, ReplayObserverFaultIsTerminal)
 	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }
 
-TEST(FTransactionObjectEventTests, RecordAndAnnotationEventsFollowEachObjectInOperationOrder)
+TEST(FTransactionObjectEventTests, EachRecordNotifiesOnlyItsTargetInOperationOrder)
 {
 	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> First(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationEventOwner"));
 	TStrongObjectPtr<DTransactionRecordParticipant> Second(NewObject<DTransactionRecordParticipant>(First.Get(), "AnnotationEventPeer"));
-	First->bAnnotationEnabled = First->bReportAnnotationChanges = true; First->AnnotationReference = Second.Get();
+	First->bAnnotationEnabled = true; First->AnnotationReference = Second.Get();
 	std::vector<std::string> Trace; std::vector<FTransactionObjectEvent> PeerEvents;
 	First->Trace = [&](std::string_view Phase) { Trace.push_back(std::string(Phase) + "1"); };
 	Second->Trace = [&](std::string_view Phase) { Trace.push_back(std::string(Phase) + "2"); };
@@ -214,15 +214,13 @@ TEST(FTransactionObjectEventTests, RecordAndAnnotationEventsFollowEachObjectInOp
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Record and annotation events"}); ASSERT_TRUE(First->Modify()); ASSERT_TRUE(Second->Modify()); First->SupplementalValue = 2; Second->Value = 7;
 
 	}
-	ASSERT_EQ(PeerEvents.size(), 2u); EXPECT_EQ(Trace, (std::vector<std::string>{"event1", "event2", "event2"}));
-	EXPECT_TRUE(PeerEvents[0].Change.bNonPropertyDataChanged); EXPECT_EQ(PeerEvents[0].CreatedBy, ETransactionObjectChangeCreatedBy::TransactionAnnotation);
+	ASSERT_EQ(PeerEvents.size(), 1u); EXPECT_EQ(Trace, (std::vector<std::string>{"event1", "event2"}));
 	EXPECT_FALSE(PeerEvents.back().Change.bNonPropertyDataChanged); EXPECT_EQ(PeerEvents.back().Change.ChangedProperties, std::vector<FName>{"Value"});
-	EXPECT_EQ(PeerEvents.back().CreatedBy, ETransactionObjectChangeCreatedBy::TransactionRecord);
 	EXPECT_FALSE(PeerEvents.back().Annotation); EXPECT_EQ(PeerEvents.back().Change.OriginalName, Second->GetFName());
 	Trace.clear(); ASSERT_TRUE(Buffer->Undo());
-	EXPECT_EQ(Trace, (std::vector<std::string>{"pre2", "pre1", "post2", "event2", "post1", "event1", "event2"}));
-	ASSERT_EQ(PeerEvents.size(), 4u); EXPECT_FALSE(PeerEvents[2].Change.bNonPropertyDataChanged); EXPECT_TRUE(PeerEvents[3].Change.bNonPropertyDataChanged);
+	EXPECT_EQ(Trace, (std::vector<std::string>{"pre2", "pre1", "post2", "event2", "post1", "event1"}));
+	ASSERT_EQ(PeerEvents.size(), 2u); EXPECT_FALSE(PeerEvents.back().Change.bNonPropertyDataChanged);
 	EXPECT_EQ(First->SupplementalValue, 0); EXPECT_EQ(Second->Value, 0);
 	Trace.clear(); ASSERT_TRUE(Buffer->Redo());
-	EXPECT_EQ(Trace, (std::vector<std::string>{"pre1", "pre2", "post1", "event1", "event2", "post2", "event2"}));
+	EXPECT_EQ(Trace, (std::vector<std::string>{"pre1", "pre2", "post1", "event1", "post2", "event2"}));
 }
