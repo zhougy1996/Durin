@@ -6,35 +6,15 @@
 
 namespace Durin
 {
-	namespace
-	{
-		constexpr uint64 SnapshotKeyBytes = 2 * sizeof(uint32);
-		auto ReadSnapshotReference(const FSerializedObjectCapture& Source, const FSerializedObjectReferenceSlot& Slot)
-			-> std::expected<FObjectKey, std::string>
-		{
-			if (!Source.Data || Slot.Offset > Source.Data->Bytes.size() || Source.Data->Bytes.size() - Slot.Offset < SnapshotKeyBytes)
-				return std::unexpected("Replacement reference layout is invalid.");
-			FObjectMemoryReader Reader(FByteView(Source.Data->Bytes).subspan(Slot.Offset, SnapshotKeyBytes), EArchivePurpose::Transaction);
-			FObjectKey Key; Key.SerializeForSnapshot(Reader);
-			if (Reader.IsError() || Reader.GetRemainingPayloadBytes())
-				return std::unexpected("Replacement reference encoding is invalid.");
-			return Key;
-		}
-	}
-
 	auto FSerializedObjectCapture::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
 	{
 		for (const auto* Reference : {&Info.Target, &Info.Class, &Info.Outer, &Info.Package})
 			if (Map.Find(Reference->Resolve())) return true;
 		if (Data)
-			for (const auto& Reference : Data->HardReferences) if (Map.Find(Reference.Resolve())) return true;
-		if (Context)
-			for (const auto& Slot : Context->ReferenceSlots) if (Slot.bWeak)
-			{
-				auto Key = ReadSnapshotReference(*this, Slot);
-				// Invalid data requires checked preparation, never a silent skip.
-				if (!Key || Map.Find(ResolveObjectKey(*Key))) return true;
-			}
+		{
+			for (const auto& Ref : Data->ReferencedObjects) if (Map.Find(Ref.Resolve())) return true;
+			for (const auto& Key : Data->WeakReferencedObjects) if (Map.Find(ResolveObjectKey(Key))) return true;
+		}
 		return false;
 	}
 
@@ -49,52 +29,26 @@ namespace Durin
 			if (!Replacement) return std::unexpected(Replacement.error());
 			*Reference = std::move(*Replacement);
 		}
-		// The archive records positions as it writes references. Opaque native bytes
-		// and capture-time identity are never searched for pointer/key patterns.
-		constexpr uint64 KeyBytes = SnapshotKeyBytes;
-		std::vector<FObjectKey> BeforeHard;
-		std::vector<FPersistentObjectRef> AfterHard;
 		std::shared_ptr<FSerializedObject> Data;
-		uint64 End = 0;
-		for (const auto& Slot : Source.Context->ReferenceSlots)
+		for (size_t Index = 0; Index < Source.Data->ReferencedObjects.size(); ++Index)
 		{
-			if (Slot.Offset < End || Slot.Offset > Source.Data->Bytes.size()
-				|| Source.Data->Bytes.size() - Slot.Offset < KeyBytes)
-				return std::unexpected("Replacement reference layout is invalid.");
-			End = Slot.Offset + KeyBytes;
-			auto Decoded = ReadSnapshotReference(Source, Slot);
-			if (!Decoded) return std::unexpected(Decoded.error());
-			const auto Before = *Decoded;
-			auto After = Slot.bWeak || Before.IsNull() ? Map.RemapObjectKey(Before, Slot.bWeak)
-				: std::expected<FObjectKey, FObjectReplacementError>{Before};
-			if (!After) return std::unexpected(ToString(After.error()));
-			if (!Slot.bWeak)
-			{
-				if (!Before.IsNull() && !std::ranges::contains(BeforeHard, Before)) BeforeHard.push_back(Before);
-				if (!Before.IsNull())
-				{
-					const auto Reference = std::ranges::find(Source.Data->HardReferences, Before, &FPersistentObjectRef::GetKey);
-					if (Reference == Source.Data->HardReferences.end()) return std::unexpected("Replacement hard reference is not declared.");
-					auto Replacement = Reference->CreateReplacement(Map);
-					if (!Replacement) return std::unexpected(Replacement.error());
-					After = Replacement->GetKey();
-					if (!std::ranges::contains(AfterHard, *Replacement)) AfterHard.push_back(std::move(*Replacement));
-				}
-			}
-			if (*After != Before)
-			{
-				if (!Data) Data = std::make_shared<FSerializedObject>(*Source.Data);
-				FByteBuffer Encoded;
-				FObjectMemoryWriter Writer(Encoded, EArchivePurpose::Transaction);
-				After->SerializeForSnapshot(Writer);
-				if (Writer.IsError() || Encoded.size() != KeyBytes)
-					return std::unexpected("Replacement reference encoding changed width.");
-				std::copy(Encoded.begin(), Encoded.end(), Data->Bytes.begin() + Slot.Offset);
-			}
+			const auto& Reference = Source.Data->ReferencedObjects[Index];
+			auto Replacement = Reference.CreateReplacement(Map);
+			if (!Replacement) return std::unexpected(Replacement.error());
+			if (Reference.GetKey() == Replacement->GetKey() && Reference == *Replacement) continue;
+			if (!Data) Data = std::make_shared<FSerializedObject>(*Source.Data);
+			Data->ReferencedObjects[Index] = std::move(*Replacement);
 		}
-		if (!std::ranges::equal(BeforeHard, Source.Data->HardReferences, {}, std::identity{}, &FPersistentObjectRef::GetKey))
-			return std::unexpected("Replacement reference layout does not cover the capture's hard references.");
-		if (Data) { Data->HardReferences = std::move(AfterHard); Result.Data = std::move(Data); }
+		for (size_t Index = 0; Index < Source.Data->WeakReferencedObjects.size(); ++Index)
+		{
+			const auto Key = Source.Data->WeakReferencedObjects[Index];
+			auto Replacement = Map.RemapObjectKey(Key, true);
+			if (!Replacement) return std::unexpected(ToString(Replacement.error()));
+			if (Key == *Replacement) continue;
+			if (!Data) Data = std::make_shared<FSerializedObject>(*Source.Data);
+			Data->WeakReferencedObjects[Index] = *Replacement;
+		}
+		if (Data) Result.Data = std::move(Data);
 		auto* Target = Result.Info.Target.Resolve();
 		if (!Target) return std::unexpected("Replacement capture target is unavailable.");
 		if (auto Valid = ValidateSerializedObject(*Target, Result); !Valid) return std::unexpected(Valid.error());

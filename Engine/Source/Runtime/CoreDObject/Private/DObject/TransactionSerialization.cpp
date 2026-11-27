@@ -128,12 +128,6 @@ namespace Durin
 			auto IsCurrentFieldAvailable() const -> bool override
 			{ return Available.empty() || Available.back(); }
 			auto GetStructBaseline() -> EArchiveStructBaseline override { return EArchiveStructBaseline::Parent; }
-			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
-			{
-				if (!IsCurrentFieldAvailable()) return;
-				auto Key = Value.GetKey(); Key.SerializeForSnapshot(*this);
-				if (IsLoading() && !IsError()) Value.SetKey(Key);
-			}
 			FByteBuffer Schema;
 			std::vector<FSerializedTaggedData> Fields;
 		protected:
@@ -183,13 +177,13 @@ namespace Durin
 	class FSerializedObjectDataWriter final : public FTransactionArchive
 	{
 	public:
-		FSerializedObjectDataWriter(DObject& Object, FSerializedObject& InData, FTransactionSerializationContext& Context, bool FrozenPolicy, bool PropertiesOnly, const FDefaultObjectGraphMap* InGraph)
-			: FTransactionArchive(Object, false, Context.ExcludedMembers), Data(InData), References(Context.ReferenceSlots), bFrozenPolicy(FrozenPolicy), bPropertiesOnly(PropertiesOnly), Graph(InGraph) {}
+		FSerializedObjectDataWriter(DObject& Object, FSerializedObject& InData, FByteBuffer& InBytes, FTransactionSerializationContext& Context, bool FrozenPolicy, bool PropertiesOnly, const FDefaultObjectGraphMap* InGraph)
+			: FTransactionArchive(Object, false, Context.ExcludedMembers), Data(InData), Bytes(InBytes), References(Context.ReferenceSlots), bFrozenPolicy(FrozenPolicy), bPropertiesOnly(PropertiesOnly), Graph(InGraph) {}
 
-		auto Tell() const -> uint64 override { return Data.Bytes.size(); }
-		auto SerializeRawBytes(FMutableByteView Bytes) -> void override
+		auto Tell() const -> uint64 override { return Bytes.size(); }
+		auto SerializeRawBytes(FMutableByteView Value) -> void override
 		{
-			if (!IsError() && IsCurrentFieldAvailable()) Data.Bytes.insert(Data.Bytes.end(), Bytes.begin(), Bytes.end());
+			if (!IsError() && IsCurrentFieldAvailable()) Bytes.insert(Bytes.end(), Value.begin(), Value.end());
 		}
 		auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
 		{
@@ -198,16 +192,38 @@ namespace Durin
 			auto Key = Value.GetKey();
 			if (Graph)
 				if (const auto* Instance = Graph->FindInstance(Value.Get())) Key = FObjectKey(Instance);
-			Key.SerializeForSnapshot(*this);
+			if (bPropertiesOnly) WritePath(Value.Get());
+			else WriteIndex(Data.WeakReferencedObjects, Key, Key.IsNull(), std::identity{});
 		}
 		auto SerializeObjectReference(DObject*& Value) -> void override
 		{
 			if (!IsCurrentFieldAvailable()) return;
 			References.push_back({Tell(), false});
+			if (bPropertiesOnly) { WritePath(Value); return; }
 			const auto* Instance = Graph ? Graph->FindInstance(Value) : nullptr;
-			FObjectKey Key(Instance ? Instance : Value); Key.SerializeForSnapshot(*this);
-			const FPersistentObjectRef Reference(Value);
-			if (!Reference.IsNull() && !std::ranges::contains(Data.HardReferences, Reference)) Data.HardReferences.push_back(Reference);
+			FPersistentObjectRef Reference(Instance ? const_cast<DObject*>(Instance) : Value);
+			WriteIndex(Data.ReferencedObjects, Reference, Reference.IsNull(), &FPersistentObjectRef::GetKey);
+		}
+	private:
+		auto WritePath(DObject* Value) -> void
+		{
+			const FName Path = Value ? FName(Value->GetObjectPath()) : FName();
+			uint64 Token = (Path.IsNone() ? 0 : Path.GetComparisonNameEntry()->GetComparisonId().GetValue())
+				| (uint64(Path.GetNumber()) << 32);
+			*this << Token;
+		}
+		template<typename T, typename Projection>
+		auto WriteIndex(std::vector<T>& Table, const T& Value, bool IsNull, Projection Key) -> void
+		{
+			int32 Index = -1;
+			if (!IsNull)
+			{
+				auto Found = std::ranges::find(Table, std::invoke(Key, Value), Key);
+				if (Found - Table.begin() > std::numeric_limits<int32>::max()) { SetError("Transaction reference table overflow."); return; }
+				Index = static_cast<int32>(Found - Table.begin());
+				if (Found == Table.end()) Table.push_back(Value);
+			}
+			*this << Index;
 		}
 	protected:
 		auto OnResolvePropertySaveValue(FProperty& Property, const void* Container, uint32 Index,
@@ -229,6 +245,7 @@ namespace Durin
 		}
 	private:
 		FSerializedObject& Data;
+		FByteBuffer& Bytes;
 		std::vector<FSerializedObjectReferenceSlot>& References;
 		bool bFrozenPolicy;
 		bool bPropertiesOnly;
@@ -243,24 +260,36 @@ namespace Durin
 		auto RestoreMetadata() -> void
 		{ Object.RestoreTransactionMetadata(State.Info.Identity.OriginalName, State.Info.Outer.Get(), State.Info.Flags); }
 		auto Tell() const -> uint64 override { return Offset; }
-		auto GetRemainingPayloadBytes() const -> uint64 override { return State.Data->Bytes.size() - Offset; }
+		auto GetRemainingPayloadBytes() const -> uint64 override { return State.Data->SerializedData->size() - Offset; }
 		auto SerializeRawBytes(FMutableByteView Bytes) -> void override
 		{
 			if (IsError() || !IsCurrentFieldAvailable()) return;
 			if (Bytes.size() > GetRemainingPayloadBytes()) { SetError("Truncated transaction object state."); return; }
-			if (!Bytes.empty()) std::memcpy(Bytes.data(), State.Data->Bytes.data() + Offset, Bytes.size());
+			if (!Bytes.empty()) std::memcpy(Bytes.data(), State.Data->SerializedData->data() + Offset, Bytes.size());
 			Offset += Bytes.size();
 		}
 		auto SerializeObjectReference(DObject*& Value) -> void override
 		{
 			if (!IsCurrentFieldAvailable()) return;
-			FObjectKey Key; Key.SerializeForSnapshot(*this);
+			auto Index = ReadIndex(State.Data->ReferencedObjects.size());
 			if (IsError()) return;
-			const auto Reference = std::ranges::find(State.Data->HardReferences, Key, &FPersistentObjectRef::GetKey);
-			Value = Key.IsNull() || Reference == State.Data->HardReferences.end() ? nullptr : Reference->Get();
-			if (!Key.IsNull() && !Value) SetError("A transaction hard reference no longer resolves.");
+			Value = Index < 0 ? nullptr : State.Data->ReferencedObjects[Index].Get();
+			if (Index >= 0 && !Value) SetError("A transaction hard reference no longer resolves.");
+		}
+		auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
+		{
+			if (!IsCurrentFieldAvailable()) return;
+			auto Index = ReadIndex(State.Data->WeakReferencedObjects.size());
+			if (!IsError()) Value.SetKey(Index < 0 ? FObjectKey{} : State.Data->WeakReferencedObjects[Index]);
 		}
 	private:
+		auto ReadIndex(size_t Count) -> int32
+		{
+			int32 Index = -1;
+			*this << Index;
+			if (Index < -1 || (Index >= 0 && static_cast<size_t>(Index) >= Count)) SetError("Invalid transaction reference index.");
+			return Index;
+		}
 		const FSerializedObjectCapture& State;
 		uint64 Offset = 0;
 	};
@@ -278,7 +307,8 @@ namespace Durin
 		DObjectForceRegistration(Object.GetClass());
 		if (!IsValid(Object.GetClass())) return std::unexpected("Transaction class metadata is unavailable.");
 		FSerializedObjectCapture State;
-		auto Data = std::make_shared<FSerializedObject>();
+		auto Bytes = std::make_shared<FByteBuffer>();
+		auto Data = std::make_shared<FSerializedObject>(Bytes);
 		auto Context = std::make_shared<FTransactionSerializationContext>();
 		State.Info.Target = FPersistentObjectRef(&Object);
 		State.Info.Class = FPersistentObjectRef(Object.GetClass());
@@ -290,7 +320,8 @@ namespace Durin
 		else Context->ExcludedMembers.assign(ExcludedMembers.begin(), ExcludedMembers.end());
 		try
 		{
-			FSerializedObjectDataWriter Writer(Object, *Data, *Context, CapturePolicy != nullptr, bPropertiesOnly, Graph);
+			Context->bUsesReferencePaths = bPropertiesOnly;
+			FSerializedObjectDataWriter Writer(Object, *Data, *Bytes, *Context, CapturePolicy != nullptr, bPropertiesOnly, Graph);
 			{
 				auto Scope = Writer.EnterObject(Object);
 				if (!Writer.IsError())
@@ -352,6 +383,8 @@ namespace Durin
 	static auto ValidateSerializedObjectIdentity(DObject& Object, const FSerializedObjectCapture& Capture) -> FTransactionCaptureResult
 	{
 		if (!Capture.Data || !Capture.Context) return std::unexpected("Transaction capture is incomplete.");
+		if (Capture.Context->bUsesReferencePaths) return std::unexpected("A path observation cannot be replayed.");
+		if (auto Layout = VisitTransactionReferenceIndices(*Capture.Data, *Capture.Context, [](auto&, int32) {}); !Layout) return Layout;
 		if (Capture.Info.Target.Get() != &Object)
 			return std::unexpected("Transaction object identity is no longer available.");
 		if (Capture.Info.Class.Resolve() != Object.GetClass()) return std::unexpected("Transaction object class is no longer compatible.");
@@ -367,7 +400,7 @@ namespace Durin
 			return std::unexpected("Transaction replay cannot restore object construction flags.");
 		for (auto* Parent = Capture.Info.Outer.Get(); Parent; Parent = Parent->GetOuter())
 			if (Parent == &Object) return std::unexpected("Transaction object Outer would create a cycle.");
-		for (const auto& Reference : Capture.Data->HardReferences)
+		for (const auto& Reference : Capture.Data->ReferencedObjects)
 			if (!Reference.IsNull() && !Reference.Get()) return std::unexpected("A transaction object hard reference expired.");
 		return {};
 	}
@@ -394,9 +427,18 @@ namespace Durin
 		if (Reader.IsError()) throw std::runtime_error(std::string(Reader.GetError()));
 	}
 
+	auto FSerializedObject::operator==(const FSerializedObject& Other) const -> bool
+	{
+		return (SerializedData == Other.SerializedData || *SerializedData == *Other.SerializedData)
+			&& WeakReferencedObjects == Other.WeakReferencedObjects
+			&& std::ranges::equal(ReferencedObjects, Other.ReferencedObjects, [](const auto& A, const auto& B) {
+				return A.GetKey() == B.GetKey() && A == B;
+			});
+	}
+
 	auto FSerializedObject::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
-		for (const auto& Reference : HardReferences) Reference.AddReferencedObjects(Collector);
+		for (const auto& Reference : ReferencedObjects) Reference.AddReferencedObjects(Collector);
 	}
 
 	auto FSerializedObjectInfo::AddReferencedObjects(FReferenceCollector& Collector) const -> void
@@ -407,7 +449,7 @@ namespace Durin
 
 	auto FTransactionSerializationContext::IsCompatibleWith(const FTransactionSerializationContext& Other) const -> bool
 	{
-		return Schema == Other.Schema && Versions.CustomVersions == Other.Versions.CustomVersions
+		return bUsesReferencePaths == Other.bUsesReferencePaths && Schema == Other.Schema && Versions.CustomVersions == Other.Versions.CustomVersions
 			&& std::ranges::equal(Versions.Formats, Other.Versions.Formats, [](const auto& Left, const auto& Right) {
 				return Left.Format == Right.Format && Left.Version == Right.Version;
 			});
@@ -432,15 +474,16 @@ namespace Durin
 			if (!Add(Info.Identity.OriginalOuterPath.capacity(), 1)
 				|| !Add(Info.Identity.OriginalClassPath.capacity(), 1)
 				|| !Add(Info.Identity.OriginalPackagePath.capacity(), 1)) return false;
-			if (!Add(Data->Bytes.capacity(), 1) || !Add(Context->Schema.capacity(), 1)
-				|| !Add(Data->HardReferences.capacity(), sizeof(FPersistentObjectRef))
+			if (!Add(Data->SerializedData->capacity(), 1) || !Add(Context->Schema.capacity(), 1)
+				|| !Add(Data->WeakReferencedObjects.capacity(), sizeof(FObjectKey))
+				|| !Add(Data->ReferencedObjects.capacity(), sizeof(FPersistentObjectRef))
 				|| !Add(Context->ExcludedMembers.capacity(), sizeof(FName))
 				|| !Add(Context->ReferenceSlots.capacity(), sizeof(FSerializedObjectReferenceSlot))
 				|| !Add(Context->Versions.Formats.capacity(), sizeof(FArchiveFormatVersion))
 				|| !Add(Context->Versions.CustomVersions.capacity(), sizeof(FArchiveCustomVersion))) return false;
 			for (const auto* Reference : {&Info.Target, &Info.Class, &Info.Outer, &Info.Package})
 				if (!Add(Reference->GetAllocatedSize(), 1)) return false;
-			for (const auto& Reference : Data->HardReferences)
+			for (const auto& Reference : Data->ReferencedObjects)
 				if (!Add(Reference.GetAllocatedSize(), 1)) return false;
 			OutBytes = Total; return true;
 		}

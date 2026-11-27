@@ -105,7 +105,9 @@ The record's private editor `FSerializedObject` owns an `FDiffableObject` and
 annotation. This is distinct from CoreDObject's byte payload of the same name,
 following UE's editor/runtime ownership split. The load slot, flip slot and recording-only
 snapshot use the same storage type: each retains one identity, immutable payload,
-compatibility context and set of tags from one Serialize call. Load/validate uses
+compatibility context and set of tags from one Serialize call. Whole-object replay reads
+indices into the capture's hard and weak reference tables. Diff compares the
+referenced identities across captures, since each capture assigns its own indices. Load/validate uses
 a temporary transfer view of that storage. Snapshot presence comes from its
 optional state; no separate presence flag or competing undo baseline is retained.
 CoreDObject accounts transfer allocations and observation tags at their owner;
@@ -247,17 +249,22 @@ Weak slots are remapped without adding GC ownership. Commands and ordinary
 annotations expose writable references through `AddReferencedObjects`; the
 buffer retains their instances. Actor annotations additionally remap
 typed reconstruction data, including historical paths of absent generated objects.
-If a record retains a replaced participant or cannot rebind required state, its
-whole transaction is discarded. Cross-package peers keep their edits and are
-marked dirty.
+
+After an explicit instance replacement, callers notify the idle buffer through
+`DTransBuffer::OnObjectsReinstanced`. It updates mapped references in both
+history branches and visits encoded payloads only in matching records.
+Transaction IDs, queue positions, the cursor and Undo barriers stay in place.
+If a record cannot rebind, the buffer releases that transaction's payload and
+marks its slot expired, continues fixing other entries, and returns the first
+failure with its transaction ID. Normal replay can cross the expired slot.
 
 Package reload admits only an idle buffer and makes eligible candidate objects
 transactional. After graph publication, the participant receives the replacement
 map synchronously while old objects remain pinned. It remaps the history present
 at that point, including its Redo branch and barriers. The package registry
-change notification follows fixup of the published batch. The explicit
-`DTransBuffer::OnObjectsReinstanced` entry point uses the same fixup for callers
-that coordinate publication themselves.
+change notification follows fixup of the published batch. If a record retains
+a replaced participant or cannot rebind required state during package reload,
+the participant discards the whole transaction and marks surviving peer packages dirty.
 
 The cursor and barriers account for discarded entries. Their native commands are
 destroyed during retirement while the old objects are pinned.

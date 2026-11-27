@@ -236,6 +236,21 @@ namespace
 	};
 }
 
+TEST_F(FObjectGraphReplacementTests, DiffComparesReferencedObjectsAcrossLocalTables)
+{
+	Old->Reference = Old;
+	Old->FixedReferences[0] = Old;
+	auto Before = DiffUtil::GetDiffableObject(*Old);
+	ASSERT_TRUE(Before);
+	Old->Reference = New;
+	auto After = DiffUtil::GetDiffableObject(*Old);
+	ASSERT_TRUE(After);
+	auto Diff = DiffUtil::GenerateObjectDiff(*Before, *After);
+	ASSERT_TRUE(Diff);
+	EXPECT_EQ(Diff->ChangedProperties, std::vector<FName>{FName("Reference")});
+	EXPECT_FALSE(Diff->bNonPropertyDataChanged);
+}
+
 TEST_F(FObjectGraphReplacementTests, SerializedCaptureAndObservationPublishTogetherAndReleaseOldGraph)
 {
 	Old->Reference = Old;
@@ -259,10 +274,13 @@ TEST_F(FObjectGraphReplacementTests, SerializedCaptureAndObservationPublishToget
 	EXPECT_EQ(Owner->Capture->Info.Package.Resolve(), Prepared);
 	EXPECT_EQ(Owner->Capture->Info.Identity, Identity);
 	EXPECT_NE(Owner->Capture->Data, Before);
+	EXPECT_EQ(Owner->Capture->Data->SerializedData, Before->SerializedData);
+	ASSERT_EQ(Owner->Capture->Data->WeakReferencedObjects.size(), 1u);
+	EXPECT_EQ(Owner->Capture->Data->WeakReferencedObjects[0], FObjectKey(New));
 	EXPECT_EQ(Owner->Capture->Data, Owner->Observation->SerializedObject);
 	EXPECT_EQ(Owner->Capture->Context, Owner->Observation->SerializationContext);
-	ASSERT_EQ(Owner->Capture->Data->HardReferences.size(), 1u);
-	EXPECT_EQ(Owner->Capture->Data->HardReferences[0].GetKey(), FObjectKey(New));
+	ASSERT_EQ(Owner->Capture->Data->ReferencedObjects.size(), 1u);
+	EXPECT_EQ(Owner->Capture->Data->ReferencedObjects[0].GetKey(), FObjectKey(New));
 	LoadSerializedObject(*New, *Owner->Capture);
 	EXPECT_EQ(New->Value, 42);
 	EXPECT_EQ(New->Reference.Get(), New);
@@ -362,13 +380,13 @@ TEST_F(FObjectGraphReplacementTests, RemovedSerializedWeakReferenceClearsWithout
 {
 	Old->Weak = NewObject<DObject>(Old, "RemovedWeak");
 	ASSERT_TRUE(CaptureSource(*Old));
-	EXPECT_TRUE(Owner->Capture->Data->HardReferences.empty());
+	EXPECT_TRUE(Owner->Capture->Data->ReferencedObjects.empty());
 	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
 	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
 	ASSERT_TRUE(Operation->TryCommit());
 	LoadSerializedObject(*New, *Owner->Capture);
 	EXPECT_TRUE(New->Weak.GetBase().GetKey().IsNull());
-	EXPECT_TRUE(Owner->Capture->Data->HardReferences.empty());
+	EXPECT_TRUE(Owner->Capture->Data->ReferencedObjects.empty());
 	ASSERT_TRUE(Operation->Retire());
 }
 
@@ -381,10 +399,15 @@ TEST_F(FObjectGraphReplacementTests, DetachedSerializedPreparationRejectsCorrupt
 	auto Context = std::make_shared<FTransactionSerializationContext>(*Owner->Capture->Context);
 	auto Corrupt = *Owner->Capture;
 	Corrupt.Context = Context;
-	Context->ReferenceSlots[0].Offset = Corrupt.Data->Bytes.size();
+	Context->ReferenceSlots[0].Offset = Corrupt.Data->SerializedData->size();
 	EXPECT_FALSE(PrepareSerializedObjectReplacement(Corrupt, Mapping));
 	Context->ReferenceSlots.clear();
 	EXPECT_FALSE(PrepareSerializedObjectReplacement(Corrupt, Mapping));
+	Corrupt = *Owner->Capture;
+	auto Payload = std::make_shared<FSerializedObject>(*Corrupt.Data);
+	Payload->ReferencedObjects.clear();
+	Corrupt.Data = Payload;
+	EXPECT_FALSE(ValidateSerializedObject(*Old, Corrupt));
 	EXPECT_EQ(Owner->Capture->Info.Target.Resolve(), Old);
 }
 
@@ -397,7 +420,7 @@ TEST_F(FObjectGraphReplacementTests, ObservationOnlyUsesSameCheckedReplacementPr
 	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
 	ASSERT_TRUE(Operation->TryCommit());
 	EXPECT_EQ(Owner->Observation->ObjectInfo.Target.Resolve(), New);
-	EXPECT_EQ(Owner->Observation->SerializedObject->HardReferences[0].GetKey(), FObjectKey(New));
+	EXPECT_EQ(Owner->Observation->SerializedObject->ReferencedObjects[0].GetKey(), FObjectKey(New));
 	ASSERT_TRUE(Operation->Retire());
 }
 

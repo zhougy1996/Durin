@@ -13,14 +13,12 @@ namespace Durin
 	namespace
 	{
 		// UE's FDiffableObjectDataWriter writes references as path FNames. Keep
-		// that observation representation separate from exact-key undo payloads.
+		// that observation representation separate from indexed undo payloads.
 		auto ObservationPath(FName Path) -> uint64
 		{
 			return (Path.IsNone() ? 0 : Path.GetComparisonNameEntry()->GetComparisonId().GetValue())
 				| (uint64(Path.GetNumber()) << 32);
 		}
-		auto ObservationPath(DObject* Object) -> uint64
-		{ return ObservationPath(Object ? FName(Object->GetObjectPath()) : FName()); }
 		auto ReplaceObservationPath(uint64 Path, const FObjectReplacementMap& Map) -> uint64
 		{
 			if (!Path) return Path;
@@ -43,26 +41,28 @@ namespace Durin
 			}
 			return Prefix ? ObservationPath(FName(Replacement + Text.substr(Prefix))) : Path;
 		}
-		template<typename Transform>
-		auto TransformObservationReferences(FDiffableObject& Observation, Transform&& Convert) -> void
+		auto RemapObservationPaths(FDiffableObject& Observation, const FObjectReplacementMap& Map) -> void
 		{
 			if (!Observation.SerializedObject || !Observation.SerializationContext)
 				throw std::runtime_error("Component observation is incomplete.");
 			auto Payload = std::make_shared<FSerializedObject>(*Observation.SerializedObject);
+			auto Bytes = std::make_shared<FByteBuffer>(*Payload->SerializedData);
 			for (const auto& Slot : Observation.SerializationContext->ReferenceSlots)
 			{
 				constexpr size_t Width = sizeof(uint64);
-				if (Slot.Offset > Payload->Bytes.size() || Payload->Bytes.size() - Slot.Offset < Width)
+				if (Slot.Offset > Bytes->size() || Bytes->size() - Slot.Offset < Width)
 					throw std::runtime_error("Component observation reference bounds are invalid.");
-				const auto Value = Convert(FByteView(Payload->Bytes).subspan(Slot.Offset, Width));
+				FObjectMemoryReader Reader(FByteView(*Bytes).subspan(Slot.Offset, Width), EArchivePurpose::Transaction);
+				uint64 Path = 0; Reader << Path;
+				if (Reader.IsError()) throw std::runtime_error("Component observation path decoding failed.");
+				const auto Value = ReplaceObservationPath(Path, Map);
 				FByteBuffer Encoded; FObjectMemoryWriter Writer(Encoded, EArchivePurpose::Transaction);
 				auto Token = Value; Writer << Token;
 				if (Writer.IsError() || Encoded.size() != Width) throw std::runtime_error("Component observation path encoding failed.");
-				std::copy(Encoded.begin(), Encoded.end(), Payload->Bytes.begin() + Slot.Offset);
+				std::copy(Encoded.begin(), Encoded.end(), Bytes->begin() + Slot.Offset);
 			}
-			Payload->HardReferences.clear();
+			Payload->SerializedData = std::move(Bytes);
 			Observation.SerializedObject = std::move(Payload);
-			Observation.ObjectInfo.Target = {};
 		}
 	}
 
@@ -87,11 +87,7 @@ namespace Durin
 				if (!Key) return std::unexpected(ToString(Key.error()));
 				*Ref = FPersistentObjectRef::FromKey(*Key);
 			}
-			TransformObservationReferences(Observation, [&](FByteView Bytes) {
-				FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction); uint64 Path = 0; Reader << Path;
-				if (Reader.IsError()) throw std::runtime_error("Component observation path decoding failed.");
-				return ReplaceObservationPath(Path, Map);
-			});
+			RemapObservationPaths(Observation, Map);
 		}
 		if (auto Valid = Rebound.Validate(); !Valid) return Valid;
 		Data = std::move(Rebound.Data);
@@ -117,11 +113,7 @@ namespace Durin
 			{
 				auto Observation = DiffUtil::GetDiffableObject(*Component, {DiffUtil::EGetDiffableObjectMode::SerializeProperties});
 				if (!Observation) throw std::runtime_error(Observation.error());
-				TransformObservationReferences(*Observation, [](FByteView Bytes) {
-					FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction); FObjectKey Key; Key.SerializeForSnapshot(Reader);
-					if (Reader.IsError()) throw std::runtime_error("Component observation reference decoding failed.");
-					return ObservationPath(ResolveObjectKey(Key));
-				});
+				Observation->ObjectInfo.Target = {};
 				DiffableComponentInfos.push_back({FActorComponentInstanceSourceInfo(Component.Get()), std::move(*Observation)});
 			}
 	}

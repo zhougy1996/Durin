@@ -144,7 +144,7 @@ namespace Durin
 	}
 
 	// Only a field explicitly requiring an exact starting state opts into this check.
-	// The ordered tags already contain the identities of referenced objects.
+	// GenerateObjectDiff compares reference identities through each capture's tables.
 	auto FTransaction::FWholeObjectData::ValidateSource() const -> FTransactionCaptureResult
 	{
 		const auto& SourceState = SerializedObjectFlip ? *SerializedObjectFlip : *SerializedObject;

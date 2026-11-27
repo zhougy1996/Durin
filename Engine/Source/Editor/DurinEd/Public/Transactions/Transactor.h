@@ -244,6 +244,8 @@ namespace Durin
 			std::string Details;
 		};
 		auto PrepareReplay(bool bUndo, FReplayResult& Replay) const -> FTransactionCaptureResult;
+		auto Reinstance(const FObjectReplacementMap& Map, std::vector<DPackage*>* OutPreReloadPackages = nullptr)
+			-> FTransactionCaptureResult;
 		auto ApplyPrepared(bool bUndo, FReplayResult& Replay) -> void;
 		bool bUndoNext = true;
 		struct FChangedObject
@@ -259,7 +261,7 @@ namespace Durin
 		bool bFinalized = false;
 		bool bNotifyingPreFinalize = false;
 		bool bObjectEventFailed = false;
-		std::optional<std::string> RecordingFailure;
+		std::optional<std::string> FailureReason;
 		friend struct FTransBufferTestAccess;
 		DURINED_API auto AddRecord(std::unique_ptr<FCommandChange> Change, DObject* Object = nullptr) -> uint64;
 		struct FRecordedObject
@@ -394,8 +396,8 @@ namespace Durin
 		DURINED_API auto ForgetPackage(DPackage& Package) -> void override;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
-		// Native reinstancing hook; graph publication and external owners remain
-		// with the caller. Uses the same checked history participant as package reload.
+		// Notification after native instance replacement. Package reload uses its
+		// publication participant to retire entries and reconcile saved checkpoints.
 		DURINED_API auto OnObjectsReinstanced(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
 
 		auto GetMemoryBudget() const -> size_t { return MemoryBudget; }

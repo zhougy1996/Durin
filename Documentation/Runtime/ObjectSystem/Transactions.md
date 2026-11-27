@@ -74,7 +74,9 @@ traversal visits the root and cached exact leaf without doing name lookup.
 Editor object records and domain commands use this same runtime identity.
 
 `DObject/TransactionSerialization.h` owns the shared transaction-purpose virtual
-`Serialize` transfer. `FSerializedObject` holds bytes and persistent hard edges;
+`Serialize` transfer. `FSerializedObject` stores immutable `SerializedData` with signed 32-bit indices into
+`ReferencedObjects` (persistent hard references) and `WeakReferencedObjects`
+(exact generation keys). An index of -1 represents null.
 `FSerializedObjectInfo` composes capture-time `FTransactionObjectId`, persistent
 target/class/Outer/package references and supported flags. The ID owns original
 Name and path text without mixing identity with change flags.
@@ -142,8 +144,8 @@ coordinator.
 ordinary virtual Serialize path and shared undo allocations. Properties-only
 observation uses the same archive/property machinery but bypasses native
 Serialize overrides and includes references to generated components. It is not
-a historical transfer payload. Engine Actor annotations project these reference
-slots to path identities for generation-independent comparison; ordinary undo
+a historical transfer payload. The properties-only writer records reference paths directly for
+generation-independent Actor annotation comparisons; ordinary undo
 continues to exclude construction-owned references. See
 [Actor transaction reconstruction](../World/NativeConstruction.md#transaction-reconstruction)
 for observation lifetime, filtering and checked path replacement.
@@ -156,9 +158,8 @@ a temporary transfer view. Annotation allocations remain the enclosing owner's
 responsibility.
 
 `PrepareSerializedObjectReplacement` and `DiffUtil::PrepareObjectReplacement`
-prepare detached values using the existing `FObjectReplacementMap`. Only explicit
-archive reference positions are rewritten; opaque native bytes and capture-time
-identity text/keys remain unchanged. Live target/class/Outer/package references
+prepare detached values using the existing `FObjectReplacementMap`. Replacement updates the indexed reference tables and shares the original
+serialized bytes. Live target/class/Outer/package references
 rebind explicitly. Expired or removed hard references reject preparation. Removed
 weak references clear; expired weak keys remain expired and never resolve by Name.
 Soft paths retain their canonical path representation. Preparation validates the
@@ -179,7 +180,7 @@ owner and binding storage must remain stable throughout the operation. This
 runtime facility does not itself rebind editor history, annotations or custom
 commands; those owners must prepare their complete retained state together.
 `FSerializedObjectCapture::HasReplacementReferences` checks metadata, hard edges
-and recorded weak slots. A weak-only stored dependency can therefore participate
+and weak table entries. A weak-only stored dependency can therefore participate
 without becoming a collector-owned hard reference; byte-pattern scanning is not used.
 
 Transaction commands and annotations enumerate writable references through
@@ -187,9 +188,9 @@ Transaction commands and annotations enumerate writable references through
 writes replacement objects into those slots. An exact persistent reference records
 the new object key; logical references retain their subobject resolution rules.
 Annotations with typed reconstruction data can specialize `FindAndReplaceInstances`
-to remap encoded identities that GC traversal cannot see. The editor checks for
-remaining old references and discards incompatible entries. Successful fixup
-preserves the command and annotation instances.
+to remap encoded identities that GC traversal cannot see. Successful fixup
+preserves the command and annotation instances. The editor owns the distinct
+history policies for [instance replacement and package reload](../../Editor/Architecture/Transactions/TransactionRecords.md#controlled-reinstancing).
 
 Ordinary diffing requires the same exact target, class and compatible transfer schema. It
 reports actual changed reflected member names and compares the remaining native

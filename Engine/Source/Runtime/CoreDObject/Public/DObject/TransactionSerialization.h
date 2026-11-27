@@ -10,14 +10,14 @@ namespace Durin
 {
 	class FObjectReplacementMap;
 	class IObjectReplacementParticipant;
-	// Owned transaction bytes and persistent hard edges. Weak and soft values remain in
-	// the byte stream and do not acquire collector ownership.
+	// Replay stores table indices in immutable bytes. Only persistent hard edges are collected.
 	struct FSerializedObject
 	{
-		FByteBuffer Bytes;
-		std::vector<FPersistentObjectRef> HardReferences;
+		std::shared_ptr<const FByteBuffer> SerializedData = std::make_shared<const FByteBuffer>();
+		std::vector<FPersistentObjectRef> ReferencedObjects;
+		std::vector<FObjectKey> WeakReferencedObjects;
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
-		auto operator==(const FSerializedObject&) const -> bool = default;
+		COREDOBJECT_API auto operator==(const FSerializedObject& Other) const -> bool;
 	};
 
 	// Metadata captured alongside the payload, never a mutable identity registry.
@@ -45,6 +45,7 @@ namespace Durin
 	// Compatibility, filtering and reference layout belong to transfer, not annotations.
 	struct FTransactionSerializationContext
 	{
+		bool bUsesReferencePaths = false;
 		FByteBuffer Schema;
 		FArchiveVersionContext Versions;
 		std::vector<FName> ExcludedMembers;

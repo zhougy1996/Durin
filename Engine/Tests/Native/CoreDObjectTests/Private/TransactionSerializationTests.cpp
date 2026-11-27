@@ -219,6 +219,7 @@ TEST(FTransactionSerializationTests, CollectorOwnedStateRetainsHardReferencesBut
 	ASSERT_TRUE(ValidateSerializedObject(*Object, *Owner->ManagedState));
 	LoadSerializedObject(*Object, *Owner->ManagedState);
 	EXPECT_EQ(Object->NativeHard, ResolveObjectKey(HardKey)); EXPECT_FALSE(Object->NativeWeak.IsValid());
+	EXPECT_EQ(Object->NativeWeak.GetBase().GetKey(), WeakKey);
 	Object->NativeHard = nullptr; Owner->ManagedState.reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(HardKey), nullptr);
 }
@@ -372,7 +373,7 @@ TEST(FTransactionDiffTests, LargeObservationsShareTransferStorageAndReleasePrevi
 		EXPECT_EQ(Capture->Context, Observation.SerializationContext);
 		EXPECT_EQ(Capture->Data.use_count(), 2); EXPECT_EQ(Capture->Context.use_count(), 2);
 		EXPECT_EQ(Trace.size(), Index + 1u); EXPECT_EQ(Object->AnnotationCaptures, 0u);
-		PayloadBytes = Capture->Data->Bytes.size();
+		PayloadBytes = Capture->Data->SerializedData->size();
 		EXPECT_GE(PayloadBytes, Object->Text.size()); EXPECT_LT(PayloadBytes, Object->Text.size() + 4096u);
 		size_t CurrentBytes = 0; ASSERT_TRUE(Observation.TryGetAllocatedSize(CurrentBytes));
 		if (Index == 0) RetainedBytes = CurrentBytes;
@@ -412,6 +413,6 @@ TEST(FTransactionDiffTests, InvalidAndOverlappingTaggedRangesRejectComparison)
 	ASSERT_GE(After.SerializedTaggedData.size(), 2u);
 	After.SerializedTaggedData[1].Begin = 0;
 	EXPECT_FALSE(DiffUtil::GenerateObjectDiff(*Before, After));
-	After = *Before; After.SerializedTaggedData[0].End = After.SerializedObject->Bytes.size() + 1;
+	After = *Before; After.SerializedTaggedData[0].End = After.SerializedObject->SerializedData->size() + 1;
 	EXPECT_FALSE(DiffUtil::GenerateObjectDiff(*Before, After));
 }

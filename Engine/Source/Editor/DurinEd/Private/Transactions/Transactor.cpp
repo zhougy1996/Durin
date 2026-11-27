@@ -518,8 +518,8 @@ namespace Durin
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (bBusy || bFinalized || (RecordingOwner && (GUndo != this || !RecordingOwner->CanTransact())))
 			return;
-		if (RecordingFailure) return;
-		if (!IsValid(Object)) { RecordingFailure = "Transaction object is unavailable for capture."; return; }
+		if (FailureReason) return;
+		if (!IsValid(Object)) { FailureReason = "Transaction object is unavailable for capture."; return; }
 		auto* Package = Object->GetPackage();
 		FTransactionBusyScope BusyScope(bBusy);
 		SavePackage(Package);
@@ -528,13 +528,13 @@ namespace Durin
 		if (It != Index.end() && It->second.bCustomOwner) return;
 		if (FindWholeRecord(Object)) return;
 		auto Record = FTransaction::FWholeObjectData::CaptureWhole(*Object);
-		if (!Record) { RecordingFailure = Record.error(); return; }
+		if (!Record) { FailureReason = Record.error(); return; }
 		AppendRecord(FTransaction::FObjectRecord(std::move(*Record)));
 	}
 
 	auto FTransaction::Finalize() -> void try
 	{
-		if (RecordingFailure) TransactionFault(Id, "Finalize", *RecordingFailure);
+		if (FailureReason) TransactionFault(Id, "Finalize", *FailureReason);
 		if (bBusy && !bFinalized) return;
 		const bool bFirstFinalize = !std::exchange(bFinalized, true);
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -629,7 +629,7 @@ namespace Durin
 
 	auto FTransaction::HasExpired() const noexcept -> bool
 	{
-		return !Records.empty() && std::ranges::all_of(Records, &FTransaction::FObjectRecord::HasExpired);
+		return FailureReason.has_value() || (!Records.empty() && std::ranges::all_of(Records, &FTransaction::FObjectRecord::HasExpired));
 	}
 
 	auto FTransaction::Validate() const -> std::expected<void, std::string>
@@ -655,7 +655,7 @@ namespace Durin
 
 	auto FTransaction::PrepareReplay(bool bUndo, FReplayResult& Replay) const -> FTransactionCaptureResult try
 	{
-		if (RecordingFailure) return std::unexpected(*RecordingFailure);
+		if (FailureReason) return std::unexpected(*FailureReason);
 		if (bBusy) return std::unexpected("A transaction operation is already in progress.");
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FTransactionBusyScope BusyScope(bBusy);
@@ -899,6 +899,7 @@ namespace Durin
 	{
 		size_t Total = sizeof(FTransaction);
 		if (!AddSize(Total, PrimaryObject.GetAllocatedSize()) || !AddSize(Total, Context.Name.capacity())
+			|| (FailureReason && !AddSize(Total, FailureReason->capacity()))
 			|| !AddSize(Total, Context.Description.capacity())
 			|| Records.capacity() > std::numeric_limits<size_t>::max()
 				/ sizeof(FTransaction::FObjectRecord)
@@ -1098,7 +1099,7 @@ namespace Durin
 		}
 		if (Pending->bNotifyingPreFinalize) return 0;
 		const auto Id = Pending->GetId();
-		if (Pending->RecordingFailure) TransactionFault(Id, "End", *Pending->RecordingFailure);
+		if (Pending->FailureReason) TransactionFault(Id, "End", *Pending->FailureReason);
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		try
 		{
@@ -1134,7 +1135,7 @@ namespace Durin
 		(void)StartIndex; // UE 5.8 cancels the entire recording, including inner Cancel.
 		if (!OwnsRecording() || !CanTransact()) return;
 		const auto Id = Pending->GetId();
-		if (Pending->RecordingFailure) TransactionFault(Id, "Cancel", *Pending->RecordingFailure);
+		if (Pending->FailureReason) TransactionFault(Id, "Cancel", *Pending->FailureReason);
 		Guard = EHistoryGuard::Notifying;
 		try
 		{
@@ -1353,7 +1354,7 @@ namespace Durin
 			DURIN_ERROR("Cannot reset transaction history: a history transition is in progress.");
 			return;
 		}
-		if (Pending && Pending->RecordingFailure) TransactionFault(Pending->GetId(), "Reset", *Pending->RecordingFailure);
+		if (Pending && Pending->FailureReason) TransactionFault(Pending->GetId(), "Reset", *Pending->FailureReason);
 		// Own the reason before releasing entries that may contain it.
 		ClearHistory(std::string(Reason));
 	}
@@ -1559,6 +1560,54 @@ namespace Durin
 		}
 	}
 
+	auto FTransaction::Reinstance(const FObjectReplacementMap& Map, std::vector<DPackage*>* OutPreReloadPackages)
+		-> FTransactionCaptureResult try
+	{
+		const bool bPackageReload = OutPreReloadPackages != nullptr;
+		if (bPackageReload)
+		{
+			if (!Map.Find(PrimaryObject.Resolve())
+				&& !std::ranges::any_of(PackageRecords, [&](const auto& R) { return Map.Find(R.Package.Resolve()); })
+				&& !std::ranges::any_of(Records, [&](const auto& R) { return R.HasReplacementReferences(Map); }))
+				return {};
+			*OutPreReloadPackages = GetAffectedPackages();
+		}
+		FReinstancingReferenceCollector Collector(Map);
+		auto Rebind = [&](FPersistentObjectRef& Reference) -> FTransactionCaptureResult {
+			if (bPackageReload)
+			{
+				// The package publisher will retire the old graph, including unmapped objects.
+				auto Replacement = Reference.CreateReplacement(Map);
+				if (!Replacement) return std::unexpected(Replacement.error());
+				Reference = std::move(*Replacement);
+			}
+			else Reference.AddReferencedObjects(Collector);
+			return {};
+		};
+		if (auto Result = Rebind(PrimaryObject); !Result) return Result;
+		for (auto& Transition : PackageRecords)
+		{
+			const auto Before = Transition.Package.GetKey();
+			if (auto Result = Rebind(Transition.Package); !Result) return Result;
+			if (Before != Transition.Package.GetKey()) Transition.bWasDirty = true;
+		}
+		for (auto& Record : Records)
+		{
+			if (Record.HasReplacementReferences(Map))
+				if (auto Result = Record.Reinstance(Map); !Result) return Result;
+			if (bPackageReload)
+			{
+				if (auto Valid = Record.Validate(); !Valid) return Valid;
+				if (Record.HasReplacementReferences(Map))
+					return std::unexpected("Reinstanced history retained an old-generation reference.");
+			}
+		}
+		return {};
+	}
+	catch (const std::bad_alloc&) { std::terminate(); }
+	catch (const std::exception& Error) { return std::unexpected(std::string(Error.what())); }
+	catch (...) { return std::unexpected("Transaction replacement hook threw."); }
+
 	class FTransactorReloadParticipant final : public IPackageReloadParticipant
 	{
 	public:
@@ -1600,31 +1649,15 @@ namespace Durin
 			for (size_t Index = 0; Index < History.size();)
 			{
 				auto& Entry = History[Index];
-				std::string Failure;
 				std::vector<DPackage*> OriginalPackages;
-				try
+				auto Result = Entry->Reinstance(Mapping, &OriginalPackages);
+				if (Result)
 				{
-					if (!Mapping.Find(Entry->PrimaryObject.Resolve())
-						&& !std::ranges::any_of(Entry->PackageRecords, [&](const auto& R) { return Mapping.Find(R.Package.Resolve()); })
-						&& !std::ranges::any_of(Entry->Records, [&](const auto& R) { return R.HasReplacementReferences(Mapping); }))
-					{
-						++Index;
-						continue;
-					}
-					OriginalPackages = Entry->GetAffectedPackages();
-					auto Result = ReinstanceTransaction(*Entry, Mapping);
-					if (Result)
-					{
-						++Index;
-						continue;
-					}
-					Failure = Result.error();
+					++Index;
+					continue;
 				}
-				catch (const std::bad_alloc&) { std::terminate(); }
-				catch (const std::exception& Error) { Failure = Error.what(); }
-				catch (...) { Failure = "Transaction replacement hook threw."; }
 
-				DURIN_ERROR("Discarding transaction during reinstancing: {}", Failure);
+				DURIN_ERROR("Discarding transaction during reinstancing: {}", Result.error());
 				for (auto* Package : OriginalPackages)
 					if (Package && !Mapping.Find(Package) && !std::ranges::contains(DirtyPackages, Package)) DirtyPackages.push_back(Package);
 				Retired.push_back(std::move(Entry));
@@ -1647,29 +1680,6 @@ namespace Durin
 			return true;
 		}
 	private:
-		auto ReinstanceTransaction(FTransaction& Transaction, const FObjectReplacementMap& Mapping) -> FTransactionCaptureResult
-		{
-			auto Primary = Transaction.PrimaryObject.CreateReplacement(Mapping);
-			if (!Primary) return std::unexpected(Primary.error());
-			Transaction.PrimaryObject = std::move(*Primary);
-			for (auto& Transition : Transaction.PackageRecords)
-			{
-				auto Key = Mapping.RemapObjectKey(Transition.Package.GetKey());
-				if (!Key) return std::unexpected(ToString(Key.error()));
-				if (*Key != Transition.Package.GetKey()) Transition.bWasDirty = true;
-				Transition.Package = FPersistentObjectRef::FromKey(*Key);
-			}
-			for (auto& Record : Transaction.Records)
-			{
-				if (Record.HasReplacementReferences(Mapping))
-					if (auto Result = Record.Reinstance(Mapping); !Result) return Result;
-				if (auto Valid = Record.Validate(); !Valid) return Valid;
-				if (Record.HasReplacementReferences(Mapping))
-					return std::unexpected("Reinstanced history retained an old-generation reference.");
-			}
-			return {};
-		}
-
 		DTransBuffer& Transactor;
 		std::vector<DPackage*> Packages;
 		const FObjectReplacementMap* Map = nullptr;
@@ -1690,20 +1700,27 @@ namespace Durin
 		CheckGameThread();
 		if (Map.GetEntries().empty()) return {};
 		if (!Map.ValidateIdentities()) return std::unexpected("Reinstancing map contains expired object identities.");
-		auto Participant = CreateTransactorReloadParticipant(*this, {});
-		try
+		if (!IsHistoryIdle()) return std::unexpected("Transaction history is busy.");
+		FHistoryGuardScope GuardScope(Guard, EHistoryGuard::Mutating);
+		FTransactionCaptureResult Result;
+		for (auto& Entry : History)
 		{
-			auto Prepared = Participant->Prepare(Map);
-			if (!Prepared) { Participant->Abort(); return std::unexpected(ToString(Prepared.error())); }
-			if (!Map.ValidateIdentities() || !Participant->Validate())
-			{ Participant->Abort(); return std::unexpected("Prepared reinstancing history became stale."); }
+			// Publication already happened. Finish the other entries even when a
+			// private command or encoded snapshot cannot follow its replacement.
+			if (Entry->FailureReason) continue;
+			if (auto Rebound = Entry->Reinstance(Map); !Rebound)
+			{
+				Entry->FailureReason = std::move(Rebound.error());
+				// Keep the queue slot and ID without retaining partially rebound commands.
+				Entry->Records.clear();
+				Entry->PackageRecords.clear();
+				Entry->PrimaryObject = {};
+				auto Message = std::format("Transaction {} expired during reinstancing: {}", Entry->GetId(), *Entry->FailureReason);
+				DURIN_ERROR("{}", Message);
+				if (Result) Result = std::unexpected(std::move(Message));
+			}
 		}
-		catch (const std::exception& Error) { Participant->Abort(); return std::unexpected(std::string(Error.what())); }
-		catch (...) { Participant->Abort(); return std::unexpected("Reinstancing preparation threw."); }
-		Participant->Commit();
-		Participant->OnObjectsReinstanced(Map);
-		verify(Participant->CanRetire());
-		return {};
+		return Result;
 	}
 
 }

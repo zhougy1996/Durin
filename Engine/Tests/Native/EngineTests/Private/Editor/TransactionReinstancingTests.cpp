@@ -287,10 +287,12 @@ TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackag
 	EXPECT_FALSE(Candidate->IsDirty());
 }
 
-TEST_F(FTransactionReinstancingTests, ExplicitReinstancingHookUsesTheSharedCheckedHistoryPublication)
+TEST_F(FTransactionReinstancingTests, ExplicitReplacementPreservesRedoIdentityAcrossCollection)
 {
 	using namespace Durin;
 	Record(42);
+	const auto Id = Buffer->GetUndoContext().TransactionId;
+	ASSERT_TRUE(Buffer->Undo());
 	TStrongObjectPtr<DPackage> KeepCandidate(Candidate);
 	auto* Reinstanced = NewObject<DTransactionRecordParticipant>(Current, "Replacement", EObjectFlags::Public);
 	Old->Rename("TRASH_Target");
@@ -301,20 +303,23 @@ TEST_F(FTransactionReinstancingTests, ExplicitReinstancingHookUsesTheSharedCheck
 	ASSERT_TRUE(Map.BuildFromObjects(Entries));
 	Reinstanced->Value = 77;
 	ASSERT_TRUE(Buffer->OnObjectsReinstanced(Map));
-	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Reinstanced);
-	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Reinstanced->Value, 0);
-	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Reinstanced->Value, 77);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
+	EXPECT_EQ(Buffer->GetUndoCount(), 1u);
+	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, Id);
+	EXPECT_EQ(Buffer->GetRedoContext().PrimaryObject, Reinstanced);
+	ASSERT_TRUE(Buffer->RedoExpected(Id)); EXPECT_EQ(Reinstanced->Value, 42);
+	EXPECT_EQ(Old->Value, 0);
 	Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Busy reinstancing", Reinstanced});
 	EXPECT_FALSE(Buffer->OnObjectsReinstanced(Map));
 	Scope.Cancel();
 	MarkAsGarbage(Old);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
-	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Reinstanced->Value, 0);
-	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Reinstanced->Value, 77);
+	ASSERT_TRUE(Buffer->UndoExpected(Id)); EXPECT_EQ(Reinstanced->Value, 77);
+	ASSERT_TRUE(Buffer->RedoExpected(Id)); EXPECT_EQ(Reinstanced->Value, 42);
 }
 
-TEST_F(FTransactionReinstancingTests, ExplicitMapRejectsOwnerMismatchAndPartialMapRetiresTheWholeEntry)
+TEST_F(FTransactionReinstancingTests, PackageReloadRetiresAnEntryMissingItsReplacementUnderTheNewOwner)
 {
 	using namespace Durin;
 	Record(42);
@@ -324,11 +329,79 @@ TEST_F(FTransactionReinstancingTests, ExplicitMapRejectsOwnerMismatchAndPartialM
 	EXPECT_TRUE(Map.GetEntries().empty());
 	const FObjectReplacementMap::FEntry PackageOnly{Current, Candidate};
 	ASSERT_TRUE(Map.BuildFromObjects(std::span(&PackageOnly, 1)));
-	ASSERT_TRUE(Buffer->OnObjectsReinstanced(Map));
+	auto Reload = CreateTransactorReloadParticipant(*Buffer, std::span(&Current, 1));
+	ASSERT_TRUE(Reload->Prepare(Map));
+	ASSERT_TRUE(Reload->Validate());
+	Reload->Commit();
+	Reload->OnObjectsReinstanced(Map);
+	ASSERT_TRUE(Reload->CanRetire());
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	EXPECT_FALSE(Buffer->CanUndo());
 	EXPECT_EQ(Old->Value, 42);
 	EXPECT_EQ(New->Value, 0);
+}
+
+TEST_F(FTransactionReinstancingTests, ExplicitMapRebindsWeakSlotsAndCommandsWithoutValidatingUnmappedPeers)
+{
+	using namespace Durin;
+	TStrongObjectPtr<DTransactionRecordParticipant> Replacement(NewObject<DTransactionRecordParticipant>(Current, "Replacement"));
+	TStrongObjectPtr<DTransactionRecordParticipant> Peer(NewObject<DTransactionRecordParticipant>(Current, "Peer"));
+	TStrongObjectPtr<DTransactionRecordParticipant> Observer(NewObject<DTransactionRecordParticipant>(Current, "Observer"));
+	Observer->Weak = Old;
+	{
+		Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Mixed instance replacement", Old});
+		ASSERT_TRUE(Peer->Modify());
+		Peer->Value = 15;
+		ASSERT_TRUE(Observer->Modify());
+		Observer->Weak = nullptr;
+		Old->Value = 12;
+		ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 12)));
+	}
+	const auto Id = Buffer->GetUndoContext().TransactionId;
+	const auto Saves = Peer->SerializationSaves;
+	Peer->bFailSave = true;
+	FObjectReplacementMap Map;
+	const FObjectReplacementMap::FEntry Entry{Old, Replacement.Get()};
+	ASSERT_TRUE(Map.BuildFromObjects(std::span(&Entry, 1)));
+	ASSERT_TRUE(Buffer->OnObjectsReinstanced(Map));
+	EXPECT_EQ(Peer->SerializationSaves, Saves);
+	EXPECT_EQ(Peer->Value, 15);
+	Peer->bFailSave = false;
+	ASSERT_TRUE(Buffer->UndoExpected(Id));
+	EXPECT_EQ(Observer->Weak.Get(), Replacement.Get());
+	EXPECT_EQ(Old->Value, 12);
+	EXPECT_EQ(Peer->Value, 0);
+	ASSERT_TRUE(Buffer->RedoExpected(Id));
+	EXPECT_EQ(Observer->Weak.Get(), nullptr);
+	EXPECT_EQ(Replacement->Value, 12);
+}
+
+TEST_F(FTransactionReinstancingTests, IncompatibleExplicitCommandExpiresInPlaceAndOtherEntriesRebind)
+{
+	using namespace Durin;
+	TStrongObjectPtr<DTransactionRecordParticipant> Replacement(NewObject<DTransactionRecordParticipant>(Current, "Replacement", EObjectFlags::Public));
+	{
+		Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Opaque command", Old});
+		Old->Value = 7;
+		ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 7, false)));
+	}
+	const auto Opaque = Buffer->GetUndoContext().TransactionId;
+	Buffer->SetUndoBarrier();
+	Record(42);
+	const auto Valid = Buffer->GetUndoContext().TransactionId;
+	ASSERT_TRUE(Buffer->UndoExpected(Valid));
+	const FObjectReplacementMap::FEntry Entry{Old, Replacement.Get()};
+	FObjectReplacementMap Map;
+	ASSERT_TRUE(Map.BuildFromObjects(std::span(&Entry, 1)));
+	EXPECT_FALSE(Buffer->OnObjectsReinstanced(Map));
+	ASSERT_EQ(Buffer->GetQueueLength(), 2u);
+	EXPECT_EQ(Buffer->GetUndoCount(), 1u);
+	EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 1);
+	EXPECT_EQ(Buffer->GetTransaction(0)->GetId(), Opaque);
+	EXPECT_TRUE(Buffer->GetTransaction(0)->HasExpired());
+	ASSERT_TRUE(Buffer->RedoExpected(Valid));
+	EXPECT_EQ(Replacement->Value, 42);
+	EXPECT_EQ(Old->Value, 7);
 }
 
 TEST_F(FTransactionReinstancingTests, RedoBranchSurvivesReinstancingAtUndonePosition)
