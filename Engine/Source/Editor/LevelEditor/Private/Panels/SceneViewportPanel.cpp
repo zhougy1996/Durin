@@ -345,19 +345,19 @@ namespace Durin::LevelEditor
 				if (!Context.bReadOnly && !bStatisticsInitiallyHovered
 					&& ImGui::BeginDragDropTarget())
 				{
-					std::vector<FSoftObjectPath> Paths;
+					std::vector<FAssetData> Assets;
 					if (const auto* Payload = ImGui::AcceptDragDropPayload(ContentBrowser::ContentItemsDragPayloadType);
 						Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(uint64))
-						Paths = ContentBrowser::GetDraggedAssetPaths(*static_cast<const uint64*>(Payload->Data));
+						Assets = ContentBrowser::GetDraggedAssets(*static_cast<const uint64*>(Payload->Data));
 					else if (const auto* Single = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType);
 						Single && Single->IsDelivery() && Single->DataSize == sizeof(FAssetDragDropPayload))
 					{
-						FSoftObjectPath Path;
 						const auto& Asset = *static_cast<const FAssetDragDropPayload*>(Single->Data);
-						if (FSoftObjectPath::TryCreate(Asset.AssetPath.data(), Path)) Paths.push_back(std::move(Path));
+						if (auto Data = GetDraggedAssetData(Asset.AssetPath.data(), Asset.AssetClassName.data()))
+							Assets.push_back(std::move(*Data));
 						else Context.SetError("Dropped asset path is invalid.");
 					}
-					if (!Paths.empty())
+					if (!Assets.empty())
 					{
 						auto* Placement = Context.EditorHost ? Context.EditorHost->GetEditorSubsystem<DPlacementSubsystem>() : nullptr;
 						if (!Placement) Context.SetError("The placement subsystem is unavailable.");
@@ -374,7 +374,7 @@ namespace Durin::LevelEditor
 								&& SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
 								Transform.Translation = Origin + Direction * 5.0;
 							std::vector<FAssetPlacementInfo> Infos;
-							for (auto& Path : Paths) Infos.push_back({std::move(Path), Context.Level, {Context.bReadOnly}, Transform});
+							for (auto& Asset : Assets) Infos.push_back({std::move(Asset), Context.Level, {Context.bReadOnly}, Transform});
 							std::string Error;
 							std::vector<AActor*> Selection;
 							for (const auto& Placed : Placement->PlaceAssets(Infos, &Error))

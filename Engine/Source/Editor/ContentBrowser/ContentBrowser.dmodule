@@ -4,7 +4,6 @@
     "PCH": "SharedPCH_DurinEd",
     "PrivateDependencies": [
         "Core",
-        "AssetRegistry",
         "RHI",
         "RenderCore",
         "Engine",
@@ -15,6 +14,7 @@
         "AssetTools"
     ],
     "PublicDependencies": [
+        "AssetRegistry",
         "DurinEd",
         "ContentBrowserData"
     ]

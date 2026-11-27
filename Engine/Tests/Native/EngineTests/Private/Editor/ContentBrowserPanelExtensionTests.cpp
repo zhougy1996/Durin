@@ -756,7 +756,7 @@ namespace Durin::ContentBrowser::Private
 		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
 		FContentBrowserPanel Panel({}, {}, {.DataSubsystem = BrowserData});
 		const FContentBrowserItem Asset = Durin::ContentBrowser::Private::FStorageItemFixture{.Kind = EContentBrowserItemKind::Asset, .Name = "Asset",
-			.VirtualPath = "/BrowserDrag/Asset.Asset", .PhysicalPath = Root + "/Asset.dasset"};
+			.VirtualPath = "/BrowserDrag/Asset.Asset", .PhysicalPath = Root + "/Asset.dasset", .AssetClassName = "Durin::DStaticMesh"};
 		const FContentBrowserItem File = Durin::ContentBrowser::Private::FStorageItemFixture{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt", .VirtualPath = "/BrowserDrag/notes.txt",
 			.PhysicalPath = Root + "/notes.txt"};
 		auto Drag = [&](std::vector<FContentBrowserItem> Items, const char* ExpectedType, size_t AssetCount) {
@@ -780,8 +780,10 @@ namespace Durin::ContentBrowser::Private
 					EXPECT_EQ(Payload->DataSize, sizeof(uint64));
 					EXPECT_TRUE(FContentBrowserPanelTestAccess::HasDragSnapshot(Panel, 2));
 					const auto Serial = *static_cast<const uint64*>(Payload->Data);
-					EXPECT_EQ(GetDraggedAssetPaths(Serial).size(), AssetCount);
-					EXPECT_TRUE(GetDraggedAssetPaths(Serial + 1).empty());
+					const auto Assets = GetDraggedAssets(Serial);
+					EXPECT_EQ(Assets.size(), AssetCount);
+					for (const auto& Data : Assets) EXPECT_EQ(Data.AssetClassName, "Durin::DStaticMesh");
+					EXPECT_TRUE(GetDraggedAssets(Serial + 1).empty());
 				}
 			}
 			ImGui::End();
@@ -790,7 +792,7 @@ namespace Durin::ContentBrowser::Private
 			ImGui::ClearActiveID();
 		};
 		const FContentBrowserItem Second = FStorageItemFixture{.Kind = EContentBrowserItemKind::Asset,
-			.Name = "Second", .VirtualPath = "/BrowserDrag/Second.Second", .PhysicalPath = Root + "/Second.dasset"};
+			.Name = "Second", .VirtualPath = "/BrowserDrag/Second.Second", .PhysicalPath = Root + "/Second.dasset", .AssetClassName = "Durin::DStaticMesh"};
 		Drag({Asset, Second}, ContentItemsDragPayloadType, 2);
 		Drag({Asset, File}, ContentItemsDragPayloadType, 1);
 		Drag({Asset}, ::Durin::AssetDragDropPayloadType, 1);

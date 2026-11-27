@@ -10,18 +10,17 @@ namespace Durin
 {
 	DPlacementSubsystem::DPlacementSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
-	auto DPlacementSubsystem::FindAssetFactoryFromAssetData(const FAssetData& AssetData,
-		const FScopedModularFeatureAccess&) const -> const IAssetFactoryInterface*
-	{
-		for (auto* Factory : IModularFeatures::Get().GetModularFeatureImplementations<IAssetFactoryInterface>(
-			FName(IAssetFactoryInterface::FeatureName)))
-			if (Factory->CanPlaceElementsFromAssetData(AssetData)) return Factory;
-		return nullptr;
-	}
-
 	namespace
 	{
-		auto PlaceOne(const DPlacementSubsystem& Placement, DEditorEngine& Host, const FAssetPlacementInfo& Info,
+		auto FindFactory(const FAssetData& Data, const FScopedModularFeatureAccess&) -> const IAssetFactoryInterface*
+		{
+			for (auto* Factory : IModularFeatures::Get().GetModularFeatureImplementations<IAssetFactoryInterface>(
+				FName(IAssetFactoryInterface::FeatureName)))
+				if (Factory->CanPlaceElementsFromAssetData(Data)) return Factory;
+			return nullptr;
+		}
+
+		auto PlaceOne(const DPlacementSubsystem& Placement, DEditorEngine& Host, FAssetPlacementInfo Info,
 			std::optional<FScopedTransaction>& Transaction, std::string* OutError) -> std::vector<TWeakObjectPtr<AActor>>
 		{
 			auto Reject = [&](const char* Message) -> std::vector<TWeakObjectPtr<AActor>> {
@@ -35,32 +34,39 @@ namespace Durin
 			};
 			if (!IsCurrentLevel()) return Reject("The target is not the current editor level.");
 
-			// Reject catalogued assets without loading their packages or import data.
-			const auto Resolution = ResolveAssetObjectPath(Info.AssetToPlace);
-			if (Resolution.FinalPath.IsTopLevelAsset() && Resolution.FinalAssetData)
+			auto& Data = Info.AssetToPlace;
+			if (Data.IsRedirector())
+			{
+				auto Target = ResolveAssetObjectPath(FSoftObjectPath(Data.AssetPath));
+				if (Target && Target.FinalAssetData) Data = std::move(*Target.FinalAssetData);
+			}
+			// A broken redirect or an incomplete drag payload still receives the loader's diagnostic.
+			if (!Data.IsRedirector() && !Data.AssetClassName.empty())
 			{
 				FScopedModularFeatureAccess Access;
-				if (!Placement.FindAssetFactoryFromAssetData(*Resolution.FinalAssetData, Access))
-					return {};
+				if (!FindFactory(Data, Access)) return {};
 			}
 
 			FAssetLoadReport Report;
 			std::optional<UnifiedError::FError> Error;
-			TStrongObjectPtr<DObject> Asset(LoadObject<DObject>(Info.AssetToPlace, &Report, OutError ? &Error : nullptr));
+			TStrongObjectPtr<DObject> Asset(LoadObject<DObject>(Data.AssetPath, &Report, OutError ? &Error : nullptr));
 			if (!Asset)
 			{
 				if (OutError && Error) *OutError = Error->ToString();
 				return {};
 			}
-			// Loading may run editor callbacks. Dispatch against the current registrations
-			// and actual object class, including for resident assets absent from the catalog.
-			FAssetData Data;
-			if (Resolution.FinalAssetData && Resolution.FinalPath == Report.ResolvedObjectPath)
-				Data = *Resolution.FinalAssetData;
-			Data.AssetPath = Report.ResolvedObjectPath.GetAssetPath();
-			Data.AssetClassName = Asset->GetClass()->GetQualifiedName().ToString();
+			// A rename or reimport since the drag may have changed the path or class.
+			const auto& LoadedPath = Report.ResolvedObjectPath.GetAssetPath();
+			const auto LoadedClass = Asset->GetClass()->GetQualifiedName().ToString();
+			if (Data.AssetPath != LoadedPath || Data.AssetClassName != LoadedClass)
+			{
+				Data = FindAssetExact(LoadedPath).Asset.value_or(FAssetData{});
+				Data.AssetPath = LoadedPath;
+				Data.AssetClassName = LoadedClass;
+			}
+			// Reacquire the factory after load callbacks have finished.
 			FScopedModularFeatureAccess Access;
-			const auto* Factory = Placement.FindAssetFactoryFromAssetData(Data, Access);
+			const auto* Factory = FindFactory(Data, Access);
 			if (!Factory) return {};
 			if (!IsCurrentLevel() || Host.IsShutdownRequested() || Host.GetEditorSubsystem<DPlacementSubsystem>() != &Placement)
 				return Reject("The placement target changed while loading the asset.");
@@ -99,10 +105,10 @@ namespace Durin
 		{
 			std::string Error;
 			Placed.append_range(PlaceOne(*this, *Host, Info, Transaction, OutError ? &Error : nullptr));
-			if (!Error.empty())
+			if (OutError && !Error.empty())
 			{
 				if (!OutError->empty()) OutError->append("\n");
-				OutError->append(std::format("{}: {}", Info.AssetToPlace.ToString(), Error));
+				OutError->append(std::format("{}: {}", Info.AssetToPlace.AssetPath.ToString(), Error));
 			}
 			if (Host->IsShutdownRequested() || (Transaction && !Transaction->IsRecordingCurrent())) break;
 		}

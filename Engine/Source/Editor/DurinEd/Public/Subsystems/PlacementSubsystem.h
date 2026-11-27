@@ -14,9 +14,6 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		DURINED_API explicit DPlacementSubsystem(const FObjectInitializer& Initializer);
-		// First matching registration wins. The factory is borrowed for the given scope.
-		DURINED_API auto FindAssetFactoryFromAssetData(const FAssetData& AssetData,
-			const FScopedModularFeatureAccess& Access) const -> const IAssetFactoryInterface*;
 		// Results follow request order. Unsupported assets contribute no actors or diagnostic.
 		DURINED_API auto PlaceAsset(const FAssetPlacementInfo& Info, std::string* OutError = nullptr) const
 			-> std::vector<TWeakObjectPtr<AActor>>;

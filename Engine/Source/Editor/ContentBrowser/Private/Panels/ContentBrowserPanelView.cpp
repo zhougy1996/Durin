@@ -1303,18 +1303,18 @@ namespace Durin::ContentBrowser::Private
 
 namespace Durin::ContentBrowser
 {
-	auto GetDraggedAssetPaths(uint64 Serial) -> std::vector<FSoftObjectPath>
+	auto GetDraggedAssets(uint64 Serial) -> std::vector<FAssetData>
 	{
-		std::vector<FSoftObjectPath> Paths;
+		std::vector<FAssetData> Assets;
 		const auto Snapshot = Private::ActiveDragSnapshot.lock();
-		if (!Snapshot || Snapshot->Serial != Serial) return Paths;
+		if (!Snapshot || Snapshot->Serial != Serial) return Assets;
 		for (const auto& Item : Snapshot->Items)
 		{
-			FSoftObjectPath Path;
-			if (Item.IsAsset() && !Item.IsRedirector()
-				&& FSoftObjectPath::TryCreate(Private::ItemAttributes::String(Item, ContentBrowserItemAttributes::AssetPath), Path))
-				Paths.push_back(std::move(Path));
+			if (!Item.IsAsset() || Item.IsRedirector()) continue;
+			if (auto Data = GetDraggedAssetData(Private::ItemAttributes::String(Item, ContentBrowserItemAttributes::AssetPath),
+				Private::ItemAttributes::String(Item, ContentBrowserItemAttributes::Class)))
+				Assets.push_back(std::move(*Data));
 		}
-		return Paths;
+		return Assets;
 	}
 }

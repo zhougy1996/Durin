@@ -1,6 +1,8 @@
 #include "Editor/EditorActorSubsystemTestSupport.h"
 #include "Actors/StaticMeshActor.h"
 #include "Asset/Load.h"
+#include "Asset/PackageSerialization.h"
+#include "NativeAssetTestSupport.h"
 #include "AssetRegistry/Scan.h"
 #include "Components/StaticMeshComponent.h"
 #include "Factories/ActorFactory.h"
@@ -28,7 +30,9 @@ TEST(FAssetPlacementTests, BuiltInFactoriesLeaveCubemapsUnplaced)
 	const auto ActorCount = Level->GetActors().size();
 	const auto* ResidentBefore = FindResidentPackage(Path.GetPackagePath());
 	std::string Error = "previous error";
-	EXPECT_TRUE(Placement->PlaceAsset({Path, Level, {false}}, &Error).empty());
+	const auto Cube = FindAssetExact(Path.GetAssetPath());
+	ASSERT_TRUE(Cube);
+	EXPECT_TRUE(Placement->PlaceAsset({*Cube.Asset, Level, {false}}, &Error).empty());
 	EXPECT_TRUE(Error.empty());
 	EXPECT_EQ(Level->GetActors().size(), ActorCount);
 	EXPECT_EQ(FindResidentPackage(Path.GetPackagePath()), ResidentBefore);
@@ -42,6 +46,11 @@ TEST(FAssetPlacementTests, ModuleFactoryIsUsedOnlyWhileRegistered)
 	{
 	public:
 		FTestMaterialFactory() : FActorFactory(DMaterial::StaticClass(), AActor::StaticClass()) {}
+		auto CanPlaceElementsFromAssetData(const FAssetData& Data) const -> bool override
+		{
+			return Data.PrimaryAssetId.PrimaryAssetName == FName("PlacementTest")
+				&& FActorFactory::CanPlaceElementsFromAssetData(Data);
+		}
 		auto ConfigureActor(DObject&, AActor&) const -> void override {}
 	};
 
@@ -52,9 +61,13 @@ TEST(FAssetPlacementTests, ModuleFactoryIsUsedOnlyWhileRegistered)
 	ASSERT_NE(Placement, nullptr);
 	FSoftObjectPath Path;
 	ASSERT_TRUE(FSoftObjectPath::TryCreate(DefaultMaterialObjectPath, Path));
-	FAssetPlacementInfo Info{Path, Editor.GetWorld()->GetCurrentLevel(), {false}};
+	const auto Material = FindAssetExact(Path.GetAssetPath());
+	ASSERT_TRUE(Material);
+	FAssetPlacementInfo Info{*Material.Asset, Editor.GetWorld()->GetCurrentLevel(), {false}};
 	FTestMaterialFactory Factory;
 	auto Registration = RegisterModularFeature(Factory);
+	EXPECT_TRUE(Placement->PlaceAsset(Info).empty());
+	ASSERT_TRUE(FPrimaryAssetId::TryParse("Material:PlacementTest", Info.AssetToPlace.PrimaryAssetId));
 	auto Placed = Placement->PlaceAsset(Info);
 	ASSERT_EQ(Placed.size(), 1u);
 	ASSERT_TRUE(Info.PreferredLevel.Get()->ContainsActor(Placed.front().Get()));
@@ -80,14 +93,15 @@ TEST(FAssetPlacementTests, RegisteredMeshFactoryPlacesAtRequestedTransformAndSup
 	DStaticMesh* Mesh = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(PackagePath, Mesh));
 	const auto Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath);
-	FAssetPlacementInfo Info{Path, Editor.GetWorld()->GetCurrentLevel(), {false}};
+	FAssetData Data{.AssetPath = Path.GetAssetPath(), .AssetClassName = Mesh->GetClass()->GetQualifiedName().ToString()};
+	FAssetPlacementInfo Info{Data, Editor.GetWorld()->GetCurrentLevel(), {false}};
 	Info.FinalizedTransform.Translation = FVector3(3.0, 7.0, 12.0);
 	const auto Registration = LevelEditor::RegisterStaticMeshActorFactory();
 	std::string Error;
-	EXPECT_TRUE(Placement->PlaceAsset({Path, Info.PreferredLevel, {true}}, &Error).empty());
+	EXPECT_TRUE(Placement->PlaceAsset({Data, Info.PreferredLevel, {true}}, &Error).empty());
 	EXPECT_TRUE(Error.contains("read-only"));
 	TStrongObjectPtr<DLevel> Foreign(NewObject<DLevel>(nullptr, "ForeignPlacementLevel"));
-	EXPECT_TRUE(Placement->PlaceAsset({Path, Foreign.Get(), {false}}, &Error).empty());
+	EXPECT_TRUE(Placement->PlaceAsset({Data, Foreign.Get(), {false}}, &Error).empty());
 	EXPECT_TRUE(Error.contains("current editor level"));
 	EXPECT_FALSE(Editor.GetTransactions()->CanUndo());
 	auto Result = Placement->PlaceAsset(Info, &Error);
@@ -102,6 +116,47 @@ TEST(FAssetPlacementTests, RegisteredMeshFactoryPlacesAtRequestedTransformAndSup
 	EXPECT_FALSE(Info.PreferredLevel.Get()->ContainsActor(Actor));
 	ASSERT_TRUE(Editor.GetTransactions()->Redo());
 	EXPECT_TRUE(Info.PreferredLevel.Get()->ContainsActor(Actor));
+}
+
+TEST(FAssetPlacementTests, RedirectorDispatchesWithDestinationMetadata)
+{
+	using namespace Durin;
+	class FRedirectTargetFactory final : public FActorFactory
+	{
+	public:
+		FRedirectTargetFactory() : FActorFactory(DMaterial::StaticClass(), AActor::StaticClass()) {}
+		auto ConfigureActor(DObject&, AActor&) const -> void override {}
+	};
+
+	Tests::FActorEditorFixture Editor;
+	const auto Root = Testing::CreateTestFixtureDirectory("PlacementRedirect");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/PlacementRedirect/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	FPackagePath Target, Alias;
+	ASSERT_TRUE(FPackagePath::TryCreate("/PlacementRedirect/Target", Target));
+	ASSERT_TRUE(FPackagePath::TryCreate("/PlacementRedirect/Alias", Alias));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Target, Material));
+	FAssetWriteResult Write;
+	ASSERT_TRUE(SavePackage(Material->GetPackage(), {}, &Write)) << Write.Error->ToString();
+	DAssetRedirector* Redirector = nullptr;
+	const auto Created = Testing::CreateAssetRedirectorForTests(Alias, Target, Redirector);
+	ASSERT_TRUE(Created) << Created.Error->ToString();
+	ASSERT_TRUE(SavePackage(Redirector->GetPackage(), {}, &Write)) << Write.Error->ToString();
+	const auto AliasData = FindAssetExact(Testing::MakePackageLeafAssetObjectPathForTests(Alias).GetAssetPath());
+	ASSERT_TRUE(AliasData);
+	ASSERT_TRUE(AliasData->IsRedirector());
+	FRedirectTargetFactory Factory;
+	auto Registration = RegisterModularFeature(Factory);
+	auto* Placement = Editor.GetEditor()->GetEditorSubsystem<DPlacementSubsystem>();
+	ASSERT_NE(Placement, nullptr);
+	std::string Error;
+	auto Placed = Placement->PlaceAsset({*AliasData.Asset, Editor.GetWorld()->GetCurrentLevel(), {false}}, &Error);
+	ASSERT_EQ(Placed.size(), 1u) << Error;
+	ASSERT_NE(Placed.front().Get(), nullptr);
+	EXPECT_EQ(Placed.front().Get()->GetName(), "Target");
 }
 
 TEST(FAssetPlacementTests, BatchCollectsMultipleActorsPerAssetAndUndoesAsOneEdit)
@@ -131,10 +186,14 @@ TEST(FAssetPlacementTests, BatchCollectsMultipleActorsPerAssetAndUndoesAsOneEdit
 	ASSERT_TRUE(FSoftObjectPath::TryCreate(DefaultMaterialObjectPath, Path));
 	ASSERT_TRUE(FSoftObjectPath::TryCreate("/Engine/Renderer/DefaultSkyCube.DefaultSkyCube", Cube));
 	auto* Level = Editor.GetWorld()->GetCurrentLevel();
-	FAssetPlacementInfo First{Path, Level, {false}}, Last = First;
+	const auto MaterialData = FindAssetExact(Path.GetAssetPath());
+	const auto CubeData = FindAssetExact(Cube.GetAssetPath());
+	ASSERT_TRUE(MaterialData);
+	ASSERT_TRUE(CubeData);
+	FAssetPlacementInfo First{*MaterialData.Asset, Level, {false}}, Last = First;
 	Last.FinalizedTransform.Translation = FVector3(4.0, 5.0, 6.0);
-	const std::array Infos{First, FAssetPlacementInfo{Cube, Level, {false}},
-		FAssetPlacementInfo{Path, Level, {true}}, Last};
+	const std::array Infos{First, FAssetPlacementInfo{*CubeData.Asset, Level, {false}},
+		FAssetPlacementInfo{*MaterialData.Asset, Level, {true}}, Last};
 	std::string Error;
 	const auto Placed = Placement->PlaceAssets(Infos, &Error);
 	ASSERT_EQ(Placed.size(), 4u) << Error;

@@ -257,7 +257,7 @@ hit-test pass.
 
 ## Asset Placement
 
-The viewport submits one `FAssetPlacementInfo` per dragged asset, with its path,
+The viewport submits one `FAssetPlacementInfo` per dragged asset, with its `FAssetData`,
 target level, edit context and world transform. A Content Browser multi-selection
 uses the captured drag order and the same cursor location for each asset.
 Native callers can supply a different transform per request.

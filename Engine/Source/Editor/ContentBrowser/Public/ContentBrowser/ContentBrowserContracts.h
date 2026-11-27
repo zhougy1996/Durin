@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AssetRegistry/Catalog.h"
 #include "ContentBrowserOperationContext.h"
 
 #include "DObject/AssetPath.h"
@@ -18,8 +19,8 @@ namespace Durin
 namespace Durin::ContentBrowser
 {
 	inline constexpr const char* ContentItemsDragPayloadType = "DURIN_CONTENT_ITEMS";
-	// Resolves placeable asset paths from the current browser drag snapshot in selection order.
-	CONTENTBROWSER_API auto GetDraggedAssetPaths(uint64 Serial) -> std::vector<FSoftObjectPath>;
+	// Resolves asset metadata from the current browser drag snapshot in selection order.
+	CONTENTBROWSER_API auto GetDraggedAssets(uint64 Serial) -> std::vector<FAssetData>;
 
 	// Identifies the extension surface contributed by an asset-family module.
 	enum class EExtensionCategory : uint8

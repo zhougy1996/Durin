@@ -17,7 +17,7 @@ namespace Durin
 	// The caller resolves the placement transform from its viewport or other input.
 	struct FAssetPlacementInfo
 	{
-		FSoftObjectPath AssetToPlace;
+		FAssetData AssetToPlace;
 		TWeakObjectPtr<DLevel> PreferredLevel;
 		FActorEditContext EditContext;
 		FTransform FinalizedTransform{};
