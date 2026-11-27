@@ -37,14 +37,13 @@ namespace Durin::DerivedData
 			{
 				if (!IsTaskSchedulerRunning()) { Work(); return std::shared_ptr<IBuildScheduledWork>{}; }
 				auto Scheduled = std::make_shared<FTaskWork>();
-				Tasks::FTaskExecutionOptions Options;
 
 				const std::string Name(Params.FunctionName.empty() ? (IO ? "DerivedDataCacheIO" : "DerivedDataBuild") : Params.FunctionName);
 				// The DDC owner owns work lifetime; queue pumps must not donate their Core scope.
-				Options.Priority = Params.Priority == ERequestPriority::High ? ETaskPriority::High
+				const auto Priority = Params.Priority == ERequestPriority::High ? ETaskPriority::High
 					: Params.Priority == ERequestPriority::Low ? ETaskPriority::Low : ETaskPriority::Normal;
 				const auto Thread = IO ? Tasks::ETaskThread::BlockingIO : Tasks::ETaskThread::Worker;
-				Scheduled->Task = Tasks::LaunchTask(Name.c_str(), std::move(Work), Thread, Options);
+				Scheduled->Task = Tasks::LaunchTask(Name.c_str(), std::move(Work), Thread, Priority);
 				return Scheduled;
 			}
 		private:

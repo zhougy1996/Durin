@@ -3,6 +3,7 @@
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
+#include "Threading/Private/RenderThreadLocalQueue.h"
 
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
@@ -75,6 +76,7 @@ namespace Durin
 				std::lock_guard Lock(Mutex);
 				require(!GRenderingThread);
 				bStopRequested = false;
+				LocalQueue = Private::FRenderThreadLocalQueue::Open();
 				GRenderingThread = FRunnableThread::Create(this, "RenderingThread", 0,
 					EThreadPriority::Normal, EThreadRole::RenderingThread);
 				requiref(GRenderingThread, "Rendering thread creation failed.");
@@ -88,7 +90,7 @@ namespace Durin
 					require(bRunning && !bStopRequested);
 					bStopRequested = true;
 				}
-				CommandAvailable.notify_one();
+				LocalQueue->Notify();
 			}
 
 			auto IsRunning() -> bool
@@ -100,19 +102,13 @@ namespace Durin
 			auto Enqueue(const char* Name,
 				TMoveOnlyFunction<void(FRHICommandListImmediate&)>&& Function) -> void
 			{
-				bool bWasEmpty;
-				{
-					std::lock_guard Lock(Mutex);
-					// Accepted commands can enqueue ordered cleanup until the consumer runs out of work.
-					requiref(bRunning && (!bStopRequested || GetCurrentThread() == GRenderingThread),
-						"Render command '{}' was submitted outside the rendering thread lifetime.", Name);
-					bWasEmpty = PendingCommands.empty();
-					PendingCommands.emplace_back(Name, std::move(Function));
-				}
-				if (bWasEmpty)
-				{
-					CommandAvailable.notify_one();
-				}
+				std::lock_guard Lock(Mutex);
+				// Accepted commands can enqueue ordered cleanup until the consumer runs out of work.
+				requiref(bRunning && (!bStopRequested || GetCurrentThread() == GRenderingThread),
+					"Render command '{}' was submitted outside the rendering thread lifetime.", Name);
+				const bool bWasEmpty = PendingCommands.empty();
+				PendingCommands.emplace_back(Name, std::move(Function));
+				if (bWasEmpty) LocalQueue->Notify();
 			}
 
 			auto Run() -> uint32 override
@@ -120,17 +116,15 @@ namespace Durin
 				std::vector<FCommand> Commands;
 				std::unique_lock Lock(Mutex);
 				check(IsInRenderingThread());
+				LocalQueue->AttachToCurrentThread();
 				for (;;)
 				{
-					CommandAvailable.wait(Lock, [this]() {
-						return bStopRequested || !PendingCommands.empty();
-					});
-					if (PendingCommands.empty())
+					const uint64 Observed = LocalQueue->PrepareWait();
+					if (PendingCommands.empty() && bStopRequested && LocalQueue->CloseIfEmpty())
 					{
 						bRunning = false;
 						break;
 					}
-
 					Commands.swap(PendingCommands);
 					Lock.unlock();
 					for (FCommand& Command : Commands)
@@ -141,7 +135,9 @@ namespace Durin
 						// Release captures before the next command can complete a fence.
 						Command.Function = nullptr;
 					}
+					const bool bRanCommands = !Commands.empty();
 					Commands.clear();
+					if (!LocalQueue->ProcessOne() && !bRanCommands) LocalQueue->Wait(Observed);
 					Lock.lock();
 				}
 				Lock.unlock();
@@ -158,7 +154,7 @@ namespace Durin
 
 			std::vector<FCommand> PendingCommands;
 			std::mutex Mutex;
-			std::condition_variable CommandAvailable;
+			std::shared_ptr<Private::FRenderThreadLocalQueue> LocalQueue;
 			bool bRunning = false;
 			bool bStopRequested = false;
 		};

@@ -41,14 +41,21 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		Tasks::FPipe Pipe;
 		Tasks::FTaskEvent Gate("PipePrerequisite", false);
+		Tasks::FTaskEvent Second("SecondPipePrerequisite", false);
+		const auto Attribution = RegisterTaskAttribution("CoreTests", "PipePrerequisites");
 		std::atomic<uint32> Sequence = 0;
-		auto Delayed = Pipe.Launch("Delayed", [&] { EXPECT_EQ(Sequence.fetch_add(1), 1u); return 42; }, Gate);
+		auto Delayed = Pipe.Launch("Delayed", [&] { EXPECT_EQ(Sequence.fetch_add(1), 1u); return 42; },
+			Tasks::Prerequisites(Gate, Second), ETaskPriority::High, Attribution);
+		EXPECT_EQ(Delayed.GetDiagnostics().Priority, ETaskPriority::High);
+		EXPECT_EQ(Private::FTaskRuntimeAccess::GetAttribution(Delayed), Attribution);
 		auto Ready = Pipe.Launch("Ready", [&] { EXPECT_EQ(Sequence.fetch_add(1), 0u); });
 		EXPECT_EQ(Ready.WaitDetailed(2).WaitStatus, ETaskWaitStatus::Completed);
 		EXPECT_FALSE(Delayed.IsCompleted());
 		EXPECT_TRUE(Pipe.HasWork());
 		EXPECT_FALSE(Pipe.WaitUntilEmpty(0.001));
 		Gate.Trigger();
+		EXPECT_FALSE(Delayed.IsCompleted());
+		Second.Trigger();
 		EXPECT_EQ(Delayed.GetResult(), 42);
 		EXPECT_TRUE(Pipe.WaitUntilEmpty(2));
 	}
@@ -138,7 +145,7 @@ namespace Durin
 			EXPECT_TRUE(Pipe.IsInContext());
 			EXPECT_FALSE(Pipe.WaitUntilEmpty(0));
 			return std::make_unique<int>(17);
-		}, Gate, {});
+		}, Gate);
 		FThreadEvent ThrowStarted, AllowThrow;
 		auto Failed = Pipe.Launch("ThrowingPipe", [&] {
 			ThrowStarted.Trigger();

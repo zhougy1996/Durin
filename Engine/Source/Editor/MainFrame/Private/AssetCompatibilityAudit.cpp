@@ -231,7 +231,6 @@ namespace Durin
 
 		State = EAssetCompatibilityAuditState::Running;
 		Cancellation.emplace();
-		Tasks::FTaskExecutionOptions Options;
 
 		const uint64 Serial = RequestSerial;
 		const std::shared_ptr<FMailbox> WorkerMailbox = Mailbox;
@@ -272,15 +271,11 @@ namespace Durin
 						.State = EAssetCompatibilityAuditState::Failed,
 						.Failure = "Asset compatibility audit failed with an unknown exception."};
 				}
-			}, Options);
-		Task = Tasks::FTask(WorkerTask);
+			});
+		Task = WorkerTask;
 
-		Tasks::FTaskExecutionOptions TerminalOptions;
-
-		TerminalOptions.Priority = ETaskPriority::Normal;
-		TerminalOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(WorkerTask);
 		const std::weak_ptr<FPublicationLifetime> WeakLifetime = PublicationLifetime;
-		TerminalTask = Tasks::FTask(Tasks::LaunchTask("AssetCompatibility.PublishTerminal",
+		TerminalTask = Tasks::LaunchTask("AssetCompatibility.PublishTerminal",
 			[WeakLifetime, Serial, Outcome = WorkerTask] {
 				const std::shared_ptr<FPublicationLifetime> Lifetime = WeakLifetime.lock();
 				if (!Lifetime || !Lifetime->Model) return;
@@ -294,19 +289,20 @@ namespace Durin
 				}
 				else if (Outcome.GetState() == ETaskState::Succeeded)
 				{
-					if (Outcome.GetResult().Serial != Serial) return;
-					Model.State = Outcome.GetResult().State;
-					Model.Failure = Outcome.GetResult().Failure;
+					const auto& Summary = Outcome.GetResult();
+					if (Summary.Serial != Serial) return;
+					Model.State = Summary.State;
+					Model.Failure = Summary.Failure;
 				}
 				else
 				{
 					Model.State = EAssetCompatibilityAuditState::Failed;
-					Model.Failure = Outcome.GetDiagnostic().empty()
-						? "The asset compatibility audit worker failed."
-						: Outcome.GetDiagnostic();
+					Model.Failure = Outcome.GetDiagnostic();
+					if (Model.Failure.empty()) Model.Failure = "The asset compatibility audit worker failed.";
 				}
 				Model.InvalidatePresentation();
-			}, WorkerTask, Tasks::ETaskThread::GameThread, TerminalOptions));
+			}, WorkerTask, Tasks::ETaskThread::GameThread,
+			Private::FTaskRuntimeAccess::GetAttribution(WorkerTask));
 
 		return true;
 	}

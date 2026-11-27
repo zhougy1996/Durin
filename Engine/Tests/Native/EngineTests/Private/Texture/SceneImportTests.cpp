@@ -480,6 +480,34 @@ TEST(FSceneImportTests, OptionalSaveFailureRetainsEveryImportedOutput)
 	EXPECT_TRUE(SavePackages(Packages));
 }
 
+TEST(FSceneImportTests, ThrowingSavePublicationReportsBatchFailure)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("ThrowingSavePublication");
+	Testing::FScopedPackageSaveFault Fault([](Testing::EPackageSaveFaultPoint Phase, size_t Index) {
+		if (Index == 1 && Phase == Testing::EPackageSaveFaultPoint::PublishPackage)
+			throw std::runtime_error("injected scene save publication exception");
+		return false;
+	});
+	const auto Result = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin(), {.MeshMode = EAssetImportMeshMode::Combined}, {}, {}, FAssetPackageSaveArgs{});
+
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_TRUE(Result.SaveResult);
+	const auto& Batch = *Result.SaveResult;
+	EXPECT_FALSE(Batch);
+	ASSERT_GE(Result.ImportedPackages.size(), 2u);
+	ASSERT_EQ(Batch.SavedPackages.size(), 1u);
+	EXPECT_EQ(Batch.SavedPackages.front(), Result.ImportedPackages[0]);
+	EXPECT_EQ(Batch.FailedPackage, Result.ImportedPackages[1]);
+	EXPECT_NE(Result.Message.find("injected scene save publication exception"), std::string::npos) << Result.Message;
+	EXPECT_TRUE(std::ranges::any_of(Result.Diagnostics, [](const auto& Diagnostic) {
+		return Diagnostic.Category == EImportDiagnosticCategory::PersistenceFailure && Diagnostic.Phase == "scene-save";
+	}));
+}
+
 TEST(FSceneImportTests, AsyncSessionPublishesIndependentImports)
 {
 	using namespace Durin;

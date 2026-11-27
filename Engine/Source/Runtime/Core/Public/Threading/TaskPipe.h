@@ -20,32 +20,37 @@ namespace Durin::Tasks
 		auto HasWork() const -> bool;
 		auto IsInContext() const -> bool;
 		// Stop producers first and ensure prerequisites can progress independently.
-		// Blocks without retraction; own-pipe, independent-CPU and render contexts
+		// Blocks without retraction; own-pipe and render contexts
 		// cannot drain outstanding work. Use task Wait for dependency helping.
 		auto WaitUntilEmpty(double TimeoutSeconds = std::numeric_limits<double>::infinity()) -> bool;
 
 		template<typename F>
-		auto Launch(const char* Name, F&& Function, FTaskExecutionOptions Options = {})
+		auto Launch(const char* Name, F&& Function,
+			ETaskPriority Priority = ETaskPriority::Normal, FTaskAttribution Attribution = {})
 		{
-			return Detail::LaunchTaskImpl(Name, ETaskThread::Worker, Options, std::forward<F>(Function), false, this);
+			return Detail::LaunchTaskImpl(Name, std::forward<F>(Function),
+				{.Pipe = this, .Attribution = Attribution, .Priority = Priority});
 		}
+
 		template<typename F>
-		auto Launch(const char* Name, F&& Function, ETaskPriority Priority)
-		{ return Launch(Name, std::forward<F>(Function), FTaskExecutionOptions{.Priority = Priority}); }
-		template<typename F, Detail::CTaskDependencyCollection R>
-		auto Launch(const char* Name, F&& Function, const R& Inputs, FTaskExecutionOptions Options = {})
+		auto Launch(const char* Name, F&& Function, FTaskAttribution Attribution)
 		{
-			return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {
-				return Launch(Name, std::forward<F>(Function), BoundOptions);
-			});
+			return Launch(Name, std::forward<F>(Function), ETaskPriority::Normal, Attribution);
 		}
-		template<typename F, Detail::CTaskDependency T>
-		auto Launch(const char* Name, F&& Function, const T& Input, FTaskExecutionOptions Options = {})
-		{ return Launch(Name, std::forward<F>(Function), Prerequisites(Input), Options); }
-		template<typename F, typename R>
-		requires (Detail::CTaskDependency<R> || Detail::CTaskDependencyCollection<R>)
-		auto Launch(const char* Name, F&& Function, const R& Inputs, ETaskPriority Priority)
-		{ return Launch(Name, std::forward<F>(Function), Inputs, FTaskExecutionOptions{.Priority = Priority}); }
+
+		template<typename F, Detail::CTaskPrerequisites R>
+		auto Launch(const char* Name, F&& Function, const R& Inputs,
+			ETaskPriority Priority = ETaskPriority::Normal, FTaskAttribution Attribution = {})
+		{
+			return Detail::LaunchAfter(Name, std::forward<F>(Function), Inputs,
+				{.Pipe = this, .Attribution = Attribution, .Priority = Priority});
+		}
+
+		template<typename F, Detail::CTaskPrerequisites R>
+		auto Launch(const char* Name, F&& Function, const R& Inputs, FTaskAttribution Attribution)
+		{
+			return Launch(Name, std::forward<F>(Function), Inputs, ETaskPriority::Normal, Attribution);
+		}
 
 	private:
 		friend class Durin::FTaskStateData;

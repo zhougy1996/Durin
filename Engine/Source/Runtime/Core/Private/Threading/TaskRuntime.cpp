@@ -1,10 +1,12 @@
 #include "Threading/TaskRuntime.h"
+#include "Threading/Task.h"
 #include "Threading/TaskPipe.h"
 #include "Threading/TaskConcurrencyLimiter.h"
+#include "Templates/AtomicSharedPtr.h"
 
 #include "Profiling/Profiling.h"
 #include "Threading/QueuedThreadPool.h"
-#include "Threading/Private/QueuedWorkNode.h"
+#include "Threading/Private/RenderThreadLocalQueue.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -572,6 +574,78 @@ namespace Durin
 		uint64 Serial = 0;
 	};
 
+	namespace Private
+	{
+		static TAtomicSharedPtr<FRenderThreadLocalQueue> GRenderLocalQueue;
+		static thread_local FRenderThreadLocalQueue* GCurrentRenderQueue = nullptr;
+
+		FRenderThreadLocalQueue::FRenderThreadLocalQueue() : Signal(std::make_shared<FTaskWaitSignal>()) {}
+
+		auto FRenderThreadLocalQueue::Open() -> std::shared_ptr<FRenderThreadLocalQueue>
+		{
+			auto Queue = std::shared_ptr<FRenderThreadLocalQueue>(new FRenderThreadLocalQueue);
+			require(!GRenderLocalQueue.Exchange(Queue));
+			return Queue;
+		}
+
+		auto FRenderThreadLocalQueue::AttachToCurrentThread() -> void
+		{
+			check(IsInRenderingThread() && !GCurrentRenderQueue);
+			GCurrentRenderQueue = this;
+		}
+
+		auto FRenderThreadLocalQueue::CloseIfEmpty() -> bool
+		{
+			std::lock_guard Lock(Mutex);
+			if (!Tasks.empty()) return false;
+			bClosed = true;
+			GRenderLocalQueue.Store(nullptr);
+			GCurrentRenderQueue = nullptr;
+			return true;
+		}
+
+		auto FRenderThreadLocalQueue::Enqueue(const std::shared_ptr<FQueuedWorkNode>& Task) -> bool
+		{
+			{
+				std::lock_guard Lock(Mutex);
+				if (bClosed) return false;
+				Tasks.push_back(Task);
+			}
+			Notify();
+			return true;
+		}
+
+		auto FRenderThreadLocalQueue::ProcessOne() -> bool
+		{
+			check(GCurrentRenderQueue == this);
+			std::shared_ptr<FQueuedWorkNode> Task;
+			{
+				std::lock_guard Lock(Mutex);
+				if (Tasks.empty()) return false;
+				Task = std::move(Tasks.front());
+				Tasks.pop_front();
+			}
+			Task->Execute();
+			return true;
+		}
+
+		auto FRenderThreadLocalQueue::PrepareWait() const -> uint64 { return Signal->PrepareWait(); }
+		auto FRenderThreadLocalQueue::Wait(uint64 Observed) const -> void
+		{ Signal->WaitFor(Observed, std::numeric_limits<double>::infinity()); }
+		auto FRenderThreadLocalQueue::Notify() const -> void { Signal->Notify(); }
+	}
+
+	static auto MakeTaskWaitSignal() -> std::shared_ptr<FTaskWaitSignal>
+	{
+		return Private::GCurrentRenderQueue ? Private::GCurrentRenderQueue->Signal : std::make_shared<FTaskWaitSignal>();
+	}
+
+	static auto WaitForTaskProgress(FTaskWaitSignal& Signal, uint64 Observed, const FTaskWaitDeadline& Deadline) -> void
+	{
+		if (Private::GCurrentRenderQueue && !Deadline.IsExpired() && Private::GCurrentRenderQueue->ProcessOne()) return;
+		Signal.WaitFor(Observed, Deadline.Remaining());
+	}
+
 	struct Tasks::Private::FTaskConcurrencyLimiterState
 	{
 		std::mutex Mutex;
@@ -598,7 +672,7 @@ namespace Durin
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
 		uint64 AdditionalStorageBytes = 0;
-		bool bIndependentCPU = false;
+		std::weak_ptr<Private::FRenderThreadLocalQueue> RenderQueue;
 		FTaskAttribution Attribution;
 		ETaskNodeKind Kind = ETaskNodeKind::Executable;
 		bool bUnknownExecutionRequirement = false;
@@ -626,7 +700,7 @@ namespace Durin
 			, Target(Init.Target)
 			, Priority(Init.Priority)
 			, EstimatedPayloadBytes(Init.EstimatedPayloadBytes)
-			, bIndependentCPU(Init.bIndependentCPU)
+			, RenderQueue(Init.RenderQueue)
 			, Attribution(Init.Attribution)
 			, EnqueueTimeNanoseconds(MonotonicNanoseconds())
 		{
@@ -859,7 +933,7 @@ namespace Durin
 		// Inspect one node lock at a time. Terminal ancestors impose no executor
 		// requirement; pinning each frontier keeps concurrent publication safe.
 		// Immutable graph contract: every unfinished dependency also carries this flag.
-		auto IsIndependentCPU() const -> bool { return bIndependentCPU; }
+		auto PinRenderQueue() const { return RenderQueue.lock(); }
 
 		struct FWaitGraphWork
 		{
@@ -872,6 +946,7 @@ namespace Durin
 			const std::shared_ptr<FWaitSignal>& Signal = {}) const -> FWaitRequirements
 		{
 			FWaitRequirements Result;
+			const uint32 RenderThreadId = Private::GCurrentRenderQueue ? GetCurrentThread()->GetThreadId() : 0;
 			Work.Pending.push_back({shared_from_this(), true});
 			while (!Work.Pending.empty())
 			{
@@ -881,10 +956,17 @@ namespace Durin
 				if (!Work.Visited.Visit(Entry.Node->GetTaskId(), Entry.bRequirements ? 3 : 1)) continue;
 				if (Signal) Entry.Node->RegisterWaiter(Signal);
 				std::lock_guard Lock(Entry.Node->Mutex);
+				// A local task can run inside another task's wait on this thread.
+				if (RenderThreadId && Entry.Node->Phase == EPhase::Open
+					&& Entry.Node->ExecutionState == ETaskState::Running && Entry.Node->ExecutingThreadId == RenderThreadId)
+				{
+					Result.bCycle = true;
+					break;
+				}
 				const bool bRequirements = Entry.bRequirements && Entry.Node->Phase != EPhase::Closed;
 				if (bRequirements)
 				{
-					Result.bUnknown |= Entry.Node->bUnknownExecutionRequirement;
+					Result.bUnknown |= Entry.Node->bUnknownExecutionRequirement && !Entry.Node->Event->Triggered.load();
 					Result.bGameThread |= Entry.Node->Phase == EPhase::Open && Entry.Node->Target == Tasks::ETaskThread::GameThread;
 				}
 				// Closed ancestors still participate in cycle identity, but must not
@@ -1042,7 +1124,7 @@ namespace Durin
 		struct FEventData
 		{
 			std::mutex SignalMutex;
-			bool Triggered = false;
+			std::atomic_bool Triggered = false;
 			// Triggered events retain pending completion independently of a scheduler.
 			std::shared_ptr<FTaskStateData> CompletionLifetime;
 		};
@@ -1057,7 +1139,7 @@ namespace Durin
 		Tasks::ETaskThread Target = Tasks::ETaskThread::Worker;
 		std::atomic<ETaskPriority> Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
-		const bool bIndependentCPU;
+		const std::weak_ptr<Private::FRenderThreadLocalQueue> RenderQueue;
 		uint64 SchedulerStorageBytes = 0;
 		FTaskAttribution Attribution;
 		uint64 EnqueueTimeNanoseconds = 0;
@@ -1166,7 +1248,11 @@ namespace Durin
 			Init.Priority = Priority;
 			Init.EstimatedPayloadBytes = EstimatedPayloadBytes;
 			Init.AdditionalStorageBytes = AdditionalStorageBytes;
-			Init.bIndependentCPU = Options.bIndependentCPU || (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU());
+			if (Target == Tasks::ETaskThread::RenderThread_Local)
+			{
+				Init.RenderQueue = Private::GRenderLocalQueue.Load();
+				if (Init.RenderQueue.expired()) Tasks::Detail::FailConstruction({Tasks::ETaskConstructionErrorCode::UnsupportedExecutor});
+			}
 			Init.Attribution = Options.Attribution;
 			Init.Function = std::move(FunctionOwner);
 			Init.Completion = std::move(CompletionFunction);
@@ -1185,9 +1271,8 @@ namespace Durin
 					for (size_t Index = 0; Index < Count; ++Index) Prerequisites[Index]->ReleaseDependentReservation();
 				}
 			} Reservations{PrerequisiteStates, ReservedDependencyCount};
-			if ((Options.ConcurrencyLimiter && (Options.Pipe || Target != Tasks::ETaskThread::Worker || Init.bIndependentCPU))
-				|| (Options.Pipe && (Target != Tasks::ETaskThread::Worker || Init.bIndependentCPU))
-				|| (Init.bIndependentCPU && Target != Tasks::ETaskThread::Worker))
+			if ((Options.ConcurrencyLimiter && (Options.Pipe || Target != Tasks::ETaskThread::Worker))
+				|| (Options.Pipe && Target != Tasks::ETaskThread::Worker))
 				Tasks::Detail::FailConstruction({Tasks::ETaskConstructionErrorCode::InvalidExecutionContract});
 			PrerequisiteStates.reserve(Options.Prerequisites.size());
 			std::unordered_set<FTaskStateData*> SeenPrerequisites;
@@ -1199,9 +1284,6 @@ namespace Durin
 				{
 					Tasks::Detail::FailConstruction({Tasks::ETaskConstructionErrorCode::InvalidPrerequisite, Prerequisite.GetTaskId()});
 				}
-				if (Init.bIndependentCPU && !Prerequisite.State->IsIndependentCPU()
-					&& !IsTerminalState(Prerequisite.State->GetState()))
-					Tasks::Detail::FailConstruction({Tasks::ETaskConstructionErrorCode::InvalidExecutionContract, Prerequisite.GetTaskId()});
 				PrerequisiteStates.emplace_back(Prerequisite.State);
 			};
 			for (const Tasks::FTask& Prerequisite : Options.Prerequisites) AppendPrerequisite(Prerequisite);
@@ -1299,6 +1381,17 @@ namespace Durin
 				if (!State->EnterPipe()) { State->NotifyStateChanged(); return; }
 				if (!State->EnterConcurrencyLimiter()) { State->NotifyStateChanged(); return; }
 				if (State->GetPipe() || State->GetConcurrencyLimiter()) State->MarkDispatched();
+				if (State->GetTarget() == Tasks::ETaskThread::RenderThread_Local)
+				{
+					auto Queue = State->PinRenderQueue();
+					if (!Queue || !Queue->Enqueue(State))
+					{
+						RecordRejectedTask(State->GetAttribution());
+						State->FinishBody(ETaskState::Failed, "Render-thread local queue closed before dispatch.", ETaskTerminalReason::DispatchRejected);
+					}
+					State->NotifyStateChanged();
+					return;
+				}
 				if (State->GetTarget() == Tasks::ETaskThread::GameThread)
 				{
 					if (!DispatchGameThreadDeferredTask(State))
@@ -1693,7 +1786,7 @@ namespace Durin
 		uint64 LastLongWaitElapsedNanoseconds = 0;
 		ETaskState LastLongWaitTargetState = ETaskState::Invalid;
 		uint32 WorkerCount = 0;
-		std::array<FTaskExecutorStorageDiagnostics, 3> ExecutorStorage;
+		std::array<FTaskExecutorStorageDiagnostics, 4> ExecutorStorage;
 		uint64 TaskWarningThreshold = 0;
 		bool bAcceptingTasks = false;
 	};
@@ -1966,10 +2059,10 @@ namespace Durin
 		-> std::optional<Tasks::FTaskConstructionError>
 	{
 		using ECode = Tasks::ETaskConstructionErrorCode;
-		if ((Target != Tasks::ETaskThread::Worker && Target != Tasks::ETaskThread::GameThread && Target != Tasks::ETaskThread::BlockingIO)
+		if ((Target != Tasks::ETaskThread::Worker && Target != Tasks::ETaskThread::GameThread && Target != Tasks::ETaskThread::BlockingIO && Target != Tasks::ETaskThread::RenderThread_Local)
 			|| (Priority != ETaskPriority::High && Priority != ETaskPriority::Normal && Priority != ETaskPriority::Low))
 			return Tasks::FTaskConstructionError{ECode::UnsupportedExecutor};
-		if (Target == Tasks::ETaskThread::Worker || Target == Tasks::ETaskThread::BlockingIO) return {};
+		if (Target == Tasks::ETaskThread::Worker || Target == Tasks::ETaskThread::BlockingIO || Target == Tasks::ETaskThread::RenderThread_Local) return {};
 		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
 		{
 			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
@@ -2005,6 +2098,7 @@ namespace Durin
 
 	auto FTaskStateData::FinishBody(ETaskState TerminalState, std::string InDiagnostic, ETaskTerminalReason InReason) -> bool
 	{
+		bool bHasNestedWork;
 		{
 			std::lock_guard Lock(Mutex);
 			if (Phase != EPhase::Open) return false;
@@ -2012,8 +2106,10 @@ namespace Durin
 			if (TerminalState != ETaskState::Succeeded || Outcome.State != ETaskState::Canceled)
 				Outcome = {TerminalState, std::move(InDiagnostic), InReason};
 			Phase = EPhase::BodyFinished;
-			if (Event && PendingNestedCount != 0) Event->CompletionLifetime = shared_from_this();
+			bHasNestedWork = PendingNestedCount != 0;
+			if (Event && bHasNestedWork) Event->CompletionLifetime = shared_from_this();
 		}
+		if (bHasNestedWork) NotifyStateChanged();
 		TryClose();
 		return true;
 	}
@@ -2186,8 +2282,7 @@ namespace Durin
 	{
 		std::unique_lock Lock(Mutex);
 		if (TaskCount == 0) return true;
-		if (IsInContext() || (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
-			|| IsInRenderingThread() || !(TimeoutSeconds > 0)) return false;
+		if (IsInContext() || IsInRenderingThread() || !(TimeoutSeconds > 0)) return false;
 		if (std::isinf(TimeoutSeconds)) { Empty.wait(Lock, [&] { return TaskCount == 0; }); return true; }
 		return Empty.wait_for(Lock, std::chrono::duration<double>(TimeoutSeconds), [&] { return TaskCount == 0; });
 	}
@@ -2597,8 +2692,6 @@ namespace Durin
 				return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract};
 			return {};
 		}
-		if (Parent->IsIndependentCPU() && !Child->IsIndependentCPU())
-			return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::InvalidExecutionContract, Child->GetTaskId()};
 		if (Parent == Child || Child->DependsOn(Parent.get()))
 			return Tasks::FTaskConstructionError{Tasks::ETaskConstructionErrorCode::DependencyCycle, Child->GetTaskId()};
 		{
@@ -2695,7 +2788,6 @@ namespace Durin
 
 		auto FTaskRuntimeAccess::GetAttribution(const Tasks::FTask& Task) -> FTaskAttribution { return Task.State ? Task.State->GetAttribution() : FTaskAttribution{}; }
 
-		auto FTaskRuntimeAccess::IsExecutingIndependentCPU() -> bool { return GCurrentTaskState && GCurrentTaskState->IsIndependentCPU(); }
 		auto FTaskRuntimeAccess::GetCurrentTaskId() -> uint64 { return GCurrentTaskState && GCurrentTaskState->IsRunningBody() ? GCurrentTaskState->GetTaskId() : 0; }
 
 
@@ -2781,7 +2873,8 @@ namespace Durin
 			}
 
 			const bool bGameThread = GIsGameThreadIdInitialized && IsInGameThread();
-			const auto Requirements = GCurrentTaskState || bGameThread
+			const bool bRenderThread = IsInRenderingThread();
+			const auto Requirements = GCurrentTaskState || bGameThread || bRenderThread
 				? TaskState->InspectWaitGraph(GCurrentTaskState, Work, Signal) : FTaskStateData::FWaitRequirements{};
 			if (Requirements.bCycle)
 			{
@@ -2789,13 +2882,8 @@ namespace Durin
 				return ETaskWaitStatus::DependencyCycle;
 			}
 
-			if (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU() && !TaskState->IsIndependentCPU())
+			if (bRenderThread && (Requirements.bUnknown || Requirements.bGameThread))
 				return ETaskWaitStatus::UnsupportedThread;
-			if (IsInRenderingThread() && !TaskState->IsIndependentCPU())
-			{
-				DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
-				return ETaskWaitStatus::UnsupportedThread;
-			}
 			if (GCurrentTaskState && Requirements.bUnknown)
 				return ETaskWaitStatus::UnsupportedThread;
 			if (bGameThread && (Requirements.bUnknown || Requirements.bGameThread))
@@ -2835,7 +2923,7 @@ namespace Durin
 			if (auto Restriction = GetTaskWaitRestriction(TaskState, WaitGraph)) return {*Restriction, State};
 
 			std::shared_ptr<FTaskScheduler> Scheduler = GetRetractionScheduler(TaskState);
-			auto Signal = std::make_shared<FTaskStateData::FWaitSignal>();
+			auto Signal = MakeTaskWaitSignal();
 			TaskState->RegisterWaiter(Signal);
 			const auto WaitStartTime = std::chrono::steady_clock::now();
 			ETaskWaitStatus Status = ETaskWaitStatus::Completed;
@@ -2860,7 +2948,7 @@ namespace Durin
 					Status = *Restriction;
 					break;
 				}
-				Signal->WaitFor(Observed, Deadline.Remaining());
+				WaitForTaskProgress(*Signal, Observed, Deadline);
 			}
 
 			const auto Elapsed = std::chrono::steady_clock::now() - WaitStartTime;
@@ -2882,7 +2970,7 @@ namespace Durin
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->TaskCount == 0) return true;
-			if ((GCurrentTaskState && (GCurrentTaskState->GetConcurrencyLimiter() == State.get() || GCurrentTaskState->IsIndependentCPU()))
+			if ((GCurrentTaskState && GCurrentTaskState->GetConcurrencyLimiter() == State.get())
 				|| IsInRenderingThread() || Deadline.IsExpired()) return false;
 			Signal = State->WaitSignal.lock();
 			if (!Signal) State->WaitSignal = Signal = std::make_shared<FTaskWaitSignal>();
@@ -2938,7 +3026,7 @@ namespace Durin
 		auto Completed = [&] { return std::ranges::all_of(Tasks, [](const auto& Task) { return Task.IsCompleted(); }); };
 		if (Completed()) return true;
 		if (Deadline.IsExpired()) return false;
-		auto Signal = std::make_shared<FTaskWaitSignal>();
+		auto Signal = MakeTaskWaitSignal();
 		FTaskStateData::FWaitGraphWork WaitGraph;
 		FTaskScheduler::FRetractionWork Retraction;
 		for (;;)
@@ -2958,7 +3046,7 @@ namespace Durin
 			// Later inputs may signal earlier ones while helping. Recheck the entire set.
 			if (Completed()) return true;
 			if (bRejected || Deadline.IsExpired()) return false;
-			Signal->WaitFor(Observed, Deadline.Remaining());
+			WaitForTaskProgress(*Signal, Observed, Deadline);
 		}
 	}
 
@@ -2969,7 +3057,7 @@ namespace Durin
 		for (size_t Index = 0; Index < Tasks.size(); ++Index)
 			if (Tasks[Index].IsCompleted()) return static_cast<int32>(Index);
 		if (Tasks.empty() || Deadline.IsExpired()) return INDEX_NONE;
-		auto Signal = std::make_shared<FTaskWaitSignal>();
+		auto Signal = MakeTaskWaitSignal();
 		FTaskStateData::FWaitGraphWork WaitGraph;
 		for (;;)
 		{
@@ -2987,7 +3075,7 @@ namespace Durin
 				if (!GetTaskWaitRestriction(State, WaitGraph, Signal)) bEligible = true;
 			}
 			if (!bEligible || Deadline.IsExpired()) return INDEX_NONE;
-			Signal->WaitFor(Observed, Deadline.Remaining());
+			WaitForTaskProgress(*Signal, Observed, Deadline);
 		}
 	}
 
@@ -3015,7 +3103,7 @@ namespace Durin
 		for (size_t Index = 0; Index < Tasks.size(); ++Index) bPending |= Observe(Index);
 		if (!bPending) return Outcomes;
 
-		auto Signal = std::make_shared<FTaskWaitSignal>();
+		auto Signal = MakeTaskWaitSignal();
 		FTaskScheduler::FRetractionWork Retraction;
 		for (;;)
 		{
@@ -3030,7 +3118,7 @@ namespace Durin
 				bPending |= Observe(Index);
 			}
 			if (!bPending) return Outcomes;
-			Signal->WaitFor(Observed, Deadline.Remaining());
+			WaitForTaskProgress(*Signal, Observed, Deadline);
 		}
 	}
 
@@ -3039,13 +3127,20 @@ namespace Durin
 		struct FParallelForAccess
 		{
 			template<typename F>
-			static auto Execute(const char* Name, uint64 Num, F&& Function, const FParallelForOptions& Options) -> FParallelForResult;
+			static auto Execute(const char* Name, uint64 Num, F&& Function, std::optional<uint64> MinBatchSize,
+				Tasks::EParallelForFlags Flags, const Tasks::FCancellationToken* ExternalToken, FTaskAttribution Attribution) -> FParallelForResult;
 		};
 	}
 
 	template<typename F>
-	auto Private::FParallelForAccess::Execute(const char* Name, uint64 Num, F&& Function, const FParallelForOptions& Options) -> FParallelForResult
+	auto Private::FParallelForAccess::Execute(const char* Name, uint64 Num, F&& Function,
+		std::optional<uint64> MinBatchSize, Tasks::EParallelForFlags Flags,
+		const Tasks::FCancellationToken* ExternalToken, FTaskAttribution Attribution) -> FParallelForResult
 	{
+		if (MinBatchSize == 0)
+			return {ETaskState::Invalid, "ParallelFor requires a positive minimum batch size.", 0};
+		if (Flags != Tasks::EParallelForFlags::None && Flags != Tasks::EParallelForFlags::ForceSingleThread)
+			return {ETaskState::Invalid, "Unknown ParallelFor flags.", 0};
 		if (!Function)
 		{
 			return {ETaskState::Invalid, "ParallelFor function is empty.", 0};
@@ -3054,11 +3149,11 @@ namespace Durin
 		{
 			return {ETaskState::Succeeded, {}, 0};
 		}
-		if (Options.CancellationToken && Options.CancellationToken->IsCanceled())
+		if (ExternalToken && ExternalToken->IsCanceled())
 		{
 			return {ETaskState::Canceled, "ParallelFor cancellation was requested before execution.", 0};
 		}
-		FTaskAttribution SelectedAttribution = Options.Attribution;
+		FTaskAttribution SelectedAttribution = Attribution;
 		if (Private::FTaskAttributionAccess::IsDefault(SelectedAttribution) && GCurrentTaskState && GCurrentTaskScheduler)
 		{
 			SelectedAttribution = GCurrentTaskState->GetAttribution();
@@ -3087,12 +3182,12 @@ namespace Durin
 
 		const bool bNested = GParallelForDepth > 0;
 		FParallelForDepthScope CallerDepthScope;
-		const uint64 MinBatchSize = std::max<uint64>(1, Options.MinBatchSize);
-		const uint64 BatchLimitedChunks = 1 + (Num - 1) / MinBatchSize;
+		const uint64 BatchSize = MinBatchSize.value_or(Num >= 16'384 ? 2048 : Num);
+		const uint64 BatchLimitedChunks = 1 + (Num - 1) / BatchSize;
 		const uint64 WorkerLimitedChunks = bSchedulerRunning ? static_cast<uint64>(SchedulerWorkerCount) + 1 : 1;
 		const uint32 ChunkCount = static_cast<uint32>(std::min<uint64>(Num, std::min(BatchLimitedChunks, WorkerLimitedChunks)));
-		const uint32 EffectiveChunkCount = bNested ? 1 : std::max<uint32>(1, ChunkCount);
-		const auto ExternalToken = Options.CancellationToken;
+		const uint32 EffectiveChunkCount = (bNested || Flags == Tasks::EParallelForFlags::ForceSingleThread)
+			? 1 : std::max<uint32>(1, ChunkCount);
 		auto Invoke = [](F& Body, uint64 Index, const FParallelForCancellationToken& Token) {
 			if constexpr (std::is_invocable_v<F&, uint64, const FParallelForCancellationToken&>) Body(Index, Token);
 			else Body(Index);
@@ -3207,15 +3302,34 @@ namespace Durin
 			// ExecuteChunk records the stable failure before preserving task-style exception precedence.
 		}
 
-		const std::vector<FTaskWaitResult> WorkerOutcomes = WaitAll(WorkerTasks);
-		bool bAnyCanceled = SharedState->Cancellation.IsCanceled()
-			|| (Options.CancellationToken && Options.CancellationToken->IsCanceled());
-		for (const FTaskWaitResult& Outcome : WorkerOutcomes)
+		bool bWorkerCanceled = false;
+		for (uint32 Index = 0; Index < WorkerTasks.size(); ++Index)
 		{
-			bAnyCanceled = bAnyCanceled
-				|| Outcome.WaitStatus != ETaskWaitStatus::Completed
-				|| Outcome.TaskState == ETaskState::Canceled
-				|| Outcome.TaskState == ETaskState::Invalid;
+			const auto& Task = WorkerTasks[Index];
+			const auto Outcome = Task.WaitDetailed();
+			if (Outcome.WaitStatus != ETaskWaitStatus::Completed)
+			{
+				// These workers launch without prerequisites. Only a body that has
+				// started can have attached a child that this caller cannot join.
+				// Wait for that body to release the loop's borrowed inputs.
+				auto Signal = MakeTaskWaitSignal();
+				Task.State->RegisterWaiter(Signal);
+				const FTaskWaitDeadline Deadline(std::numeric_limits<double>::infinity());
+				for (;;)
+				{
+					const uint64 Observed = Signal->PrepareWait();
+					if (!Task.State->IsRunningBody()) break;
+					WaitForTaskProgress(*Signal, Observed, Deadline);
+				}
+				const auto [Start, End] = GetChunkRange(Index + 1);
+				RecordFailure(Start, End, "cannot wait for nested task completion on this thread.");
+			}
+			else if (Outcome.TaskState == ETaskState::Failed)
+			{
+				const auto [Start, End] = GetChunkRange(Index + 1);
+				RecordFailure(Start, End, Task.GetDiagnostic().c_str());
+			}
+			else bWorkerCanceled |= Outcome.TaskState == ETaskState::Canceled;
 		}
 
 		{
@@ -3225,7 +3339,7 @@ namespace Durin
 				return {ETaskState::Failed, SharedState->FailureDiagnostic, EffectiveChunkCount};
 			}
 		}
-		if (bAnyCanceled)
+		if (bWorkerCanceled || SharedState->Cancellation.IsCanceled() || (ExternalToken && ExternalToken->IsCanceled()))
 		{
 			return {
 				ETaskState::Canceled,
@@ -3235,15 +3349,18 @@ namespace Durin
 		}
 		return {ETaskState::Succeeded, {}, EffectiveChunkCount};
 	}
-	auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function, const FParallelForOptions& Options) -> FParallelForResult
+	auto Tasks::Detail::RunParallelFor(const char* Name, uint64 Num, std::optional<uint64> MinBatchSize,
+		FParallelForFunction Body, EParallelForFlags Flags, const FCancellationToken* Cancellation,
+		FTaskAttribution Attribution) -> FParallelForResult
 	{
-		auto Body = std::move(Function);
-		return Private::FParallelForAccess::Execute(Name, Num, std::move(Body), Options);
+		return Durin::Private::FParallelForAccess::Execute(Name, Num, std::move(Body), MinBatchSize, Flags, Cancellation, Attribution);
 	}
 
-	auto ParallelForCancelable(const char* Name, uint64 Num, FCancelableParallelForFunction&& Function, const FParallelForOptions& Options) -> FParallelForResult
+	auto Tasks::Detail::RunParallelFor(const char* Name, uint64 Num, std::optional<uint64> MinBatchSize,
+		FCancelableParallelForFunction Body, EParallelForFlags Flags, const FCancellationToken* Cancellation,
+		FTaskAttribution Attribution) -> FParallelForResult
 	{
-		return Private::FParallelForAccess::Execute(Name, Num, std::move(Function), Options);
+		return Durin::Private::FParallelForAccess::Execute(Name, Num, std::move(Body), MinBatchSize, Flags, Cancellation, Attribution);
 	}
 
 } // namespace Durin

@@ -602,7 +602,7 @@ namespace Durin
 			Task = Tasks::FTask(Tasks::LaunchTask("CookedMeshDecode",
 				[this, Buffers = std::move(Buffers)] {
 					Decode(Buffers[0].GetBytes(), Buffers.size() > 1 ? Buffers[1].GetBytes() : FByteView{});
-				}, {.Attribution = Attribution}));
+				}, Attribution));
 			return;
 		}
 		if (Phase == EPhase::Working && Task.IsCompleted())

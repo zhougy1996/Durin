@@ -241,8 +241,6 @@ namespace Durin::ContentBrowser::Private
 				const std::string PhysicalPath = Request.PhysicalPath;
 				const std::shared_ptr<FAsyncThumbnailState> State = AsyncState;
 				const std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = State->DiskCache;
-				Tasks::FTaskExecutionOptions DecodeOptions;
-				DecodeOptions.Attribution = GetSourceImageThumbnailDecodeAttribution();
 				auto Task = Tasks::LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BypassDisk = BypassDiskSources.contains(PhysicalPath)]() {
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
@@ -255,7 +253,7 @@ namespace Durin::ContentBrowser::Private
 					if (Decoded) Result.Thumbnail = std::move(*Decoded);
 					else Result.Error = std::move(Decoded.error());
 					return Result;
-				}, DecodeOptions);
+				}, GetSourceImageThumbnailDecodeAttribution());
 				++ActiveDecodeCount;
 				Tasks.push_back({PhysicalPath, Serial, std::move(Task)});
 			}

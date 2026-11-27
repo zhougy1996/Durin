@@ -17,7 +17,7 @@ namespace Durin
 		static auto GetComputePipeline(const FPipelineState& Pipeline) -> FComputePipelineStateRHIRef { return Pipeline.Compilation->GetComputePipeline(); }
 		RHI_API static auto WaitForRequiredPipeline(const FPipelineCompilation& Request) -> void;
 		// Key must describe Initializer and be validated against this device's
-		// capabilities. Cache lifecycle, payload, and independent-CPU admission still apply.
+		// capabilities. Cache lifecycle and payload admission still apply.
 		RHI_API static auto GetGraphicsValidated(FRHIPipelineStateCache& Cache,
 			const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name,
 			FGraphicsPipelineStateKey Key)

@@ -205,8 +205,7 @@ namespace Durin
 		};
 		WaitWork = [State] { if (State->Task.IsValid()) (void)State->Task.Wait(); };
 		PollWork = [this, State] {
-			if (State->Task.IsValid() && !State->Task.IsCompleted()) return false;
-			if (State->Task.IsValid()) (void)State->Task.Wait();
+			if (!State->Task.IsCompleted()) return false;
 			std::lock_guard Lock(State->Mutex);
 			if (State->Cancellation.IsCanceled()) {
 				Result = {EObjectCookError::Cancelled, {}}; return true;

@@ -1181,11 +1181,15 @@ auto FSceneImportState::Run() -> FSceneRoutine
 						Testing::FScopedPackageSaveFault Scope(Fault);
 						Task = SavePackageAsync(Package, *SaveArgs, IsCancellationRequested);
 					}
-					if (Task.IsValid())
-					{
-						co_await Step([&] { return Task.IsCompleted(); });
+					co_await Step([&] { return Task.IsCompleted(); });
+					const auto State = Task.GetState();
+					if (State == ETaskState::Succeeded)
 						Batch.Result = Task.GetResult();
-					}
+					else if (State == ETaskState::Canceled)
+						Batch.Result = {.Error = UnifiedError::FError{AssetWriteErrors::Cancelled, "Save task was cancelled."}};
+					else
+						Batch.Result = {.Error = UnifiedError::FError{AssetWriteErrors::IoError,
+							std::format("Save task failed: {}", Task.GetDiagnostic())}, .Effect = EAssetWriteEffect::ContentUncertain};
 				}
 				if (!Batch.Result)
 				{

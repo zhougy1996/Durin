@@ -6,9 +6,11 @@
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageBulkData.h"
 #include "Asset/PackageResource.h"
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
-#include "Threading/Runnable.h"
+#include "RenderingThread.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/ThreadEvent.h"
 
@@ -84,7 +86,7 @@ namespace
 		bool bOwnsScheduler = false;
 	};
 
-	// Holds a read open across an unsupported wait; the timeout keeps failure
+	// Holds a read open until explicitly released; the timeout keeps failure
 	// cleanup bounded even if an assertion exits before explicit release.
 	class FBlockedPackageResource final : public FPackageResource
 	{
@@ -101,20 +103,6 @@ namespace
 			if (!Release.WaitFor(2.0)) return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::IoError});
 			return FSharedByteBuffer::Take(FByteBuffer(Size, std::byte{0x31}));
 		}
-	};
-
-	class FPackageWaitRunnable final : public FRunnable
-	{
-	public:
-		explicit FPackageWaitRunnable(FPackageResourceRequest InRequest)
-			: Request(std::move(InRequest)) {}
-		auto Run() -> uint32 override
-		{
-			Result = Request.Wait();
-			return 0;
-		}
-		FPackageResourceRequest Request;
-		FPackageResourceReadResult Result;
 	};
 
 	[[maybe_unused]] testing::Environment* GPackageTaskEnvironment =
@@ -702,25 +690,49 @@ TEST(FPackageResourceTests, SubmissionAfterSchedulerClosureIsALifecycleViolation
 	EXPECT_TRUE(InitializeTaskScheduler(2));
 }
 
-TEST(FPackageResourceTests, RejectedRenderingWaitDoesNotPublishRequestCompletion)
+TEST(FPackageResourceTests, RenderingThreadWaitsForPackageReadsAndTheirTransformsInOrder)
 {
-	auto Resource = std::make_shared<FBlockedPackageResource>();
-	FPackageResourceRequest Request = Resource->ReadRangeAsync(0, 4);
-	ASSERT_TRUE(Resource->Started.WaitFor(1.0));
-	FPackageWaitRunnable Runnable(Request);
-	std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Runnable,
-		"PackageRejectedWait", 0, EThreadPriority::Normal, EThreadRole::RenderingThread));
-	ASSERT_NE(Thread, nullptr);
-	Thread->WaitForCompletion();
-	EXPECT_EQ(Runnable.Result.error().Status, EPackageResourceReadStatus::IoError);
-	EXPECT_TRUE(Runnable.Result.error().Message.contains("wait was rejected"));
-	EXPECT_TRUE(Runnable.Result.error().Message.contains("WaitStatus:"));
-	EXPECT_FALSE(Request.IsReady());
-	Resource->Release.Trigger();
-	const auto Result = Request.Wait();
-	ASSERT_TRUE(Result);
-	EXPECT_EQ(Result->GetSize(), 4u);
-	EXPECT_EQ(Result->GetBytes().front(), std::byte{0x31});
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	InitRenderingThread();
+	for (const bool bTransform : {false, true})
+	{
+		SCOPED_TRACE(bTransform ? "Worker transform" : "Direct read");
+		auto Resource = std::make_shared<FBlockedPackageResource>();
+		auto Request = Resource->ReadRangeAsync(0, 4);
+		if (bTransform)
+			Request = FPackageResourceRequest::Transform(Request, [](FPackageResourceReadResult Read) { return Read; });
+
+		FThreadEvent LaterCommandFinished;
+		bool bReadFinished = false;
+		EnqueueRenderCommand("WaitForPackageRead", [&](FRHICommandListImmediate&) {
+			EXPECT_TRUE(IsInRenderingThread());
+			EnqueueRenderCommandDeferred("AfterPackageRead", [&](FRHICommandListImmediate&) {
+				EXPECT_TRUE(bReadFinished);
+				LaterCommandFinished.Trigger();
+			});
+			EXPECT_TRUE(Resource->Started.WaitFor(1.0));
+			const auto TimedOut = Request.Wait(0.01);
+			EXPECT_FALSE(TimedOut);
+			if (!TimedOut)
+				EXPECT_TRUE(TimedOut.error().Message.contains(std::format("WaitStatus: {}.", static_cast<uint32>(ETaskWaitStatus::TimedOut))));
+			EXPECT_FALSE(Request.IsReady());
+
+			// Only the waiting render thread can run this local task and unblock the I/O pool.
+			Tasks::LaunchTask("ReleasePackageRead", [Resource] { Resource->Release.Trigger(); },
+				Tasks::ETaskThread::RenderThread_Local);
+			const auto Read = Request.Wait(5.0);
+			EXPECT_TRUE(Read);
+			if (Read) EXPECT_TRUE(std::ranges::equal(Read->GetBytes(), MakeBytes({0x31, 0x31, 0x31, 0x31})));
+			bReadFinished = true;
+		});
+		EXPECT_TRUE(LaterCommandFinished.WaitFor(10.0));
+		FlushRenderingCommands();
+	}
+	ShutdownRenderingThread();
 }
 
 TEST(FEditorBulkDataTests, SeparatesInstanceAndContentIdentityWithoutForcedLoad)

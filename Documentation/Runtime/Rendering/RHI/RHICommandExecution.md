@@ -97,8 +97,8 @@ optional `FParallelCommandListSet`. A null set, unavailable scheduler or small
 draw range uses `Draw`. Larger ranges are partitioned in final visible-command
 order, after dynamic instancing and instance-culling compaction. Each recorder
 sets its viewport/scissor and owns a fresh draw-state cache and optional local
-statistics. Independent CPU task prerequisites gate recording; pending external
-events and owner-thread work are not valid recording dependencies. The set joins
+statistics. Worker task prerequisites gate recording. The rendering thread can service
+render-local tasks while joining recorders. The set joins
 recording before insertion and merges observations in draw order, so prepared scene data may be
 borrowed until the call returns. Failed recording tasks insert no partial group.
 GBuffer, opaque/masked forward and retained-forward paths use this mechanism;

@@ -2785,7 +2785,6 @@ namespace Durin
 		struct FStopScheduler { ~FStopScheduler() { ShutdownTaskScheduler(); } } StopScheduler;
 		std::vector<int> Replay;
 		std::array<uint32, 2> WorkerThreads{};
-		std::array<bool, 2> IndependentContexts{};
 		FBarrierRecordingContext Backend;
 		FRHICommandListExecutor Executor(Backend);
 		auto& Commands = Executor.GetImmediateCommandList();
@@ -2805,7 +2804,6 @@ namespace Durin
 		Builder.AddRecordingPass("Producer", ERDGPassType::Copy, std::move(Write),
 			[&](FRHICommandList& Recorded, const FTypedValueWriteParameters& Parameters, const FRDGParameterResolver& Resolver) {
 				WorkerThreads[0] = FPlatformLTS::GetCurrentThreadId();
-				IndependentContexts[0] = Private::FTaskRuntimeAccess::IsExecutingIndependentCPU();
 				Resolver.WriteValue(Parameters.Output).Value = 73;
 				Recorded.EnqueueLambda([&Replay] { Replay.push_back(1); });
 			}, ERDGRecordingPolicy::Parallel);
@@ -2814,7 +2812,6 @@ namespace Durin
 			Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
 			[&](FRHICommandList& Recorded, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
 				WorkerThreads[1] = FPlatformLTS::GetCurrentThreadId();
-				IndependentContexts[1] = Private::FTaskRuntimeAccess::IsExecutingIndependentCPU();
 				Recorded.EnqueueLambda([&Replay] { Replay.push_back(2); });
 			}, ERDGRecordingPolicy::Parallel);
 		auto Read = Builder.AllocParameters<FTypedValueReadParameters>();
@@ -2830,10 +2827,7 @@ namespace Durin
 		ASSERT_TRUE(Builder.Execute(Commands));
 		EXPECT_EQ(Builder.GetStatistics().ScheduledPasses, 3u);
 		EXPECT_EQ(Builder.GetStatistics().CulledPasses, 2u);
-		// Independent CPU waits may help on the calling thread. Verify execution
-		// authority and ordering rather than assuming a dedicated OS worker.
 		for (uint32 Worker : WorkerThreads) EXPECT_NE(Worker, 0u);
-		for (bool IndependentContext : IndependentContexts) EXPECT_TRUE(IndependentContext);
 		EXPECT_TRUE(Replay.empty());
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 		EXPECT_EQ(Replay, (std::vector<int>{1, 2, 3}));

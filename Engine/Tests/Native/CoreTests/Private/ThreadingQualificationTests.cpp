@@ -151,8 +151,6 @@ namespace Durin
 		constexpr uint32 CanceledPerRound = 24;
 		constexpr uint32 OverloadedPerRound = 16;
 		const FTaskAttribution Attribution = RegisterTaskAttribution("CapacityTests", "ObservationFreeSoak");
-		Tasks::FTaskExecutionOptions RootOptions;
-		RootOptions.Attribution = Attribution;
 
 		for (uint32 Round = 0; Round < RoundCount; ++Round)
 		{
@@ -161,11 +159,9 @@ namespace Durin
 			Tasks::FTask Blocker = Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakBlocker", [&]() {
 				BlockerStarted.Trigger();
 				ReleaseBlocker.Wait();
-			}, RootOptions));
+			}, Attribution));
 			ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
 
-			Tasks::FTaskExecutionOptions WaitingOptions = RootOptions;
-			WaitingOptions.Prerequisites = {Blocker};
 			std::vector<Tasks::FTask> Succeeded;
 			std::vector<Tasks::FTask> Failed;
 			std::vector<Tasks::FTask> Canceled;
@@ -174,14 +170,14 @@ namespace Durin
 			Canceled.reserve(CanceledPerRound);
 			for (uint32 Index = 1; Index < SucceededPerRound; ++Index)
 			{
-				Succeeded.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakSucceeded", []() {}, WaitingOptions)));
+				Succeeded.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakSucceeded", []() {}, Blocker, Attribution)));
 				ASSERT_TRUE(Succeeded.back().IsValid());
 			}
 			for (uint32 Index = 0; Index < FailedPerRound; ++Index)
 			{
 				Failed.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakFailed", []() {
 					throw std::runtime_error("capacity soak failure");
-				}, WaitingOptions)));
+				}, Blocker, Attribution)));
 				ASSERT_TRUE(Failed.back().IsValid());
 			}
 			Tasks::FCancellationToken Cancellation;
@@ -189,12 +185,12 @@ namespace Durin
 			{
 				Canceled.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakCanceled", [&Cancellation]() {
 					EXPECT_TRUE(Cancellation.IsCanceled());
-				}, WaitingOptions)));
+				}, Blocker, Attribution)));
 				ASSERT_TRUE(Canceled.back().IsValid());
 			}
 			for (uint32 Index = 0; Index < OverloadedPerRound; ++Index)
 			{
-				Succeeded.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakOverload", []() {}, RootOptions)));
+				Succeeded.emplace_back(Durin::Tasks::FTask(Tasks::LaunchTask("CapacitySoakOverload", []() {}, Attribution)));
 			}
 
 			Cancellation.Cancel();
@@ -302,7 +298,7 @@ namespace Durin
 			for (bool Skewed : {false, true})
 			{
 				std::vector<uint64> Values(Count);
-				for (auto Policy : {Tasks::EParallelForPolicy::Serial, Tasks::EParallelForPolicy::Auto})
+				for (auto Flags : {Tasks::EParallelForFlags::ForceSingleThread, Tasks::EParallelForFlags::None})
 				{
 					std::vector<double> Times;
 					for (int Sample = -Warmups; Sample < Samples; ++Sample)
@@ -313,13 +309,13 @@ namespace Durin
 							const int Rounds = Skewed && Index < Count / 8 ? 1024 : 64;
 							for (int Round = 0; Round < Rounds; ++Round) Value = (Value ^ (Value >> 13)) * 0x9e3779b97f4a7c15ull;
 							Values[Index] = Value;
-						}, {.Policy = Policy});
+						}, Flags);
 						ASSERT_EQ(ETaskState::Succeeded, Result.State);
 						const double Micros = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - Start).count();
 						if (Sample >= 0) Times.push_back(Micros);
 					}
 					std::ranges::sort(Times);
-					std::cout << "TaskPolicy count=" << Count << " skew=" << Skewed << " policy=" << static_cast<int>(Policy)
+					std::cout << "TaskPolicy count=" << Count << " skew=" << Skewed << " flags=" << static_cast<int>(Flags)
 						<< " warmup=" << Warmups << " samples=" << Samples << " median_us=" << Times[Samples / 2]
 						<< " p95_us=" << Times[28] << " checksum=" << Values.back() << '\n';
 				}

@@ -252,7 +252,6 @@ namespace Durin
 #endif
 		auto Launch(const std::shared_ptr<FPhysicsRecord>& Record, bool bDispatch, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> Tasks::FTask
 		{
-			Tasks::FTaskExecutionOptions Options;
 			Record->Task = Tasks::LaunchTask("PhysicsMesh.Cook", [Slot = std::move(Slot), Work = Record->Work, Bytes = Record->EstimatedWorkingSetBytes, Before = BeforeBuild, After = AfterBuild, bDispatch]() {
 				if (bDispatch)
 				{
@@ -274,7 +273,7 @@ namespace Durin
 				}
 				catch (...) { Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh worker failed with an exception.", "Cook")); }
 				if (Cancellation.IsCanceled()) Work->Outcome = FPhysicsCookResult{};
-				Work->ReleaseInput(); Work->Phase.store(EWorkPhase::Complete, std::memory_order_release); }, Options);
+				Work->ReleaseInput(); Work->Phase.store(EWorkPhase::Complete, std::memory_order_release); });
 #if DURIN_WITH_EDITOR
 			if (bDispatch) Enqueue(Record, false, Record->Task);
 #endif

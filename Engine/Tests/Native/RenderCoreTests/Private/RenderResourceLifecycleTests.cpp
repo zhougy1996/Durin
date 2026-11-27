@@ -103,6 +103,154 @@ namespace Durin
 		};
 	}
 
+	TEST_F(FRenderResourceLifecycleTests, WorkerCanJoinRenderLocalTaskWhileMainCommandsStayOrdered)
+	{
+		FThreadEvent WorkerStarted, StartLocalTask, LaterCommandFinished;
+		std::vector<int> RenderOrder;
+		auto Worker = Tasks::LaunchTask("WorkerWaitingOnRenderLocal", [&] {
+			WorkerStarted.Trigger();
+			if (!StartLocalTask.WaitFor(5.0)) return false;
+			auto Local = Tasks::LaunchTask("RenderLocalDependency", [&] {
+				EXPECT_TRUE(IsInRenderingThread());
+				RenderOrder.push_back(2);
+			}, Tasks::ETaskThread::RenderThread_Local);
+			return Local.Wait(5.0);
+		});
+		EXPECT_TRUE(WorkerStarted.WaitFor(5.0));
+		EnqueueRenderCommand("JoinWorker", [&](FRHICommandListImmediate&) {
+			RenderOrder.push_back(1);
+			EnqueueRenderCommandDeferred("LaterMainCommand", [&](FRHICommandListImmediate&) {
+				RenderOrder.push_back(4);
+				LaterCommandFinished.Trigger();
+			});
+			StartLocalTask.Trigger();
+			EXPECT_TRUE(Worker.Wait(5.0));
+			RenderOrder.push_back(3);
+		});
+		EXPECT_TRUE(LaterCommandFinished.WaitFor(10.0));
+		FlushRenderingCommands();
+		EXPECT_TRUE(Worker.GetResult());
+		EXPECT_EQ(RenderOrder, (std::vector<int>{1, 2, 3, 4}));
+
+		auto Idle = Tasks::LaunchTask("RenderLocalWithoutMainCommand", [] {
+			return IsInRenderingThread();
+		}, Tasks::ETaskThread::RenderThread_Local);
+		ASSERT_TRUE(Idle.Wait(5.0));
+		EXPECT_TRUE(Idle.GetResult());
+	}
+
+	TEST_F(FRenderResourceLifecycleTests, TriggeredEventsRetainOnlyTheirPrerequisitesWaitRestrictions)
+	{
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		FThreadEvent WorkerStarted, ReleaseWorker;
+		auto Worker = Tasks::LaunchTask("Pending worker prerequisite", [&] {
+			WorkerStarted.Trigger();
+			EXPECT_TRUE(ReleaseWorker.WaitFor(10.0));
+		});
+		EXPECT_TRUE(WorkerStarted.WaitFor(5.0));
+		Tasks::FTaskEvent WorkerDone("Worker completion"), GameThreadDone("GameThread completion");
+		WorkerDone.AddPrerequisites(Worker);
+		GameThreadDone.AddPrerequisites(Tasks::LaunchTask("Pending GameThread prerequisite", [] {}, Tasks::ETaskThread::GameThread));
+		WorkerDone.Trigger();
+		GameThreadDone.Trigger();
+
+		EnqueueRenderCommand("WaitForTriggeredEvents", [&](FRHICommandListImmediate&) {
+			EXPECT_TRUE(IsInRenderingThread());
+			EXPECT_FALSE(WorkerDone.IsCompleted());
+			Tasks::LaunchTask("Release worker during wait", [&] { ReleaseWorker.Trigger(); }, Tasks::ETaskThread::RenderThread_Local);
+			EXPECT_EQ(WorkerDone.WaitDetailed(5.0).WaitStatus, ETaskWaitStatus::Completed);
+			EXPECT_EQ(GameThreadDone.WaitDetailed(5.0).WaitStatus, ETaskWaitStatus::UnsupportedThread);
+		});
+		FlushRenderingCommands();
+		ReleaseWorker.Trigger();
+		EXPECT_TRUE(WorkerDone.Wait(5.0));
+		PumpGameThreadDeferredWork();
+		EXPECT_TRUE(GameThreadDone.IsCompleted());
+	}
+
+	TEST_F(FRenderResourceLifecycleTests, ParallelForJoinsWorkerBodiesAndKeepsMainCommandsOrdered)
+	{
+		enum class ECase { Success, Cancel, CallerThrows, RejectedNestedWait };
+		for (auto Case : {ECase::Success, ECase::Cancel, ECase::CallerThrows, ECase::RejectedNestedWait})
+		{
+			SCOPED_TRACE(static_cast<int>(Case));
+			FThreadEvent WorkerStarted, WorkerFinished, LaterCommandFinished;
+			Tasks::FTaskEvent Nested("External nested completion");
+			Tasks::FCancellationToken Cancellation;
+			std::vector<int> Order;
+			EnqueueRenderCommand("ParallelLoop", [&](FRHICommandListImmediate&) {
+				Order.push_back(1);
+				EnqueueRenderCommandDeferred("AfterParallelLoop", [&](FRHICommandListImmediate&) {
+					Order.push_back(4);
+					LaterCommandFinished.Trigger();
+				});
+				const auto Result = Tasks::ParallelFor("TwoChunks", 2, 1, [&](uint64 Index) {
+					if (Index == 0)
+					{
+						EXPECT_TRUE(IsInRenderingThread());
+						EXPECT_TRUE(WorkerStarted.WaitFor(5));
+						if (Case == ECase::Cancel) Cancellation.Cancel();
+						if (Case == ECase::CallerThrows) throw std::runtime_error("caller chunk failed");
+						return;
+					}
+					EXPECT_TRUE(IsInWorkerThread());
+					if (Case == ECase::RejectedNestedWait) Tasks::AddNested(Nested);
+					auto Local = Tasks::LaunchTask("LocalChunkDependency", [&] {
+						EXPECT_TRUE(IsInRenderingThread());
+						Order.push_back(2);
+					}, Tasks::ETaskThread::RenderThread_Local);
+					WorkerStarted.Trigger();
+					EXPECT_TRUE(Local.Wait(5));
+					WorkerFinished.Trigger();
+				}, Tasks::EParallelForFlags::None, &Cancellation);
+				EXPECT_EQ(2u, Result.ChunkCount);
+				EXPECT_TRUE(WorkerFinished.IsTriggered());
+				if (Case == ECase::Success) EXPECT_EQ(ETaskState::Succeeded, Result.State);
+				else if (Case == ECase::Cancel) EXPECT_EQ(ETaskState::Canceled, Result.State);
+				else
+				{
+					EXPECT_EQ(ETaskState::Failed, Result.State);
+					EXPECT_TRUE(Result.Diagnostic.contains(Case == ECase::CallerThrows ? "[0, 1)" : "[1, 2)"));
+				}
+				Order.push_back(3);
+				Nested.Trigger();
+			});
+			if (!LaterCommandFinished.WaitFor(15))
+			{
+				ADD_FAILURE() << "ParallelFor did not release the render thread";
+				Nested.Trigger();
+			}
+			FlushRenderingCommands();
+			EXPECT_EQ(Order, (std::vector<int>{1, 2, 3, 4}));
+		}
+	}
+
+	TEST_F(FRenderResourceLifecycleTests, NestedRenderLocalWaitRejectsDependencyOnSuspendedTask)
+	{
+		Tasks::FTaskEvent Start("Bind local dependency", false);
+		Tasks::FTask Dependent;
+		auto Outer = Tasks::LaunchTask("Outer local task", [&] {
+			auto Inner = Tasks::LaunchTask("Nested local task", [&] {
+				EXPECT_EQ(Dependent.WaitDetailed(2.0).WaitStatus, ETaskWaitStatus::DependencyCycle);
+			}, Tasks::ETaskThread::RenderThread_Local);
+			EXPECT_TRUE(Tasks::Wait(Tasks::Prerequisites(Inner), 5.0));
+		}, Start, Tasks::ETaskThread::RenderThread_Local);
+		Dependent = Tasks::LaunchTask("Depends on suspended outer task", [] {}, Outer);
+		Start.Trigger();
+		EXPECT_TRUE(Dependent.Wait(5.0));
+	}
+
+	TEST_F(FRenderResourceLifecycleTests, PendingLocalTaskCannotDispatchIntoRestartedRenderThread)
+	{
+		Tasks::FTaskEvent Gate("Deferred local prerequisite", false);
+		auto OldTask = Tasks::LaunchTask("Old render-thread lifetime", [] { ADD_FAILURE(); },
+			Gate, Tasks::ETaskThread::RenderThread_Local);
+		ShutdownRenderingThread();
+		InitRenderingThread();
+		Gate.Trigger();
+		EXPECT_EQ(OldTask.WaitDetailed(5.0).TaskState, ETaskState::Failed);
+	}
+
 	TEST_F(FRenderResourceLifecycleTests, ShutdownDrainsDeferredSourceAndChildResources)
 	{
 		struct FSource final : FRenderResource

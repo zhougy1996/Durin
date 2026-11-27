@@ -2,7 +2,7 @@
 #include "Texture/TextureMipBuilder.h"
 #include "Texture/TextureMipView.h"
 
-#include "Threading/TaskRuntime.h"
+#include "Threading/Task.h"
 #include <bc7enc.h>
 #include <rgbcx.h>
 
@@ -97,7 +97,8 @@ namespace Durin::TextureMipBuilder
 		const uint64 RowsPerChunk = std::max<uint64>(
 			(4096ull + Layout.BlocksWide - 1) / Layout.BlocksWide,
 			(Layout.BlocksHigh + 7ull) / 8);
-		const auto Compression = ParallelFor("Texture.CompressRows", Layout.BlocksHigh,
+		const auto Flags = bParallel ? Tasks::EParallelForFlags::None : Tasks::EParallelForFlags::ForceSingleThread;
+		const auto Compression = Tasks::ParallelFor("Texture.CompressRows", Layout.BlocksHigh, RowsPerChunk,
 			[&](uint64 Row) {
 			if (ExecutionOptions && ExecutionOptions->ShouldCancel && ExecutionOptions->ShouldCancel()) return;
 			const uint32 BlockY = static_cast<uint32>(Row);
@@ -131,7 +132,7 @@ namespace Durin::TextureMipBuilder
 					break; // Format was validated before task admission.
 				}
 			}
-		}, {.MinBatchSize = bParallel ? RowsPerChunk : std::numeric_limits<uint64>::max()});
+		}, Flags);
 		if (ExecutionOptions && ExecutionOptions->ShouldCancel && ExecutionOptions->ShouldCancel()) return std::unexpected("Texture build cancelled.");
 		if (Compression.State != ETaskState::Succeeded)
 			return std::unexpected(std::format("Texture compression task failed (state {}).", static_cast<int>(Compression.State)));

@@ -132,8 +132,7 @@ and no per-item semaphore-waiting worker is launched.
 
 Ordinary tasks admit requests directly on the calling thread without waiting for
 compilation or scheduler capacity. Launching the device-owned Worker drain does
-not add a completion dependency to the calling task. Cache and private-queue
-admission reject independent CPU tasks, including inherited independent children.
+not add a completion dependency to the calling task.
 Pending native waits reject Core workers, RHI replay, and the creator itself.
 Core is never started implicitly.
 

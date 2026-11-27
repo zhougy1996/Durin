@@ -1389,7 +1389,7 @@ namespace Durin
 		Work.Workers.reserve(WorkerCount);
 		for (size_t WorkerIndex = 0; WorkerIndex < WorkerCount; ++WorkerIndex)
 		{
-			Work.Workers.push_back(Tasks::LaunchIndependentTask("Renderer.PrepareMeshChunks",
+			Work.Workers.push_back(Tasks::LaunchTask("Renderer.PrepareMeshChunks",
 				[Inputs, Chunks, Count, ChunkSize, WorkerIndex, WorkerCount] {
 					for (size_t Index = WorkerIndex; Index < Chunks->size(); Index += WorkerCount)
 					{
@@ -1398,7 +1398,7 @@ namespace Durin
 					}
 				}));
 		}
-		Work.Completion = Tasks::LaunchIndependentTask("Renderer.FinalizeMeshPreparation",
+		Work.Completion = Tasks::LaunchTask("Renderer.FinalizeMeshPreparation",
 			[Chunks, Workers = Work.Workers]() -> std::expected<FPreparedStaticMeshView, FStaticMeshPreparationError> {
 				for (size_t Index = 0; Index < Chunks->size(); ++Index)
 				{
@@ -1410,7 +1410,7 @@ namespace Durin
 				if (!Merged) return std::unexpected(FStaticMeshPreparationError{0, ETaskState::Failed, Merged.error()});
 				Merged->PreparationTaskCount = PreparedChunks;
 				return std::move(*Merged);
-			}, {.Prerequisites = Work.Workers});
+			}, Work.Workers);
 		return Work;
 	}
 

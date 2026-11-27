@@ -13,7 +13,7 @@ namespace Durin::Tasks
 		auto WaitForSuccess(const Tasks::FTask& Handle) -> void
 		{
 			const auto WaitResult = Handle.WaitDetailed();
-			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && Handle.GetState() == ETaskState::Succeeded);
+			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && WaitResult.TaskState == ETaskState::Succeeded);
 		}
 	}
 
@@ -37,27 +37,6 @@ namespace Durin::Tasks
 	auto FTaskEvent::Trigger() -> void
 	{
 		Durin::Private::FTaskRuntimeAccess::TriggerTaskEvent(*this);
-	}
-
-	auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function,
-		const FParallelForPolicyOptions& Options) -> FParallelForResult
-	{
-		FParallelForOptions Native;
-		Native.CancellationToken = Options.Cancellation;
-		Native.Attribution = Options.Attribution;
-		switch (Options.Policy)
-		{
-		case EParallelForPolicy::Auto:
-			if (Num >= 16'384) Native.MinBatchSize = 2048;
-			break;
-		case EParallelForPolicy::Serial: break;
-		case EParallelForPolicy::ExplicitBatch:
-			if (Options.BatchSize == 0) return {ETaskState::Invalid, "ExplicitBatch requires a positive batch size.", 0};
-			Native.MinBatchSize = Options.BatchSize;
-			break;
-		default: return {ETaskState::Invalid, "Unknown ParallelFor policy.", 0};
-		}
-		return Durin::ParallelFor(Name, Num, std::move(Function), Native);
 	}
 
 }

@@ -27,25 +27,40 @@ namespace Durin::Tasks
 		template<typename T> using TResultState = std::conditional_t<std::is_void_v<T>, std::nullptr_t, std::shared_ptr<TTaskResultState<T>>>;
 	}
 
-	// Execution and owner identity; scheduler storage accounting is internal.
-	struct FTaskExecutionOptions
-	{
-		ETaskPriority Priority = ETaskPriority::Normal;
-		FTaskAttribution Attribution;
-		// Owns ordering dependencies so saved options never borrow a temporary collection.
-		std::vector<FTask> Prerequisites;
-	};
+	enum class EParallelForFlags : uint8 { None, ForceSingleThread };
 
-	enum class EParallelForPolicy : uint8 { Auto, Serial, ExplicitBatch };
-	struct FParallelForPolicyOptions
+	namespace Detail
 	{
-		EParallelForPolicy Policy = EParallelForPolicy::Auto;
-		uint64 BatchSize = 0;
-		const FCancellationToken* Cancellation = nullptr;
-		FTaskAttribution Attribution;
-	};
-	CORE_API auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function,
-		const FParallelForPolicyOptions& Options = {}) -> FParallelForResult;
+		// Prefer the ordinary index signature for callables supporting both forms.
+		template<typename F>
+		using TParallelForBody = std::conditional_t<std::is_constructible_v<FParallelForFunction, F>,
+			FParallelForFunction, FCancelableParallelForFunction>;
+
+		CORE_API auto RunParallelFor(const char* Name, uint64 Num, std::optional<uint64> MinBatchSize,
+			FParallelForFunction Body, EParallelForFlags Flags, const FCancellationToken* Cancellation,
+			FTaskAttribution Attribution) -> FParallelForResult;
+		CORE_API auto RunParallelFor(const char* Name, uint64 Num, std::optional<uint64> MinBatchSize,
+			FCancelableParallelForFunction Body, EParallelForFlags Flags, const FCancellationToken* Cancellation,
+			FTaskAttribution Attribution) -> FParallelForResult;
+	}
+
+	// Runs [0, Num) and joins all chunks. A body may also accept a cancellation token.
+	template<typename F = FParallelForFunction>
+	auto ParallelFor(const char* Name, uint64 Num, F&& Body, EParallelForFlags Flags = EParallelForFlags::None,
+		const FCancellationToken* Cancellation = nullptr, FTaskAttribution Attribution = {}) -> FParallelForResult
+	{
+		return Detail::RunParallelFor(Name, Num, std::nullopt, Detail::TParallelForBody<F>(std::forward<F>(Body)),
+			Flags, Cancellation, Attribution);
+	}
+
+	template<typename F = FParallelForFunction>
+	auto ParallelFor(const char* Name, uint64 Num, uint64 MinBatchSize, F&& Body,
+		EParallelForFlags Flags = EParallelForFlags::None, const FCancellationToken* Cancellation = nullptr,
+		FTaskAttribution Attribution = {}) -> FParallelForResult
+	{
+		return Detail::RunParallelFor(Name, Num, MinBatchSize, Detail::TParallelForBody<F>(std::forward<F>(Body)),
+			Flags, Cancellation, Attribution);
+	}
 
 	// Completion dependency only: does not forward cancellation or failure to either task.
 	// Must be called from a running task body; its worker is free after the body returns.
@@ -60,16 +75,17 @@ namespace Durin::Tasks
 		template<typename R> concept CTaskDependencyCollection = std::ranges::input_range<const R>
 			&& CTaskDependency<std::ranges::range_reference_t<const R>>;
 
+		template<typename T> concept CTaskPrerequisites = CTaskDependency<T> || CTaskDependencyCollection<T>;
+
 		// Dependency collection shares nodes without mutating their results.
 		template<CTaskDependencyCollection R>
-		auto CollectDependencies(const R& Inputs, std::span<const FTask> Existing = {})
+		auto CollectDependencies(const R& Inputs)
 			-> std::vector<FTask>
 		{
 			try
 			{
 				std::vector<FTask> Handles;
-				if constexpr (std::ranges::sized_range<const R>) Handles.reserve(Existing.size() + std::ranges::size(Inputs));
-				Handles.insert(Handles.end(), Existing.begin(), Existing.end());
+				if constexpr (std::ranges::sized_range<const R>) Handles.reserve(std::ranges::size(Inputs));
 				for (const auto& Input : Inputs) Handles.push_back(DependencyHandle(Input));
 				return Handles;
 			}
@@ -238,85 +254,101 @@ namespace Durin::Tasks
 
 	namespace Detail
 	{
-	template<typename F, typename T = std::invoke_result_t<std::decay_t<F>&>>
-	requires (!std::is_reference_v<T>)
-	auto LaunchTaskImpl(const char* Name, ETaskThread Target, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false, FPipe* Pipe = nullptr)
-		-> TTask<T>
-	{
-		try
+		template<typename F, typename T = std::invoke_result_t<std::decay_t<F>&>>
+		requires (!std::is_reference_v<T>)
+		auto LaunchTaskImpl(const char* Name, F&& Function, FTaskLaunchOptions Launch)
+			-> TTask<T>
 		{
-			auto State = Detail::MakeResultState<T>();
-			FTaskLaunchOptions Launch;
-			Launch.Pipe = Pipe;
-			Launch.bIndependentCPU = bIndependentCPU;
-			Launch.Attribution = Options.Attribution;
-			Launch.Target = Target;
-			Launch.Priority = Options.Priority;
-			Launch.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
-			Launch.Prerequisites = Options.Prerequisites;
-			auto Handle = Detail::LaunchWithStorage<T>(Name, State,
-				[State, Function = std::forward<F>(Function)]() mutable {
-					auto Invoke = [&]() -> T {
-						return std::invoke(Function);
-					};
-					if constexpr (std::is_void_v<T>) Invoke();
-					else State->SetPending(Invoke());
-				}, Launch);
-			return Detail::FTaskAccess::Make<T>(std::move(Handle), std::move(State));
+			try
+			{
+				auto State = Detail::MakeResultState<T>();
+				Launch.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
+				auto Handle = Detail::LaunchWithStorage<T>(Name, State,
+					[State, Function = std::forward<F>(Function)]() mutable {
+						auto Invoke = [&]() -> T {
+							return std::invoke(Function);
+						};
+						if constexpr (std::is_void_v<T>) Invoke();
+						else State->SetPending(Invoke());
+					}, Launch);
+				return Detail::FTaskAccess::Make<T>(std::move(Handle), std::move(State));
+			}
+			catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
 		}
-		catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
-	}
 
-	}
-
-	template<typename F>
-	auto LaunchTask(const char* Name, F&& Function, ETaskThread Thread, const FTaskExecutionOptions& Options = {})
-	{
-		return Detail::LaunchTaskImpl(Name, Thread, Options, std::forward<F>(Function));
-	}
-
-	template<typename F>
-	auto LaunchTask(const char* Name, F&& Function, const FTaskExecutionOptions& Options = {})
-	{
-		return LaunchTask(Name, std::forward<F>(Function), ETaskThread::Worker, Options);
-	}
-
-	namespace Detail
-	{
-		template<CTaskDependencyCollection R, typename F>
-		auto WithPrerequisites(auto Options, const R& Inputs, F&& Launch)
+		// Snapshot inputs before moving the user callable, which may reenter the caller.
+		template<typename F, CTaskPrerequisites R>
+		auto LaunchAfter(const char* Name, F&& Function, const R& Inputs, FTaskLaunchOptions Launch)
 		{
-			Options.Prerequisites = CollectDependencies(Inputs, Options.Prerequisites);
-			return Launch(Options);
+			if constexpr (CTaskDependency<R>)
+			{
+				const FTask Handle = Inputs;
+				Launch.Prerequisites = std::span(&Handle, 1);
+				return LaunchTaskImpl(Name, std::forward<F>(Function), Launch);
+			}
+			else
+			{
+				const auto Handles = CollectDependencies(Inputs);
+				Launch.Prerequisites = Handles;
+				return LaunchTaskImpl(Name, std::forward<F>(Function), Launch);
+			}
 		}
 	}
 
-	template<typename F, Detail::CTaskDependencyCollection R>
+	template<typename F>
+	auto LaunchTask(const char* Name, F&& Function,
+		ETaskPriority Priority = ETaskPriority::Normal, FTaskAttribution Attribution = {})
+	{
+		return Detail::LaunchTaskImpl(Name, std::forward<F>(Function),
+			{.Attribution = Attribution, .Priority = Priority});
+	}
+
+	template<typename F>
+	auto LaunchTask(const char* Name, F&& Function, FTaskAttribution Attribution)
+	{
+		return LaunchTask(Name, std::forward<F>(Function), ETaskPriority::Normal, Attribution);
+	}
+
+	template<typename F>
+	auto LaunchTask(const char* Name, F&& Function, ETaskThread Thread,
+		ETaskPriority Priority = ETaskPriority::Normal, FTaskAttribution Attribution = {})
+	{
+		return Detail::LaunchTaskImpl(Name, std::forward<F>(Function),
+			{.Attribution = Attribution, .Target = Thread, .Priority = Priority});
+	}
+
+	template<typename F>
+	auto LaunchTask(const char* Name, F&& Function, ETaskThread Thread, FTaskAttribution Attribution)
+	{
+		return LaunchTask(Name, std::forward<F>(Function), Thread, ETaskPriority::Normal, Attribution);
+	}
+
+	template<typename F, Detail::CTaskPrerequisites R>
+	auto LaunchTask(const char* Name, F&& Function, const R& Inputs,
+		ETaskPriority Priority = ETaskPriority::Normal, FTaskAttribution Attribution = {})
+	{
+		return Detail::LaunchAfter(Name, std::forward<F>(Function), Inputs,
+			{.Attribution = Attribution, .Priority = Priority});
+	}
+
+	template<typename F, Detail::CTaskPrerequisites R>
+	auto LaunchTask(const char* Name, F&& Function, const R& Inputs, FTaskAttribution Attribution)
+	{
+		return LaunchTask(Name, std::forward<F>(Function), Inputs, ETaskPriority::Normal, Attribution);
+	}
+
+	template<typename F, Detail::CTaskPrerequisites R>
 	auto LaunchTask(const char* Name, F&& Function, const R& Inputs, ETaskThread Thread,
-		FTaskExecutionOptions Options = {})
+		ETaskPriority Priority = ETaskPriority::Normal, FTaskAttribution Attribution = {})
 	{
-		Options.Prerequisites = Detail::CollectDependencies(Inputs, Options.Prerequisites);
-		return LaunchTask(Name, std::forward<F>(Function), Thread, Options);
+		return Detail::LaunchAfter(Name, std::forward<F>(Function), Inputs,
+			{.Attribution = Attribution, .Target = Thread, .Priority = Priority});
 	}
 
-	template<typename F, Detail::CTaskDependency T>
-	auto LaunchTask(const char* Name, F&& Function, const T& Input, ETaskThread Thread, FTaskExecutionOptions Options = {})
-	{ return LaunchTask(Name, std::forward<F>(Function), Prerequisites(Input), Thread, std::move(Options)); }
-
-	template<typename F, typename R>
-	requires (Detail::CTaskDependency<R> || Detail::CTaskDependencyCollection<R>)
-	auto LaunchTask(const char* Name, F&& Function, const R& Inputs, FTaskExecutionOptions Options = {})
-	{ return LaunchTask(Name, std::forward<F>(Function), Inputs, ETaskThread::Worker, std::move(Options)); }
-
-	// Declares an independent CPU graph: unfinished prerequisites/nested work must
-	// also be independent CPU tasks; completed inputs impose no progress requirements. Children
-	// inherit the contract. Callables must not depend on owner-thread, RHI, I/O or
-	// external progress; the caller owns their ordinary C++ side effects.
-	template<typename F>
-	auto LaunchIndependentTask(const char* Name, F&& Function, const FTaskExecutionOptions& Options = {})
+	template<typename F, Detail::CTaskPrerequisites R>
+	auto LaunchTask(const char* Name, F&& Function, const R& Inputs, ETaskThread Thread, FTaskAttribution Attribution)
 	{
-		return Detail::LaunchTaskImpl(Name, ETaskThread::Worker,
-			Options, std::forward<F>(Function), true);
+		return LaunchTask(Name, std::forward<F>(Function), Inputs, Thread, ETaskPriority::Normal, Attribution);
 	}
 
 }

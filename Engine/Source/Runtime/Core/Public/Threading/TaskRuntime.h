@@ -52,6 +52,7 @@ namespace Durin
 			Worker = 0,
 			GameThread = 1, // Runs when the deferred GameThread queue is pumped.
 			BlockingIO = 2,
+			RenderThread_Local = 3, // Serviced by the rendering thread, including during task waits.
 		};
 
 		// Cooperative cancellation; callers own the token lifetime and capture it explicitly.
@@ -78,8 +79,6 @@ namespace Durin
 	class TTaskResultState;
 	struct FTaskLaunchOptions;
 	struct FTaskWaitResult;
-	struct FParallelForOptions;
-	struct FParallelForResult;
 
 	// Describes a task handle query or one state in the accepted task lifecycle.
 	enum class ETaskState : uint8
@@ -231,7 +230,7 @@ namespace Durin
 	struct FTaskSchedulerDiagnostics
 	{
 		uint32 WorkerCount = 0;
-		std::array<FTaskExecutorStorageDiagnostics, 3> ExecutorStorage;
+		std::array<FTaskExecutorStorageDiagnostics, 4> ExecutorStorage;
 		uint64 TaskWarningThreshold = 0;
 		uint64 CurrentTrackedTaskCount = 0;
 		uint64 PeakTrackedTaskCount = 0;
@@ -367,6 +366,7 @@ namespace Durin
 		private:
 			explicit FTaskHandle(std::shared_ptr<FTaskStateData> InState);
 			friend class Durin::FTaskScheduler;
+			friend struct Durin::Private::FParallelForAccess;
 			friend struct Durin::Private::FTaskRuntimeAccess;
 			friend struct Durin::Tasks::Detail::FTaskAccess;
 			friend CORE_API auto Durin::Private::LaunchTaskWithCompletion(const char* Name, Durin::Private::FMoveOnlyTaskFunction&& Function, Durin::Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 AdditionalStorageBytes, Durin::Private::FTaskResultStorage Result) -> FTaskHandle;
@@ -390,7 +390,6 @@ namespace Durin
 			CORE_API static auto TriggerTaskEvent(const Tasks::FTask& Event) -> void;
 			CORE_API static auto SetPriority(const Tasks::FTask& Task, ETaskPriority Priority) -> void;
 			CORE_API static auto GetCurrentTaskId() -> uint64;
-			CORE_API static auto IsExecutingIndependentCPU() -> bool;
 			CORE_API static auto SetCurrentCanceledOutcome() -> void;
 			CORE_API static auto GetAttribution(const Tasks::FTask& Task) -> FTaskAttribution;
 			CORE_API static auto AddNested(const Tasks::FTask& Child) -> std::optional<Tasks::FTaskConstructionError>;
@@ -409,17 +408,6 @@ namespace Durin
 		Tasks::ETaskThread Target = Tasks::ETaskThread::Worker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
-		// Declares an independent CPU graph that RenderingThread may join.
-		// Inherited by Worker children; unfinished edges/waits require the same contract.
-		bool bIndependentCPU = false;
-	};
-
-	struct FParallelForOptions
-	{
-		// Conservative default remains serial until framework qualification selects a crossover.
-		uint64 MinBatchSize = std::numeric_limits<uint64>::max();
-		const Tasks::FCancellationToken* CancellationToken = nullptr;
-		FTaskAttribution Attribution;
 	};
 
 	struct FParallelForResult
@@ -455,11 +443,6 @@ namespace Durin
 	// Publishes fixed task aggregates at the engine profiling/frame boundary.
 	CORE_API auto PublishTaskSchedulerProfilerPlots() -> void;
 
-
-	// Executes [0, Num) in bounded contiguous chunks and includes the calling thread.
-	// Chunks invoke the same owned callable concurrently; captures must support concurrent access.
-	CORE_API auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function, const FParallelForOptions& Options = {}) -> FParallelForResult;
-	CORE_API auto ParallelForCancelable(const char* Name, uint64 Num, FCancelableParallelForFunction&& Function, const FParallelForOptions& Options = {}) -> FParallelForResult;
 
 	template<typename T>
 	class TTaskResultState

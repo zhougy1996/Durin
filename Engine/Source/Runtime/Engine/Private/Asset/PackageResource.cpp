@@ -536,13 +536,13 @@ namespace Durin
 
 	namespace
 	{
-		auto ReadCompletedPackageTask(const Tasks::TTask<FPackageResourceReadResult>& Task)
+		auto ReadCompletedPackageTask(const Tasks::TTask<FPackageResourceReadResult>& Task, ETaskState TaskState)
 			-> FPackageResourceReadResult
 		{
-			if (Task.GetState() == ETaskState::Succeeded) return Task.GetResult();
-			if (Task.GetState() == ETaskState::Canceled)
-				return Result(EPackageResourceReadStatus::Cancelled, {.Message = std::format("Package request task was cancelled. TaskState: {}.", static_cast<uint32>(Task.GetState()))});
-			return Result(EPackageResourceReadStatus::IoError, {.Message = std::format("Package request task failed. TaskState: {}.", static_cast<uint32>(Task.GetState()))});
+			if (TaskState == ETaskState::Succeeded) return Task.GetResult();
+			if (TaskState == ETaskState::Canceled)
+				return Result(EPackageResourceReadStatus::Cancelled, {.Message = std::format("Package request task was cancelled. TaskState: {}.", static_cast<uint32>(TaskState))});
+			return Result(EPackageResourceReadStatus::IoError, {.Message = std::format("Package request task failed. TaskState: {}.", static_cast<uint32>(TaskState))});
 		}
 	}
 
@@ -552,7 +552,7 @@ namespace Durin
 		if (TimeoutSeconds && (!std::isfinite(*TimeoutSeconds) || *TimeoutSeconds < 0.0))
 			return Result(EPackageResourceReadStatus::IoError, {.Message = "Invalid package request wait timeout."});
 		const auto Started = std::chrono::steady_clock::now();
-		Durin::Tasks::FTask Completion;
+		AssetPrivate::FPackageResourceRequestState::FSharedResult Task;
 		{
 			std::unique_lock Lock(State->Mutex);
 			if (TimeoutSeconds)
@@ -561,18 +561,15 @@ namespace Durin
 					return Result(EPackageResourceReadStatus::IoError, {.Message = "Package request binding wait timed out; the request outcome is unchanged."});
 			}
 			else State->Bound.wait(Lock, [&] { return !State->bBinding; });
-			Completion = State->Completion();
+			if (const auto* Immediate = std::get_if<FPackageResourceReadResult>(&State->Result)) return *Immediate;
+			Task = std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(State->Result);
 		}
-		if (Completion.IsValid())
-		{
-			const auto Wait = TimeoutSeconds ? Completion.WaitDetailed(std::max(0.0, *TimeoutSeconds
-				- std::chrono::duration<double>(std::chrono::steady_clock::now() - Started).count())) : Completion.WaitDetailed();
-			if (Wait.WaitStatus != ETaskWaitStatus::Completed)
-				return Result(EPackageResourceReadStatus::IoError,
-					{.Message = std::format("Package request wait was rejected; the request outcome is unchanged. WaitStatus: {}.", static_cast<uint32>(Wait.WaitStatus))});
-		}
-		if (const auto* Immediate = std::get_if<FPackageResourceReadResult>(&State->Result)) return *Immediate;
-		return ReadCompletedPackageTask(std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(State->Result));
+		const auto Wait = TimeoutSeconds ? Task.WaitDetailed(std::max(0.0, *TimeoutSeconds
+			- std::chrono::duration<double>(std::chrono::steady_clock::now() - Started).count())) : Task.WaitDetailed();
+		if (Wait.WaitStatus != ETaskWaitStatus::Completed)
+			return Result(EPackageResourceReadStatus::IoError,
+				{.Message = std::format("Package request wait was rejected; the request outcome is unchanged. WaitStatus: {}.", static_cast<uint32>(Wait.WaitStatus))});
+		return ReadCompletedPackageTask(Task, Wait.TaskState);
 	}
 
 	auto FPackageResourceRequest::Completed(FPackageResourceReadResult InResult)
@@ -595,20 +592,18 @@ namespace Durin
 			Input.State->Bound.wait(Lock, [&Input] { return !Input.State->bBinding; });
 		}
 		State->OnCancel = [Input]() mutable { Input.Cancel(); };
-		Tasks::FTaskExecutionOptions Options;
-		Options.Attribution = PackageResourceAttribution();
 		if (Input.State && std::holds_alternative<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result))
 		{
 			const auto InputTask = std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result);
 			State->Bind(Tasks::LaunchTask("PackageResource.Transform",
 				[Function = std::move(Function), InputTask]() mutable {
-					return Function(ReadCompletedPackageTask(InputTask));
-				}, InputTask, Options));
+					return Function(ReadCompletedPackageTask(InputTask, InputTask.GetState()));
+				}, InputTask, PackageResourceAttribution()));
 		}
 		else
 		{
 			State->Bind(Tasks::LaunchTask("PackageResource.Transform",
-				[Input = std::move(Input), Function = std::move(Function)]() mutable { return Function(Input.Wait()); }, Options));
+				[Input = std::move(Input), Function = std::move(Function)]() mutable { return Function(Input.Wait()); }, PackageResourceAttribution()));
 		}
 		return FPackageResourceRequest(std::move(State));
 	}
@@ -644,15 +639,13 @@ namespace Durin
 			Requests.push_back(State);
 		}
 		auto Self = shared_from_this();
-		Tasks::FTaskExecutionOptions Options;
 
-		Options.Attribution = PackageResourceAttribution();
 		State->Bind(Tasks::LaunchTask("PackageResource.ReadRange",
 			[Self = std::move(Self), State, Offset, Size]() {
 				if (State->bCancelled.load(std::memory_order_acquire))
 					return Result(EPackageResourceReadStatus::Cancelled, {.Message = "Package range request was cancelled."});
 				return Self->ReadRangeImpl(Offset, Size, State->bCancelled);
-			}, Tasks::ETaskThread::BlockingIO, Options));
+			}, Tasks::ETaskThread::BlockingIO, PackageResourceAttribution()));
 		return FPackageResourceRequest(std::move(State));
 	}
 

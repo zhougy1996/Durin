@@ -1745,7 +1745,7 @@ static void CheckMeshPreparationDuringSchedulerShutdown()
 	ASSERT_TRUE(InitializeTaskScheduler(1));
 	FThreadEvent Started;
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(); } } Shutdown;
-	auto Blocker = Tasks::LaunchIndependentTask("Hold worker until scheduler closes admission", [&] {
+	auto Blocker = Tasks::LaunchTask("Hold worker until scheduler closes admission", [&] {
 		Started.Trigger();
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		while (IsTaskSchedulerRunning() && std::chrono::steady_clock::now() < Deadline)
@@ -2077,7 +2077,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		EXPECT_EQ(Canceled.error().State, ETaskState::Canceled);
 
 		FStaticMeshPreparationWork FailedWork;
-		FailedWork.Completion = Tasks::LaunchIndependentTask("MeshPreparationFailure",
+		FailedWork.Completion = Tasks::LaunchTask("MeshPreparationFailure",
 			[]() -> std::expected<FPreparedStaticMeshView, FStaticMeshPreparationError> {
 				throw std::runtime_error("Injected preparation failure");
 			});

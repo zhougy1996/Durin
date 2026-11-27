@@ -7,6 +7,7 @@
 #include "Renderers/InstanceCulling.h"
 #include "Renderers/ViewRenderTelemetry.h"
 #include "Renderers/MeshPassProcessor.h"
+#include "Renderers/RenderPreparationTasks.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "Rendering/StaticMeshSceneProxy.h"
@@ -804,6 +805,34 @@ namespace
         FlushRenderingCommands();
     }
 
+    TEST_F(FGPUSceneTests, PreparationRangesRetryOnlyFailedBatch)
+    {
+        EnqueueRenderCommand("PreparationRangeRetryTest", [](FRHICommandListImmediate&) {
+            using RendererPrivate::RunPreparationRanges;
+            constexpr size_t Count = 11;
+            constexpr size_t BatchSize = 4;
+            constexpr size_t FailureIndex = 6;
+            std::array<size_t, Count> Serial{}, Output{}, Visits{};
+            const auto Value = [](size_t Index) { return Index * Index + 1; };
+            EXPECT_EQ(0u, RunPreparationRanges("SerialReference", Count, BatchSize, false,
+                [&](size_t Index) { Serial[Index] = Value(Index); }));
+
+            const auto TaskCount = RunPreparationRanges("RetryMiddleBatch", Count, BatchSize, true,
+                [&](size_t Index) {
+                    ++Visits[Index];
+                    if (Index == FailureIndex && Visits[Index] == 1)
+                        throw std::runtime_error("middle batch failed once");
+                    if (Visits[Index] == 2) EXPECT_TRUE(IsInRenderingThread());
+                    Output[Index] = Value(Index);
+                });
+            EXPECT_EQ(0u, TaskCount);
+            EXPECT_EQ(Serial, Output);
+            for (size_t Index = 0; Index < Count; ++Index)
+                EXPECT_EQ(Index >= BatchSize && Index <= FailureIndex ? 2u : 1u, Visits[Index]) << Index;
+        });
+        FlushRenderingCommands();
+    }
+
     TEST_F(FGPUSceneTests, ParallelRecordingGroupHonorsPrerequisites)
     {
         using namespace RendererPrivate;
@@ -813,11 +842,10 @@ namespace
             FParallelCommandListSet Set(FSceneView{}, Parent);
             auto* Child = Set.NewParallelCommandList();
             bool bPrerequisiteRan = false, bVisited = false;
-            auto Prerequisite = Tasks::LaunchIndependentTask("Test.DrawPrerequisite", [&] { bPrerequisiteRan = true; });
-            Tasks::FTaskExecutionOptions Options; Options.Prerequisites.push_back(Prerequisite);
-            auto Task = Tasks::LaunchIndependentTask("Test.ParallelDraw", [Child, &bVisited, &bPrerequisiteRan] {
+            auto Prerequisite = Tasks::LaunchTask("Test.DrawPrerequisite", [&] { bPrerequisiteRan = true; });
+            auto Task = Tasks::LaunchTask("Test.ParallelDraw", [Child, &bVisited, &bPrerequisiteRan] {
                 EXPECT_TRUE(bPrerequisiteRan); bVisited = true; Child->FinishRecording();
-            }, Options);
+            }, Prerequisite);
             Set.AddParallelCommandList(Child, Task);
             EXPECT_TRUE(Set.Dispatch()); EXPECT_TRUE(bVisited);
             EXPECT_GT(Parent.GetNumRecordedCommands(), Before);
@@ -835,11 +863,39 @@ namespace
             FParallelCommandListSet Set(FSceneView{}, Parent);
             auto* First = Set.NewParallelCommandList();
             auto* Second = Set.NewParallelCommandList();
-            Set.AddParallelCommandList(First, Tasks::LaunchIndependentTask("Test.DrawSuccess", [First] { First->FinishRecording(); }));
-            Set.AddParallelCommandList(Second, Tasks::LaunchIndependentTask("Test.DrawFailure", [] { throw std::runtime_error("Expected recording failure"); }));
+            Set.AddParallelCommandList(First, Tasks::LaunchTask("Test.DrawFailure", [] { throw std::runtime_error("Expected recording failure"); }));
+            auto Sibling = Tasks::LaunchTask("Test.DrawSuccess", [Second] { Second->FinishRecording(); });
+            Set.AddParallelCommandList(Second, Sibling);
             EXPECT_FALSE(Set.Dispatch());
+            EXPECT_EQ(Sibling.GetState(), ETaskState::Succeeded);
             EXPECT_EQ(Parent.GetNumRecordedCommands(), Before);
             Parent.EndRenderPass(); Parent.FinishRecording();
+        });
+        FlushRenderingCommands();
+    }
+
+    TEST_F(FGPUSceneTests, AbandonedParallelRecordingGroupDrainsRegisteredWork)
+    {
+        using namespace RendererPrivate;
+        EnqueueRenderCommand("AbandonedRecordingGroup", [](FRHICommandListImmediate&) {
+            FRHICommandList Parent;
+            Parent.SwitchPipeline(ERHIPipeline::Graphics);
+            Parent.BeginRenderPass({}, "AbandonedGroup");
+            const auto Before = Parent.GetNumRecordedCommands();
+            Tasks::FTask Recording;
+            const auto Prepare = [&] {
+                FParallelCommandListSet Set(FSceneView{}, Parent);
+                auto* First = Set.NewParallelCommandList();
+                Recording = Tasks::LaunchTask("Test.AbandonedDraw", [First] { First->FinishRecording(); });
+                Set.AddParallelCommandList(First, Recording);
+                Set.NewParallelCommandList();
+                throw std::runtime_error("Interrupted before registering the second recorder");
+            };
+            EXPECT_THROW(Prepare(), std::runtime_error);
+            EXPECT_EQ(Recording.GetState(), ETaskState::Succeeded);
+            EXPECT_EQ(Parent.GetNumRecordedCommands(), Before);
+            Parent.EndRenderPass();
+            Parent.FinishRecording();
         });
         FlushRenderingCommands();
     }

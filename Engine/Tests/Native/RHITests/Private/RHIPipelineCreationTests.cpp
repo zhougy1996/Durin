@@ -286,7 +286,7 @@ namespace Durin
 		EXPECT_EQ(Result->Wait(), ERHIPipelineState::Ready);
 	}
 
-	TEST_F(FRHIPipelineCreationTests, QueueAdmitsOrdinaryTasksButRejectsIndependentCpuWork)
+	TEST_F(FRHIPipelineCreationTests, QueueAdmitsWorkerAndBlockingIOTasks)
 	{
 		FPipelineCompileQueue Owner(Capabilities(), Backend([](const auto&, const auto&) {
 			return MakeRefCount<FRHIComputePipelineState>();
@@ -304,10 +304,6 @@ namespace Durin
 			ASSERT_TRUE(Request.IsValid());
 			EXPECT_EQ(Request.Wait(), ERHIPipelineState::Ready);
 		}
-		auto Independent = Tasks::LaunchIndependentTask("direct queue CPU rejection", [&] {
-			return Owner.RequestCompute(Initializer, "independent PSO");
-		});
-		EXPECT_FALSE(Independent.GetResult());
 	}
 
 	TEST_F(FRHIPipelineCreationTests, ConcurrentWorkerAdmissionsShareCompilationAndCacheClose)
@@ -352,7 +348,7 @@ namespace Durin
 		Pipelines.clear();
 	}
 
-	TEST_F(FRHIPipelineCreationTests, CacheRejectsInvalidDescriptionsAndIndependentCpuMisses)
+	TEST_F(FRHIPipelineCreationTests, CacheRejectsInvalidDescriptions)
 	{
 		std::atomic<uint32> Calls = 0;
 		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) {
@@ -363,19 +359,6 @@ namespace Durin
 		EXPECT_FALSE(Owner.GetCompute(Initializer, "invalid"));
 		FGraphicsPipelineStateInitializer GraphicsInitializer;
 		EXPECT_FALSE(Owner.GetGraphics(GraphicsInitializer, "invalid graphics"));
-		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-		Initializer.ComputeShader = Shader;
-		auto Task = Tasks::LaunchIndependentTask("cache leaf rejection", [&] {
-			return Owner.GetCompute(Initializer, "cpu leaf");
-		});
-		EXPECT_FALSE(Task.GetResult());
-		auto Parent = Tasks::LaunchIndependentTask("cache inherited CPU rejection", [&] {
-			auto Child = Tasks::LaunchTask("cache inherited CPU child", [&] {
-				return Owner.GetCompute(Initializer, "cpu child");
-			});
-			return Child.GetResult();
-		});
-		EXPECT_FALSE(Parent.GetResult());
 		EXPECT_EQ(Calls, 0u);
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedRequests, 0u);
 	}
@@ -394,7 +377,7 @@ namespace Durin
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
 		auto Required = Owner.GetCompute(Initializer, "required before recording");
-		auto Recording = Tasks::LaunchIndependentTask("pending identity lookup", [&] {
+		auto Recording = Tasks::LaunchTask("pending identity lookup", [&] {
 			return Owner.GetCompute(Initializer, "recording lookup");
 		});
 		EXPECT_EQ(Recording.GetResult(), Required);
@@ -422,7 +405,7 @@ namespace Durin
 			std::string(1024 * 1024, 'x'), *Key);
 		ASSERT_TRUE(LargeName);
 		EXPECT_EQ(LargeName->Wait(), ERHIPipelineState::Ready);
-		auto Task = Tasks::LaunchIndependentTask("validated cache identity lookup", [&] {
+		auto Task = Tasks::LaunchTask("validated cache identity lookup", [&] {
 			return FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer, "cpu leaf", *Key);
 		});
 		EXPECT_EQ(Task.GetResult(), LargeName);

@@ -200,9 +200,6 @@ namespace Durin
 		{
 			std::lock_guard Lock(Mutex);
 			if (Closed.load()) return {};
-			// Independent CPU tasks cannot introduce device work into their graph.
-			if (Private::FTaskRuntimeAccess::IsExecutingIndependentCPU())
-				return {};
 			const uint64 Bytes = DescriptionBytes(Initializer, Name);
 			const uint64 RetainedBytes = Bytes + sizeof(FEntry) + sizeof(FKey);
 			constexpr bool Graphics = std::same_as<T, FGraphicsPipelineStateInitializer>;

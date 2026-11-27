@@ -353,8 +353,7 @@ namespace Durin
 		}
 		auto Launch(const std::shared_ptr<FRecord>& Record, bool bDispatch, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> Tasks::FTask
 		{
-			Tasks::FTaskExecutionOptions Options;
-			Options.Priority = Record->Priority == EStaticMeshCompilationPriority::Interactive ? ETaskPriority::High : ETaskPriority::Low;
+			const auto Priority = Record->Priority == EStaticMeshCompilationPriority::Interactive ? ETaskPriority::High : ETaskPriority::Low;
 			auto Task = Durin::Tasks::FTask(Tasks::LaunchTask("StaticMesh.Build", [Slot = std::move(Slot), Work = Record->Work, Hook = PhaseHook, Id = Record->Diagnostic.RequestId, BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch]() {
 						const auto& Cancellation = Work->Cancellation;
 						try
@@ -385,7 +384,7 @@ namespace Durin
 						if (Cancellation.IsCanceled()) Work->ReleaseOutput();
 						Work->ReleaseInput();
 						Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
-						}, Options));
+						}, Priority));
 			Record->Task = Task;
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
 			if (bDispatch) Enqueue(Record, false, Task);

@@ -4,12 +4,12 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-11-26
+Last reviewed: 2026-11-28
 
 ## Construction And Acceptance
 
 `Threading/Task.h` defines the ordinary API in `Durin::Tasks`.
-`LaunchTask(Name, Callable, Options)` returns `TTask<T>` directly,
+`LaunchTask(Name, Callable)` returns `TTask<T>` directly,
 including `TTask<void>` for a void callable. `Tasks::FTask` is the public generic
 completion handle, an alias of `Tasks::Private::FTaskHandle`, and can observe any
 task or event without a typed result accessor. Callables accept no arguments.
@@ -23,7 +23,9 @@ then cancel/wait the accepted work before releasing captures or resource state.
 There is no general task-group or group-join facade.
 Pass `ETaskThread::BlockingIO` to `LaunchTask` to run blocking work on the internal I/O pool.
 Pass `ETaskThread::GameThread` to `LaunchTask` after the callable or its prerequisites,
-before any options, to enqueue a callback for the next eligible GameThread pump.
+before priority and attribution, to enqueue a callback for the next eligible GameThread pump.
+Use `ETaskThread::RenderThread_Local` in the same position for work that must run
+on the rendering thread and can run while it waits for tasks.
 Nested submissions record the executing parent identity.
 Domain queues own their admission policy. Accepted producer and publication tasks
 retain their scheduler participation through ordinary terminal publication.
@@ -43,8 +45,9 @@ return admission errors or failed surrogate tasks
 when scheduler thresholds are exceeded. They do not retry, wait for capacity,
 or run a callable inline. Acceptance does not promise execution success.
 
-Options carry debug name, priority, attribution,
-and prerequisites. Ordinary callers do
+Launch arguments follow the order name, callable, optional prerequisites, optional thread,
+optional priority, and optional attribution. Priority defaults to Normal and may be omitted
+when passing attribution. Ordinary callers do
 not declare scheduler capture/result byte budgets. Actual domain payload limits
 and producer throttling belong to resource owners; see
 [Asset Compilation](../Assets/Build/AssetCompilation.md).
@@ -145,8 +148,7 @@ successful wait. Durin likewise checks current work rather than latching success
 Prefer a fresh limiter for another batch, as UE's public contract recommends.
 Durin retains deadline checks and notification-based sleeping instead of UE 5.8's
 unbounded retraction scan before the timed event wait. Empty and zero-timeout
-waits allocate no waiting state. Own-limiter waits, independent CPU contexts,
-and rendering-thread waits return false while callable work remains.
+waits allocate no waiting state. Own-limiter and rendering-thread waits return false while callable work remains.
 Timeouts do not interrupt an executing callable. Destroying the
 limiter does not cancel accepted work: bodies retain its state through capture
 retirement, and
@@ -235,12 +237,13 @@ following [UE task composition](https://dev.epicgames.com/documentation/en-us/un
 There are no Tasks Then, ThenCompleted or WhenAll helpers, or private continuation
 submission paths. Standalone Future continuations are described below.
 
-`LaunchTask(Name, Callable, Dependency, Options)` accepts a task, event,
+`LaunchTask(Name, Callable, Dependency)` accepts a task, event,
 or generic `FTask` directly, or a vector, array, or span of these types.
 `Prerequisites(A, B, ...)` creates an owning array of `FTask` handles for mixed
-typed tasks, generic handles, and events; it never consumes a result. These
-overloads append their dependencies to `Options.Prerequisites`, and bind them
-before the supplied collection can go out of scope. Task and event handles expose `Wait()`. `Wait(Collection)` accepts the same collections
+typed tasks, generic handles, and events. `LaunchTask` and `FPipe::Launch`
+register these dependencies before returning. Results remain available through
+the original handles.
+Task and event handles expose `Wait()`. `Wait(Collection)` accepts the same collections
 and returns whether every input is completed. `WaitAny(Collection)` returns a
 completed input's index, or `INDEX_NONE` for an empty collection or unsuccessful wait.
 `Task.WaitDetailed()` and `WaitDetailed(Collection)` are the extensions for wait status and terminal state;
@@ -248,10 +251,7 @@ collections return one `FTaskWaitResult` per input in input order, including inv
 failed or canceled entries. Waiting never consumes results. Empty collections produce
 no dependencies, Wait succeeds, and WaitDetailed returns an empty result vector.
 
-`FTaskExecutionOptions::Prerequisites` owns a vector of generic task handles.
-Saved, copied and moved options retain their dependencies independently of the
-source collection. Initialize it with `{A, B}` or copy a range with `assign`;
-`Prerequisites(A, B)` remains an owning array for direct launch/event arguments.
+For deferred submission, retain the handles in an owning collection and pass it at launch.
 
 Owners combine known work with task prerequisites, `AddNested`, and task events.
 Completion of a resource's business record does not prove its worker callable
@@ -287,7 +287,7 @@ task; the result remains a handle and is never automatically flattened.
 Ordinary submission ignores empty prerequisite handles and normalizes repeated
 nodes once, preserving first-occurrence diagnostic order. Application input
 collections and results retain their own order and duplicate positions.
-Prerequisites do not supply attribution: set Options.Attribution explicitly when
+Pass an explicit trailing `FTaskAttribution` when
 a dependent must retain a producer's owner/category. Otherwise ordinary launch
 inherits the current executing task's attribution, where available.
 
@@ -384,7 +384,7 @@ task scheduling.
 ## Serial Pipes
 
 `Threading/TaskPipe.h` provides noncopyable, nonmovable `Tasks::FPipe`.
-`Launch(Name, Callable[, Prerequisites][, OptionsOrPriority])` returns the same
+`Launch(Name, Callable[, Prerequisites][, Priority][, Attribution])` returns the same
 typed task and preserves ordinary result, exception and cooperative cancellation
 semantics. Pipes currently dispatch Worker tasks with the existing priority set.
 Construction allocates no task or queue; the pipe keeps a weak tail and a count
@@ -407,7 +407,7 @@ wait retraction; `HasWork()` includes all accepted unfinished work.
 `WaitUntilEmpty(TimeoutSeconds)` is a blocking drain without dependency helping
 or executor pumping. Stop producers before draining and ensure prerequisites can
 progress independently. It returns false on timeout or when outstanding work
-cannot be joined from the current pipe, an independent CPU task, or RenderingThread.
+cannot be joined from the current pipe or RenderingThread.
 The pipe must outlive every task it launches; destruction checks that it is empty.
 Completed task handles and result aliases may outlive the pipe.
 
@@ -436,7 +436,8 @@ the node; the event facade has only the common handle. The node must be complete
 before its final reference is released. Generic handles retain this lifetime check
 after the last event facade is released. Cancellation does not trigger an event. External producers must signal
 after their callbacks and captures have retired. Events default to unknown external
-execution requirements. Passing `false` as the constructor's second argument
+execution requirements until triggered. After triggering, only their pending
+prerequisites contribute wait restrictions. Passing `false` as the constructor's second argument
 declares that signaling never requires GameThread or unknown external progress;
 transitive prerequisite wait restrictions still apply.
 
@@ -535,10 +536,10 @@ an observed completed index. Concurrent completions have no temporal ordering
 guarantee. Failed/Canceled tasks also satisfy the wait. Empty collections, timeouts,
 or a context with no eligible pending input return `INDEX_NONE` (-1). These completion
 and index semantics follow UE 5.8.2 (CL 56702186), `Tasks/Task.h`.
-Like UE's WaitAny, it does not retract or execute queued candidates; their executors
-must retain capacity to make progress. Durin observes node notifications after
-terminal publication without creating inline continuation tasks. It neither pumps
-owner-thread callbacks nor waits for unrelated work. Unsafe candidates do not stop
+`WaitAny` observes terminal publication without retracting candidates or creating
+continuation tasks. The rendering thread services its local queue while waiting.
+Other executors must retain capacity to make progress. GameThread callbacks and
+the main render command queue stay outside the wait. Unsafe candidates do not stop
 an eligible alternative from completing the wait. Timeout detaches observation;
 it does not cancel or retain the candidate graph.
 
@@ -549,33 +550,22 @@ timeouts stop starting work after the deadline. Executed callables cannot be
 interrupted, so a helping wait may exceed its timeout. NaN is treated as zero.
 
 GameThread rejects unknown or transitive deferred requirements;
-executing tasks reject unknown external requirements. RenderingThread rejects
-ordinary task waits. It may wait for an explicit independent CPU graph
-created with `Tasks::LaunchIndependentTask(Name, Callable, Options)`. This entry
-uses Worker execution and ordinary scheduler/owner lifetime. Unfinished launch
-prerequisites and nested children must themselves carry the independent CPU
-contract. Ordinary Worker child submissions inherit it, including descendants;
-they can be waited on or registered with AddNested. Launching a child still does
-not implicitly join it or share cancellation. Already-completed inputs, including
-ordinary tasks, I/O tasks and events, impose no CPU-progress requirement; ordinary
-scheduler-lifetime and cycle checks still apply.
+executing tasks reject unknown external requirements. The rendering thread may
+join Worker and BlockingIO tasks. It rejects unfinished graphs with GameThread
+or unknown external requirements. Self-wait and dependency-cycle
+checks apply on every executor.
 
-The flag is immutable. Admission and nested-edge insertion validate every new
-unfinished edge, preserving the CPU contract transitively without guessing from
-a Worker executor or a callable's C++ body. Unmarked pending Worker tasks and
-pending events (even with a known execution requirement) are not proof of an
-independent CPU producer. They cannot be attached to an independent graph.
-Within such a graph, blocking waits and retraction accept independent CPU work
-or already-completed inputs and retain self/dependency-cycle checks. I/O and
-GameThread submissions, pipe/limiter submissions and pending pipe/limiter joins
-remain outside this contract. Construction violations are fatal and report
-`InvalidExecutionContract`; unsupported waits return their ordinary rejected outcome.
-The callable must not depend on owner-thread, RHI, I/O or other external progress;
-these ordinary C++ effects remain a caller contract. This explicit declaration
-permits render preparation/recording joins without relaxing general wait policy.
+Launch work that must execute on the rendering thread with
+`Tasks::LaunchTask(Name, Body, Tasks::ETaskThread::RenderThread_Local)`.
+RenderCore services this FIFO during its main loop and during blocking task
+waits. Only its owning render thread can execute local tasks. Main render
+commands keep their batch order and run exclusively in the main loop.
+Task completion and local submissions wake the same waiter. The queue belongs
+to one render-thread lifetime. Shutdown drains ready local tasks; tasks whose
+prerequisites become ready after closure fail dispatch to that queue.
 Explicit producer outcomes and exceptions still publish the normal terminal state, and result
 access still requires success. Waits do not pump GameThread callbacks.
-Wait/WaitDetailed callers, including ordinary threads, help only the waited task and its
+Retraction in Wait/WaitDetailed helps only the waited task and its
 transitive execution and nested dependencies. The task state is the queue execution node; scheduler
 dispatch adds no callback wrapper or separate queue-node allocation. Ordinary
 pool callbacks use an adapter. Retraction pins the task node and detaches it in
@@ -640,14 +630,22 @@ roots/continuations use three FIFO priority lanes; every eighth dispatch selects
 the oldest lane head across priorities. Deferred priority policy is separate.
 This API retirement does not move existing Worker filesystem workloads to I/O.
 
-ParallelFor keeps its existing CPU policy, cancellation and stable failure
-selection. The native default MinBatchSize remains the serial sentinel.
-Its optional external cancellation token is a borrowed pointer to
-`Tasks::FCancellationToken`; it must outlive the synchronous call and all joined
-chunks. Parallel execution keeps its group flag directly in the shared work owner.
-`Tasks::ParallelFor` offers Auto, Serial and ExplicitBatch; zero explicit batch
-is invalid. Auto uses a 16,384-element threshold and 2,048 minimum batch, at
-most Worker count plus caller chunks, and serial nesting. Chunks use ordinary
+`Tasks::ParallelFor(Name, Num, Body)` uses Auto batching. Ranges below 16,384
+elements execute serially. At or above that threshold the minimum batch size is
+2,048. Pass a positive `MinBatchSize` before the body to select explicit batching.
+Pass `EParallelForFlags::ForceSingleThread` after the body to execute on the caller
+for either overload. A zero explicit batch size returns Invalid.
+
+Both overloads accept an optional external `Tasks::FCancellationToken` pointer
+and attribution after the flags. The token must outlive the synchronous call.
+Bodies can take an index alone or an index and `const FParallelForCancellationToken&`
+to observe both external and group cancellation. The result reports state, diagnostic
+and chunk count, including for serial execution. Parallel execution uses at
+most Worker count plus caller chunks, and serial nesting. Rendering-thread calls
+use the same batching rules and service render-local tasks while joining workers.
+If a worker attaches nested work that the caller cannot join, the loop waits for
+the worker body to exit and reports failure. The nested task retains its normal
+executor and may complete later. Chunks use ordinary
 submission with no capacity rejection or partial-admission fallback. All chunks
 are joined before captures are released. The single-chunk path runs before
 allocating parallel shared state or an internal cancellation source, as in UE 5.8.

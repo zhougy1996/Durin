@@ -99,33 +99,30 @@ namespace Durin
 		{
 			if (WithScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
 			Tasks::FCancellationToken Cancellation;
-			FParallelForOptions Options;
-			Options.CancellationToken = &Cancellation;
 			uint32 Calls = 0;
 			auto Lifetime = std::make_shared<int>(1);
 			std::weak_ptr<int> Weak = Lifetime;
-			auto Result = ParallelForCancelable("SerialCancelAndThrow", 4,
+			auto Result = Tasks::ParallelFor("SerialCancelAndThrow", 4,
 				[&, Owner = std::move(Lifetime)](uint64 Index, const FParallelForCancellationToken& Token) {
 					++Calls;
 					EXPECT_FALSE(Token.IsCancellationRequested());
 					if (Index == 1) { Cancellation.Cancel(); throw std::runtime_error("serial failure"); }
-				}, Options);
+				}, Tasks::EParallelForFlags::ForceSingleThread, &Cancellation);
 			EXPECT_EQ(Result.State, ETaskState::Failed);
 			EXPECT_EQ(Result.Diagnostic, "ParallelFor chunk [0, 4) failed: serial failure");
 			EXPECT_EQ(Result.ChunkCount, 1u);
 			EXPECT_EQ(Calls, 2u);
 			EXPECT_TRUE(Weak.expired());
 			Tasks::FCancellationToken LastIteration;
-			Options.CancellationToken = &LastIteration;
-			auto Canceled = ParallelForCancelable("SerialLastIterationCancel", 1,
-				[&](uint64, const FParallelForCancellationToken&) { LastIteration.Cancel(); }, Options);
+			auto Canceled = Tasks::ParallelFor("SerialLastIterationCancel", 1,
+				[&](uint64, const FParallelForCancellationToken&) { LastIteration.Cancel(); }, Tasks::EParallelForFlags::ForceSingleThread, &LastIteration);
 			EXPECT_EQ(Canceled.State, ETaskState::Canceled);
 			EXPECT_EQ(Canceled.ChunkCount, 1u);
-			auto Empty = ParallelForCancelable("SerialEmpty", 0,
-				[](uint64, const FParallelForCancellationToken&) { ADD_FAILURE(); }, Options);
+			auto Empty = Tasks::ParallelFor("SerialEmpty", 0,
+				[](uint64, const FParallelForCancellationToken&) { ADD_FAILURE(); }, Tasks::EParallelForFlags::ForceSingleThread, &LastIteration);
 			EXPECT_EQ(Empty.State, ETaskState::Succeeded);
 			EXPECT_EQ(Empty.ChunkCount, 0u);
-			auto Unknown = ParallelFor("SerialUnknown", 2, [](uint64) { throw 1; });
+			auto Unknown = Tasks::ParallelFor("SerialUnknown", 2, [](uint64) { throw 1; }, Tasks::EParallelForFlags::ForceSingleThread);
 			EXPECT_EQ(Unknown.State, ETaskState::Failed);
 			EXPECT_EQ(Unknown.Diagnostic, "ParallelFor chunk [0, 2) failed: callable threw an unknown exception.");
 		}
@@ -699,7 +696,7 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Succeeded, BlockingTask.WaitDetailed().TaskState);
 	}
 
-	TEST(FTaskTests, RenderingThreadJoinsExplicitIndependentCPUWork)
+	TEST(FTaskTests, RenderingThreadJoinsWorkerTask)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -712,7 +709,7 @@ namespace Durin
 			auto Blocker = SubmitKernelTask("IndependentQueueBlocker", [&] { Started.Trigger(); Release.Wait(); });
 			ASSERT_TRUE(Started.WaitFor(1.0));
 			uint32 ExecutionThreadId = 0;
-			auto Task = Tasks::LaunchIndependentTask("IndependentRenderPreparation", [&, Fail] {
+			auto Task = Tasks::LaunchTask("IndependentRenderPreparation", [&, Fail] {
 				ExecutionThreadId = FPlatformLTS::GetCurrentThreadId();
 				if (Fail) throw std::runtime_error("independent task failure");
 				return 42;
@@ -737,55 +734,7 @@ namespace Durin
 		}
 	}
 
-	TEST(FTaskTests, IndependentCPUContractRejectsUnsafeDependenciesChildrenAndWaits)
-	{
-		EnsureGameThreadForTaskTest();
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-
-		Tasks::FTaskEvent Pending("IndependentUnknownGate"), KnownSignal("IndependentKnownSignal", false);
-		auto Ordinary = Tasks::LaunchTask("UnmarkedWorker", [] {}, KnownSignal);
-		auto Io = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, KnownSignal, Tasks::ETaskThread::BlockingIO);
-		auto Deferred = Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, KnownSignal, Tasks::ETaskThread::GameThread);
-		for (const auto& Input : Tasks::Prerequisites(Pending, KnownSignal, Ordinary, Io, Deferred))
-		{
-			FTaskLaunchOptions Options;
-			Options.bIndependentCPU = true;
-			Options.Prerequisites = std::span(&Input, 1);
-			EXPECT_DEATH({ (void)Private::LaunchTaskWithCompletion("InvalidIndependent",
-				[]() {}, {}, Options); }, "Task construction failed");
-			EXPECT_DEATH({
-				auto Invalid = Tasks::LaunchIndependentTask("ForbiddenNestedParent", [&] { Tasks::AddNested(Input); });
-				Invalid.Wait();
-			}, "Task construction failed");
-			auto Task = Tasks::LaunchIndependentTask("IndependentWaitContract", [&] {
-				return Input.WaitDetailed().WaitStatus;
-			});
-			EXPECT_EQ(Task.GetResult(), ETaskWaitStatus::UnsupportedThread);
-		}
-		for (auto Thread : {Tasks::ETaskThread::BlockingIO, Tasks::ETaskThread::GameThread})
-		{
-			EXPECT_DEATH({
-				auto Invalid = Tasks::LaunchIndependentTask("ForbiddenChildParent", [&] {
-					(void)Tasks::LaunchTask(DURIN_SOURCE_LOCATION, [] {}, Thread);
-				});
-				Invalid.Wait();
-			}, "Task construction failed");
-		}
-		EXPECT_DEATH({
-			auto Invalid = Tasks::LaunchIndependentTask("ForbiddenChildDependencyParent", [&] {
-				(void)Tasks::LaunchTask("ForbiddenChildDependency", [] {}, Ordinary);
-			});
-			Invalid.Wait();
-		}, "Task construction failed");
-		Pending.Trigger();
-		KnownSignal.Trigger();
-		ShutdownTaskSystem(ETaskShutdownMode::Drain);
-	}
-
-	TEST(FTaskTests, RenderingThreadJoinsIndependentCPUPrerequisitesAndInheritedChildren)
+	TEST(FTaskTests, RenderingThreadJoinsPrerequisitesAndNestedChildren)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -797,11 +746,10 @@ namespace Durin
 		ASSERT_TRUE(Started.WaitFor(2));
 		std::vector<uint32> ExecutionThreads;
 		auto Record = [&] {
-			EXPECT_TRUE(Private::FTaskRuntimeAccess::IsExecutingIndependentCPU());
 			ExecutionThreads.push_back(FPlatformLTS::GetCurrentThreadId());
 		};
-		auto Prerequisite = Tasks::LaunchIndependentTask("IndependentGraphPrerequisite", [Record] { Record(); return 10; });
-		auto Root = Tasks::LaunchIndependentTask("IndependentGraphRoot", [&, Record, Prerequisite] {
+		auto Prerequisite = Tasks::LaunchTask("IndependentGraphPrerequisite", [Record] { Record(); return 10; });
+		auto Root = Tasks::LaunchTask("IndependentGraphRoot", [&, Record, Prerequisite] {
 			Record();
 			auto Child = Tasks::LaunchTask("InheritedCPUChild", [Record] {
 				Record();
@@ -812,7 +760,7 @@ namespace Durin
 			auto Nested = Tasks::LaunchTask("InheritedCPUNested", Record);
 			Tasks::AddNested(Nested);
 			return Prerequisite.GetResult() + Child.GetResult();
-		}, {.Prerequisites = {Prerequisite}});
+		}, Prerequisite);
 		FWaitTaskRunnable Runnable(Root, Returned);
 		std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Runnable,
 			"IndependentGraphRenderJoin", 0, EThreadPriority::Normal, EThreadRole::RenderingThread));
@@ -831,7 +779,7 @@ namespace Durin
 		EXPECT_EQ(Root.GetResult(), 42);
 	}
 
-	TEST(FTaskTests, IndependentCPUAcceptsCompletedInputsRegardlessOfTheirFormerExecutor)
+	TEST(FTaskTests, WorkerAcceptsCompletedInputsRegardlessOfTheirFormerExecutor)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -845,17 +793,17 @@ namespace Durin
 		EXPECT_STREQ(Io.GetDebugName(), IoName);
 		ASSERT_TRUE(Ordinary.Wait());
 		ASSERT_TRUE(Io.Wait());
-		auto Task = Tasks::LaunchIndependentTask("IndependentCompletedInputs", [=] {
+		auto Task = Tasks::LaunchTask("IndependentCompletedInputs", [=] {
 			Tasks::AddNested(Ordinary);
 			Tasks::AddNested(Io);
 			Tasks::AddNested(Signal);
 			EXPECT_TRUE(Tasks::Wait(Tasks::Prerequisites(Ordinary, Io, Signal)));
 			return Ordinary.GetResult() + Io.GetResult();
-		}, {.Prerequisites = {Ordinary, Io, Signal, Tasks::FTask{}}});
+		}, Tasks::Prerequisites(Ordinary, Io, Signal, Tasks::FTask{}));
 		EXPECT_EQ(Task.GetResult(), 42);
 	}
 
-	TEST(FTaskTests, IndependentCPUChildrenRetainCycleDetection)
+	TEST(FTaskTests, NestedWorkerTasksRetainCycleDetection)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -867,7 +815,7 @@ namespace Durin
 		ASSERT_TRUE(Started.WaitFor(2));
 		Tasks::TTask<int> Root;
 		Tasks::TTask<void> Child;
-		Root = Tasks::LaunchIndependentTask("IndependentCycleRoot", [&] {
+		Root = Tasks::LaunchTask("IndependentCycleRoot", [&] {
 			Child = Tasks::LaunchTask("IndependentCycleChild", [] {}, Root);
 			EXPECT_EQ(Child.WaitDetailed().WaitStatus, ETaskWaitStatus::DependencyCycle);
 			const auto Error = Private::FTaskRuntimeAccess::AddNested(Child);
@@ -881,20 +829,16 @@ namespace Durin
 		EXPECT_TRUE(Blocker.Wait());
 	}
 
-	TEST(FTaskTests, RenderingThreadWaitIsRejected)
+	TEST(FTaskTests, RenderingThreadRejectsTransitiveGameThreadDependency)
 	{
+		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
-		FThreadEvent BlockingTaskStarted;
-		FThreadEvent ReleaseBlockingTask;
-		Tasks::FTask BlockingTask = SubmitKernelTask("RenderingWaitBlocker", [&]() {
-			BlockingTaskStarted.Trigger();
-			ReleaseBlockingTask.Wait();
-		});
-		ASSERT_TRUE(BlockingTaskStarted.WaitFor(1.0));
-		Tasks::FTask QueuedTask = SubmitKernelTask("RenderingWaitTarget", []() {});
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		auto Deferred = Tasks::LaunchTask("Deferred prerequisite", [] {}, Tasks::ETaskThread::GameThread);
+		auto QueuedTask = Tasks::LaunchTask("RenderingWaitTarget", [] {}, Deferred);
 
 		FThreadEvent WaitReturned;
 		FWaitTaskRunnable Runnable(QueuedTask, WaitReturned);
@@ -904,10 +848,9 @@ namespace Durin
 		RenderingThread->WaitForCompletion();
 
 		EXPECT_EQ(ETaskWaitStatus::UnsupportedThread, Runnable.ObservedResult.WaitStatus);
-		EXPECT_EQ(ETaskState::Queued, Runnable.ObservedResult.TaskState);
-		ReleaseBlockingTask.Trigger();
+		EXPECT_EQ(ETaskState::Waiting, Runnable.ObservedResult.TaskState);
+		PumpGameThreadDeferredWork();
 		EXPECT_EQ(ETaskState::Succeeded, QueuedTask.WaitDetailed().TaskState);
-		EXPECT_EQ(ETaskState::Succeeded, BlockingTask.WaitDetailed().TaskState);
 	}
 
 	TEST(FTaskTests, RestartIsRejectedUntilShutdownCompletesAndOldHandleRemainsQueryable)
@@ -949,25 +892,60 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Succeeded, RetainedTask.GetState());
 	}
 
-	TEST(FParallelForTests, PolicyWrapperOwnsUniqueCapturesForSerialAndParallelExecution)
+	TEST(FParallelForTests, RenderingThreadHonorsForceSingleThread)
+	{
+		class FRenderLoop final : public FRunnable
+		{
+		public:
+			std::atomic<uint32> FinishedIterations = 0;
+			auto Run() -> uint32 override
+			{
+				const auto Result = Tasks::ParallelFor("RenderLoop", 6, 1, [this](uint64) {
+					EXPECT_TRUE(IsInRenderingThread());
+					++FinishedIterations;
+				}, Tasks::EParallelForFlags::ForceSingleThread);
+				const uint32 FinishedAtReturn = FinishedIterations.load();
+				EXPECT_EQ(6u, FinishedAtReturn);
+				EXPECT_EQ(ETaskState::Succeeded, Result.State);
+				EXPECT_EQ(1u, Result.ChunkCount);
+				return 0;
+			}
+		} Loop;
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Loop, "RenderParallelFor",
+			0, EThreadPriority::Normal, EThreadRole::RenderingThread));
+		ASSERT_NE(Thread, nullptr);
+		Thread->WaitForCompletion();
+	}
+
+	TEST(FParallelForTests, ParallelForOwnsUniqueCapturesForSerialAndParallelExecution)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
-		for (const auto Policy : {Tasks::EParallelForPolicy::Serial, Tasks::EParallelForPolicy::ExplicitBatch})
+		const auto Attribution = RegisterTaskAttribution("CoreTests", "ParallelForUniqueCapture");
+		for (const auto Flags : {Tasks::EParallelForFlags::ForceSingleThread, Tasks::EParallelForFlags::None})
 		{
 			std::atomic<uint64> Sum = 0;
 			std::atomic<uint32> Destroyed = 0;
 			auto Delete = [&Destroyed](uint64* Value) { delete Value; ++Destroyed; };
-			const auto Result = Tasks::ParallelFor("UniqueParallelCapture", 131,
+			const auto Result = Tasks::ParallelFor("UniqueParallelCapture", 131, 1,
 				[Value = std::unique_ptr<uint64, decltype(Delete)>(new uint64(7), Delete), &Sum](uint64 Index) {
 					Sum.fetch_add(Index + *Value, std::memory_order_relaxed);
-				}, {.Policy = Policy, .BatchSize = 1});
+				}, Flags, nullptr, Attribution);
 			EXPECT_EQ(ETaskState::Succeeded, Result.State);
-			EXPECT_EQ(Policy == Tasks::EParallelForPolicy::Serial ? 1u : 3u, Result.ChunkCount);
+			EXPECT_EQ(Flags == Tasks::EParallelForFlags::ForceSingleThread ? 1u : 3u, Result.ChunkCount);
 			EXPECT_EQ(131u * 130u / 2u + 131u * 7u, Sum.load());
 			EXPECT_EQ(1u, Destroyed.load());
 		}
+		const auto Diagnostics = GetTaskSchedulerDiagnostics();
+		const auto& Categories = Diagnostics.OwnerCategoryDiagnostics;
+		const auto Category = std::ranges::find(Categories, "ParallelForUniqueCapture", &FTaskOwnerCategoryDiagnostics::Category);
+		ASSERT_NE(Category, Categories.end());
+		EXPECT_EQ(2u, Category->ParallelForOperationCount);
+		EXPECT_EQ(2u, Category->SucceededCount);
 	}
 
 	TEST(FParallelForTests, CancelableUniqueCapturesReleaseAfterCancellationAndFailure)
@@ -980,20 +958,55 @@ namespace Durin
 			Tasks::FCancellationToken Cancellation;
 			std::atomic<uint32> Destroyed = 0;
 			auto Delete = [&Destroyed](uint64* Value) { delete Value; ++Destroyed; };
-			FParallelForOptions Options;
-			Options.MinBatchSize = 1;
-			Options.CancellationToken = &Cancellation;
-			const auto Result = ParallelForCancelable("UniqueCancelableCapture", 131,
+
+			const auto Result = Tasks::ParallelFor("UniqueCancelableCapture", 131, 1,
 				[Value = std::unique_ptr<uint64, decltype(Delete)>(new uint64(0), Delete), &Cancellation, bThrow]
 				(uint64 Index, const FParallelForCancellationToken&) {
 					if (Index != *Value) return;
 					if (bThrow) throw std::runtime_error("unique capture failure");
 					Cancellation.Cancel();
-				}, Options);
+				}, Tasks::EParallelForFlags::None, &Cancellation);
 			EXPECT_EQ(bThrow ? ETaskState::Failed : ETaskState::Canceled, Result.State);
 			EXPECT_EQ(3u, Result.ChunkCount);
 			EXPECT_EQ(1u, Destroyed.load());
 		}
+	}
+
+	TEST(FParallelForTests, SingleWorkerJoinsQueuedChunkAfterCallerCancellationOrFailure)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		FThreadEvent WorkerStarted;
+		FThreadEvent ReleaseWorker;
+		auto Blocker = Tasks::LaunchTask("OccupyOnlyWorker", [&] {
+			WorkerStarted.Trigger();
+			EXPECT_TRUE(ReleaseWorker.WaitFor(5.0));
+		});
+		const bool bWorkerStarted = WorkerStarted.WaitFor(1.0);
+		EXPECT_TRUE(bWorkerStarted);
+		if (bWorkerStarted)
+		{
+			for (const bool bThrow : {false, true})
+			{
+				Tasks::FCancellationToken Cancellation;
+				auto Capture = std::make_shared<int>(0);
+				const std::weak_ptr<int> Lifetime = Capture;
+				const auto Result = Tasks::ParallelFor("JoinQueuedChunk", 2, 1,
+					[Capture = std::move(Capture), &Cancellation, bThrow](uint64 Index) {
+						EXPECT_EQ(0u, Index);
+						Cancellation.Cancel();
+						if (bThrow) throw std::runtime_error("caller chunk failure");
+					}, Tasks::EParallelForFlags::None, &Cancellation);
+				EXPECT_TRUE(Lifetime.expired());
+				EXPECT_EQ(2u, Result.ChunkCount);
+				EXPECT_EQ(bThrow ? ETaskState::Failed : ETaskState::Canceled, Result.State);
+				if (bThrow) EXPECT_NE(Result.Diagnostic.find("[0, 1)"), std::string::npos);
+			}
+		}
+		ReleaseWorker.Trigger();
+		EXPECT_TRUE(Blocker.Wait());
 	}
 
 	TEST(FParallelForTests, CoversEdgeUnevenAndLargeRangesWithBoundedChunks)
@@ -1002,14 +1015,12 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(4));
 
-		FParallelForOptions Options;
-		Options.MinBatchSize = 4;
 		for (uint64 Num : std::array<uint64, 6>{0, 1, 3, 4, 128, 131})
 		{
 			std::vector<uint32> Coverage(Num, 0);
-			const FParallelForResult Result = ParallelFor("ExactCoverage", Num, [&](uint64 Index) {
+			const FParallelForResult Result = Tasks::ParallelFor("ExactCoverage", Num, 4, [&](uint64 Index) {
 				++Coverage[Index];
-			}, Options);
+			});
 
 			EXPECT_EQ(ETaskState::Succeeded, Result.State);
 			EXPECT_LE(Result.ChunkCount, 5u);
@@ -1039,15 +1050,14 @@ namespace Durin
 		std::vector<uint32> Coverage(OuterCount * InnerCount, 0);
 		std::vector<uint32> NestedChunkCounts(OuterCount, 0);
 		std::vector<ETaskState> NestedStates(OuterCount, ETaskState::Invalid);
-		FParallelForOptions Options;
-		Options.MinBatchSize = 1;
-		const FParallelForResult OuterResult = ParallelFor("NestedOuter", OuterCount, [&](uint64 OuterIndex) {
-			const FParallelForResult InnerResult = ParallelFor("NestedInner", InnerCount, [&](uint64 InnerIndex) {
+
+		const FParallelForResult OuterResult = Tasks::ParallelFor("NestedOuter", OuterCount, 1, [&](uint64 OuterIndex) {
+			const FParallelForResult InnerResult = Tasks::ParallelFor("NestedInner", InnerCount, 1, [&](uint64 InnerIndex) {
 				++Coverage[OuterIndex * InnerCount + InnerIndex];
-			}, Options);
+			});
 			NestedChunkCounts[OuterIndex] = InnerResult.ChunkCount;
 			NestedStates[OuterIndex] = InnerResult.State;
-		}, Options);
+		});
 
 		EXPECT_EQ(ETaskState::Succeeded, OuterResult.State);
 		EXPECT_EQ(5u, OuterResult.ChunkCount);
@@ -1071,43 +1081,40 @@ namespace Durin
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(4));
 
-		FParallelForOptions FineGrainedOptions;
-		FineGrainedOptions.MinBatchSize = 1;
 		std::barrier FailureBarrier(2);
-		const FParallelForResult WorkerFailure = ParallelFor("StableWorkerFailure", 20, [&](uint64 Index) {
+		const FParallelForResult WorkerFailure = Tasks::ParallelFor("StableWorkerFailure", 20, 1, [&](uint64 Index) {
 			if (Index == 4 || Index == 8)
 			{
 				FailureBarrier.arrive_and_wait();
 				throw std::runtime_error("worker chunk failure");
 			}
-		}, FineGrainedOptions);
+		});
 		EXPECT_EQ(ETaskState::Failed, WorkerFailure.State);
 		EXPECT_NE(std::string::npos, WorkerFailure.Diagnostic.find("[4, 8)"));
 
-		const FParallelForResult CallerFailure = ParallelFor("CallerFailure", 16, [](uint64 Index) {
+		const FParallelForResult CallerFailure = Tasks::ParallelFor("CallerFailure", 16, 1, [](uint64 Index) {
 			if (Index == 0)
 			{
 				throw std::runtime_error("caller chunk failure");
 			}
-		}, FineGrainedOptions);
+		});
 		EXPECT_EQ(ETaskState::Failed, CallerFailure.State);
 		EXPECT_NE(std::string::npos, CallerFailure.Diagnostic.find("[0, 4)"));
 
 		Tasks::FCancellationToken CancellationSource;
-		FParallelForOptions CancellationOptions = FineGrainedOptions;
-		CancellationOptions.CancellationToken = &CancellationSource;
+
 		FThreadEvent IterationStarted;
 		FParallelForResult CancellationResult;
 		std::atomic<uint64> StartedIterationCount = 0;
 		std::thread ParallelThread([&]() {
-			CancellationResult = ParallelForCancelable("CancelableParallelFor", 1024, [&](uint64, const FParallelForCancellationToken& Token) {
+			CancellationResult = Tasks::ParallelFor("CancelableParallelFor", 1024, 1, [&](uint64, const FParallelForCancellationToken& Token) {
 				StartedIterationCount.fetch_add(1, std::memory_order::acq_rel);
 				IterationStarted.Trigger();
 				while (!Token.IsCancellationRequested())
 				{
 					std::this_thread::yield();
 				}
-			}, CancellationOptions);
+			}, Tasks::EParallelForFlags::None, &CancellationSource);
 		});
 		ASSERT_TRUE(IterationStarted.WaitFor(1.0));
 		CancellationSource.Cancel();

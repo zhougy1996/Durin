@@ -20,8 +20,7 @@ namespace Durin::RendererPrivate
 
 	FParallelCommandListSet::~FParallelCommandListSet()
 	{
-		// Drain even on an exceptional/failed recording path before borrowed pass
-		// data goes out of scope. Uninserted command payloads are simply discarded.
+		// Dispatch clears joined handles. Drain outstanding recordings on early exit.
 		for (auto& Recording : Recordings)
 			if (Recording.Completion.IsValid()) require(Recording.Completion.Wait());
 	}
@@ -58,6 +57,7 @@ namespace Durin::RendererPrivate
 			require(Recording.Completion.IsValid());
 			const auto Wait = Recording.Completion.WaitDetailed();
 			require(Wait.WaitStatus == ETaskWaitStatus::Completed);
+			Recording.Completion = {};
 			bSucceeded &= Wait.TaskState == ETaskState::Succeeded;
 			Commands.push_back(Recording.Commands.get());
 		}
@@ -115,20 +115,20 @@ namespace Durin::RendererPrivate
 					Outputs[TaskIndex].RequiredPipelines.push_back(
 						PipelineStateCache::GetAndOrCreateGraphicsPipelineState(*Child, *Initializer));
 			}
-			Tasks::FTaskExecutionOptions Options;
-			Options.Prerequisites = ParallelCommandListSet->GetPrereqs();
-			auto Task = Tasks::LaunchIndependentTask("Renderer.DrawVisibleMeshCommands",
+			auto Task = Tasks::LaunchTask("Renderer.DrawVisibleMeshCommands",
 				[this, Child, First = StartIndex + First, Count, OverrideArgs, Output = &Outputs[TaskIndex], bStats = Statistics != nullptr] {
 					DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ParallelDraw.Record");
 					Output->Result = Draw(*Child, First, Count, OverrideArgs, nullptr, bStats ? &Output->Statistics : nullptr);
 					Child->FinishRecording();
-				}, Options);
+				}, ParallelCommandListSet->GetPrereqs());
 			Drain.Tasks.push_back(Task);
 			ParallelCommandListSet->AddParallelCommandList(Child, std::move(Task));
 			First += Count;
 		}
 		FMeshDrawCommandPassResult Result;
-		if (!ParallelCommandListSet->Dispatch())
+		const bool bSucceeded = ParallelCommandListSet->Dispatch();
+		Drain.Tasks.clear(); // Dispatch joined every recorder, including failed ones.
+		if (!bSucceeded)
 		{
 			for (const auto& Visible : std::span(VisibleMeshDrawCommands).subspan(StartIndex, NumMeshDrawCommands))
 				Result.Record(Visible.NumSourceDraws, false, 0, false);

@@ -30,7 +30,6 @@ namespace Durin
 		{
 			~FSourceReferenceService()
 			{
-				if (!BuildTask.IsValid()) return;
 				(void)BuildTask.Wait();
 			}
 

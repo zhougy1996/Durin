@@ -54,8 +54,7 @@ namespace Durin
 
 	// One device-owned weak cache. The backend owns ready native reuse.
 	// Ordinary tasks admit cold requests directly; native creation runs on the
-	// device-owned Worker drain. Independent CPU tasks may look up retained
-	// identities, but cannot admit cold requests.
+	// device-owned Worker drain.
 	class RHI_API FRHIPipelineStateCache
 	{
 	public:

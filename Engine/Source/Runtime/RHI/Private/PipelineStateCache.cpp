@@ -1,5 +1,4 @@
 #include "PipelineStateCache.h"
-#include "Threading/TaskRuntime.h"
 #include "Backend/RHICreation.h"
 #include "Backend/RHIPipelineStateCacheBackend.h"
 #include "PipelineCompileQueue.h"
@@ -94,7 +93,6 @@ namespace Durin
 				if (!Key) return TResult{};
 				if constexpr (!Graphics)
 					if (auto Hit = Find<TPipeline>(ComputeEntries, *Key)) return Hit;
-				if (Private::FTaskRuntimeAccess::IsExecutingIndependentCPU()) return TResult{};
 				auto Observation = Queue.RequestValidated(Initializer, Name, *Key);
 				if (!Observation.IsValid()) return TResult{};
 				uint64 Bytes = sizeof(TPipeline) + 256;

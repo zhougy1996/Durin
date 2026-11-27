@@ -735,6 +735,26 @@ TEST_F(FCookFunctionalTests, CancellationJoinsAndClearsEveryStartedOperationWith
 	EXPECT_TRUE(Cook.GetSavePlans().empty());
 }
 
+TEST(FCookDetachedWorkTests, FirstPollPublishesInlineResultWithoutScheduler)
+{
+	ASSERT_FALSE(IsTaskSchedulerRunning());
+	FCookedPlatformData Data({.TargetPlatform = GetHostCookPlatform()});
+	ASSERT_TRUE(Data.ReserveWorkingSet(1024));
+	const auto Caller = std::this_thread::get_id();
+	bool bRanInline = false;
+	Data.StartDetachedWork([&](const FAssetBuildTaskContext&) -> std::expected<FCookPreparationProducts, std::string> {
+		bRanInline = std::this_thread::get_id() == Caller;
+		const std::array Bytes{std::byte{42}};
+		auto Bulk = FBulkData::TryCreateDetached(Bytes);
+		if (!Bulk) return std::unexpected("Could not create fixture bulk data.");
+		return FCookPreparationProducts{.Primary = std::move(*Bulk)};
+	});
+	EXPECT_TRUE(bRanInline);
+	ASSERT_TRUE(Data.Poll());
+	ASSERT_TRUE(Data.GetResult());
+	EXPECT_EQ(Data.Primary.GetMetadata().LogicalSize, 1u);
+}
+
 TEST_F(FCookFunctionalTests, DetachedPreparationOverlapsAndAdmissionCanDrainOneSlot)
 {
 	const auto Fixture = Testing::CreateTestFixtureDirectory("CookAsyncAdmission");

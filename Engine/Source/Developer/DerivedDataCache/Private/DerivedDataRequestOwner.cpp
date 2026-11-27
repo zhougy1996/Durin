@@ -166,13 +166,13 @@ namespace Durin::DerivedData
 		if (!IsTaskSchedulerRunning()) { FRequestBarrier Barrier(*this, ERequestBarrierFlags::Priority); Work(); return; }
 		Tasks::FTaskEvent Published("LaunchTaskRequest", false);
 		auto Request = MakeRefCount<FTaskRequest>();
-		const auto Prerequisites = Tasks::Prerequisites(Published);
 		const std::string DebugName(Name);
-		Tasks::FTaskExecutionOptions Options;
-		Options.Prerequisites.assign(Prerequisites.begin(), Prerequisites.end());
 		const auto Priority = GetPriority();
-		Options.Priority = Priority == ERequestPriority::High ? ETaskPriority::High : Priority == ERequestPriority::Low ? ETaskPriority::Low : ETaskPriority::Normal;
-		Request->Task = Tasks::LaunchTask(DebugName.c_str(), [this, Request, Work = std::move(Work)]() mutable { End(Request, Work); }, Options);
-		Begin(Request); Published.Trigger();
+		const auto TaskPriority = Priority == ERequestPriority::High ? ETaskPriority::High : Priority == ERequestPriority::Low ? ETaskPriority::Low : ETaskPriority::Normal;
+		Request->Task = Tasks::LaunchTask(DebugName.c_str(),
+			[this, Request, Work = std::move(Work)]() mutable { End(Request, Work); },
+			Published, TaskPriority);
+		Begin(Request);
+		Published.Trigger();
 	}
 }

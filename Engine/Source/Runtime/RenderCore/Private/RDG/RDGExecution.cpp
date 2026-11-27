@@ -466,7 +466,6 @@ namespace Durin
 			Recorded.FinishRecording();
 			return Recorded;
 		};
-		std::deque<FRHICommandList> ReadyRecordings;
 		struct FPendingRecordings
 		{
 			std::vector<Tasks::TTask<FRHICommandList>> Work;
@@ -482,47 +481,33 @@ namespace Durin
 			bool bOpen = false;
 			~FCloseRaster() { if (bOpen) Commands.EndRenderPass(); }
 		};
-		auto PrepareRecordingWave = [&](uint32 First) -> bool {
-			// Consume only the next ordered result. Other recorders keep running
-			// while the render thread records barriers and dispatches completed work.
-			if (Pending.Next != Pending.Work.size())
+		auto PrepareRecordingWave = [&](uint32 First) -> std::optional<FRHICommandList> {
+			if (Pending.Next == Pending.Work.size())
 			{
-				auto& Task = Pending.Work[Pending.Next++];
-				const auto Wait = Task.WaitDetailed();
-				require(Wait.WaitStatus == ETaskWaitStatus::Completed);
-				if (Wait.TaskState != ETaskState::Succeeded) return false;
-				ReadyRecordings.push_back(std::move(Task.GetResult()));
-				Task = {};
-				return true;
+				Pending.Work.clear();
+				Pending.Next = 0;
+				auto Eligible = [&](uint32 Index) {
+					const auto& Runtime = Compiled->RuntimePasses[Index];
+					return Runtime.RecordingPolicy == ERDGRecordingPolicy::Parallel
+						&& Runtime.RecordingExecute && *Runtime.RecordingExecute;
+				};
+				uint32 End = First + 1;
+				if (IsTaskSchedulerRunning() && Eligible(First))
+					while (End < Compiled->Passes.size() && End - First < 8
+						&& Eligible(End) && Compiled->RuntimePasses[End].PrerequisiteEnd <= First) ++End;
+				if (End == First + 1) return RecordOwned(First);
+
+				// Allocate handle storage before launching work that borrows this graph.
+				Pending.Work.reserve(End - First);
+				for (uint32 Index = First; Index < End; ++Index)
+					Pending.Work.push_back(Tasks::LaunchTask("RDG.RecordPass", [RecordOwned, Index] { return RecordOwned(Index); }));
 			}
-			Pending.Work.clear();
-			Pending.Next = 0;
-			auto Eligible = [&](uint32 Index) {
-				const auto& Runtime = Compiled->RuntimePasses[Index];
-				return Runtime.RecordingPolicy == ERDGRecordingPolicy::Parallel
-					&& Runtime.RecordingExecute && *Runtime.RecordingExecute;
-			};
-			uint32 End = First + 1;
-			if (IsTaskSchedulerRunning() && Eligible(First))
-				while (End < Compiled->Passes.size() && End - First < 8
-					&& Eligible(End) && Compiled->RuntimePasses[End].PrerequisiteEnd <= First) ++End;
-			if (End == First + 1)
-			{
-				ReadyRecordings.push_back(RecordOwned(First));
-				return true;
-			}
-			// Allocate handle storage before launching work that borrows this graph.
-			// A vector growth failure must not orphan an already-running callback.
-			Pending.Work.reserve(End - First);
-			for (uint32 Index = First; Index < End; ++Index)
-				Pending.Work.push_back(Tasks::LaunchIndependentTask("RDG.RecordPass", [RecordOwned, Index] { return RecordOwned(Index); }));
-			auto& Task = Pending.Work[Pending.Next++];
-			const auto Wait = Task.WaitDetailed();
+			// Consume in pass order; later recorders may still be using the graph.
+			const auto Wait = Pending.Work[Pending.Next].WaitDetailed();
 			require(Wait.WaitStatus == ETaskWaitStatus::Completed);
-			if (Wait.TaskState != ETaskState::Succeeded) return false;
-			ReadyRecordings.push_back(std::move(Task.GetResult()));
-			Task = {};
-			return true;
+			auto Task = std::move(Pending.Work[Pending.Next++]);
+			if (Wait.TaskState != ETaskState::Succeeded) return std::nullopt;
+			return std::move(Task.GetResult());
 		};
 		FRHIGPUSyncPointRef InitialSignal;
 		if (!Context.InitialReleases.empty())
@@ -641,11 +626,10 @@ namespace Durin
 						Pass.Name, Pass.Type);
 					if (Runtime.RecordingExecute && *Runtime.RecordingExecute)
 					{
-						if (ReadyRecordings.empty() && !PrepareRecordingWave(Index))
+						auto Recorded = PrepareRecordingWave(Index);
+						if (!Recorded)
 							return std::unexpected(FRDGPreparationError{ERDGStateError::RecordingIncomplete});
-						auto Recorded = std::move(ReadyRecordings.front());
-						ReadyRecordings.pop_front();
-						CommandList.QueueCommandList(std::move(Recorded));
+						CommandList.QueueCommandList(std::move(*Recorded));
 					}
 					else (*Runtime.ParameterizedExecute)(CommandList, Resolver);
 				}

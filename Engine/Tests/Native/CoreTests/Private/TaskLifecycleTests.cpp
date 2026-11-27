@@ -224,7 +224,7 @@ namespace Durin
 				EXPECT_TRUE(Token.IsCanceled());
 				++Runs;
 				return std::make_unique<int>(42);
-			}, {.Prerequisites = {Gate}});
+			}, Gate);
 			if (!Shared) Cancellation.Cancel();
 			EXPECT_FALSE(Task.IsCompleted());
 			EXPECT_EQ(Task.WaitDetailed(0).WaitStatus, ETaskWaitStatus::TimedOut);

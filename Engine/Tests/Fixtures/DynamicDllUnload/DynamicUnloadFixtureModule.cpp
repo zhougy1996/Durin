@@ -136,18 +136,14 @@ namespace Durin
 		{
 			if (Worker.IsValid() || Publisher.IsValid()) return false;
 			auto Capture = std::make_shared<FAsyncCaptureProbe>(InstanceSerial, WorkerCallbacks.Record);
-			Tasks::FTaskExecutionOptions WorkerOptions;
 			Worker = Tasks::LaunchTask(
 				"DynamicUnloadFixture.Worker",
 				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial] {
 					Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::AsyncWorkerCompleted, Serial});
 					return Serial;
-				},
-				WorkerOptions);
+				});
 			if (!Worker.IsValid()) return false;
 
-			Tasks::FTaskExecutionOptions PublisherOptions;
-			PublisherOptions.Attribution = Private::FTaskRuntimeAccess::GetAttribution(Worker);
 			Publisher = Durin::Tasks::FTask(Tasks::LaunchTask("DynamicUnloadFixture.Publish",
 				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial, Outcome = Worker] {
 					if (Outcome.GetState() == ETaskState::Succeeded
@@ -155,21 +151,19 @@ namespace Durin
 					{
 						Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::AsyncPublished, Serial});
 					}
-				}, Worker, PublisherOptions));
+				}, Worker, Private::FTaskRuntimeAccess::GetAttribution(Worker)));
 			return Publisher.IsValid();
 		}
 
 		auto StartRetainedResultForFailure() -> bool override
 		{
 			if (RetainedResult.IsValid()) return false;
-			Tasks::FTaskExecutionOptions Options;
 			RetainedResult = Tasks::LaunchTask(
 				"DynamicUnloadFixture.RetainedResult",
 				[Callbacks = WorkerCallbacks, Serial = InstanceSerial] {
 					Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::RetainedResultReady, Serial});
 					return Serial;
-				},
-				Options);
+				});
 			bRetainResult = RetainedResult.IsValid();
 			return bRetainResult;
 		}
@@ -177,14 +171,12 @@ namespace Durin
 		auto StartBlockingWorkerForFailure() -> bool override
 		{
 			if (BlockingWorker.IsValid()) return false;
-			Tasks::FTaskExecutionOptions Options;
 			BlockingWorker = Durin::Tasks::FTask(Tasks::LaunchTask(
 				"DynamicUnloadFixture.BlockingWorker",
 				[Callbacks = WorkerCallbacks, Serial = InstanceSerial] {
 					Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::BlockingWorkerEntered, Serial});
 					Callbacks.WaitForAsyncRelease(Serial);
-				},
-				Options));
+				}));
 			return BlockingWorker.IsValid();
 		}
 

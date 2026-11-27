@@ -53,8 +53,8 @@ namespace Durin::ContentBrowser::Private
 		}
 		CancelPendingSnapshots();
 		// Module code must remain loaded until both owned worker bodies have exited.
-		if (ItemsTask.IsValid()) (void)ItemsTask.Wait();
-		if (TreeTask.IsValid()) (void)TreeTask.Wait();
+		(void)ItemsTask.Wait();
+		(void)TreeTask.Wait();
 	}
 
 	auto FContentBrowserModel::InvalidateDirectoryTree() -> void
@@ -138,7 +138,7 @@ namespace Durin::ContentBrowser::Private
 			if (ItemsRequest != Request || ActiveItemsRequest != Request) return bPublished;
 			if (!Work) { CancelPendingSnapshots(); return false; }
 			ItemsTask = Tasks::LaunchTask("ContentBrowser.Items", std::move(Work),
-				{.Attribution = RegisterTaskAttribution("ContentBrowser", "Items")});
+				RegisterTaskAttribution("ContentBrowser", "Items"));
 
 		}
 		if (TreeTask.IsValid() && TreeTask.IsCompleted())
@@ -174,7 +174,7 @@ namespace Durin::ContentBrowser::Private
 			if (TreeCancellation != Cancellation || Cancellation->IsCanceled()) return bPublished;
 			if (!Work) { CancelPendingSnapshots(); return bPublished; }
 			TreeTask = Tasks::LaunchTask("ContentBrowser.Directory", std::move(Work),
-				{.Attribution = RegisterTaskAttribution("ContentBrowser", "Directory")});
+				RegisterTaskAttribution("ContentBrowser", "Directory"));
 
 		}
 		return bPublished;
