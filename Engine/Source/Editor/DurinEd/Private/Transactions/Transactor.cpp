@@ -10,11 +10,10 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "DObject/Property.h"
-#include "DObject/DurinPropertyTypes.h"
-#include "DObject/TransactionArray.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "CoreGlobals.h"
 #include "Logging/LogMacros.h"
+#include "Templates/GuardValue.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -83,13 +82,6 @@ namespace Durin
 			return Counts.Get(Package);
 		}
 
-		struct FTransactionBusyScope
-		{
-			bool& Busy;
-			const bool Previous;
-			explicit FTransactionBusyScope(bool& Value) : Busy(Value), Previous(std::exchange(Value, true)) {}
-			~FTransactionBusyScope() { Busy = Previous; }
-		};
 		auto FailWithReason(std::string* OutError, std::string_view Message) -> bool
 		{
 			if (OutError) *OutError = Message;
@@ -126,19 +118,9 @@ namespace Durin
 		}
 	}
 
-	struct DTransBuffer::FHistoryGuardScope
+	FTransaction::FObjectRecord::FObjectRecord(std::unique_ptr<FCommandChange> Change)
+		: Data(std::move(Change))
 	{
-		EHistoryGuard& Guard;
-		EHistoryGuard Previous;
-		explicit FHistoryGuardScope(EHistoryGuard& InGuard, EHistoryGuard Mode = EHistoryGuard::Inspecting)
-			: Guard(InGuard), Previous(std::exchange(InGuard, Mode)) {}
-		~FHistoryGuardScope() { Guard = Previous; }
-	};
-
-	FTransaction::FObjectRecord::FObjectRecord(std::unique_ptr<FCommandChange> Change, DObject* Object)
-		: Data(std::move(Change)), CustomObject(FPersistentObjectRef::FromKey(FObjectKey(Object)))
-	{
-		if (Object) ModifiedObjects.Add(FPersistentObjectRef::FromKey(FObjectKey(Object)));
 		const auto& Custom = std::get<std::unique_ptr<FCommandChange>>(Data);
 		if (Custom)
 		{
@@ -151,7 +133,6 @@ namespace Durin
 
 	auto FTransaction::FObjectRecord::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
 	{
-		if (const auto* Record = std::get_if<FTransaction::FArrayData>(&Data)) return Record->HasReplacementReferences(Map);
 		if (const auto* Record = std::get_if<FTransaction::FWholeObjectData>(&Data)) return Record->HasReplacementReferences(Map);
 		class FCheck final : public FReferenceCollector
 		{
@@ -169,11 +150,9 @@ namespace Durin
 	{
 		FReinstancingReferenceCollector Collector(Map);
 		ModifiedObjects.AddReferencedObjects(Collector);
-		if (auto* Array = std::get_if<FArrayData>(&Data)) return Array->Reinstance(Map);
 		if (auto* Object = std::get_if<FWholeObjectData>(&Data)) return Object->Reinstance(Map);
 		auto& Command = std::get<std::unique_ptr<FCommandChange>>(Data);
 		if (!Command) return std::unexpected("A missing custom command cannot be reinstanced.");
-		CustomObject.AddReferencedObjects(Collector);
 		DeclaredPackages.AddReferencedObjects(Collector);
 		Command->AddReferencedObjects(Collector);
 		for (auto* Participant : Command->GetModifiedObjects())
@@ -185,7 +164,6 @@ namespace Durin
 
 	auto FTransaction::FObjectRecord::GetModifiedObjects() const -> std::vector<DObject*>
 	{
-		if (const auto* Record = std::get_if<FTransaction::FArrayData>(&Data)) return {Record->GetTarget().Get()};
 		if (const auto* Record = std::get_if<FTransaction::FWholeObjectData>(&Data))
 			return {Record->GetTarget().Get()};
 		std::vector<DObject*> Result;
@@ -196,14 +174,10 @@ namespace Durin
 
 	auto FTransaction::FObjectRecord::HasExpired() const noexcept -> bool
 	{
-		return std::visit([this](const auto& Record) -> bool {
+		return std::visit([](const auto& Record) -> bool {
 			using T = std::decay_t<decltype(Record)>;
 			if constexpr (std::is_same_v<T, std::unique_ptr<FCommandChange>>)
-			{
-				const auto& Target = CustomObject.IsNull() && ModifiedObjects.Num() == 1
-					? ModifiedObjects.GetReferences().front() : CustomObject;
-				return Record && Record->HasExpired(Target.Resolve());
-			}
+				return Record && Record->HasExpired();
 			else
 				return Record.HasExpired();
 		}, Data);
@@ -211,7 +185,6 @@ namespace Durin
 
 	auto FTransaction::FObjectRecord::Validate() const -> FTransactionCaptureResult
 	{
-		if (const auto* Record = std::get_if<FTransaction::FArrayData>(&Data)) return Record->Validate();
 		return std::visit([&](const auto& Record) -> FTransactionCaptureResult {
 			using T = std::decay_t<decltype(Record)>;
 			if constexpr (std::is_same_v<T, FTransaction::FWholeObjectData>)
@@ -230,24 +203,15 @@ namespace Durin
 	{
 		if (auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Data))
 			Object->CaptureInverse();
-		else if (auto* Array = std::get_if<FArrayData>(&Data)) Array->CaptureInverse();
 	}
-	auto FTransaction::FObjectRecord::ClearPreparedReplay() -> void
-	{
-		if (auto* Array = std::get_if<FTransaction::FArrayData>(&Data)) Array->ClearPreparedReplay();
-	}
-
 	auto FTransaction::FObjectRecord::IsNoOp() const -> bool
 	{
-		if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Data)) return Array->IsNoOp();
 		if (const auto* Record = std::get_if<FTransaction::FWholeObjectData>(&Data))
 			return Record->IsNoOp();
 		return false;
 	}
 	auto FTransaction::FObjectRecord::GetReplayAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>
 	{
-		if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Data))
-			return Array->GetReplayAnnotation();
 		if (const auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Data))
 			return Object->GetReplayAnnotation();
 		return {};
@@ -260,8 +224,8 @@ namespace Durin
 			if constexpr (std::is_same_v<T, std::unique_ptr<FCommandChange>>)
 			{
 				if (!Record) throw std::runtime_error("The custom transaction change is unavailable.");
-				if (bBefore) Record->Revert(CustomObject.Resolve());
-				else Record->Apply(CustomObject.Resolve());
+				if (bBefore) Record->Revert();
+				else Record->Apply();
 			}
 			else Record.Apply(Origin);
 		}, Data);
@@ -297,7 +261,6 @@ namespace Durin
 				if (!AddSize(OutBytes, ParticipantBytes)) return false;
 				size_t PackageBytes = 0;
 				if (!DeclaredPackages.TryGetAllocatedSize(PackageBytes) || !AddSize(OutBytes, PackageBytes)) return false;
-				if (!AddSize(OutBytes, CustomObject.GetAllocatedSize())) return false;
 				return true;
 			}
 			else return Record.TryGetAllocatedSize(OutBytes);
@@ -319,7 +282,6 @@ namespace Durin
 
 	auto FTransaction::FObjectRecord::GetAffectedPackages() const -> std::vector<DPackage*>
 	{
-		if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Data)) return Array->GetAffectedPackages();
 		if (const auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Data)) return Object->GetAffectedPackages();
 		std::vector<DPackage*> Packages;
 		for (const auto& Reference : DeclaredPackages.GetReferences())
@@ -374,86 +336,35 @@ namespace Durin
 		OperationId = 0;
 		return {};
 	}
-	auto FTransaction::StoreUndo(DObject* Object, std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult
+	auto FTransaction::StoreUndo(std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult
 	{
 		if (bBusy || bFinalized) return std::unexpected("Transaction records are closed to capture.");
-		if (!IsValid(Object) || !Change) return std::unexpected("Object-bound custom capture requires a live object and change.");
+		if (!Change) return std::unexpected("The custom transaction change is unavailable.");
 		if (RecordingOwner)
 		{
 			if (GUndo != this) return std::unexpected("The transaction is not the active recording.");
 			std::string Error;
-			if (!RecordingOwner->StoreUndo(Object, std::move(Change), &Error)) return std::unexpected(std::move(Error));
+			if (!RecordingOwner->StoreUndo(std::move(Change), &Error)) return std::unexpected(std::move(Error));
 		}
-		else AddRecord(std::move(Change), Object);
+		else AddRecord(std::move(Change));
 		return {};
-	}
-	auto FTransaction::SnapshotObject(DObject* Object, std::span<const FProperty* const> Properties) -> FTransactionCaptureResult
-	{
-		if (bFinalized && !bBusy) return {};
-		if (bBusy || OperationId == 0 || !IsValid(Object)
-			|| (RecordingOwner && (GUndo != this || !RecordingOwner->CanTransact())))
-			return std::unexpected("Object snapshots require an active recording outside transaction callbacks.");
-		FTransactionCaptureResult Result;
-		{
-			if (GIsGameThreadIdInitialized) CheckGameThread();
-			FTransactionBusyScope BusyScope(bBusy);
-			if (const size_t Position = FindWholeRecord(Object))
-				try
-				{
-					auto Built = std::get<FWholeObjectData>(Records[Position - 1].Data).Snapshot(GetContext(), Properties);
-					Result = Built ? DispatchObjectEvents(*Built) : std::unexpected(Built.error());
-				}
-				catch (const std::exception& Error) { bObjectEventFailed = true; Result = std::unexpected(std::format("Transaction object event failed: {}", Error.what())); }
-				catch (...) { bObjectEventFailed = true; Result = std::unexpected("Transaction object event failed with an unknown exception."); }
-		}
-		if (!Result && bObjectEventFailed && RecordingOwner)
-			TransactionFault(Id, "Snapshot", Result.error());
-		return Result;
-	}
-	auto FTransaction::SaveArray(const FTransactionArrayCapture& Capture) -> FTransactionCaptureResult
-	{
-		if (GIsGameThreadIdInitialized && !IsInGameThread()) return std::unexpected("Array capture requires the GameThread.");
-		if (bBusy || bFinalized || OperationId == 0 || (RecordingOwner && (GUndo != this || !RecordingOwner->CanTransact())))
-			return std::unexpected("Array capture requires an active recording outside callbacks.");
-		if (!Capture.Object || !CanTransactObject(*Capture.Object)) return std::unexpected("Array owner is unavailable.");
-		if (auto* Package = Capture.Object->GetPackage(); Package && Package->IsPlayInEditor())
-			return std::unexpected("Array capture rejects Play-in-Editor owners.");
-		if (!ResolveTransactionArray(Capture)) return std::unexpected("Array capture requires a valid reflected member path.");
-		if (!Capture.Object->HasAnyObjectFlags(EObjectFlags::Transactional)) return {};
-		if (FindWholeRecord(Capture.Object)) return {};
-		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FTransactionBusyScope BusyScope(bBusy);
-		try
-		{
-			if (Capture.Count) SavePackage(Capture.Object->GetPackage());
-			auto Record = FTransaction::FArrayData::Capture(Capture);
-			if (!Record) return std::unexpected(Record.error());
-			if (Capture.Count == 0) return {};
-			AppendRecord(FTransaction::FObjectRecord(std::move(*Record)));
-			return {};
-		}
-		catch (const std::exception& Error) { return std::unexpected(std::format("Array capture failed: {}", Error.what())); }
-		catch (...) { return std::unexpected("Array capture failed."); }
 	}
 	auto FTransaction::ContainsPieObjects() const -> std::expected<bool, std::string>
 	{
 		if (bBusy) return std::unexpected("Transaction references are already being inspected or changed.");
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FTransactionBusyScope BusyScope(bBusy);
+		const TGuardValue BusyScope(bBusy, true);
 		return InspectPieReferences(*this);
 	}
 
-	auto FTransaction::IndexRecord(FObjectIndex& Index, const FTransaction::FObjectRecord& Record, size_t Position) -> void
+	auto FTransaction::IndexRecord(FObjectIndex& Index, const FTransaction::FObjectRecord& Record) -> void
 	{
 		if (const auto* Whole = std::get_if<FTransaction::FWholeObjectData>(&Record.Data))
-			Index[Whole->GetTarget()].WholeRecord = Position;
-		else if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Record.Data))
-			Index.try_emplace(Array->GetTarget());
+			Index.insert(Whole->GetTarget());
 		else
 		{
 			for (const auto& Participant : Record.ModifiedObjects.GetReferences())
-				Index.try_emplace(Participant);
-			if (!Record.CustomObject.IsNull()) Index[Record.CustomObject].bCustomOwner = true;
+				Index.insert(Participant);
 		}
 	}
 
@@ -462,8 +373,8 @@ namespace Durin
 		if (!CaptureIndex)
 		{
 			auto Index = std::make_unique<FObjectIndex>();
-			for (size_t Slot = 0; Slot < Records.size(); ++Slot)
-				IndexRecord(*Index, Records[Slot], Slot + 1);
+			for (const auto& Record : Records)
+				IndexRecord(*Index, Record);
 			CaptureIndex = std::move(Index);
 		}
 		return *CaptureIndex;
@@ -474,7 +385,7 @@ namespace Durin
 		auto& Index = GetCaptureIndex();
 		try
 		{
-			IndexRecord(Index, Record, Records.size() + 1);
+			IndexRecord(Index, Record);
 			Records.push_back(std::move(Record));
 		}
 		catch (...)
@@ -486,19 +397,11 @@ namespace Durin
 		return Records.size();
 	}
 
-	auto FTransaction::FindWholeRecord(DObject* Object) -> size_t
-	{
-		if (Records.empty()) return 0;
-		const auto& Index = GetCaptureIndex();
-		const auto It = Index.find(FPersistentObjectRef(Object));
-		return It != Index.end() && It->first.Resolve() == Object ? It->second.WholeRecord : 0;
-	}
-
-	auto FTransaction::AddRecord(std::unique_ptr<FCommandChange> Change, DObject* Object) -> uint64
+	auto FTransaction::AddRecord(std::unique_ptr<FCommandChange> Change) -> uint64
 	{
 		if (bBusy || bFinalized) return 0;
-		FTransactionBusyScope BusyScope(bBusy);
-		return AppendRecord(FTransaction::FObjectRecord(std::move(Change), Object));
+		const TGuardValue BusyScope(bBusy, true);
+		return AppendRecord(FTransaction::FObjectRecord(std::move(Change)));
 	}
 
 	auto FTransaction::ContainsObject(const DObject* Object) const -> bool
@@ -508,7 +411,7 @@ namespace Durin
 		{
 			if (CaptureIndex->contains(FPersistentObjectRef::FromKey(FObjectKey(Object)))) return true;
 			const auto It = CaptureIndex->find(FPersistentObjectRef(const_cast<DObject*>(Object)));
-			return It != CaptureIndex->end() && It->first.Resolve() == Object;
+			return It != CaptureIndex->end() && It->Resolve() == Object;
 		}
 		return std::ranges::any_of(Records, [&](const auto& Record) { return std::ranges::contains(Record.GetModifiedObjects(), Object); });
 	}
@@ -521,12 +424,9 @@ namespace Durin
 		if (FailureReason) return;
 		if (!IsValid(Object)) { FailureReason = "Transaction object is unavailable for capture."; return; }
 		auto* Package = Object->GetPackage();
-		FTransactionBusyScope BusyScope(bBusy);
+		const TGuardValue BusyScope(bBusy, true);
 		SavePackage(Package);
-		const auto& Index = GetCaptureIndex();
-		const auto It = Index.find(FPersistentObjectRef::FromKey(FObjectKey(Object)));
-		if (It != Index.end() && It->second.bCustomOwner) return;
-		if (FindWholeRecord(Object)) return;
+		if (ContainsObject(Object)) return;
 		auto Record = FTransaction::FWholeObjectData::CaptureWhole(*Object);
 		if (!Record) { FailureReason = Record.error(); return; }
 		AppendRecord(FTransaction::FObjectRecord(std::move(*Record)));
@@ -536,9 +436,9 @@ namespace Durin
 	{
 		if (FailureReason) TransactionFault(Id, "Finalize", *FailureReason);
 		if (bBusy && !bFinalized) return;
-		const bool bFirstFinalize = !std::exchange(bFinalized, true);
+		bFinalized = true;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FTransactionBusyScope BusyScope(bBusy);
+		const TGuardValue BusyScope(bBusy, true);
 		std::vector<DObject*> Deleted;
 		for (const auto& Record : Records)
 		{
@@ -567,9 +467,6 @@ namespace Durin
 					ChangedObjects.push_back({FPersistentObjectRef(Object), &Record, Annotation});
 		}
 		NotifyRecords(ChangedObjects, ETransactionObjectEventType::Finalized);
-		if (bFirstFinalize)
-			for (auto& Record : Records)
-				if (auto* Object = std::get_if<FWholeObjectData>(&Record.Data)) Object->ClearSnapshot();
 		CaptureIndex.reset();
 	}
 	catch (const std::exception& Error) { TransactionFault(Id, "Finalize", Error.what()); }
@@ -593,8 +490,6 @@ namespace Durin
 			std::expected<FObjectEvents, std::string> Events;
 			if (const auto* Whole = std::get_if<FWholeObjectData>(&Record->Data))
 				Events = Whole->BuildObjectEvents(GetContext(), Type, Annotation);
-			else if (const auto* Array = std::get_if<FArrayData>(&Record->Data); Array && Annotation)
-				Events = Array->BuildObjectEvents(GetContext(), Type);
 			else continue;
 			if (!Events) throw std::runtime_error(Events.error());
 			if (auto Sent = DispatchObjectEvents(*Events); !Sent) throw std::runtime_error(Sent.error());
@@ -603,12 +498,10 @@ namespace Durin
 
 	auto FTransaction::DispatchObjectEvents(const FObjectEvents& Events) -> FTransactionCaptureResult
 	{
-		bool bDispatched = false;
 		for (auto& [Target, Event] : Events)
 		{
 			auto* Object = Target.Get();
-			if (!Object) { bObjectEventFailed |= bDispatched; return std::unexpected("Transaction event target became unavailable."); }
-			bDispatched = true;
+			if (!Object) return std::unexpected("Transaction event target became unavailable.");
 			Object->PostTransacted(Event);
 		}
 		return {};
@@ -629,7 +522,7 @@ namespace Durin
 
 	auto FTransaction::HasExpired() const noexcept -> bool
 	{
-		return FailureReason.has_value() || (!Records.empty() && std::ranges::all_of(Records, &FTransaction::FObjectRecord::HasExpired));
+		return FailureReason.has_value() || std::ranges::any_of(Records, &FObjectRecord::HasExpired);
 	}
 
 	auto FTransaction::Validate() const -> std::expected<void, std::string>
@@ -653,24 +546,15 @@ namespace Durin
 			if (auto Result = EndOperation(); !Result) TransactionFault(Id, Phase, Result.error());
 	}
 
-	auto FTransaction::PrepareReplay(bool bUndo, FReplayResult& Replay) const -> FTransactionCaptureResult try
+	auto FTransaction::PrepareReplay(bool bUndo, FReplayResult& Replay, bool bCheckExpiry) const -> FTransactionCaptureResult try
 	{
 		if (FailureReason) return std::unexpected(*FailureReason);
 		if (bBusy) return std::unexpected("A transaction operation is already in progress.");
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FTransactionBusyScope BusyScope(bBusy);
-		// Freeze eligibility before replay. A command can change the model that
-		// other expiry predicates inspect, so every record uses the same initial selection.
-		auto& ReplayIndices = Replay.AppliedRecords;
-		ReplayIndices.reserve(Records.size());
-		for (size_t Index = 0; Index < Records.size(); ++Index)
-		{
-			if (Records[Index].HasExpired()) Replay.SkippedRecords.push_back(Index);
-			else ReplayIndices.push_back(Index);
-		}
-		if (ReplayIndices.empty() && !Replay.SkippedRecords.empty()) return {};
+		const TGuardValue BusyScope(bBusy, true);
+		if (bCheckExpiry && HasExpired()) return std::unexpected("The transaction has expired.");
 		std::vector<DObject*> LifecycleTargets;
-		for (size_t Index : ReplayIndices)
+		for (size_t Index = 0; Index < Records.size(); ++Index)
 		{
 			const auto* Whole = std::get_if<FTransaction::FWholeObjectData>(&Records[Index].Data);
 			if (!Whole || !Whole->SerializedObject || !Whole->SerializedObjectFlip) continue;
@@ -686,27 +570,16 @@ namespace Durin
 			Replay.LifecycleSources.emplace_back(FObjectKey(Object), Object->IsGarbage());
 		}
 		const FScopedTransactionHistoryReplay ReplayHistory(Context.HistoryId, LifecycleTargets);
-		// A missing snapshot target contributes no loads or callbacks in this direction.
-		// Unlike an expired command, it may resolve again on a subsequent replay.
-		std::erase_if(ReplayIndices, [&](size_t Index) {
-			const auto* Whole = std::get_if<FWholeObjectData>(&Records[Index].Data);
-			if (!Whole || Whole->GetTarget().Get()) return false;
-			Replay.SkippedRecords.push_back(Index);
-			return true;
-		});
 		constexpr auto PieRejection = "Transaction replay cannot retain Play-in-Editor references.";
 		if (auto Pie = InspectPieReferences(*this); !Pie)
 			TransactionFault(Id, bUndo ? "Undo" : "Redo", Pie.error());
 		else if (*Pie)
 			return std::unexpected(PieRejection);
-		for (size_t Index : ReplayIndices)
+		for (size_t Index = 0; Index < Records.size(); ++Index)
 			if (auto Valid = Records[Index].Validate(); !Valid)
 				return std::unexpected(std::format("record {}: {}", Index, Valid.error()));
-		for (size_t Index : ReplayIndices)
+		for (size_t Index = 0; Index < Records.size(); ++Index)
 		{
-			if (const auto* Array = std::get_if<FArrayData>(&Records[Index].Data))
-				if (auto Valid = Array->ValidateSourceRange(Index == (bUndo ? ReplayIndices.back() : ReplayIndices.front())); !Valid)
-					return std::unexpected(std::format("record {}: {}", Index, Valid.error()));
 			if (const auto* Whole = std::get_if<FWholeObjectData>(&Records[Index].Data))
 				if (auto Valid = Whole->ValidateSource(); !Valid)
 					return std::unexpected(std::format("record {}: {}", Index, Valid.error()));
@@ -718,9 +591,8 @@ namespace Durin
 
 	auto FTransaction::ApplyPrepared(bool bUndo, FReplayResult& Replay) -> void try
 	{
-		FTransactionBusyScope BusyScope(bBusy);
+		const TGuardValue BusyScope(bBusy, true);
 		const auto Origin = bUndo ? EPropertyChangeOrigin::Undo : EPropertyChangeOrigin::Redo;
-		const auto& ReplayIndices = Replay.AppliedRecords;
 		std::vector<DObject*> LifecycleTargets;
 		for (const auto& [Key, bWasGarbage] : Replay.LifecycleSources)
 		{
@@ -730,8 +602,8 @@ namespace Durin
 			LifecycleTargets.push_back(Object);
 		}
 		const FScopedTransactionHistoryReplay ReplayHistory(Context.HistoryId, LifecycleTargets);
-		const auto ReplayOrder = std::views::iota(size_t{0}, ReplayIndices.size())
-			| std::views::transform([&](size_t Step) { return ReplayIndices[bUndo ? ReplayIndices.size() - 1 - Step : Step]; });
+		const auto ReplayOrder = std::views::iota(size_t{0}, Records.size())
+			| std::views::transform([&](size_t Step) { return bUndo ? Records.size() - 1 - Step : Step; });
 		auto ExecuteRecord = [&](size_t Index, auto&& Execute) {
 			try { Execute(); }
 			catch (const std::exception& Error) { TransactionRecordFault(Id, bUndo ? "Undo" : "Redo", Index, Error.what()); }
@@ -756,11 +628,6 @@ namespace Durin
 				else ChangedObjects[It->second].Record = &Record;
 			}
 		}
-		struct FPreparedReplayScope
-		{
-			std::vector<FTransaction::FObjectRecord>& Records;
-			~FPreparedReplayScope() { for (auto& Record : Records) Record.ClearPreparedReplay(); }
-		} PreparedReplayScope{Records};
 		for (size_t Index : ReplayOrder)
 			ExecuteRecord(Index, [&] { Records[Index].CaptureInverse(); });
 		const auto Pie = InspectPieReferences(*this);
@@ -783,28 +650,9 @@ namespace Durin
 			ExecuteRecord(Index, [&] { Records[Index].Apply(bUndo, Origin); });
 		for (auto& Entry : ChangedObjects)
 			Entry.Annotation = Entry.Record->GetReplayAnnotation();
-		// Keep both slots oriented for the next direction if a skipped target resolves again.
-		for (size_t Index : Replay.SkippedRecords)
-			if (auto* Whole = std::get_if<FWholeObjectData>(&Records[Index].Data); Whole && Whole->SerializedObjectFlip)
-				Whole->SerializedObject.swap(Whole->SerializedObjectFlip);
 		NotifyRecords(ChangedObjects, ETransactionObjectEventType::UndoRedo);
-		auto VisitPackages = [](const FTransaction::FObjectRecord& Record, const auto& Visit) {
-			for (auto* Package : Record.GetAffectedPackages()) if (Package) Visit(Package);
-			for (auto* Object : Record.GetModifiedObjects())
-				if (auto* Package = Object ? Object->GetPackage() : nullptr) Visit(Package);
-		};
-		auto NoteSkippedPackages = [&](size_t Index) {
-			VisitPackages(Records[Index], [&](DPackage* Package) { Replay.PackagesWithSkippedRecords.try_emplace(Package, false); });
-		};
-		for (size_t Index : Replay.SkippedRecords) NoteSkippedPackages(Index);
-
-		for (size_t Index : ReplayIndices)
+		for (const auto& Record : Records)
 		{
-			const auto& Record = Records[Index];
-			if (!Replay.PackagesWithSkippedRecords.empty())
-				VisitPackages(Record, [&](DPackage* Package) {
-					if (const auto It = Replay.PackagesWithSkippedRecords.find(Package); It != Replay.PackagesWithSkippedRecords.end()) It->second = true;
-				});
 			if (auto Details = Record.GetDetails(true); !Details.empty())
 			{
 				if (!Replay.Details.empty()) Replay.Details += " ";
@@ -937,26 +785,17 @@ namespace Durin
 		if (bShouldActuallyTransact && GEditor && GetTransactionEditor() == GEditor)
 		{
 			StartIndex = GEditor->BeginTransaction(Context, Description, PrimaryObject);
-			if (StartIndex >= 0 && GUndo)
-			{
-				RecordingOwner = GEditor->GetTransactor();
-				RecordingId = GUndo->GetContext().TransactionId;
-			}
 		}
-	}
-	auto FScopedTransaction::IsRecordingCurrent() const -> bool
-	{
-		return IsOutstanding() && GEditor && GUndo && RecordingOwner.Get() == GEditor->GetTransactor()
-			&& GUndo->GetContext().TransactionId == RecordingId;
 	}
 	FScopedTransaction::~FScopedTransaction()
 	{
-		if (IsRecordingCurrent() && GEditor) GEditor->EndTransaction();
+		if (!IsOutstanding()) return;
+		if (GEditor && GUndo) GEditor->EndTransaction();
 	}
 	auto FScopedTransaction::Cancel() -> void
 	{
 		if (!IsOutstanding()) return;
-		if (IsRecordingCurrent() && GEditor)
+		if (GEditor && GUndo)
 		{
 			auto* Buffer = GEditor->GetTransactor();
 			if (Buffer && Buffer->IsActive() && !Buffer->CanTransact()) return;
@@ -999,13 +838,11 @@ namespace Durin
 			DURIN_ERROR("Unable to begin transaction: {}", Operation.error());
 			return -1;
 		}
-		const size_t RedoCount = History.size() - Cursor;
-		const size_t First = RedoCount ? Cursor : 0;
-		size_t Count = RedoCount;
-		if (!RedoCount && MemoryBudget == 0) Count = Cursor;
-		else if (!RedoCount)
+		size_t Count = 0;
+		if (Cursor == History.size() && MemoryBudget == 0) Count = Cursor;
+		else if (Cursor == History.size())
 		{
-			FHistoryGuardScope Inspect(Guard);
+			const TGuardValue Inspect(Guard, EHistoryGuard::Inspecting);
 			try
 			{
 				// Keep the newest suffix whose total is strictly below the budget.
@@ -1032,33 +869,24 @@ namespace Durin
 				return -1;
 			}
 		}
-		RemovedTransactions.reserve(Count);
-		for (size_t Index = First; Index < First + Count; ++Index)
-			RemovedTransactions.push_back(std::move(History[Index]));
-		History.erase(History.begin() + First, History.begin() + First + Count);
-		PreviousUndoCount = RedoCount;
-		History.push_back(std::move(Candidate));
-		Pending = History.back().get();
-		Cursor = History.size();
-
+		BudgetPrefixCount = Count;
+		Pending = std::move(Candidate);
 		ActiveCount = 1;
-		GUndo = Pending;
+		GUndo = Pending.get();
 		const auto Id = Pending->GetId();
 		try
 		{
 			OnTransactionStateChanged().Broadcast(Pending->GetContext(), ETransactionStateEventType::TransactionStarted);
-			if (!Pending || Pending->GetId() != Id) return -1;
-			OnUndoBufferChanged().Broadcast();
 		}
 		catch (const std::exception& Error) { TransactionFault(Id, "Begin", Error.what()); }
 		catch (...) { TransactionFault(Id, "Begin", "unknown exception"); }
-		return Pending && Pending->GetId() == Id ? 0 : -1;
+		return Pending ? 0 : -1;
 	}
 	auto DTransBuffer::ReleaseRecording() -> void
 	{
 		if (Pending && Pending->OperationId != 0) (void)Pending->EndOperation();
 		if (Pending) Pending->CaptureIndex.reset();
-		if (Pending && GUndo == Pending) GUndo = nullptr;
+		if (Pending && GUndo == Pending.get()) GUndo = nullptr;
 		ActiveCount = 0;
 	}
 	auto DTransBuffer::SetPrimaryUndoObject(DObject* Object) -> void
@@ -1070,15 +898,15 @@ namespace Durin
 		Pending->AppendRecord(std::move(Record));
 	}
 
-	auto DTransBuffer::StoreUndo(DObject* Object, std::unique_ptr<FCommandChange> Change, std::string* OutError) -> bool
+	auto DTransBuffer::StoreUndo(std::unique_ptr<FCommandChange> Change, std::string* OutError) -> bool
 	try
 	{
 		CheckThread();
 		if (!IsActive() || !CanTransact()) return FailWithReason(OutError, "Storing a custom change requires an active recording available for capture.");
 		if (!Change) return FailWithReason(OutError, "The custom transaction change is unavailable.");
-		FTransactionBusyScope BusyScope(Pending->bBusy);
+		const TGuardValue BusyScope(Pending->bBusy, true);
 		// Native participant and package callbacks may throw after mutating the model.
-		FTransaction::FObjectRecord Record(std::move(Change), Object);
+		FTransaction::FObjectRecord Record(std::move(Change));
 		try { AppendCommandRecord(std::move(Record)); }
 		catch (const std::bad_alloc&) { return FailWithReason(OutError, "Could not allocate the custom transaction record."); }
 		catch (const std::length_error&) { return FailWithReason(OutError, "The custom record exceeds transaction capacity."); }
@@ -1107,10 +935,9 @@ namespace Durin
 			{
 				Pending->bNotifyingPreFinalize = true;
 				OnTransactionStateChanged().Broadcast(Pending->GetContext(), ETransactionStateEventType::PreTransactionFinalized);
-				if (!Pending || Pending->GetId() != Id) return Result;
+				if (!Pending) return Result;
 				OnPreTransactionFinalized().Broadcast(Pending->GetContext());
-				// Cancel or Reset can retire the recording and a listener can start another.
-				if (!Pending || Pending->GetId() != Id) return Result;
+				if (!Pending) return Result;
 				Pending->bNotifyingPreFinalize = false;
 			}
 			if (--ActiveCount > 0) return Result;
@@ -1142,33 +969,13 @@ namespace Durin
 			OnTransactionStateChanged().Broadcast(Pending->GetContext(), ETransactionStateEventType::TransactionCanceled);
 			Guard = EHistoryGuard::Mutating;
 			if (auto Closed = Pending->EndOperation(); !Closed) TransactionFault(Id, "EndOperation", Closed.error());
-			GUndo = nullptr;
-			RestoreRecordingHistory();
-			ActiveCount = 0;
+			ReleaseRecording();
+			Pending->bBusy = true;
+			Pending.reset();
+			Guard = EHistoryGuard::None;
 		}
 		catch (const std::exception& Error) { TransactionFault(Id, "Cancel", Error.what()); }
 		catch (...) { TransactionFault(Id, "Cancel", "unknown exception"); }
-	}
-
-	auto DTransBuffer::RestoreRecordingHistory() -> void
-	{
-		auto Retired = std::move(History.back());
-		History.pop_back();
-		auto At = PreviousUndoCount ? History.end() : History.begin();
-		History.insert(At, std::make_move_iterator(RemovedTransactions.begin()), std::make_move_iterator(RemovedTransactions.end()));
-		RemovedTransactions.clear();
-		Cursor = History.size() - PreviousUndoCount;
-		PreviousUndoCount = 0;
-		Guard = EHistoryGuard::Notifying;
-		try { OnUndoBufferChanged().Broadcast(); }
-		catch (const std::exception& Error) { TransactionFault(Retired->GetId(), "RestoreRecordingHistory", Error.what()); }
-		catch (...) { TransactionFault(Retired->GetId(), "RestoreRecordingHistory", "unknown exception"); }
-		Guard = EHistoryGuard::Finalizing;
-		Retired->bBusy = true;
-		if (GUndo == Retired.get()) GUndo = nullptr;
-		Pending = nullptr;
-		Retired.reset();
-		Guard = EHistoryGuard::None;
 	}
 
 	auto DTransBuffer::FinalizePending(FTransactionContext& PostContext) -> void
@@ -1176,21 +983,36 @@ namespace Durin
 		const FTransactionId TransactionId = Pending->GetId();
 		const auto Pie = Pending->ContainsPieObjects();
 		if (!Pie) TransactionFault(TransactionId, "Finalize", Pie.error());
-		if (*Pie) return RestoreRecordingHistory();
-		Pending->RemoveNoOpRecords();
-		if (Pending->GetRecordCount() == 0) return RestoreRecordingHistory();
+		if (!*Pie) Pending->RemoveNoOpRecords();
+		if (*Pie || Pending->GetRecordCount() == 0)
+		{
+			ReleaseRecording();
+			Pending->bBusy = true;
+			Pending.reset();
+			Guard = EHistoryGuard::None;
+			return;
+		}
 		Pending->PreparePackageRecords();
 		PostContext.Details = Pending->GetDetails();
-		if (PreviousUndoCount)
-			for (auto& Barrier : UndoBarriers) Barrier = std::min(Barrier, Cursor - 1);
-		else RemapUndoBarriers(0, RemovedTransactions.size());
-		PreviousUndoCount = 0;
+		const bool bReplaceRedo = Cursor < History.size();
+		const size_t First = bReplaceRedo ? Cursor : 0;
+		const size_t Count = bReplaceRedo ? History.size() - Cursor : BudgetPrefixCount;
+		// Publish a consistent queue before releasing commands that can run destructor callbacks.
+		std::vector<std::unique_ptr<FTransaction>> Retired;
+		Retired.reserve(Count);
+		for (size_t Index = First; Index < First + Count; ++Index)
+			Retired.push_back(std::move(History[Index]));
+		History.erase(History.begin() + First, History.begin() + First + Count);
+		RemapUndoBarriers(First, Count);
 		ReleaseRecording();
-		RemovedTransactions.clear();
 		Pending->RecordingOwner = nullptr;
+		History.push_back(std::move(Pending));
+		Cursor = History.size();
+		Retired.clear();
 		for (const auto& Record : History.back()->PackageRecords)
 			if (auto* Package = Cast<DPackage>(Record.Package.Resolve())) Package->MarkDirty();
-		Pending = nullptr;
+		Guard = EHistoryGuard::Notifying;
+		OnUndoBufferChanged().Broadcast();
 		Guard = EHistoryGuard::None;
 	}
 	auto DTransBuffer::Undo(bool bCanRedo) -> bool
@@ -1225,7 +1047,7 @@ namespace Durin
 		auto Reject = [&](std::string_view Reason, EHistoryGuard Mode = EHistoryGuard::Inspecting) {
 			if (Guard == EHistoryGuard::None)
 			{
-				const FHistoryGuardScope Notify(Guard, Mode);
+				const TGuardValue Notify(Guard, Mode);
 				Completed.Broadcast({}, false);
 			}
 			return FailWithReason(OutError, Reason);
@@ -1272,7 +1094,7 @@ namespace Durin
 					if (bOwnOperation)
 						if (const auto Begin = Transaction.BeginOperation(); !Begin) TransactionFault(ReplayId, "BeginOperation", Begin.error());
 					FTransaction::FReplayResult Outcome;
-					if (auto Valid = Transaction.PrepareReplay(bUndo, Outcome); !Valid)
+					if (auto Valid = Transaction.PrepareReplay(bUndo, Outcome, /*bCheckExpiry=*/false); !Valid)
 					{
 						Cursor = PreviousCursor;
 						if (bOwnOperation) (void)Transaction.EndOperation();
@@ -1281,10 +1103,7 @@ namespace Durin
 					}
 					auto Context = Transaction.GetContext();
 					Guard = EHistoryGuard::Notifying;
-					{
-						FTransactionBusyScope BusyScope(Transaction.bBusy);
-						OnTransactionStateChanged().Broadcast(Context, ETransactionStateEventType::UndoRedoStarted);
-					}
+					OnTransactionStateChanged().Broadcast(Context, ETransactionStateEventType::UndoRedoStarted);
 					Guard = EHistoryGuard::Mutating;
 					auto InversePackages = Transaction.PackageRecords;
 					for (auto& Inverse : InversePackages)
@@ -1298,16 +1117,7 @@ namespace Durin
 					{
 						auto& Record = Transaction.PackageRecords[Slot];
 						auto* Package = Cast<DPackage>(Record.Package.Resolve());
-						if (!Package || Outcome.AppliedRecords.empty()) continue;
-						if (const auto It = Outcome.PackagesWithSkippedRecords.find(Package); It != Outcome.PackagesWithSkippedRecords.end())
-						{
-							if (It->second)
-							{
-								Record.bWasDirty = true;
-								Package->MarkDirty();
-							}
-							continue;
-						}
+						if (!Package) continue;
 						const bool bDirty = Record.bWasDirty || Record.SaveCount != GetTransactionPackageSaveCount(*Package);
 						Record = InversePackages[Slot];
 						if (bDirty) Package->MarkDirty();
@@ -1369,8 +1179,8 @@ namespace Durin
 		auto RetiredHistory = std::exchange(History, {});
 		for (auto& Transaction : RetiredHistory) Transaction->bBusy = true;
 		Cursor = 0; UndoBarriers.clear();
-		Pending = nullptr; PreviousUndoCount = 0;
-		RemovedTransactions.clear(); RetiredHistory.clear();
+		Pending.reset();
+		RetiredHistory.clear();
 		ResetReason = std::move(Reason);
 		Guard = EHistoryGuard::Notifying;
 		OnUndoBufferChanged().Broadcast();
@@ -1381,7 +1191,7 @@ namespace Durin
 	{
 		CheckThread();
 		if (ModuleName.empty() || !IsHistoryIdle()) return false;
-		FHistoryGuardScope Inspect(Guard);
+		const TGuardValue Inspect(Guard, EHistoryGuard::Inspecting);
 		const size_t PreviousSize = History.size();
 		for (size_t Index = History.size(); Index-- > 0;)
 		{
@@ -1448,7 +1258,8 @@ namespace Durin
 			|| (Pending && Pending->IsBusy()))
 			return true;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FHistoryGuardScope Inspect(Guard);
+		const TGuardValue Inspect(Guard, EHistoryGuard::Inspecting);
+		if (Pending && Pending->ContainsPieObjects().value_or(true)) return true;
 		for (const auto& Transaction : History)
 			if (Transaction->ContainsPieObjects().value_or(true)) return true;
 		return false;
@@ -1471,8 +1282,7 @@ namespace Durin
 	{
 		DTransactor::AddReferencedObjects(Collector);
 		Collector.AllowEliminatingReferences(false);
-		if (Pending && (History.empty() || History.back().get() != Pending)) Pending->AddReferencedObjects(Collector);
-		for (const auto& Transaction : RemovedTransactions) Transaction->AddReferencedObjects(Collector);
+		if (Pending) Pending->AddReferencedObjects(Collector);
 		for (const auto& Transaction : History) Transaction->AddReferencedObjects(Collector);
 		Collector.AllowEliminatingReferences(true);
 	}
@@ -1482,8 +1292,7 @@ namespace Durin
 		CheckThread();
 		Guard = EHistoryGuard::Mutating;
 		ReleaseRecording();
-		Pending = nullptr;
-		RemovedTransactions.clear();
+		Pending.reset();
 		History.clear();
 		Cursor = 0;
 		DTransactor::BeginDestroy();
@@ -1495,9 +1304,9 @@ namespace Durin
 		if (History.empty()) return 0;
 		if ((Guard != EHistoryGuard::None && Guard != EHistoryGuard::Notifying) || (Pending && Pending->IsBusy()))
 			return std::numeric_limits<size_t>::max();
-		FHistoryGuardScope Inspect(Guard);
-		std::optional<FTransactionBusyScope> Busy;
-		if (Pending) Busy.emplace(Pending->bBusy);
+		const TGuardValue Inspect(Guard, EHistoryGuard::Inspecting);
+		std::optional<TGuardValue<bool>> Busy;
+		if (Pending) Busy.emplace(Pending->bBusy, true);
 		size_t Total = 0;
 		for (const auto& Transaction : History)
 		{
@@ -1512,8 +1321,6 @@ namespace Durin
 	{
 		if (Guard == EHistoryGuard::Finalizing) return {};
 		if (bCheckWhetherUndoPossible && !CanUndo()) return {};
-		if (!bCheckWhetherUndoPossible && Pending && !History.empty() && History.back().get() == Pending)
-			return Pending->GetContext();
 		return Cursor ? History[Cursor - 1]->GetContext() : FTransactionContext{};
 	}
 
@@ -1542,7 +1349,7 @@ namespace Durin
 	auto DTransBuffer::ForgetPackage(DPackage& Package) -> void
 	{
 		if (!IsHistoryIdle()) return;
-		FHistoryGuardScope Inspect(Guard);
+		const TGuardValue Inspect(Guard, EHistoryGuard::Inspecting);
 		const size_t PreviousSize = History.size();
 		for (size_t Index = History.size(); Index-- > 0;)
 		{
@@ -1608,33 +1415,40 @@ namespace Durin
 	catch (const std::exception& Error) { return std::unexpected(std::string(Error.what())); }
 	catch (...) { return std::unexpected("Transaction replacement hook threw."); }
 
-	class FTransactorReloadParticipant final : public IPackageReloadParticipant
+	class FTransactorReplacementParticipant final : public IPackageReloadParticipant
 	{
 	public:
-		FTransactorReloadParticipant(DTransBuffer& InTransactor, std::span<DPackage* const> InPackages)
-			: Transactor(InTransactor), Packages(InPackages.begin(), InPackages.end()) {}
+		explicit FTransactorReplacementParticipant(DTransBuffer& InTransactor)
+			: Transactor(InTransactor), bPackageReload(false) {}
+		FTransactorReplacementParticipant(DTransBuffer& InTransactor, std::span<DPackage* const> InPackages)
+			: Transactor(InTransactor), bPackageReload(true), Packages(InPackages.begin(), InPackages.end()) {}
 
 		auto Prepare(const FObjectReplacementMap& InMap) -> std::expected<void, FObjectReplacementError> override
 		{
 			Abort();
 			if (!Transactor.IsHistoryIdle())
 				return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Busy, .Reason = EObjectReplacementReason::ParticipantBusy});
-			Map = &InMap;
+			if (!InMap.ValidateIdentities())
+				return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Stale, .Reason = EObjectReplacementReason::ObjectIdentityChanged});
 			for (auto* Package : Packages)
 			{
-				const auto* Entry = Map->Find(Package);
+				const auto* Entry = InMap.Find(Package);
 				if (!Entry || !Entry->Replacement)
 					return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::UnmappedReference,
 						.Reason = EObjectReplacementReason::ParticipantUnmappedPackage});
 			}
-			// Candidate-only editor admission; no live authored fields are loaded.
-			for (auto* Object : Map->GetPreparedObjects())
-				if (!Object->IsTemplateObject() || std::ranges::any_of(Map->GetEntries(), [&](const auto& Entry) {
-					return Entry.Replacement == Object && Entry.Previous->HasAnyObjectFlags(EObjectFlags::Transactional);
-				})) Object->SetFlags(EObjectFlags::Transactional);
+			if (bPackageReload)
+			{
+				// Candidate-only editor admission; no live authored fields are loaded.
+				for (auto* Object : InMap.GetPreparedObjects())
+					if (!Object->IsTemplateObject() || std::ranges::any_of(InMap.GetEntries(), [&](const auto& Entry) {
+						return Entry.Replacement == Object && Entry.Previous->HasAnyObjectFlags(EObjectFlags::Transactional);
+					})) Object->SetFlags(EObjectFlags::Transactional);
+			}
+			Map = &InMap;
 			return {};
 		}
-		auto Validate() const -> bool override { return Map && Transactor.IsHistoryIdle(); }
+		auto Validate() const -> bool override { return Map && Transactor.IsHistoryIdle() && Map->ValidateIdentities(); }
 		auto CoversNativeReferences(const DObject& Owner) const -> bool override { return Map && &Owner == &Transactor; }
 		auto GetStrongReferenceCount(const DObject&) const -> uint32 override { return 0; }
 		auto Commit() noexcept -> void override
@@ -1644,34 +1458,8 @@ namespace Durin
 		}
 		auto OnObjectsReinstanced(const FObjectReplacementMap& Mapping) noexcept -> void override
 		{
-			auto& History = Transactor.History;
-			std::vector<DPackage*> DirtyPackages;
-			for (size_t Index = 0; Index < History.size();)
-			{
-				auto& Entry = History[Index];
-				std::vector<DPackage*> OriginalPackages;
-				auto Result = Entry->Reinstance(Mapping, &OriginalPackages);
-				if (Result)
-				{
-					++Index;
-					continue;
-				}
-
-				DURIN_ERROR("Discarding transaction during reinstancing: {}", Result.error());
-				for (auto* Package : OriginalPackages)
-					if (Package && !Mapping.Find(Package) && !std::ranges::contains(DirtyPackages, Package)) DirtyPackages.push_back(Package);
-				Retired.push_back(std::move(Entry));
-				History.erase(History.begin() + Index);
-				Transactor.RemapUndoBarriers(Index, 1);
-				if (Index < Transactor.Cursor) --Transactor.Cursor;
-			}
-			for (auto* Package : DirtyPackages) Package->MarkDirty();
-			if (!Retired.empty())
-			{
-				Transactor.Guard = DTransBuffer::EHistoryGuard::Notifying;
-				Transactor.OnUndoBufferChanged().Broadcast();
-			}
-			Transactor.Guard = DTransBuffer::EHistoryGuard::None;
+			check(Map == &Mapping);
+			Transactor.OnObjectsReinstanced(Mapping, bPackageReload, Retired);
 		}
 		auto Abort() noexcept -> void override { Map = nullptr; }
 		auto CanRetire() const -> bool override
@@ -1681,10 +1469,16 @@ namespace Durin
 		}
 	private:
 		DTransBuffer& Transactor;
+		const bool bPackageReload;
 		std::vector<DPackage*> Packages;
 		const FObjectReplacementMap* Map = nullptr;
 		mutable std::vector<std::unique_ptr<FTransaction>> Retired;
 	};
+
+	auto CreateTransactorReplacementParticipant(DTransBuffer& Transactor) -> std::shared_ptr<IObjectReplacementParticipant>
+	{
+		return std::make_shared<FTransactorReplacementParticipant>(Transactor);
+	}
 
 	auto CreateTransactorReloadParticipant(DTransactor& Transactor,
 		std::span<DPackage* const> Packages)
@@ -1692,35 +1486,40 @@ namespace Durin
 	{
 		auto* Buffer = Cast<DTransBuffer>(&Transactor);
 		if (!Buffer) return {};
-		return std::make_shared<FTransactorReloadParticipant>(*Buffer, Packages);
+		return std::make_shared<FTransactorReplacementParticipant>(*Buffer, Packages);
 	}
 
-	auto DTransBuffer::OnObjectsReinstanced(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
+	auto DTransBuffer::OnObjectsReinstanced(const FObjectReplacementMap& Mapping, bool bPackageReload,
+		std::vector<std::unique_ptr<FTransaction>>& Retired) -> void
 	{
 		CheckGameThread();
-		if (Map.GetEntries().empty()) return {};
-		if (!Map.ValidateIdentities()) return std::unexpected("Reinstancing map contains expired object identities.");
-		if (!IsHistoryIdle()) return std::unexpected("Transaction history is busy.");
-		FHistoryGuardScope GuardScope(Guard, EHistoryGuard::Mutating);
-		FTransactionCaptureResult Result;
-		for (auto& Entry : History)
+		check(Guard == EHistoryGuard::Mutating);
+		std::vector<DPackage*> DirtyPackages;
+		for (size_t Index = 0; Index < History.size();)
 		{
-			// Publication already happened. Finish the other entries even when a
-			// private command or encoded snapshot cannot follow its replacement.
-			if (Entry->FailureReason) continue;
-			if (auto Rebound = Entry->Reinstance(Map); !Rebound)
+			auto& Entry = History[Index];
+			std::vector<DPackage*> OriginalPackages;
+			auto Result = Entry->Reinstance(Mapping, bPackageReload ? &OriginalPackages : nullptr);
+			if (Result)
 			{
-				Entry->FailureReason = std::move(Rebound.error());
-				// Keep the queue slot and ID without retaining partially rebound commands.
-				Entry->Records.clear();
-				Entry->PackageRecords.clear();
-				Entry->PrimaryObject = {};
-				auto Message = std::format("Transaction {} expired during reinstancing: {}", Entry->GetId(), *Entry->FailureReason);
-				DURIN_ERROR("{}", Message);
-				if (Result) Result = std::unexpected(std::move(Message));
+				++Index;
+				continue;
 			}
-		}
-		return Result;
-	}
 
+			DURIN_ERROR("Discarding transaction {} during reinstancing: {}", Entry->GetId(), Result.error());
+			for (auto* Package : OriginalPackages)
+				if (Package && !Mapping.Find(Package) && !std::ranges::contains(DirtyPackages, Package)) DirtyPackages.push_back(Package);
+			Retired.push_back(std::move(Entry));
+			History.erase(History.begin() + Index);
+			RemapUndoBarriers(Index, 1);
+			if (Index < Cursor) --Cursor;
+		}
+		for (auto* Package : DirtyPackages) Package->MarkDirty();
+		if (!Retired.empty())
+		{
+			Guard = EHistoryGuard::Notifying;
+			OnUndoBufferChanged().Broadcast();
+		}
+		Guard = EHistoryGuard::None;
+	}
 }

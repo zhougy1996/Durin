@@ -30,7 +30,7 @@ TEST(FReflectedPropertyEditSessionTests, CommitsAndUndoRedoesGuidValues)
 	EXPECT_EQ(Object->GuidValue, Proposed);
 }
 
-TEST(FReflectedPropertyEditSessionTests, StaleCommitLeavesReplacementRecordingAndLaterValueIntact)
+TEST(FReflectedPropertyEditSessionTests, CanceledPropertyScopeRetiresBeforeNextRecording)
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
@@ -40,16 +40,35 @@ TEST(FReflectedPropertyEditSessionTests, StaleCommitLeavesReplacementRecordingAn
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Old edit", *Transactions.Get()));
 	ASSERT_TRUE(Session.Apply(CaptureValue(Property.get(), Container, 8)));
 	Transactions.Get()->Cancel();
-	Durin::FScopedTransaction Replacement("Replacement");
-	ASSERT_TRUE(Replacement.IsRecordingCurrent());
 	Container.Value = 11;
 	std::string Error;
 	EXPECT_FALSE(Session.Commit(&Error));
 	EXPECT_EQ(Error, "The property transaction is no longer active.");
 	EXPECT_FALSE(Session.IsActive());
-	EXPECT_TRUE(Replacement.IsRecordingCurrent());
+	Durin::FScopedTransaction Replacement("Replacement");
+	ASSERT_TRUE(Replacement.IsOutstanding());
 	EXPECT_EQ(Container.Value, 11);
 	EXPECT_EQ(Object.Changes.size(), 1u);
+}
+
+TEST(FReflectedPropertyEditSessionTests, RetiredRecordingDiscardsLatePreviewInput)
+{
+	auto Property = MakeValueProperty();
+	FTestTransactorOwner Transactions;
+	for (bool bCancel : {false, true})
+	{
+		FValueContainer Container{5};
+		FManagedEditObserver Object;
+		Durin::PropertyEditor::FPropertyEdit Session;
+		ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Preview", *Transactions.Get()));
+		ASSERT_TRUE(Session.Apply(CaptureValue(Property.get(), Container, 8)));
+		const auto Next = CaptureValue(Property.get(), Container, 9);
+		Transactions.Get()->Cancel();
+		EXPECT_FALSE(bCancel ? Session.Cancel() : Session.Apply(Next));
+		EXPECT_FALSE(Session.IsActive());
+		EXPECT_EQ(Container.Value, 8);
+		EXPECT_EQ(Object.Changes.size(), 1u);
+	}
 }
 
 TEST(FReflectedPropertyEditSessionTests, AppliesInteractiveValuesAndCommitsOnce)

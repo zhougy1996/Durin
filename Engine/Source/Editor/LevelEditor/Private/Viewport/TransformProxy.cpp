@@ -1,0 +1,282 @@
+#include "Viewport/TransformProxy.h"
+
+#include "Actors/ActorChange.h"
+#include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
+#include "Math/Operations.h"
+#include "Math/TransformDecomposition.h"
+#include "Misc/Transaction.h"
+
+namespace Durin::LevelEditor
+{
+	namespace
+	{
+		constexpr double Epsilon = 1.e-8;
+
+		auto SameTransform(const FTransform& A, const FTransform& B) -> bool
+		{
+			return Math::Length(A.Translation - B.Translation) <= Epsilon
+				&& Math::Length(A.Scale3D - B.Scale3D) <= Epsilon
+				&& 1.0 - std::abs(Math::Dot(Math::Normalize(A.Rotation), Math::Normalize(B.Rotation))) <= Epsilon;
+		}
+		auto TrySetTransform(ITransformGizmoTarget& Target, const FTransform& Value) -> bool
+		{
+			try { return Target.SetTransform(Value); }
+			catch (...) { return false; }
+		}
+		// Restores before/after transforms for every target changed by one gizmo drag.
+		class FTransformProxyChange final : public FCommandChange
+		{
+		public:
+			struct FEntry
+			{
+				std::shared_ptr<ITransformGizmoTarget> Target;
+				FTransform Before;
+				FTransform After;
+			};
+			FTransformProxyChange(std::string_view Action, std::string_view CollectionLabel, std::vector<FEntry> InEntries)
+				: Entries(std::move(InEntries))
+			{
+				for (const FEntry& Entry : Entries)
+				{
+					DPackage* Package = Entry.Target ? Entry.Target->GetPackage() : nullptr;
+					if (Package && !std::ranges::contains(AffectedPackages, Package))
+						AffectedPackages.push_back(Package);
+				}
+				if (Entries.size() == 1 && Entries.front().Target)
+					Description = std::format("{} '{}'", Action, Entries.front().Target->GetLabel());
+				else
+					Description = std::format("{} {} {}", Action, Entries.size(), CollectionLabel);
+			}
+			auto GetDescription() const -> std::string_view override { return Description; }
+			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			{
+				std::vector<DObject*> Objects;
+				for (const auto& Entry : Entries)
+					if (Entry.Target)
+					{
+						auto Participants = Entry.Target->GetModifiedObjects();
+						Objects.insert(Objects.end(), Participants.begin(), Participants.end());
+					}
+				return Objects;
+			}
+			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
+
+			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
+			auto Apply() -> void override { SetTransforms(true); }
+			auto Revert() -> void override { SetTransforms(false); }
+			auto AddReferencedObjects(FReferenceCollector& Collector) -> void override
+			{
+				for (const FEntry& Entry : Entries)
+					if (Entry.Target) Entry.Target->AddReferencedObjects(Collector);
+				for (auto& Package : AffectedPackages)
+				{
+					DObject* Object = Package;
+					Collector.AddReferencedObject(Object);
+					if (Package != Object) Package = Cast<DPackage>(Object);
+				}
+			}
+
+		private:
+			static auto FormatVector(const FVector3& Value) -> std::string
+			{
+				return std::format("({:.3f}, {:.3f}, {:.3f})", Value.x, Value.y, Value.z);
+			}
+
+			static auto VectorChanged(const FVector3& Before, const FVector3& After) -> bool
+			{
+				return Math::Length(After - Before) > Epsilon;
+			}
+
+			static auto RotationChanged(const FQuat& Before, const FQuat& After) -> bool
+			{
+				return 1.0 - std::abs(Math::Dot(Math::Normalize(Before), Math::Normalize(After))) > Epsilon;
+			}
+
+			auto GetDetails() const -> std::string override
+			{
+				std::string Result;
+				for (const FEntry& Entry : Entries)
+				{
+					if (!Result.empty()) Result += '\n';
+					Result += std::format("Recorded edit to '{}'", Entry.Target ? Entry.Target->GetLabel() : "Missing Target");
+					const FTransform& Before = Entry.Before;
+					const FTransform& After = Entry.After;
+					bool bHasChange = false;
+					if (VectorChanged(Before.Translation, After.Translation))
+					{
+						Result += std::format("\n  Location  {} -> {}", FormatVector(Before.Translation), FormatVector(After.Translation));
+						Result += std::format("\n  Delta     {}", FormatVector(After.Translation - Before.Translation));
+						bHasChange = true;
+					}
+					if (RotationChanged(Before.Rotation, After.Rotation))
+					{
+						const FVector3 BeforeDegrees = Math::QuaternionToEulerDegrees(Before.Rotation);
+						const FVector3 AfterDegrees = Math::QuaternionToEulerDegrees(After.Rotation);
+						Result += std::format("\n  Rotation  {} -> {} degrees", FormatVector(BeforeDegrees), FormatVector(AfterDegrees));
+						bHasChange = true;
+					}
+					if (VectorChanged(Before.Scale3D, After.Scale3D))
+					{
+						Result += std::format("\n  Scale     {} -> {}", FormatVector(Before.Scale3D), FormatVector(After.Scale3D));
+						bHasChange = true;
+					}
+					if (!bHasChange) Result += "\n  Transform changed below display precision";
+				}
+				return Result;
+			}
+
+			auto HasExpired() const noexcept -> bool override
+			{
+				return std::ranges::any_of(Entries, [](const auto& Entry) {
+					return !Entry.Target || Entry.Target->IsHistoryInvalidated() || !Entry.Target->IsValid();
+				});
+			}
+
+			auto SetTransforms(bool bAfter) -> void
+			{
+				for (size_t Index = 0; Index < Entries.size(); ++Index)
+				{
+					const auto& Target = Entries[Index].Target;
+					if (!Target || Target->IsHistoryInvalidated() || !Target->IsValid())
+						throw std::runtime_error(FormatActorChangeError({.Code = EActorChangeError::TargetUnavailable, .MemberIndex = Index}));
+				}
+				size_t FailedIndex = Entries.size();
+				for (size_t Index = 0; Index < Entries.size(); ++Index)
+					if (!Entries[Index].Target->SetTransform(bAfter ? Entries[Index].After : Entries[Index].Before))
+					{ FailedIndex = Index; break; }
+				if (FailedIndex == Entries.size())
+					for (size_t Index = 0; Index < Entries.size(); ++Index)
+						if (!Entries[Index].Target->IsValid() || !SameTransform(Entries[Index].Target->GetTransform(), bAfter ? Entries[Index].After : Entries[Index].Before))
+						{ FailedIndex = Index; break; }
+				if (FailedIndex != Entries.size())
+					throw std::runtime_error(FormatActorChangeError({.Code = EActorChangeError::TransformWrite,
+						.TargetLabel = Entries[FailedIndex].Target->GetLabel(), .NodeCount = Entries.size(), .MemberIndex = FailedIndex}));
+			}
+
+			std::string Description;
+			std::vector<FEntry> Entries;
+			std::vector<DPackage*> AffectedPackages;
+		};
+	}
+
+	FTransformProxy::FTransformProxy(const FTransformGizmoTargetSet& Targets, const FVector3& Pivot, const FQuat& Basis)
+		: CollectionLabel(Targets.CollectionLabel)
+	{
+		InitialFrame.Translation = Pivot;
+		InitialFrame.Rotation = Basis;
+		for (const std::shared_ptr<ITransformGizmoTarget>& Target : Targets.Targets)
+		{
+			if (Target && Target->IsValid())
+			{
+				const auto Initial = Target->GetTransform();
+				Snapshots.push_back({Target, Target->GetIdentity(), Initial, Initial, Target->GetPackage()});
+				if (DPackage* Package = Target->GetPackage(); Package && !std::ranges::contains(Packages, Package, &TObjectPtr<DPackage>::Get))
+					Packages.emplace_back(Package);
+			}
+		}
+	}
+
+	auto FTransformProxy::SetTransform(const FTransform& Frame) -> bool
+	{
+		const FVector3 Offset = Frame.Translation - InitialFrame.Translation;
+		const bool bRotate = Frame.Rotation != InitialFrame.Rotation;
+		const bool bScale = Frame.Scale3D != InitialFrame.Scale3D;
+		const FQuat Rotation = Frame.Rotation * Math::Inverse(InitialFrame.Rotation);
+		const auto& Pivot = InitialFrame.Translation;
+		FMatrix Scale(1.0);
+		if (bScale)
+			Scale = Math::TranslationMatrix(Pivot) * Math::RotationMatrix(InitialFrame.Rotation)
+				* Math::ScaleMatrix(Frame.Scale3D) * Math::RotationMatrix(Math::Inverse(InitialFrame.Rotation))
+				* Math::TranslationMatrix(-Pivot);
+
+		for (const auto& Snapshot : Snapshots)
+		{
+			if (!Snapshot.Target->IsValid()) return false;
+			FTransform Transform = Snapshot.Initial;
+			if (bScale && !TryMakeTransformFromMatrix(Scale * Snapshot.Initial.ToMatrix(), Transform)) return false;
+			if (bRotate)
+			{
+				Transform.Translation = Pivot + Rotation * (Transform.Translation - Pivot);
+				Transform.Rotation = Math::Normalize(Rotation * Transform.Rotation);
+			}
+			Transform.Translation += Offset;
+			if (!TrySetTransform(*Snapshot.Target, Transform)) return false;
+		}
+		return true;
+	}
+
+	auto FTransformProxy::MatchesSelection(const FTransformGizmoTargetSet& Targets) const -> bool
+	{
+		return !Snapshots.empty() && Targets.Targets.size() == Snapshots.size()
+			&& std::ranges::all_of(Snapshots, [&](const auto& Snapshot) {
+				return Snapshot.Target->IsValid() && std::ranges::any_of(Targets.Targets, [&](const auto& Target) {
+					return Target && Target->GetIdentity() == Snapshot.Identity;
+				});
+			});
+	}
+
+	auto FTransformProxy::HasChanges() const -> bool
+	{
+		return std::ranges::any_of(Snapshots, [](const auto& Snapshot) {
+			return !SameTransform(Snapshot.Initial, Snapshot.Preview);
+		});
+	}
+
+	auto FTransformProxy::CheckPreviewOwnership() -> bool
+	{
+		bool bOwned = true;
+		for (auto& Snapshot : Snapshots)
+		{
+			if (!Snapshot.bOwnsPreview || !Snapshot.Target || !Snapshot.Target->IsValid()
+				|| !SameTransform(Snapshot.Target->GetTransform(), Snapshot.Preview))
+			{
+				Snapshot.bOwnsPreview = false;
+				if (Snapshot.Package) Snapshot.Package->MarkDirty();
+				bOwned = false;
+			}
+		}
+		return bOwned;
+	}
+
+	auto FTransformProxy::CapturePreviewValues() -> bool
+	{
+		bool bValid = true;
+		for (auto& Snapshot : Snapshots)
+		{
+			if (Snapshot.Target && Snapshot.Target->IsValid()) Snapshot.Preview = Snapshot.Target->GetTransform();
+			else bValid = false;
+		}
+		return bValid;
+	}
+
+	auto FTransformProxy::MarkPackagesDirty() const -> void
+	{
+		for (const auto& Package : Packages)
+			if (Package) Package->MarkDirty();
+	}
+
+	auto FTransformProxy::Restore() -> bool
+	{
+		CheckPreviewOwnership();
+		bool bRestored = true;
+		for (auto& Snapshot : Snapshots)
+			if (Snapshot.bOwnsPreview && !TrySetTransform(*Snapshot.Target, Snapshot.Initial)) bRestored = false;
+		CapturePreviewValues();
+		for (const auto& Snapshot : Snapshots)
+			if (Snapshot.bOwnsPreview && (!Snapshot.Target->IsValid() || !SameTransform(Snapshot.Preview, Snapshot.Initial))) bRestored = false;
+		return bRestored;
+	}
+
+
+	auto FTransformProxy::CreateChange(std::string_view Action, uint64 HistoryId) const -> std::unique_ptr<FCommandChange>
+	{
+		std::vector<FTransformProxyChange::FEntry> Entries;
+		for (const auto& Snapshot : Snapshots)
+		{
+			auto Target = Snapshot.Target->CreateHistoryTarget(HistoryId);
+			Entries.push_back({Target ? std::move(Target) : Snapshot.Target, Snapshot.Initial, Snapshot.Preview});
+		}
+		return std::make_unique<FTransformProxyChange>(Action, CollectionLabel, std::move(Entries));
+	}
+}

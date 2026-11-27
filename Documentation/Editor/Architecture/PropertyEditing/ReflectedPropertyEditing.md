@@ -4,7 +4,7 @@ Summary: Define detached property validation, stable edit targets, notifications
 
 Modules: DurinEd, CoreDObject
 
-Last reviewed: 2026-11-26
+Last reviewed: 2026-11-28
 
 ## Scope And Ownership
 
@@ -274,9 +274,11 @@ gesture. A cross-frame session holds that handle alongside its transaction and
 original snapshot. Commit flushes the handle's pending notification without
 rewriting the preview. The final write emits one committed notification even when its value
 matches the last interactive update. A subsequent identical write is silent.
-A stale recording or loss of editability ends the gesture with a diagnostic and
-leaves the live value in place. A still-current scope ends normally. Hosts
-report the diagnostic and use session activity to decide whether they can switch.
+A commit after loss of editability ends the gesture with a diagnostic and
+leaves the live value in place. If an external Cancel or Reset retires the gesture's
+recording, a subsequent preview write, Commit, or Cancel releases the scoped
+session and preserves the live value. Hosts finish that session before starting
+an independent recording and use session activity to decide when to switch.
 
 `CancelUnchanged()` closes an active unchanged session and ends its transaction scope silently. It preserves an enclosing
 recording and earlier edits when a proposal is rejected. Sessions with applied

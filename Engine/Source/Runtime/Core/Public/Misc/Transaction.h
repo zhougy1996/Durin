@@ -30,10 +30,10 @@ namespace Durin
 	{
 	public:
 		virtual ~FCommandChange() = default;
-		virtual auto Apply(DObject* Object) -> void = 0;
-		virtual auto Revert(DObject* Object) -> void = 0;
-		// The history supplies the primary object when the change has one.
-		virtual auto HasExpired(DObject*) const noexcept -> bool { return false; }
+		virtual auto Apply() -> void = 0;
+		virtual auto Revert() -> void = 0;
+		// The command checks the lifetime of its own replay targets.
+		virtual auto HasExpired() const noexcept -> bool { return false; }
 		virtual auto GetDescription() const -> std::string_view = 0;
 		// Enumerate edited objects explicitly; GC dependencies do not imply edits.
 		// Recording freezes exact participant identities independently of GC traversal.

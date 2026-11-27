@@ -583,9 +583,9 @@ TEST(FEditorTransactionManagerTests, EachExpiredCandidateSeesItsOwnCursorPositio
 		FExpiredChange(DTransactor& InBuffer, std::vector<size_t>& InCounts) : Buffer(InBuffer), Counts(InCounts) {}
 		auto GetDescription() const -> std::string_view override { return "Expired"; }
 		auto GetModifiedObjects() const -> std::vector<DObject*> override { return {}; }
-		auto Apply(Durin::DObject*) -> void override {}
-		auto Revert(Durin::DObject*) -> void override {}
-		auto HasExpired(DObject*) const noexcept -> bool override
+		auto Apply() -> void override {}
+		auto Revert() -> void override {}
+		auto HasExpired() const noexcept -> bool override
 		{
 			Counts.push_back(Buffer.GetUndoCount());
 			return true;
@@ -610,7 +610,7 @@ TEST(FEditorTransactionManagerTests, EachExpiredCandidateSeesItsOwnCursorPositio
 	EXPECT_EQ(Manager->GetQueueLength(), 0u);
 }
 
-TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresDirtyFlagsForFullyReplayedPackages)
+TEST(FEditorTransactionManagerTests, ExpiredCommandSkipsWholeGroupAndPreservesPackageDirtyFlags)
 {
 	using namespace Durin;
 	auto* LivePackage = MakeRevisionTestPackage("Live");
@@ -620,6 +620,7 @@ TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresDirtyFlagsForFullyRe
 	for (auto* Package : {LivePackage, ExpiredPackage, SharedPackage}) Package->ClearDirty();
 	int Value = 0;
 	bool Expired = false;
+	ASSERT_TRUE(Tests::RecordTestEdit(*Manager, std::make_unique<FCountingTransaction>(Value, 100)));
 	{
 		Tests::FBufferRecording Scope(Manager.Get(), {.Description = "Mixed expiry"});
 		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
@@ -627,47 +628,24 @@ TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresDirtyFlagsForFullyRe
 		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
 			Value, std::initializer_list{ExpiredPackage, SharedPackage}, 10, nullptr, &Expired)));
 	}
-	const bool bExpiredWasDirty = ExpiredPackage->IsDirty();
-	Expired = true;
+	const auto Group = Manager->GetUndoContext().TransactionId;
+	ASSERT_TRUE(Tests::RecordTestEdit(*Manager, std::make_unique<FCountingTransaction>(Value, 1000)));
 	ASSERT_TRUE(Manager->Undo());
-	EXPECT_EQ(Value, 10);
-	EXPECT_FALSE(LivePackage->IsDirty());
-	EXPECT_TRUE(SharedPackage->IsDirty());
-	EXPECT_EQ(ExpiredPackage->IsDirty(), bExpiredWasDirty);
-	ASSERT_TRUE(Manager->Redo());
-	EXPECT_EQ(Value, 11);
-	EXPECT_TRUE(SharedPackage->IsDirty());
-	EXPECT_EQ(ExpiredPackage->IsDirty(), bExpiredWasDirty);
-}
-
-TEST(FEditorTransactionManagerTests, MixedExpiryFaultReportsOrderedRecord)
-{
-	using namespace Durin;
-	auto* LivePackage = MakeRevisionTestPackage("RetryLive");
-	auto* ExpiredPackage = MakeRevisionTestPackage("RetryExpired");
-	auto* SharedPackage = MakeRevisionTestPackage("RetryShared");
-	int Value = 0;
-	bool Expired = false;
-	FTransactionControl Control;
-	Tests::FTestTransactorOwner Manager;
-	const std::array Packages{LivePackage, ExpiredPackage, SharedPackage};
-	for (auto* Package : Packages) Package->ClearDirty();
-	{
-		Tests::FBufferRecording Scope(Manager.Get(), {.Description = "Mixed replay with failure"});
-		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
-			Value, std::initializer_list{LivePackage, SharedPackage}, 1, &Control)));
-		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FPackageCountingTransaction>(
-			Value, std::initializer_list{ExpiredPackage, SharedPackage}, 10, nullptr, &Expired)));
-		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Manager, std::make_unique<FCountingTransaction>(Value, 100)));
-	}
-	for (size_t Index = 0; Index < Packages.size(); ++Index)
-	{
-		ASSERT_TRUE(Packages[Index]->IsDirty());
-	}
-	const auto Id = Manager->GetUndoContext().TransactionId;
+	ASSERT_EQ(Value, 111);
+	ExpiredPackage->ClearDirty();
 	Expired = true;
-	Control.bFailUndo = true;
-	EXPECT_DEATH((void)Manager->UndoExpected(Id), "during Undo record 0");
+	EXPECT_FALSE(Manager->UndoExpected(Group));
+	EXPECT_EQ(Manager->GetUndoContext().TransactionId, Group);
+	ASSERT_TRUE(Manager->Undo());
+	EXPECT_EQ(Value, 11);
+	ASSERT_TRUE(Manager->Redo());
+	EXPECT_FALSE(Manager->RedoExpected(Group));
+	EXPECT_EQ(Manager->GetRedoContext().TransactionId, Group);
+	ASSERT_TRUE(Manager->Redo());
+	EXPECT_EQ(Value, 1111);
+	EXPECT_TRUE(LivePackage->IsDirty());
+	EXPECT_FALSE(ExpiredPackage->IsDirty());
+	EXPECT_TRUE(SharedPackage->IsDirty());
 }
 
 TEST(FEditorTransactionManagerTests, TerminalReplayDiagnosticIdentifiesUndoAndRedo)

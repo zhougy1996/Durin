@@ -36,17 +36,12 @@ namespace Durin::Tests::ObjectState
 
 	struct FTypedSceneInstanceData : Durin::FSceneComponentInstanceData
 	{
-		FTypedSceneInstanceData() = default;
-		~FTypedSceneInstanceData() override { ++Destroyed; }
-		inline static uint32 Destroyed = 0;
 		explicit FTypedSceneInstanceData(const Durin::DActorComponent& Component) : FSceneComponentInstanceData(Component) {}
 		auto GetDataType() const -> const Durin::FComponentInstanceDataType& override
-		{ return RegisterType<FTypedSceneInstanceData>("Tests.TypedSceneInstanceData"); }
-		auto Serialize(Durin::FArchive& Archive) -> void override
-		{ FSceneComponentInstanceData::Serialize(Archive); Archive << DomainValue; }
-		auto ApplyToComponent(Durin::DActorComponent& Component, Durin::ECacheApplyPhase Phase) const -> void override
+		{ return CopyType<FTypedSceneInstanceData>(); }
+		auto ApplyToComponent(Durin::DActorComponent& Component) const -> void override
 		{
-			FSceneComponentInstanceData::ApplyToComponent(Component, Phase);
+			FSceneComponentInstanceData::ApplyToComponent(Component);
 			AppliedValue = DomainValue;
 		}
 		auto GetAllocatedSize() const -> size_t override { return sizeof(*this); }
@@ -111,6 +106,12 @@ namespace Durin::Tests::ObjectState
 		uint32 ConstructionCalls = 0;
 		bool bFailConstruction = false, bRequestCollectionDuringConstruction = false;
 		std::optional<Durin::FVector3> ConstructionLocation;
+		auto PostTransacted(const Durin::FTransactionObjectEvent& Event) -> void override
+		{
+			AActor::PostTransacted(Event);
+			if (TransactionObserver) TransactionObserver(Event);
+		}
+		std::function<void(const Durin::FTransactionObjectEvent&)> TransactionObserver;
 		std::function<void(DTransactionLifecycleScene&, const Durin::FTransactionObjectEvent&)> GeneratedTransactionObserver;
 	protected:
 		auto OnConstruction(const Durin::FTransform&) -> void override

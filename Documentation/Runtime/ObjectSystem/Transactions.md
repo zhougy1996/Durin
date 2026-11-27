@@ -4,7 +4,7 @@ Summary: Define runtime-neutral transaction capture, custom changes, exact objec
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-11-24
+Last reviewed: 2026-11-28
 
 ## Core Boundary
 
@@ -16,10 +16,10 @@ The editor owns the active recorder and application history, as described in
 [Transactors](../../Editor/Architecture/Transactions/Transactors.md).
 
 `Misc/Transaction.h` owns `FCommandChange`,
-transaction context and operation identity allocation. The public `ITransaction::Apply()` runs a complete replay and returns void. Undo calls `Revert(Object)` and Redo calls `Apply(Object)`. Both return void. Object-bound records pass their resolved target and unbound commands receive null. An execution fault terminates replay with the transaction and record diagnostic.
+transaction context and operation identity allocation. The public `ITransaction::Apply()` runs a complete replay and returns void. Undo calls `Revert()` and Redo calls `Apply()`. Both return void and use targets held by the command. An execution fault terminates replay with the transaction and record diagnostic.
 Object listeners receive `ETransactionObjectEventType::UndoRedo` for both directions.
 A custom change implements HasExpired when its target or dependencies can
-become unavailable. Each replay evaluates the command's current eligibility.
+become unavailable. A command reporting expiry makes the entire history entry ineligible for that replay.
 A custom change declares modified objects separately through
 `GetModifiedObjects()`. Its collector traversal describes retained dependencies;
 that traversal alone never means a dependency was edited. A command may declare
@@ -37,12 +37,8 @@ operation obtains a fresh nonzero process-wide operation ID. BeginOperation
 rejects an already active operation; EndOperation rejects an inactive one.
 Allocation never wraps into a reused identity; zero reports exhaustion.
 
-The capture interface exposes finalization, object-bound custom changes,
-snapshots, arrays and PIE inspection as explicit result-bearing operations.
-Failure and unsupported capability are observable errors. Array requests identify
-an object and reflected member/index/range, never a borrowed live vector address.
-Interface availability alone does not assert a particular recorder supports
-every operation; callers must check its result.
+The capture interface exposes whole-object recording, finalization, already-applied
+custom changes and PIE reference inspection.
 
 Runtime types are declared directly in `Durin`; editor namespace compatibility
 aliases are removed. `DPackage::IsPlayInEditor` identifies a session package
@@ -50,14 +46,9 @@ explicitly, without inferring it from a world type. The editor recorder implemen
 PIE inspection and transient-entry policy as part of the
 [transactor contract](../../Editor/Architecture/Transactions/Transactors.md#undo-barriers-and-pie-references).
 
-`DObject/TransactionArray.h` supplies the explicit typed `EditTransactionArray`
-adapter. It supports insert, remove and equal-length range replacement with
-nonthrowing element relocation. Allocation preparation precedes capture; no live
-vector address enters history. A borrowed reflected struct path can locate a
-nested array. Unsupported or callback-driven mutations must select a whole-object
-baseline before editing. See [array operation records](../../Editor/Architecture/Transactions/TransactionRecords.md#array-operation-records)
-for replay, fallback and cost boundaries. `FArrayOps` version 3 adds the typed
-Splice callback; it does not add operation semantics to maps.
+Array edits call `Modify()` on the owner before mutation. Its transaction snapshot
+covers the array and other transactional fields changed in the same action.
+See [array edits](../../Editor/Architecture/Transactions/TransactionRecords.md#array-edits).
 
 ## CoreDObject Boundary
 
@@ -105,7 +96,7 @@ validation.
 Construction flags and physical destruction are irreversible. A whole-object record
 captures `bIsPendingKill`. When that bit changes during an edit, the transactor
 can resolve the retained generation during replay and apply `ClearGarbage()` or
-`MarkAsGarbage()` before loading fields. An unresolved whole-object target skips its snapshot for this replay.
+`MarkAsGarbage()` before loading fields. If a whole-object target still cannot resolve with that access, preflight rejects the entire entry.
 Loading a historical Name or Outer gives a live occupant a unique sibling name
 before restoring the recorded identity. Undoing a recorded deletion also frees
 the name before reviving and registering the retained object.
@@ -116,7 +107,7 @@ detached parent-baseline requirements.
 `DObject/TransactionObjectAnnotation.h` declares supplemental reconstruction data,
 collector traversal, serialization, owned allocation accounting and optional
 additional object changes. `DObject/TransactionObjectEvent.h` declares owned
-identity/change summaries, Snapshot/Finalized/UndoRedo kinds and shared annotation
+identity/change summaries, Finalized and UndoRedo event kinds and shared annotation
 ownership. These contracts contain no editor history or presentation service.
 
 DObject supplies safe defaults: no annotation, an empty PostTransacted observer,
@@ -126,10 +117,8 @@ final and inverse capture; schema-only validation skips that hook. Records own
 immutable supplemental snapshots, enumerate their hard references and check
 allocation addition for overflow. Editor no-op pruning retains annotated records
 even when serialized bytes match.
-History keeps annotations in-process; their
-explicit Serialize hook is separate from the object's payload and ordinary
-package persistence. Hook declarations do not dispatch transaction events by
-themselves. Engine types own native reconstruction and reconciliation.
+History holds the annotation in memory and passes it directly to the object's
+completion hook on replay. Package reload rebinds its retained references. Engine types own native reconstruction and reconciliation.
 
 `DObject/TransactionDiff.h` owns `FDiffableObject`, `FSerializedTaggedData` and
 `DiffUtil::GetDiffableObject/GenerateObjectDiff`. Observation owns capture identity
@@ -189,8 +178,7 @@ writes replacement objects into those slots. An exact persistent reference recor
 the new object key; logical references retain their subobject resolution rules.
 Annotations with typed reconstruction data can specialize `FindAndReplaceInstances`
 to remap encoded identities that GC traversal cannot see. Successful fixup
-preserves the command and annotation instances. The editor owns the distinct
-history policies for [instance replacement and package reload](../../Editor/Architecture/Transactions/TransactionRecords.md#controlled-reinstancing).
+preserves the command and annotation instances. The editor owns validation and whole-entry retirement for [instance replacement and package reload](../../Editor/Architecture/Transactions/TransactionRecords.md#controlled-reinstancing).
 
 Ordinary diffing requires the same exact target, class and compatible transfer schema. It
 reports actual changed reflected member names and compares the remaining native
@@ -232,14 +220,11 @@ Logical default-graph resolution does not grant an opaque native command access
 to a recreated participant. Such commands require explicit checked replacement;
 otherwise their frozen participant expires before native replay.
 
-A bound single-object custom record claims that object's general capture, so a
-later Modify does not create a redundant serialized record. A prior serialized
-record remains ordered before a later custom record. Composite commands declare
-their actual modified objects and keep executable domain ownership explicit;
-their participant membership alone does not suppress generic object capture.
-Domains must avoid overlapping serialized/custom ownership of the same field.
-Recording an already-applied command and executing the initial command remain
-separate operations; cancellation does not imply rollback.
+Commands and whole-object snapshots retain their recording order. Every declared
+command participant is visible to `ContainsObject()`. A command recorded first suppresses later `Modify()` capture for its declared
+participants. To capture a baseline as well, call `Modify()` before the first write.
+Collector-only dependencies remain eligible for ordinary capture. Domains register an already-applied command
+through `StoreUndo(Change)` and own the restoration of canceled previews.
 
 `CoreTransactionContractTests` links only Core/CoreDObject and is registered in
 both editor and non-editor variants. It covers the runtime boundary independently

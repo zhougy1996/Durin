@@ -15,16 +15,39 @@ TEST(FComponentInstanceLifecycleTests, OrdinaryReconstructionConsumesTheSameGene
 	ASSERT_TRUE(Other->GetRootComponent()->AttachToComponent(Root)); Other->GetRootComponent()->SetRelativeLocation({2.0, 0.0, 0.0});
 	const auto RootPose = Root->GetWorldLocation(), ChildPose = Other->GetRootComponent()->GetWorldLocation();
 	const auto OldKey = FObjectKey(Root);
-	FComponentInstanceDataCache InstanceData(*Actor);
-	FActorRootComponentReconstructionData RootData(*Actor);
-	Actor->GeneratedCount = 0; ASSERT_TRUE(Actor->RerunConstructionScripts());
-	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
-	Actor->GeneratedCount = 1; Actor->bRequestCollectionDuringConstruction = true;
-	ASSERT_TRUE(Actor->RerunConstructionScripts(&InstanceData, &RootData));
+	Actor->bRequestCollectionDuringConstruction = true;
+	ASSERT_TRUE(Actor->RerunConstructionScripts());
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
 	auto* Restored = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent()); ASSERT_NE(Restored, nullptr);
 	EXPECT_NE(FObjectKey(Restored), OldKey); EXPECT_EQ(Restored->GetWorldLocation(), RootPose);
 	EXPECT_EQ(Restored->CreatedLocation, FVector3(0.0)); EXPECT_EQ(Restored->Created, 1u); EXPECT_EQ(Restored->Registered, 1u);
 	EXPECT_EQ(Other->GetRootComponent()->GetAttachParent(), Restored); EXPECT_EQ(Other->GetRootComponent()->GetWorldLocation(), ChildPose);
+}
+
+TEST(FComponentInstanceLifecycleTests, OrdinaryReconstructionCanSelectAnotherGeneratedRoot)
+{
+	using namespace Durin;
+	FTransactionEngineWorld Fixture;
+	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("ChangingGeneratedRoot");
+	ASSERT_NE(Actor, nullptr);
+	Actor->GeneratedCount = 2;
+	ASSERT_TRUE(Actor->RerunConstructionScripts());
+	auto* Second = Cast<DSceneComponent>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(1)));
+	ASSERT_NE(Second, nullptr);
+	ASSERT_TRUE(Actor->SetRootComponent(Second));
+	auto* Other = Fixture.World->SpawnActor<DTransactionConstructionActor>("ChildOfFormerRoot");
+	ASSERT_NE(Other, nullptr);
+	auto* Child = Other->GetRootComponent();
+	ASSERT_TRUE(Child->AttachToComponent(Second));
+	Child->SetRelativeLocation({3.0, 0.0, 0.0});
+	ASSERT_TRUE(Actor->RerunConstructionScripts());
+	ASSERT_NE(Actor->GetRootComponent(), nullptr);
+	EXPECT_EQ(Actor->GetRootComponent(), Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
+	auto* RecreatedSecond = Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(1));
+	ASSERT_NE(RecreatedSecond, nullptr);
+	EXPECT_EQ(Child->GetAttachParent(), RecreatedSecond);
+	EXPECT_EQ(Child->GetRelativeLocation(), FVector3(3.0, 0.0, 0.0));
 }
 
 TEST(FComponentInstanceLifecycleTests, InstanceDataFollowsConstructionAndCreationCallbacks)
@@ -34,11 +57,9 @@ TEST(FComponentInstanceLifecycleTests, InstanceDataFollowsConstructionAndCreatio
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("CandidateInstancePose"); ASSERT_NE(Actor, nullptr);
 	auto* Scene = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	ASSERT_NE(Scene, nullptr); Scene->SetRelativeLocation({9.0, 0.0, 0.0});
-	FComponentInstanceDataCache InstanceData(*Actor);
-	Actor->GeneratedCount = 0; ASSERT_TRUE(Actor->RerunConstructionScripts());
 	struct FResetNativePose { ~FResetNativePose() { DTransactionLifecycleScene::NativeInitialLocation = FVector3(0.0); } } Reset;
 	DTransactionLifecycleScene::NativeInitialLocation = FVector3(2.0, 0.0, 0.0);
-	Actor->GeneratedCount = 1; ASSERT_TRUE(Actor->RerunConstructionScripts(&InstanceData));
+	ASSERT_TRUE(Actor->RerunConstructionScripts());
 	auto* Restored = static_cast<DTransactionLifecycleScene*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	ASSERT_NE(Restored, nullptr);
 	EXPECT_EQ(Restored->GetRelativeLocation(), FVector3(9.0, 0.0, 0.0));

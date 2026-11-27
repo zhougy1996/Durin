@@ -436,7 +436,7 @@ TEST_F(FEditorFunctionTests, DirtyCallbackCancellationPreventsNativeInvocation)
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
-TEST_F(FEditorFunctionTests, NestedInvocationUsesTheVisibleOuterEntry)
+TEST_F(FEditorFunctionTests, NestedInvocationPublishesWithTheOuterScope)
 {
 	Tests::FTestEditorTransactorOwner Buffer;
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "NestedAction"));
@@ -446,10 +446,12 @@ TEST_F(FEditorFunctionTests, NestedInvocationUsesTheVisibleOuterEntry)
 		const auto Result = ExecuteEditorFunction(View, {}, Request(Target));
 		EXPECT_TRUE(Result.bInvoked);
 		EXPECT_EQ(Result.Error, EEditorFunctionError::None);
-		ASSERT_EQ(Buffer->GetQueueLength(), 1u);
-		EXPECT_EQ(Buffer->GetTransaction(0), GUndo);
+		ASSERT_NE(GUndo, nullptr);
+		EXPECT_EQ(GUndo->GetContext().Description, "Grouped action");
+		EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 		EXPECT_FALSE(Buffer->CanUndo());
 	}
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->Value, 0);
 	EXPECT_EQ(Target->Invocations, 1);

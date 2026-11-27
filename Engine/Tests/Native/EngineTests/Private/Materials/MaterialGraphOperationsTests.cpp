@@ -3621,10 +3621,13 @@ TEST(FMaterialGraphOperationsTests, GraphChangesJoinAnOuterRecording)
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
 	EXPECT_GT(Material->GetMaterialProgramRevision(), Revision);
 	EXPECT_EQ(Notifications, 1u);
-	ASSERT_EQ(Transactions->GetQueueLength(), 1u);
-	EXPECT_EQ(Transactions->GetTransaction(0), GUndo);
+	ASSERT_NE(GUndo, nullptr);
+	const auto Id = GUndo->GetContext().TransactionId;
+	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_EQ(Transactions->End(), 1);
+	ASSERT_EQ(Transactions->GetQueueLength(), 1u);
+	EXPECT_EQ(Transactions->GetUndoContext().TransactionId, Id);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	Material->GetGraphChanges().Unsubscribe(Observer);
@@ -3724,7 +3727,7 @@ TEST(FMaterialGraphOperationsTests, StructuralReplayRejectsDifferentMemberWithTh
 	}
 }
 
-TEST(FMaterialGraphOperationsTests, ReplaySkipsExpressionRemovedOutsideHistory)
+TEST(FMaterialGraphOperationsTests, MissingExpressionBlocksUndoWithoutChangingGraph)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3740,8 +3743,10 @@ TEST(FMaterialGraphOperationsTests, ReplaySkipsExpressionRemovedOutsideHistory)
 	ASSERT_TRUE(Material->SetMaterialExpressions(Nodes));
 	const auto Before = CaptureExpressions(*Material);
 	const auto Revision = Material->GetMaterialProgramRevision();
-	ASSERT_TRUE(Transactions->UndoExpected(Transactions->GetUndoContext().TransactionId));
-	ASSERT_TRUE(Transactions->Redo());
+	const auto Id = Transactions->GetUndoContext().TransactionId;
+	EXPECT_FALSE(Transactions->UndoExpected(Id));
+	EXPECT_EQ(Transactions->GetUndoContext().TransactionId, Id);
+	EXPECT_FALSE(Transactions->CanRedo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
 	EXPECT_TRUE(Transactions->CanUndo());
@@ -4453,7 +4458,7 @@ TEST(FMaterialGraphOperationsTests, SharedScalarParameterWritesBothDeclarationsO
 	CheckDeclarations(.75f);
 }
 
-TEST(FMaterialGraphOperationsTests, StaleParameterGesturePreservesReplacementAndBusyMoveCanRetry)
+TEST(FMaterialGraphOperationsTests, CanceledParameterGestureExitsBeforeReplacementAndBusyMoveCanRetry)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -4483,15 +4488,15 @@ TEST(FMaterialGraphOperationsTests, StaleParameterGesturePreservesReplacementAnd
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
 
-	// A later transaction may start while the old control still owns its gesture.
+	// Let the control unwind its canceled gesture before opening independent history.
 	Parameters.RegenerateArrays();
 	Preview = Parameters.Find(ParameterId);
 	ASSERT_TRUE(Preview);
 	ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
 	ASSERT_TRUE(Edit.SetValue(.9f));
 	Transactions->Cancel();
-	ASSERT_EQ(Transactions->Begin("test", "Replacement"), 0);
 	EXPECT_FALSE(Edit.Commit());
+	ASSERT_EQ(Transactions->Begin("test", "Replacement"), 0);
 	EXPECT_TRUE(Transactions->IsActive());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
 	ASSERT_EQ(Transactions->End(), 1);

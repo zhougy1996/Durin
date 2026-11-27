@@ -18,7 +18,7 @@
 
 #include "Transactor.gen.h"
 
-namespace Durin { class FArrayProperty; class DTransactor; class DTransBuffer; class FTransactorReloadParticipant; class DEditorEngine; }
+namespace Durin { class DTransactor; class DTransBuffer; class DEditorEngine; }
 
 namespace Durin
 {
@@ -52,7 +52,6 @@ namespace Durin
 	class FTransaction : public ITransaction
 	{
 		friend class ::Durin::DTransBuffer;
-		friend class ::Durin::FTransactorReloadParticipant;
 	protected:
 		// One canonical whole-object serialized owner, captured before mutation.
 		class FWholeObjectData
@@ -70,9 +69,6 @@ namespace Durin
 			DURINED_API auto BuildObjectEvents(const FTransactionContext& Context,
 				ETransactionObjectEventType Type, const std::shared_ptr<ITransactionObjectAnnotation>& Annotation) const
 				-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>;
-			DURINED_API auto Snapshot(const FTransactionContext& Context, std::span<const FProperty* const> Selected)
-				-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>;
-			auto ClearSnapshot() -> void { SnapshotState.reset(); std::vector<FName>().swap(SelectedSnapshotProperties); }
 			auto GetReplayAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation> { return SerializedObjectFlip->Annotation; }
 			DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 			DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
@@ -101,74 +97,22 @@ namespace Durin
 					&& Observation.SerializationContext && Other.Observation.SerializationContext
 					&& Observation.SerializationContext->IsCompatibleWith(*Other.Observation.SerializationContext); }
 			};
-			static auto Capture(DObject& Object, const FSerializedObject* Policy = nullptr,
-				const std::shared_ptr<ITransactionObjectAnnotation>* AnnotationPolicy = nullptr)
+			static auto Capture(DObject& Object, const FSerializedObject* Policy = nullptr)
 				-> std::expected<FSerializedObject, std::string>;
 			FPersistentObjectRef Target;
 			std::optional<FSerializedObject> SerializedObject;
 			std::optional<FSerializedObject> SerializedObjectFlip;
-			std::optional<FSerializedObject> SnapshotState;
 			bool bFinalized = false;
 			std::optional<FTransactionObjectChange> FinalizedChange;
-			std::vector<FName> SelectedSnapshotProperties;
 		};
 
-		// UE-style operation record. Resolve reflected storage anew after every vector
-		// relocation; only the affected elements are owned by the history entry.
-		class FArrayData
-		{
-		public:
-			DURINED_API static auto Capture(const FTransactionArrayCapture& Request)
-				-> std::expected<FArrayData, std::string>;
-			DURINED_API auto HasExpired() const noexcept -> bool;
-			DURINED_API auto Validate() const -> FTransactionCaptureResult;
-			auto ValidateSourceRange(bool bFirstLoad) const -> FTransactionCaptureResult;
-			DURINED_API auto CaptureInverse() -> void;
-			DURINED_API auto Apply(EPropertyChangeOrigin Origin) -> void;
-			auto ClearPreparedReplay() -> void { Inverse.reset(); CompletionAnnotation.reset(); InverseAnnotation.reset(); ReplayChange.reset(); }
-			auto IsNoOp() const -> bool { return Count == 0; }
-			auto GetTarget() const -> const FPersistentObjectRef& { return Target; }
-			auto GetReplayAnnotation() const -> const std::shared_ptr<ITransactionObjectAnnotation>& { return CompletionAnnotation; }
-			DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
-			DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
-			DURINED_API auto GetAffectedPackages() const -> std::vector<DPackage*>;
-			DURINED_API auto HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool;
-			DURINED_API auto Reinstance(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
-			DURINED_API auto BuildObjectEvents(const FTransactionContext& Context,
-				ETransactionObjectEventType Type) const
-				-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>;
-
-		private:
-			struct FElement
-			{
-				FPropertyValueSnapshotPayload Payload;
-				std::vector<FPersistentObjectRef> HardReferences;
-				auto operator==(const FElement&) const -> bool = default;
-			};
-			using FRange = std::vector<FElement>;
-			auto ResolveContainer() const -> void*;
-			auto CaptureRange(size_t Num) const -> std::expected<FRange, std::string>;
-			FPersistentObjectRef Target, Class;
-			const FArrayProperty* Member = nullptr;
-			FName MemberName;
-			std::vector<const FProperty*> StructPath;
-			uint32 MemberIndex = 0;
-			size_t Index = 0, Count = 0;
-			int8 Oper = 0;
-			FRange Data;
-			std::optional<FRange> Inverse;
-			std::optional<FTransactionObjectChange> ReplayChange;
-			std::shared_ptr<ITransactionObjectAnnotation> Annotation, InverseAnnotation, CompletionAnnotation;
-		};
-
-		// One ordered entry for SaveObject, SaveArray or StoreUndo.
+		// One ordered entry for SaveObject or StoreUndo.
 		class FObjectRecord
 		{
 		public:
 			explicit FObjectRecord(FWholeObjectData Record)
 				: Data(std::move(Record)) {}
-			explicit FObjectRecord(FArrayData Record) : Data(std::move(Record)) {}
-			DURINED_API explicit FObjectRecord(std::unique_ptr<FCommandChange> Change, DObject* Object = nullptr);
+			DURINED_API explicit FObjectRecord(std::unique_ptr<FCommandChange> Change);
 
 			DURINED_API auto HasExpired() const noexcept -> bool;
 			DURINED_API auto Validate() const -> FTransactionCaptureResult;
@@ -183,18 +127,14 @@ namespace Durin
 			DURINED_API auto IsOwnedByModule(std::string_view ModuleName) const -> bool;
 			DURINED_API auto GetModifiedObjects() const -> std::vector<DObject*>;
 			DURINED_API auto CaptureInverse() -> void;
-			DURINED_API auto ClearPreparedReplay() -> void;
 			DURINED_API auto Reinstance(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
 			DURINED_API auto HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool;
 
 		private:
 			friend class FTransaction;
 			friend class DTransBuffer;
-			friend class ::Durin::FTransactorReloadParticipant;
 			auto GetReplayAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>;
-			std::variant<FWholeObjectData, FArrayData,
-				std::unique_ptr<FCommandChange>> Data;
-			FPersistentObjectRef CustomObject;
+			std::variant<FWholeObjectData, std::unique_ptr<FCommandChange>> Data;
 			FTransactionObjectReferenceSet ModifiedObjects;
 			FTransactionObjectReferenceSet DeclaredPackages;
 		};
@@ -210,9 +150,7 @@ namespace Durin
 		DURINED_API auto SetPrimaryObject(DObject* Object) -> void override;
 		DURINED_API auto BeginOperation() -> FTransactionCaptureResult override;
 		DURINED_API auto EndOperation() -> FTransactionCaptureResult override;
-		DURINED_API auto StoreUndo(DObject* Object, std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult override;
-		DURINED_API auto SnapshotObject(DObject* Object, std::span<const FProperty* const> Properties = {}) -> FTransactionCaptureResult override;
-		DURINED_API auto SaveArray(const FTransactionArrayCapture& Capture) -> FTransactionCaptureResult override;
+		DURINED_API auto StoreUndo(std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult override;
 		DURINED_API auto ContainsPieObjects() const -> std::expected<bool, std::string> override;
 		auto GetRecordCount() const -> size_t { return Records.size(); }
 		DURINED_API auto RemoveNoOpRecords() -> void;
@@ -236,14 +174,10 @@ namespace Durin
 		friend class DTransBuffer;
 		struct FReplayResult
 		{
-			std::vector<size_t> AppliedRecords;
-			std::vector<size_t> SkippedRecords;
 			std::vector<std::pair<FObjectKey, bool>> LifecycleSources;
-			// Only packages with skipped records need special dirty-state handling.
-			std::unordered_map<DPackage*, bool> PackagesWithSkippedRecords;
 			std::string Details;
 		};
-		auto PrepareReplay(bool bUndo, FReplayResult& Replay) const -> FTransactionCaptureResult;
+		auto PrepareReplay(bool bUndo, FReplayResult& Replay, bool bCheckExpiry = true) const -> FTransactionCaptureResult;
 		auto Reinstance(const FObjectReplacementMap& Map, std::vector<DPackage*>* OutPreReloadPackages = nullptr)
 			-> FTransactionCaptureResult;
 		auto ApplyPrepared(bool bUndo, FReplayResult& Replay) -> void;
@@ -260,22 +194,16 @@ namespace Durin
 		mutable bool bBusy = false;
 		bool bFinalized = false;
 		bool bNotifyingPreFinalize = false;
-		bool bObjectEventFailed = false;
 		std::optional<std::string> FailureReason;
 		friend struct FTransBufferTestAccess;
-		DURINED_API auto AddRecord(std::unique_ptr<FCommandChange> Change, DObject* Object = nullptr) -> uint64;
-		struct FRecordedObject
-		{
-			size_t WholeRecord = 0; // One-based position in Records.
-			bool bCustomOwner = false;
-		};
-		using FObjectIndex = std::unordered_map<FPersistentObjectRef, FRecordedObject>;
-		static auto IndexRecord(FObjectIndex& Index, const FObjectRecord& Record, size_t Position) -> void;
+		DURINED_API auto AddRecord(std::unique_ptr<FCommandChange> Change) -> uint64;
+		// Participants without a whole-object snapshot have position zero.
+		using FObjectIndex = std::unordered_set<FPersistentObjectRef>;
+		static auto IndexRecord(FObjectIndex& Index, const FObjectRecord& Record) -> void;
 		auto SavePackage(DPackage* Package) -> void;
 		auto PreparePackageRecords() -> void;
 		auto GetCaptureIndex() -> FObjectIndex&;
 		auto AppendRecord(FObjectRecord&& Record) -> size_t;
-		auto FindWholeRecord(DObject* Object) -> size_t;
 		std::unique_ptr<FObjectIndex> CaptureIndex;
 		DTransBuffer* RecordingOwner = nullptr;
 		FTransactionId Id = 0;
@@ -292,7 +220,7 @@ namespace Durin
 namespace Durin
 {
 	struct FTransBufferTestAccess;
-	class FTransactorReloadParticipant;
+	class FTransactorReplacementParticipant;
 
 	// Synchronous notifications for the lifetime of an outer recording.
 	enum class ETransactionStateEventType : uint8
@@ -313,9 +241,9 @@ namespace Durin
 		DURINED_API virtual auto End() -> int32 = 0;
 		DURINED_API virtual auto Cancel(int32 StartIndex = 0) -> void = 0;
 		DURINED_API virtual auto IsActive() const -> bool = 0;
-		DURINED_API virtual auto StoreUndo(DObject* Object, std::unique_ptr<FCommandChange> Change, std::string* OutError = nullptr) -> bool = 0;
-		auto StoreUndo(std::unique_ptr<FCommandChange> Change, std::string* OutError = nullptr) -> bool
-		{ return StoreUndo(nullptr, std::move(Change), OutError); }
+		// Store an already-applied command. Its declared participants suppress later Modify() snapshots.
+		// Call Modify() before the first write to keep a whole-object baseline alongside the command.
+		DURINED_API virtual auto StoreUndo(std::unique_ptr<FCommandChange> Change, std::string* OutError = nullptr) -> bool = 0;
 		DURINED_API virtual auto Undo(bool bCanRedo = true) -> bool = 0;
 		// Delayed history actions must supply the ID they were created for.
 		DURINED_API virtual auto UndoExpected(FTransactionId ExpectedId, std::string* OutError = nullptr) -> bool = 0;
@@ -371,8 +299,7 @@ namespace Durin
 		DURINED_API auto End() -> int32 override;
 		DURINED_API auto Cancel(int32 StartIndex = 0) -> void override;
 		auto IsActive() const -> bool override { return ActiveCount != 0; }
-		DURINED_API auto StoreUndo(DObject* Object, std::unique_ptr<FCommandChange> Change, std::string* OutError = nullptr) -> bool override;
-		using DTransactor::StoreUndo;
+		DURINED_API auto StoreUndo(std::unique_ptr<FCommandChange> Change, std::string* OutError = nullptr) -> bool override;
 		DURINED_API auto Undo(bool bCanRedo = true) -> bool override;
 		DURINED_API auto UndoExpected(FTransactionId ExpectedId, std::string* OutError = nullptr) -> bool override;
 		DURINED_API auto Redo() -> bool override;
@@ -396,10 +323,6 @@ namespace Durin
 		DURINED_API auto ForgetPackage(DPackage& Package) -> void override;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
-		// Notification after native instance replacement. Package reload uses its
-		// publication participant to retire entries and reconcile saved checkpoints.
-		DURINED_API auto OnObjectsReinstanced(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
-
 		auto GetMemoryBudget() const -> size_t { return MemoryBudget; }
 		// Matches UE: counts transactions already undone and available for Redo.
 		auto GetUndoCount() const -> size_t override { return History.size() - Cursor; }
@@ -409,23 +332,23 @@ namespace Durin
 
 	private:
 		friend class FTransaction;
-		friend class FTransactorReloadParticipant;
+		friend class FTransactorReplacementParticipant;
 
 		// Mutating blocks reentry. Inspection also blocks recursive head queries,
 		// and finalization hides entries while the buffer publishes or retires them.
 		enum class EHistoryGuard : uint8 { None, Mutating, Notifying, Inspecting, Finalizing };
-		struct FHistoryGuardScope;
-		auto OwnsRecording() const -> bool { return ActiveCount > 0 && Pending && GUndo == Pending; }
+		auto OwnsRecording() const -> bool { return ActiveCount > 0 && Pending && GUndo == Pending.get(); }
 		auto IsHistoryIdle() const -> bool { return Guard == EHistoryGuard::None && !Pending && !IsActive(); }
 		auto CanAccessReplayHistory() const -> bool { return IsHistoryIdle() && !GUndo && !GIsTransacting; }
 		auto CanInspectReplayHistory() const -> bool
-		{ return CanAccessReplayHistory() || (Guard == EHistoryGuard::Notifying && ActiveCount == 0); }
+		{ return CanAccessReplayHistory() || (Guard == EHistoryGuard::Notifying && !Pending && ActiveCount == 0); }
 		auto AppendCommandRecord(FTransaction::FObjectRecord&& Record) -> void;
-		auto RestoreRecordingHistory() -> void;
 		auto ReleaseRecording() -> void;
 		auto CheckThread() const -> void;
 		auto FinalizePending(FTransactionContext& PostContext) -> void;
 		auto ClearHistory(std::string Reason) -> void;
+		auto OnObjectsReinstanced(const FObjectReplacementMap& Map, bool bPackageReload,
+			std::vector<std::unique_ptr<FTransaction>>& Retired) -> void;
 		auto RemapUndoBarriers(size_t First, size_t Count) -> void;
 		auto CanReplayInHost(std::string* Reason) const -> bool;
 		auto Replay(bool bUndo, std::optional<FTransactionId> ExpectedId = std::nullopt,
@@ -436,15 +359,18 @@ namespace Durin
 		FTransactionId NextTransactionId = 1;
 		int32 ActiveCount = 0;
 		std::string ResetReason;
-		FTransaction* Pending = nullptr;
-		std::vector<std::unique_ptr<FTransaction>> RemovedTransactions;
-		size_t PreviousUndoCount = 0;
+		std::unique_ptr<FTransaction> Pending;
+		size_t BudgetPrefixCount = 0;
 		std::vector<std::unique_ptr<FTransaction>> History;
 		size_t Cursor = 0;
 		std::vector<size_t> UndoBarriers;
 
 		friend struct FTransBufferTestAccess;
 	};
+
+	// Register with the publisher of an explicit old-to-new instance map.
+	DURINED_API auto CreateTransactorReplacementParticipant(DTransBuffer& Transactor)
+		-> std::shared_ptr<IObjectReplacementParticipant>;
 
 	// Prepares retained history against the same checked graph map. Unsupported
 	// state retires its whole transaction. Busy or changed buffers reject publication.
@@ -455,7 +381,7 @@ namespace Durin
 
 namespace Durin
 {
-	// Unwind before the active editor is replaced.
+	// After cancellation, unwind outstanding scopes before starting an independent recording or replacing the editor.
 	class FScopedTransaction
 	{
 	public:
@@ -465,11 +391,8 @@ namespace Durin
 		FScopedTransaction(const FScopedTransaction&) = delete;
 		auto operator=(const FScopedTransaction&) -> FScopedTransaction& = delete;
 		DURINED_API auto Cancel() -> void;
-		DURINED_API auto IsRecordingCurrent() const -> bool;
 		auto IsOutstanding() const -> bool { return StartIndex >= 0; }
 	private:
-		TWeakObjectPtr<DTransactor> RecordingOwner;
-		FTransactionId RecordingId = 0;
 		int32 StartIndex = -1;
 	};
 }

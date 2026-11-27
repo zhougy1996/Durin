@@ -37,7 +37,6 @@ namespace Durin::Tests::ObjectState
 	struct FRecordAccess : FTransaction
 	{
 		using Record = FWholeObjectData;
-		static auto CaptureArray(const FTransactionArrayCapture& Request) { return FArrayData::Capture(Request); }
 		static auto Capture(DObject& Object) { return FWholeObjectData::CaptureWhole(Object); }
 	};
 
@@ -69,7 +68,6 @@ namespace Durin::Tests::ObjectState
 		FRecordTestAnnotation(int32 InValue, Durin::DObject* InReference, size_t InBytes = sizeof(FRecordTestAnnotation))
 			: Value(InValue), Reference(InReference), Bytes(InBytes) {}
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override { Reference.AddReferencedObjects(Collector); }
-		auto Serialize(Durin::FArchive& Archive) -> void override { Archive << Value; }
 		auto GetAllocatedSize() const -> size_t override { return Bytes; }
 		auto ComputeAdditionalObjectChanges(const Durin::ITransactionObjectAnnotation* Original) const
 			-> std::vector<std::pair<Durin::DObject*, Durin::FTransactionObjectChange>> override
@@ -426,7 +424,14 @@ namespace Durin::Tests::ObjectState
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
-		{ return {}; }
+		{
+			if (auto* Object = Participant.Resolve()) return {Object};
+			return {};
+		}
+
+		FTestCustomChange(Durin::DObject* InParticipant, int& InValue, int InBefore, int InAfter)
+			: FTestCustomChange(InValue, InBefore, InAfter)
+		{ Participant = Durin::FPersistentObjectRef::FromKey(Durin::FObjectKey(InParticipant)); }
 
 		FTestCustomChange(int& InValue, int InBefore, int InAfter,
 			Durin::DObject* InReference = nullptr,
@@ -441,16 +446,16 @@ namespace Durin::Tests::ObjectState
 		{
 			return Details;
 		}
-		auto Revert(Durin::DObject* Object) -> void override
+		auto Revert() -> void override
 		{
-			if (ReplayProbe) ReplayProbe(Object);
+			if (ReplayProbe) ReplayProbe();
 			if (bFailUndo) { throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation})); }
 			Value = Before;
 			bOverflowed = false;
 		}
-		auto Apply(Durin::DObject* Object) -> void override
+		auto Apply() -> void override
 		{
-			if (ReplayProbe) ReplayProbe(Object);
+			if (ReplayProbe) ReplayProbe();
 			if (bFailRedo)
 			{
 				throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation,
@@ -464,6 +469,7 @@ namespace Durin::Tests::ObjectState
 		}
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{
+			Participant.AddReferencedObjects(Collector);
 			Durin::DObject* Object = Reference.Get();
 			if (Object) Collector.AddReferencedObject(Object);
 			if (Object != Reference.Get()) Reference = Object;
@@ -474,6 +480,7 @@ namespace Durin::Tests::ObjectState
 		}
 		auto GetOwningModule() const -> std::string_view override { return Module; }
 
+		Durin::FPersistentObjectRef Participant;
 		int& Value;
 		int Before = 0;
 		int After = 0;
@@ -486,7 +493,7 @@ namespace Durin::Tests::ObjectState
 		bool bGrowOnRedo = false;
 		bool bOverflowOnRedo = false, bOverflowed = false;
 		bool bThrowRedo = false;
-		std::function<void(Durin::DObject*)> ReplayProbe;
+		std::function<void()> ReplayProbe;
 	};
 
 	// Qualifies expression-style deletion: history owns the detached child, not a garbage object.
@@ -496,13 +503,13 @@ namespace Durin::Tests::ObjectState
 		FDeclaredParticipantChange(DTransactionRecordParticipant* InFirst,
 			DTransactionRecordParticipant* InSecond, Durin::DObject* InDependency)
 			: First(InFirst), Second(InSecond), Dependency(InDependency) {}
-		auto HasExpired(Durin::DObject*) const noexcept -> bool override { return !Durin::IsValid(First) || !Durin::IsValid(Second); }
+		auto HasExpired() const noexcept -> bool override { return !Durin::IsValid(First) || !Durin::IsValid(Second); }
 		auto GetDescription() const -> std::string_view override { return "Declared composite participants"; }
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
 		{ return {First, Second, First, nullptr}; }
-		auto Apply(Durin::DObject*) -> void override
+		auto Apply() -> void override
 		{ First->Value += 3; Second->Value += 5; }
-		auto Revert(Durin::DObject*) -> void override
+		auto Revert() -> void override
 		{ First->Value -= 3; Second->Value -= 5; }
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{ Dependency.AddReferencedObjects(Collector); }
@@ -523,12 +530,12 @@ namespace Durin::Tests::ObjectState
 			: Owner(InOwner), Child(InChild), HistoryOuter(InHistoryOuter) {}
 
 		auto GetDescription() const -> std::string_view override { return "Detach owned child"; }
-		auto Revert(Durin::DObject*) -> void override
+		auto Revert() -> void override
 		{
 			Child->SetOuterPrivate(Owner);
 			Owner->Hard = Child;
 		}
-		auto Apply(Durin::DObject*) -> void override
+		auto Apply() -> void override
 		{
 			Owner->Hard = nullptr;
 			Child->SetOuterPrivate(HistoryOuter);

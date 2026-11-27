@@ -51,6 +51,7 @@ durin_add_native_test(RoadViewportQualificationTests
 		${_road_level_editor_private}/Viewport/ViewportPickingService.cpp
 		${_road_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 		${_road_level_editor_private}/Viewport/TransformGizmo.cpp
+		${_road_level_editor_private}/Viewport/TransformProxy.cpp
 		${_road_level_editor_private}/Workspace/LevelEditorContext.cpp
 	LIBRARIES RoadWeaver Engine DurinEd Renderer MeshBuilder Mona MonaImGui
 	INCLUDE_DIRECTORIES ${_road_level_editor_private}

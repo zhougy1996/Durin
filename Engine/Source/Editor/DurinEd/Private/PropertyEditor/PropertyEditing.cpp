@@ -414,7 +414,7 @@ namespace Durin
 	{
 		void CheckPropertyEditFinish(const std::optional<FScopedTransaction>& Scope, std::string_view Operation)
 		{
-			if (Scope && Scope->IsRecordingCurrent())
+			if (Scope && Scope->IsOutstanding() && GUndo)
 				requiref(GEditor->GetTransactor()->CanTransact(),
 					"FPropertyEdit::{} cannot finish transaction {} during a protected transaction operation.",
 					Operation, GUndo->GetContext().TransactionId);
@@ -620,6 +620,7 @@ namespace Durin
 	{
 		if (OutChanged) *OutChanged = false;
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
+		if (!CheckRecording(OutError)) return false;
 		const auto Owner = TargetObject;
 		const auto WriteTarget = *Handle.PathTarget;
 		FPropertyValueSnapshotPayload LiveValue;
@@ -661,15 +662,18 @@ namespace Durin
 		return bActive && Handle.PathTarget->MatchesContinuousEdit(Other);
 	}
 
+	auto PropertyEditor::FPropertyEdit::CheckRecording(std::string* OutError) -> bool
+	{
+		if (!TransactionScope || GUndo) return true;
+		Reset(false);
+		return FailPropertyEdit(OutError, "The property transaction is no longer active.");
+	}
+
 	auto PropertyEditor::FPropertyEdit::Commit(std::string* OutError) -> bool
 	{
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
 		if (bCommitting) return true;
-		if (TransactionScope && !TransactionScope->IsRecordingCurrent())
-		{
-			Reset(false);
-			return FailPropertyEdit(OutError, "The property transaction is no longer active.");
-		}
+		if (!CheckRecording(OutError)) return false;
 		CheckPropertyEditFinish(TransactionScope, "Commit");
 		const auto& Target = *Handle.PathTarget;
 		if (!TargetObject.IsValid() || !Target.Object->CanEditChange(Target.MemberProperty))
@@ -697,6 +701,7 @@ namespace Durin
 	auto PropertyEditor::FPropertyEdit::Cancel(std::string* OutError) -> bool
 	{
 		if (bCommitting) return true;
+		if (!CheckRecording(OutError)) return false;
 		CheckPropertyEditFinish(TransactionScope, "Cancel");
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
 		std::string Error;

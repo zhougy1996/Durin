@@ -301,11 +301,11 @@ namespace Durin::MainFrame
 		public:
 			FChange(int& InValue, int InDelta, std::string_view InDescription, const bool* InExpired = nullptr)
 				: Value(InValue), Delta(InDelta), Description(InDescription), Expired(InExpired) {}
-			auto Apply(Durin::DObject*) -> void override { Value += Delta; }
-			auto Revert(Durin::DObject*) -> void override { Value -= Delta; }
+			auto Apply() -> void override { Value += Delta; }
+			auto Revert() -> void override { Value -= Delta; }
 			auto GetModifiedObjects() const -> std::vector<DObject*> override { return {}; }
 			auto GetDescription() const -> std::string_view override { return Description; }
-			auto HasExpired(DObject*) const noexcept -> bool override { return Expired && *Expired; }
+			auto HasExpired() const noexcept -> bool override { return Expired && *Expired; }
 		private:
 			int& Value;
 			int Delta;

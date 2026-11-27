@@ -69,9 +69,9 @@ namespace
 		{
 			return Package;
 		}
-		auto Revert(Durin::DObject*) -> void override
+		auto Revert() -> void override
 		{}
-		auto Apply(Durin::DObject*) -> void override
+		auto Apply() -> void override
 		{}
 
 	private:

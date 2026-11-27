@@ -4,7 +4,7 @@ Summary: Define UE-shaped native recording, synchronous Undo/Redo, package dirty
 
 Modules: Core, CoreDObject, Engine, DurinEd
 
-Last reviewed: 2026-11-24
+Last reviewed: 2026-11-28
 
 ## Service Ownership
 
@@ -45,21 +45,22 @@ current transaction context while the recording depth is one and GUndo still poi
 the recording. Listeners may open and close nested transactions and call Modify.
 Those edits join the outer entry. A nested End returns its previous depth and
 does not broadcast again. A direct recursive End at depth one is refused.
-If a listener retires the recording, the original End leaves any replacement
-recording alone. A listener exception on the current recording follows the
-recording failure contract. After listeners return, End decrements the depth
+A listener that retires the recording returns control to the initiating caller
+before anyone begins an independent recording. A listener exception on the
+current recording follows the recording failure contract. After listeners return, End decrements the depth
 and finalizes at zero.
 
 `Cancel(StartIndex)` cancels the entire recording, including from an inner
 scope. Applied edits remain. The start index is a nesting depth. The baseline
 for these semantics is [UE 5.8.0, CL 53629095](../../../Plans/Archive/2026-10/UE58TransactionArchitecture.md#reference-identity-and-reproduction).
 
-`FScopedTransaction` pairs Begin with End or Cancel on the original editor
-and recording. A disabled scope leaves an enclosing recording available to
-Modify and StoreUndo. After external cancellation, `IsOutstanding()` can
-still be true while `IsRecordingCurrent()` is false. The old scope can unwind
-safely after a replacement recording starts. Scopes are noncopyable and
-nonmovable. Independent buffer users pair Begin with End or Cancel directly.
+A scoped recording keeps its Begin index until Cancel or destruction. A disabled
+scope leaves the enclosing recording available. After external cancellation or
+Reset, callers must unwind all outstanding scopes before beginning an independent
+recording. A late scope destructor can otherwise end the new recording.
+This applies across property gesture events and Python yields. Canceling a scope
+releases its own index immediately. Scopes are noncopyable and nonmovable.
+Independent buffer users pair Begin with End or Cancel directly.
 
 ### Everyday Object Editing
 
@@ -104,13 +105,12 @@ An unchanged or canceled default call can therefore leave a dirty package withou
 
 ## Structural History And Barriers
 
-`DTransactor::GetQueueLength()` reports the visible queue length, including
-the active entry during recording. `GetTransaction(Index)` reads an entry in that history.
+`DTransactor::GetQueueLength()` reports the committed queue length. `GetTransaction(Index)` reads an entry in that history.
 `DTransBuffer::GetUndoCount()` counts retained transactions after the cursor,
 including expired entries crossed by Undo. `GetQueueLength() - GetUndoCount()`
 counts entries before the cursor. Redo moves entries across the cursor.
-Outermost Begin hides the Redo suffix and sets `GetUndoCount()` to zero.
-An effective End permanently discards that suffix. IDs remain monotonic across
+Throughout recording, the cursor and Redo suffix retain their committed positions.
+An effective outermost End replaces the Redo suffix with the new entry. IDs remain monotonic across
 Reset. Ordinary `Undo(bool bCanRedo = true)` and `Redo()` need no expected ID;
 `Undo(false)` discards the redo suffix. Delayed notification actions use
 `UndoExpected` and `RedoExpected` with the nonzero ID captured from their event.
@@ -119,13 +119,13 @@ head. Invocation checks the ID again before advancing history.
 `CanUndo`/`CanRedo` can explain unavailability;
 Reset retains a caller-supplied reason. GetUndoContext/GetRedoContext return
 owned context values for the adjacent queue entry, including an expired entry. GetUndoContext() is empty
-when Undo is unavailable. GetUndoContext(false) returns the active queue tail while
-recording. GetRedoContext() is empty when Redo is unavailable. Workspace label
+when Undo is unavailable. GetUndoContext(false) returns the committed entry before the cursor, including during
+recording. The current recording exposes its context through `GUndo`. GetRedoContext() is empty when Redo is unavailable. Workspace label
 adapters derive owned strings from these contexts, so labels survive history
 replacement/reset. The transactor has no separate description-query interface.
 
-`FCommandChange::HasExpired(DObject*)` and captured object annotations can
-declare a record ineligible for replay. The buffer advances past wholly expired history
+`FCommandChange::HasExpired()` and captured object annotations can
+expire an entire entry when any one record reports expiry. The buffer advances past expired
 entries without publishing Undo or Redo events and applies the next eligible
 entry within the undo barrier. Each candidate crosses the cursor before its
 expiry check. During Apply, GetUndoCount and GetUndoContext(false) see that
@@ -134,10 +134,9 @@ drops the Redo suffix after each candidate, including each expired entry.
 Guarded replay refuses a mismatched or expired head. A read-only record refusal
 leaves the rejected candidate on its original side; already crossed expired
 entries stay consumed in that direction.
-The transaction selects the records once per replay. Object events use that
-selection and its completion annotations. The buffer consumes the transaction's
-package outcomes and event details after success. Expiry is evaluated again for the next operation. A package touched only by skipped records keeps its
-dirty state. A package touched by both kinds is marked dirty.
+Expiry is evaluated once per candidate on each operation. Crossing an expired entry
+leaves its objects and package checkpoints untouched. An admitted transaction
+replays every record and exchanges its package dirty checkpoints after success.
 
 Command details describe the recorded edit in its original direction. Undo and Redo treat these strings as optional presentation data. A
 throwing detail provider emits a diagnostic and contributes an empty string;
@@ -145,8 +144,9 @@ other records can still supply details. An exception from required replay work w
 
 IsActive() reports whether this buffer's recording depth is positive. ActiveCount
 and the pending transaction's ownership of GUndo identify the recording.
-CanTransact() permits new or nested edits outside capture and guarded history
-operations. The pre-finalization listener can still open and close nested edits.
+CanTransact() lets callers resume editor work outside capture and guarded history
+operations. Callers own the lifetime of outstanding scopes across suspension.
+The pre-finalization listener can still open and close nested edits.
 
 Undo and Redo share the same replay admission check: the buffer must be idle,
 GUndo must be clear, and the host must permit replay. The requested direction
@@ -154,6 +154,12 @@ selects the history head and completion delegate. Object events use UndoRedo in 
 guard the buffer against reentrant edits and replay. Cleanup and destruction
 also block mutation, inspection prevents recursive head queries, and finalization
 hides entries while the buffer publishes or retires them.
+
+During `UndoRedoStarted`, the buffer's notification state and `GIsTransacting`
+prevent listeners from starting an edit or another replay. The transaction's
+own busy flag protects record capture, command insertion, finalization, replay
+preparation and application, and inspection callbacks that can access the
+transaction directly through `ITransaction`.
 
 Reset cancels the complete active recording and purges history, barriers and per-entry package records without reverting applied edits or clearing package
 dirty flags. It snapshots the reason before invoking record destructors and
@@ -176,13 +182,13 @@ ID. CanTransact, CanUndo and CanRedo all reject another buffer's live GUndo;
 unavailable history queries return a nonempty explanation.
 
 PIE membership comes from the package's session flag. `ContainsPieObjects()`
-examines the visible queue, including the active entry and both recorded sides.
+examines the independent pending transaction and committed entries on both sides of the cursor.
 It follows declared strong references from targets, primary context, commands,
 annotations, array values and package transitions. Weak and soft references
 retain their usual semantics. The buffer query conservatively returns true on a
 busy traversal or inspection error.
 
-Typed arrays reject PIE owners before mutation. Outermost End treats an entry
+Outermost End treats an entry
 with PIE references as transient. During replay, an existing PIE reference
 rejects admission. All inverses are inspected after capture and before the first load. A PIE
 reference at that point is an execution fault. Load and completion callbacks can
@@ -212,40 +218,33 @@ transaction ID, live operation ID, recorded delta, original identity and
 current annotation. Record events precede their annotation's additional events;
 `CreatedBy` distinguishes these sources, matching the pinned UE implementation.
 An object can receive both sources; additional events carry no primary annotation.
-Finalized annotation deltas compare both the initial annotation and the last
-snapshot annotation so returning to the initial state still closes an observed edit.
-
-`SnapshotObject` observes an existing serialized record during active recording.
-Selected top-level properties accumulate; an unfiltered request stays unfiltered.
-Uncaptured, custom-only and finalized records are skipped, as in UE.
-Each call compares with its previous observation, initially the undo before-state.
-The observation baseline never changes undo storage or creates another history
-entry. Whole records retain a full observation and filter reported property names;
-native and identity changes remain visible. Observation storage is released
-after finalization.
+Finalize computes field and annotation changes from the initial and final state.
+During a multi-frame edit, the property editor delivers interactive updates and its
+terminal property notification. Transaction object events begin at finalization.
 
 No-op records without annotations, canceled recordings and custom-only commands
 produce no serialized object event. A failed record stops further record application. Synchronous notifications already delivered remain observable.
-During capture and object-event dispatch, Begin, End, Cancel, capture, snapshot, record changes
+During capture and object-event dispatch, Begin, End, Cancel, capture, record changes
 and operation closure cannot invalidate the in-flight records. Modify still reports
 existing membership and may mark a package dirty; it is not an edit veto.
 
-`FCommandChange` owns synchronous `void Apply(DObject*)` and `void Revert(DObject*)` behavior, descriptive data,
-package effects, module ownership, byte accounting, and GC references. Domains
-execute changes and call `StoreUndo(Object, Change)` to retain already-applied
-undo data. The following rules apply to the same explicitly bound object across
-all scopes in one recording. UE 5.8 checks the object's existing records in
-`SaveObject` and appends each command in `StoreUndo`.
+Domains call `StoreUndo(Change)` after applying the edit. The command owns the targets
+used by `Apply()`, `Revert()` and `HasExpired()`. Recording freezes the objects
+declared by `GetModifiedObjects()` for membership, notification and package tracking.
 
-| First call | Later call | Retained records and replay |
-| --- | --- | --- |
-| `StoreUndo(Object, Change)` | `Object->Modify()` | The command claims this object. Modify can report true while adding no whole-object baseline. Undo calls Revert and Redo calls Apply. Later writes that the command does not describe have no separate record. |
-| `Object->Modify()` | `StoreUndo(Object, Change)` | The whole-object baseline stays first and the command is appended. Undo reverts the command before restoring the object. Redo restores the object before applying the command. Callers must account for the whole object's captured fields when defining a custom change. |
+A command recorded first claims capture for every object it explicitly declares.
+A later `Modify()` on that participant adds no baseline, so the command must cover
+the edits that need replay. Collector-only dependencies remain eligible for capture.
+To combine a whole-object baseline with a command, call `Modify()` before the first
+write, then append the command. Undo reverts the command before loading the snapshot.
+Redo loads the snapshot before applying the command. Commands that also write a
+snapshotted field must restore explicit endpoints.
 
-Composite changes may use the `StoreUndo(Change)`
-convenience and must declare modified objects through `GetModifiedObjects()`.
-The explicit object argument binds the command to its owner. Recording freezes
-the declared participants separately from collector-only dependencies.
+Finalize uses the first recorded entry for each object's event data. Undo and Redo
+use the last entry visited in their respective traversal. With a snapshot followed
+by one command, Finalize and Undo use the snapshot. Redo selects the command and
+runs the completion hook without a field-diff event. Command-only participants
+receive one pre- and post-undo hook per replay in either direction.
 
 Open the owning scope before a synchronous domain edit. `StoreUndo` appends to
 the active recording, including a nested recording, and rejects idle or foreign
@@ -280,11 +279,10 @@ direction. The buffer selects direction from the cursor, including after it
 crosses expired entries. Undo and Redo return false on admission refusal or
 exhaustion of expired entries.
 Host, state, barrier, expected-head and read-only record validation refusals
-leave the rejected entry and its package dirty flags intact. An unresolved whole-object snapshot is skipped for
-this operation. A transaction containing only that snapshot still advances
-the cursor and reports success. Array records require a valid owner and range.
-Custom changes decide expiry through HasExpired. A fully expired entry is
-crossed while searching for the next eligible transaction.
+leave the rejected entry and its package dirty flags intact. If any whole-object
+target is unavailable, preflight rejects the entry before object hooks or writes.
+Restoring access to the recorded target allows retry with the same transaction ID.
+A recorded deletion grants replay access to the retained generation during preflight.
 
 Once execution begins, a required callback exception or a failed inverse,
 record application, completion, notification or publication is a programming or
@@ -338,24 +336,24 @@ The transitive object graph is excluded. `GetUndoSize()` measures the visible
 queue on demand. An empty queue reports zero. Arithmetic overflow or a busy
 nonempty queue reports `SIZE_MAX`.
 
-Outermost Begin sets aside the Redo suffix. With no Redo suffix it sets aside
-the oldest entries until the retained size is strictly below budget. Zero
-budget sets aside every old entry. Only the positive-budget trimming path
-measures history. Overflow or a throwing size callback rejects Begin before it
-changes the queue or barriers. End and replay do not measure history.
+Outermost Begin preflights the soft budget when the cursor is at the end of history.
+It counts the oldest entries to evict so the retained suffix of undoable history fits strictly below the budget. A zero budget schedules all old entries
+for eviction. A Redo suffix takes precedence over budget eviction. Only the
+positive-budget preflight measures bytes. Overflow or a throwing size callback
+rejects Begin before recording starts. End and replay do not measure history.
 
 | Transition | Queue visible to synchronous listeners |
 | --- | --- |
-| Outermost Begin | The new entry is the tail and `GUndo` points to it. `TransactionStarted` precedes `OnUndoBufferChanged`. Removed entries keep their strong references. |
-| Outermost End | `PreTransactionFinalized` runs at depth one and admits nested edits. `TransactionFinalized` runs at depth zero with the operation open and checked heads visible. An effective End keeps the entry and retires the entries set aside at Begin. |
-| Transient End | An empty, unchanged or PIE entry restores the previous order and cursor. `OnUndoBufferChanged` sees depth zero while `GUndo` still points to the retiring candidate. Both End paths finish with `PostTransactionFinalized` carrying the transaction ID. |
-| Cancel | `TransactionCanceled` sees the candidate. Cancel clears `GUndo`, restores the queue and broadcasts `OnUndoBufferChanged` before clearing the recording depth. |
+| Outermost Begin | The buffer owns the pending recording separately. `TransactionStarted` receives its context. Committed entries, cursor, barriers and byte count stay visible. Replay is disabled. |
+| Effective outermost End | `PreTransactionFinalized` admits nested edits at depth one. `TransactionFinalized` sees the pending context before publication. Publication replaces the Redo suffix or evicts the preflighted prefix, remaps barriers, appends the entry and advances the cursor. One `OnUndoBufferChanged` follows publication, then `PostTransactionFinalized` carries the committed ID. |
+| Transient End | Empty, unchanged and PIE recordings are discarded. The committed queue stays intact. `PostTransactionFinalized` carries the discarded ID. |
+| Cancel | `TransactionCanceled` receives the pending context. The buffer closes the recording and releases its records. |
 
 Reset retains the caller's unavailability reason.
 
 ## Collector And Shutdown Contract
 
-The reachable buffer enumerates visible transactions and entries set aside at Begin,
+The reachable buffer enumerates committed transactions and the pending recording, including their
 primary objects, targets, capture participants, package transitions, tracked
 package states, and domain-declared hard dependencies. Persistent references use
 exact object generations. Undo and Redo records retain explicitly reported

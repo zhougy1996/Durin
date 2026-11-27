@@ -60,7 +60,7 @@ actions redirect authoring to the owning Actor or authored input component.
 ## Reconstruction
 
 `RerunConstructionScripts()` runs synchronously on the game thread. Spawn,
-PostLoad, duplication, authored input notifications and editor completion use
+PostLoad, duplication and authored input notifications use
 this same entry point. It captures and validates component instance/root data,
 calls `DestroyConstructedComponents()`, invokes `ExecuteConstruction()`, then
 restores root and external attachment relationships. Native and instance-authored
@@ -68,7 +68,7 @@ components survive; generated components are destroyed and recreated on every
 pass. Consumers resolve generated components again after a request, using a
 stable source key rather than retaining a pointer to the previous generation.
 
-`ExecuteConstruction(const FTransform&, const FComponentInstanceDataCache*)`
+`ExecuteConstruction(const FTransform&, const FComponentInstanceDataCache&)`
 invokes the virtual `OnConstruction(const FTransform&)` notification and applies
 post-construction instance data. Durin currently has no Blueprint/SCS execution.
 The native hook is the supported producer of generated components; future
@@ -95,8 +95,7 @@ pass. Requests during Actor BeginPlay/EndPlay wait for that lifecycle boundary
 to settle before generated components can be destroyed.
 Destruction rejects new work. Construction callbacks request GC; the owner may
 collect only after the whole operation, including failure cleanup, has returned.
-`RerunConstructionScripts` returns success and accepts optional captured cache/root
-inputs; these are explicit Durin extensions to UE's no-argument void entry point.
+`RerunConstructionScripts()` returns whether the request succeeded.
 
 Runtime transform and attachment setters update the scene graph. Authored edits mark the package through the editor command or `Modify()`. Reconstruction can therefore repair poses and attachments on a clean level, while explicit edits made by a construction callback can dirty any affected package, including the Actor's own.
 
@@ -136,43 +135,25 @@ exact component reference never acquires a new generation by Name.
 
 Cache replacement prepares independent typed entries through the shared
 `CreateReplacement` implementation and publishes only after every reference check
-succeeds. `GetDataType` supplies a native descriptor registered with a stable name,
-construction and exact-type copy factories. Their coallocated native storage
-reuses existing `FDStructOps` construction, copy and destruction operations;
-no parallel struct lifetime table is maintained. This adapts UE's typed struct-storage
-facility; domain structs register through `RegisterType<T>` and override their
-normal Serialize, reference enumeration and reference replacement hooks as needed.
-The registered copy constructor must make mutable supplemental state independent;
-sharing immutable values is permitted. Registration must occur before archive loading (normally during module/owner
-initialization). Built-in descriptors are always available. A derived type that
-inherits an incompatible descriptor is rejected rather than sliced; duplicate
-type names and unknown archived types are rejected. No central list of concrete
-component data types or per-derived replacement clone is required. Native owners
-must retain the code module while data or its descriptor is in use.
+succeeds. A derived entry overrides `GetDataType()` with `CopyType<T>()`.
+Replacement checks the descriptor against the entry's dynamic type before invoking
+its C++ copy constructor. An inherited descriptor for a base class fails this check.
+The copy owns its mutable supplemental state and can share immutable values.
+Native owners retain the code module while its data and copy operations are in use.
 
-Every ordinary request captures the cache and shared
-`FActorRootComponentReconstructionData` before destroying generated components.
-A caller may supply an earlier capture to recreate a removed generated set;
-Undo/Redo supplies the same data from `FActorTransactionAnnotationData`. Supplied
-captures remain fixed for the synchronous request and its coalesced pass.
+Each ordinary pass captures the current component cache and root attachments before
+destroying generated components. Construction may choose a new root. A surviving child follows its recreated parent even when that parent is no longer the root. If ordinary construction removes the parent, the child keeps its post-teardown attachment state. During
+Undo/Redo the private reconstruction entry takes both the cache and attachments
+from the same historical Actor annotation when present. That annotation also
+supplies any coalesced pass, including the root identity it must restore.
 
-`ECacheApplyPhase` uses UE's `PostSimpleConstructionScript`,
-`PostUserConstructionScript` and `NonConstructionScript` names. The first phase
-is reserved for future template/SCS execution and is not emitted today. Since
-Durin currently generates components in native `OnConstruction`, the second
-phase follows that hook. This differs from UE's Blueprint path, whose SCS/UCS
-cache phases precede its final native OnConstruction notification. The third
-phase is available to domain supplemental data outside script construction.
+Each pass applies component instance data once after `OnConstruction` returns.
 A scene pose explicitly
 assigned during the native hook takes precedence over cached data, including
 same-value writes. Construction-owned fields are also omitted during cache capture.
 Tracking belongs to the component, with Actor's execution flag delimiting construction; automatic attachment and cache application do not
 acquire construction authority. Root and external attachment recovery follows
 the instance cache. No TLS construction-context stack remains.
-
-The cache's explicit archive path uses registered type names and each type's
-serializer; an unknown domain type reports an error rather than being omitted.
-It is in-process supplemental data, not a new package or generic undo format.
 
 ## Lifecycle And Reregistration
 
@@ -244,9 +225,8 @@ Actor annotations also retain `FDiffableComponentInfo` observations for generate
 components, matching UE's construction-script component event policy. Native and
 instance components report through their own object records; child-Actor support
 is not implemented. Observations use the shared serializer and diff engine, with
-reference slots projected to path FNames as in UE's diffable writer. They never
-load historical fields, retain old generated instances, or enter the annotation's
-serialized reconstruction data. The shared instance-source matcher pairs each
+reference slots projected to path FNames as in UE's diffable writer. The annotation uses these observations to compute events
+for live components after reconstruction. The shared instance-source matcher pairs each
 live generated component with the captured generation. Construction-owned
 `CreationMethod` and construction-modified `RelativeTransform` are excluded;
 the current root's relative transform remains observable. A newly generated live
@@ -254,7 +234,7 @@ component reports presence and its captured fields, without an unsupported
 archetype comparison; removed components have no live event target.
 
 These changes feed the existing annotation additional-change contract for
-Snapshot, Finalized and UndoRedo, including closure against the last snapshot.
+Finalize and UndoRedo. Each comparison uses the annotations at the two endpoints.
 Replay observes components after Actor reconciliation. Retained observation
 allocations count toward annotation memory, and checked graph replacement remaps
 their metadata and reference paths without live serialization or construction.
@@ -263,7 +243,7 @@ annotations remain independent of the original immutable snapshot.
 
 Actor annotations compose the shared component cache and root reconstruction
 data. The shared root data reconciles root identity and conditionally captures a
-generated root's world/relative transforms, parent, and external children. A replacement
+generated root's relative transform and parent, along with non-generated children attached to generated nodes. A replacement
 root receives its captured pose during post-construction recovery, which restores
 attachment reverse links and dependent world transforms.
 The annotation refresh adapter passes its prior shared root scope to capture.

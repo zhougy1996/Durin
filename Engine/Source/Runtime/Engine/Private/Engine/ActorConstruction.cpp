@@ -110,14 +110,14 @@ namespace Durin
 		if (PlayState == EActorPlayState::BeginningPlay || PlayState == EActorPlayState::Playing) Component->DispatchBeginPlay();
 	}
 
-	auto AActor::ExecuteConstruction(const FTransform& Transform, const FComponentInstanceDataCache* InstanceData) -> bool
+	auto AActor::ExecuteConstruction(const FTransform& Transform, const FComponentInstanceDataCache& InstanceData) -> bool
 	{
 		if (IsBeingDestroyed() || IsPendingKill()) return false;
 		if (bExecutingConstruction) throw std::runtime_error("ExecuteConstruction cannot be nested on the same Actor.");
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		bExecutingConstruction = true;
 		const auto* PreviousData = ConstructionInstanceData;
-		ConstructionInstanceData = InstanceData;
+		ConstructionInstanceData = &InstanceData;
 		struct FExecutionScope
 		{
 			AActor& Actor; const FComponentInstanceDataCache* PreviousData;
@@ -125,8 +125,6 @@ namespace Durin
 		} Scope{*this, PreviousData};
 		try
 		{
-			if (InstanceData)
-				if (auto Result = InstanceData->Validate(this); !Result) throw std::runtime_error(Result.error());
 			for (const auto& Component : GetComponentsSnapshot())
 				if (auto* Scene = Cast<DSceneComponent>(Component.Get())) Scene->ClearConstructionModifiedProperties();
 			if (GetRootComponent()) GetRootComponent()->SetWorldTransform(Transform);
@@ -134,10 +132,7 @@ namespace Durin
 			OnConstruction(Transform);
 			bRunningConstructionScript = false;
 			if (IsBeingDestroyed() || IsPendingKill()) throw std::runtime_error("Actor retired during construction.");
-			// No SCS implementation exists yet. Native construction currently creates
-			// all generated components; apply its post-construction cache once here.
-			if (InstanceData)
-				InstanceData->ApplyToActor(*this, ECacheApplyPhase::PostUserConstructionScript);
+			InstanceData.ApplyToActor(*this);
 			ValidateComponentOwnership();
 			NativeConstructionError.clear();
 			return true;

@@ -111,6 +111,7 @@ set(_durin_viewport_private_sources
 	${_durin_level_editor_private}/Viewport/ViewportPickingService.cpp
 	${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 	${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
+	${_durin_level_editor_private}/Viewport/TransformProxy.cpp
 	${_durin_level_editor_private}/Customizations/CameraEditorCustomizations.cpp
 	${_durin_level_editor_private}/Customizations/ActorComponentDetails.cpp
 	${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp

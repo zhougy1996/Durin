@@ -122,10 +122,7 @@ namespace Durin
 		ENGINE_API auto GetComponentsSnapshot() const -> std::vector<TObjectPtr<DActorComponent>>;
 		// Returns persistent native and instance-authored components only.
 		auto GetInstanceComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return InstanceComponents; }
-		ENGINE_API auto RerunConstructionScripts(const class FComponentInstanceDataCache* InstanceData = nullptr,
-			const struct FActorRootComponentReconstructionData* RootData = nullptr) -> bool;
-		ENGINE_API auto ExecuteConstruction(const FTransform& Transform,
-			const class FComponentInstanceDataCache* InstanceData = nullptr) -> bool;
+		ENGINE_API auto RerunConstructionScripts() -> bool;
 		ENGINE_API auto DestroyConstructedComponents() -> void;
 		// Stable keys supplement UE's API until template/archetype identity is available.
 		ENGINE_API auto AddComponentByClass(DClass* ComponentClass, bool bManualAttachment,
@@ -206,8 +203,8 @@ namespace Durin
 
 		auto InitializeDefaults() -> void;
 		auto NotifyComponentsVisibilityChanged() -> void;
-		auto RerunConstructionScriptsImpl(const class FComponentInstanceDataCache* InstanceData,
-			const struct FActorRootComponentReconstructionData* RootData) -> bool;
+		auto ExecuteConstruction(const FTransform& Transform, const class FComponentInstanceDataCache& InstanceData) -> bool;
+		auto RerunConstructionScriptsImpl(const class FActorTransactionAnnotation* Annotation) -> bool;
 		auto CompleteTransactionRestore(const class FActorTransactionAnnotation* Annotation) -> void;
 		auto ValidateComponentOwnership() const -> void;
 		auto MakeUniqueComponentName(FName RequestedName, const DActorComponent* IgnoredComponent = nullptr) const -> FName;

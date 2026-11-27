@@ -68,7 +68,7 @@ namespace Durin::Tests
 	{
 		FBufferRecording Scope(&Buffer, {"TestEdit", std::string(Change->GetDescription())});
 		if (!Scope.IsOutstanding()) return 0;
-		Change->Apply(nullptr);
+		Change->Apply();
 		const auto Id = GUndo->GetContext().TransactionId;
 		return Buffer.StoreUndo(std::move(Change)) ? Id : 0;
 	}

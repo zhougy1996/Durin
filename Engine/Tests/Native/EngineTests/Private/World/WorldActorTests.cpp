@@ -624,18 +624,12 @@ TEST(FNativeConstructionTests, SceneOverridesUseSharedCacheAndConstructionAuthor
 	Scene->SetRelativeLocation({9.0, 0.0, 0.0});
 	ASSERT_TRUE(Scene->GetComponentInstanceData());
 	ASSERT_TRUE(Actor->RerunConstructionScripts()); Scene = static_cast<Durin::DSceneComponent*>(Actor->Acquired.front()); EXPECT_EQ(Scene->GetRelativeLocation(), Durin::FVector3(9.0, 0.0, 0.0));
-	Durin::FComponentInstanceDataCache Earlier(*Actor);
-	Scene->SetRelativeLocation({4.0, 0.0, 0.0});
-	Actor->ConstructionLocation = Durin::FVector3(4.0, 0.0, 0.0);
-	// Explicitly writing the already-current pose still overrides earlier cache.
-	ASSERT_TRUE(Actor->RerunConstructionScripts(&Earlier)); Scene = static_cast<Durin::DSceneComponent*>(Actor->Acquired.front()); EXPECT_EQ(Scene->GetRelativeLocation(), *Actor->ConstructionLocation);
-	Actor->ConstructionLocation.reset();
-	Scene->SetRelativeLocation({0.0, 0.0, 0.0});
-	Durin::FComponentInstanceDataCache DefaultState(*Actor);
-	Scene->SetRelativeLocation({9.0, 0.0, 0.0});
-	ASSERT_TRUE(Actor->RerunConstructionScripts(&DefaultState));
+	// The fresh component already has this pose when construction writes it.
+	Actor->ConstructionLocation = Durin::FVector3(0.0);
+	ASSERT_TRUE(Actor->RerunConstructionScripts());
 	Scene = static_cast<Durin::DSceneComponent*>(Actor->Acquired.front());
-	EXPECT_EQ(Scene->GetRelativeLocation(), Durin::FVector3(0.0));
+	EXPECT_EQ(Scene->GetRelativeLocation(), *Actor->ConstructionLocation);
+	EXPECT_TRUE(Scene->IsTransformModifiedByConstructionScript());
 	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -660,22 +654,21 @@ TEST(FNativeConstructionTests, InstanceSourceUsesExactIdentityOwnerKeyAndClass)
 	Durin::TStrongObjectPtr<Durin::AActor> Other(Durin::NewObject<Durin::AActor>(nullptr, "WrongCacheOwner"));
 	EXPECT_FALSE(Cache.Validate(Other.Get()));
 	Durin::FActorRootComponentReconstructionData WrongRoot(*Other);
-	const auto BeforeConstruction = Actor->ConstructionCalls;
-	EXPECT_FALSE(Actor->RerunConstructionScripts(&Cache, &WrongRoot));
-	EXPECT_EQ(Actor->ConstructionCalls, BeforeConstruction);
-	EXPECT_EQ(Actor->FindGeneratedComponent(MakeGeneratedKey(202)), Scene);
-	Actor->Desired.clear(); ASSERT_TRUE(Actor->RerunConstructionScripts());
+	EXPECT_FALSE(WrongRoot.Validate(Actor));
 	const auto RetiredKey = MakeGeneratedKey(202);
-	EXPECT_FALSE(DefaultCache.ValidateComponent(*Scene, &RetiredKey));
-	Actor->Desired = {{MakeGeneratedKey(202), Durin::DActorComponent::StaticClass()}};
-	// Retained scene data rejects another exact class using the same key.
-	EXPECT_FALSE(Actor->RerunConstructionScripts(&Cache));
-	EXPECT_EQ(Actor->FindGeneratedComponent(MakeGeneratedKey(202)), nullptr);
-	Actor->ConstructionLocation = Durin::FVector3(4.0, 0.0, 0.0);
-	Actor->Desired = {{MakeGeneratedKey(202), Durin::DSplineComponent::StaticClass()}};
-	// A construction-authored pose must not bypass exact-class preflight.
-	EXPECT_FALSE(Actor->RerunConstructionScripts(&Cache));
-	EXPECT_EQ(Actor->FindGeneratedComponent(MakeGeneratedKey(202)), nullptr);
+	for (auto* IncompatibleClass : {Durin::DActorComponent::StaticClass(), Durin::DSplineComponent::StaticClass()})
+	{
+		Actor->ConstructionLocation = Durin::FVector3(4.0, 0.0, 0.0);
+		Actor->Desired = {{RetiredKey, IncompatibleClass}};
+		EXPECT_FALSE(Actor->RerunConstructionScripts());
+		EXPECT_EQ(Actor->FindGeneratedComponent(RetiredKey), nullptr);
+		EXPECT_FALSE(DefaultCache.ValidateComponent(*Scene, &RetiredKey));
+		Actor->ConstructionLocation.reset();
+		Actor->Desired = {{RetiredKey, Durin::DSceneComponent::StaticClass()}};
+		ASSERT_TRUE(Actor->RerunConstructionScripts());
+		Scene = Actor->Acquired.front();
+		static_cast<Durin::DSceneComponent*>(Scene)->SetRelativeLocation({3.0, 0.0, 0.0});
+	}
 	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 

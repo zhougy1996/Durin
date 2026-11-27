@@ -226,9 +226,14 @@ Actor storage. A target supplies stable identity, validity, transform,
 parent-relative rotation, affected package, label, and capability mask. A
 target set supplies the current collection and transaction label.
 
-The gizmo snapshots valid targets and their packages at drag start.
+At drag start the gizmo creates an `FTransformProxy` for the valid targets,
+their packages, and the shared pivot and basis. The gizmo computes a frame from
+pointer input and snapping. The proxy applies it to each target from its initial
+world transform, including rotation and scale about the shared pivot.
 Targets apply preview and restoration transforms without marking packages dirty.
-On release the gizmo records one `StoreUndo(Change)`. The transactor marks the affected packages.
+On release the gizmo records one `FTransformProxyChange` through `StoreUndo(Change)`.
+The change retains the history targets and each target’s initial and actual preview
+transforms. Later changes of selection or viewport lifetime do not redirect replay.
 The document controller owns save admission for both commands and direct calls:
 saving and save-producing rename require an idle transactor and no active gesture
 or unfinished restore.
@@ -240,8 +245,9 @@ ends ownership of that target; cancellation and release preserve its live value
 and restore the remaining targets. Failed preview writes restore the complete
 selection, including a setter that partially mutates before failing. A failed
 restore stays active for retry and blocks saving and level changes. History
-replay checks target availability at admission and verifies each live source
-transform before writing. Setter and read-back failures during replay are terminal.
+replay checks target validity and topology expiry for the entire change. Undo sets
+the recorded initial transforms and Redo sets the recorded final transforms, including
+after an outside transform write. Setter and read-back failures during replay are terminal.
 Restoration verifies the actual values and defers while another recorder owns
 `GUndo`, so it cannot publish a false clean state or join another transaction.
 

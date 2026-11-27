@@ -116,8 +116,7 @@ namespace Durin
 			Super::PostEditUndo();
 			return;
 		}
-		if (!RerunConstructionScriptsImpl(Annotation ? &Annotation->GetComponentInstanceDataCache() : nullptr,
-			Annotation ? &Annotation->GetRootReconstructionData() : nullptr)) throw std::runtime_error(NativeConstructionError.empty()
+		if (!RerunConstructionScriptsImpl(Annotation)) throw std::runtime_error(NativeConstructionError.empty()
 			? "Actor transaction reconstruction failed." : NativeConstructionError);
 		if (Level) Level->ActivateActor(this);
 		if (RootComponent) RootComponent->UpdateComponentToWorld();
@@ -531,15 +530,13 @@ namespace Durin
 	{
 	}
 
-	auto AActor::RerunConstructionScripts(const FComponentInstanceDataCache* InstanceData,
-		const FActorRootComponentReconstructionData* RootData) -> bool
+	auto AActor::RerunConstructionScripts() -> bool
 	{
 		if (ConstructionSuspensionDepth > 0) { bNativeConstructionRequested = true; return true; }
-		return RerunConstructionScriptsImpl(InstanceData, RootData);
+		return RerunConstructionScriptsImpl(nullptr);
 	}
 
-	auto AActor::RerunConstructionScriptsImpl(const FComponentInstanceDataCache* InstanceData,
-		const FActorRootComponentReconstructionData* RootData) -> bool
+	auto AActor::RerunConstructionScriptsImpl(const FActorTransactionAnnotation* Annotation) -> bool
 	{
 		if (IsBeingDestroyed() || IsPendingKill()) return false;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -564,19 +561,22 @@ namespace Durin
 				bNativeConstructionRequested = false;
 				FComponentInstanceDataCache CapturedData;
 				FActorRootComponentReconstructionData CapturedRoot;
-				if (!InstanceData) CapturedData = FComponentInstanceDataCache(*this);
-				if (!RootData) CapturedRoot = FActorRootComponentReconstructionData(*this);
-				const auto& ApplyData = InstanceData ? *InstanceData : CapturedData;
-				const auto& ApplyRoot = RootData ? *RootData : CapturedRoot;
+				if (!Annotation)
+				{
+					CapturedData = FComponentInstanceDataCache(*this);
+					CapturedRoot = FActorRootComponentReconstructionData(*this);
+				}
+				const auto& ApplyData = Annotation ? Annotation->GetComponentInstanceDataCache() : CapturedData;
+				const auto& ApplyRoot = Annotation ? Annotation->GetRootReconstructionData() : CapturedRoot;
 				if (auto Valid = ApplyData.Validate(this); !Valid) { NativeConstructionError = Valid.error(); bSucceeded = false; break; }
 				if (auto Valid = ApplyRoot.Validate(this); !Valid) { NativeConstructionError = Valid.error(); bSucceeded = false; break; }
 				const FTransform Transform = GetActorTransform();
 				bStartedReconstruction = true;
 				DestroyConstructedComponents();
 				++NativeConstructionGeneration;
-				if (!ExecuteConstruction(Transform, &ApplyData))
+				if (!ExecuteConstruction(Transform, ApplyData))
 				{ bSucceeded = false; break; }
-				if (auto Applied = ApplyRoot.ApplyToActor(*this, RootData != nullptr); !Applied)
+				if (auto Applied = ApplyRoot.ApplyToActor(*this, Annotation != nullptr); !Applied)
 				{ NativeConstructionError = Applied.error(); bSucceeded = false; break; }
 				NativeConstructionError.clear();
 				if (!bNativeConstructionRequested) break;

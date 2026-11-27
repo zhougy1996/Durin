@@ -143,10 +143,10 @@ namespace
 		inline static std::function<void(Durin::DObject*)> DestructionObserver;
 		~FReinstancedValueCommand() override { if (DestructionObserver) DestructionObserver(Target.Resolve()); }
 		FReinstancedValueCommand(DTransactionRecordParticipant* Object, int32 InBefore, int32 InAfter, bool InSupport = true)
-			: Target(Object), Before(InBefore), After(InAfter), bSupport(InSupport), Packages{Object->GetPackage()} {}
-		auto HasExpired(Durin::DObject* Owner) const noexcept -> bool override { return !Owner; }
-		auto Apply(Durin::DObject*) -> void override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = After; }
-		auto Revert(Durin::DObject*) -> void override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = Before; }
+			: Target(Durin::FPersistentObjectRef::FromKey(Durin::FObjectKey(Object))), Before(InBefore), After(InAfter), bSupport(InSupport), Packages{Object->GetPackage()} {}
+		auto HasExpired() const noexcept -> bool override { return !Target.Resolve(); }
+		auto Apply() -> void override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = After; }
+		auto Revert() -> void override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = Before; }
 		auto GetDescription() const -> std::string_view override { return "Reinstanced native value"; }
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { return {Target.Resolve()}; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
@@ -302,7 +302,12 @@ TEST_F(FTransactionReinstancingTests, ExplicitReplacementPreservesRedoIdentityAc
 	FObjectReplacementMap Map;
 	ASSERT_TRUE(Map.BuildFromObjects(Entries));
 	Reinstanced->Value = 77;
-	ASSERT_TRUE(Buffer->OnObjectsReinstanced(Map));
+	auto Participant = CreateTransactorReplacementParticipant(*Buffer);
+	ASSERT_TRUE(Participant->Prepare(Map));
+	ASSERT_TRUE(Participant->Validate());
+	Participant->Commit();
+	Participant->OnObjectsReinstanced(Map);
+	ASSERT_TRUE(Participant->CanRetire());
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	EXPECT_EQ(Buffer->GetUndoCount(), 1u);
 	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, Id);
@@ -310,7 +315,8 @@ TEST_F(FTransactionReinstancingTests, ExplicitReplacementPreservesRedoIdentityAc
 	ASSERT_TRUE(Buffer->RedoExpected(Id)); EXPECT_EQ(Reinstanced->Value, 42);
 	EXPECT_EQ(Old->Value, 0);
 	Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Busy reinstancing", Reinstanced});
-	EXPECT_FALSE(Buffer->OnObjectsReinstanced(Map));
+	EXPECT_FALSE(Participant->Prepare(Map));
+	EXPECT_FALSE(Participant->Validate());
 	Scope.Cancel();
 	MarkAsGarbage(Old);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -355,7 +361,7 @@ TEST_F(FTransactionReinstancingTests, ExplicitMapRebindsWeakSlotsAndCommandsWith
 		ASSERT_TRUE(Observer->Modify());
 		Observer->Weak = nullptr;
 		Old->Value = 12;
-		ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 12)));
+		ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Old, 0, 12)));
 	}
 	const auto Id = Buffer->GetUndoContext().TransactionId;
 	const auto Saves = Peer->SerializationSaves;
@@ -363,7 +369,12 @@ TEST_F(FTransactionReinstancingTests, ExplicitMapRebindsWeakSlotsAndCommandsWith
 	FObjectReplacementMap Map;
 	const FObjectReplacementMap::FEntry Entry{Old, Replacement.Get()};
 	ASSERT_TRUE(Map.BuildFromObjects(std::span(&Entry, 1)));
-	ASSERT_TRUE(Buffer->OnObjectsReinstanced(Map));
+	auto Participant = CreateTransactorReplacementParticipant(*Buffer);
+	ASSERT_TRUE(Participant->Prepare(Map));
+	ASSERT_TRUE(Participant->Validate());
+	Participant->Commit();
+	Participant->OnObjectsReinstanced(Map);
+	ASSERT_TRUE(Participant->CanRetire());
 	EXPECT_EQ(Peer->SerializationSaves, Saves);
 	EXPECT_EQ(Peer->Value, 15);
 	Peer->bFailSave = false;
@@ -376,31 +387,63 @@ TEST_F(FTransactionReinstancingTests, ExplicitMapRebindsWeakSlotsAndCommandsWith
 	EXPECT_EQ(Replacement->Value, 12);
 }
 
-TEST_F(FTransactionReinstancingTests, IncompatibleExplicitCommandExpiresInPlaceAndOtherEntriesRebind)
+TEST_F(FTransactionReinstancingTests, ExplicitReplacementRetiresFailedEntriesOnceAndPreservesAdjacentRedo)
 {
 	using namespace Durin;
 	TStrongObjectPtr<DTransactionRecordParticipant> Replacement(NewObject<DTransactionRecordParticipant>(Current, "Replacement", EObjectFlags::Public));
-	{
+	auto RecordOpaque = [&](int32 Value) {
+		const int32 Before = Old->Value;
 		Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Opaque command", Old});
-		Old->Value = 7;
-		ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 7, false)));
-	}
-	const auto Opaque = Buffer->GetUndoContext().TransactionId;
+		Old->Value = Value;
+		ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Old, Before, Value, false)));
+	};
+	RecordOpaque(7);
+	const auto FailedUndo = Buffer->GetUndoContext().TransactionId;
 	Buffer->SetUndoBarrier();
 	Record(42);
 	const auto Valid = Buffer->GetUndoContext().TransactionId;
+	RecordOpaque(88);
+	const auto FailedRedo = Buffer->GetUndoContext().TransactionId;
+	ASSERT_TRUE(Buffer->UndoExpected(FailedRedo));
 	ASSERT_TRUE(Buffer->UndoExpected(Valid));
+
 	const FObjectReplacementMap::FEntry Entry{Old, Replacement.Get()};
 	FObjectReplacementMap Map;
 	ASSERT_TRUE(Map.BuildFromObjects(std::span(&Entry, 1)));
-	EXPECT_FALSE(Buffer->OnObjectsReinstanced(Map));
-	ASSERT_EQ(Buffer->GetQueueLength(), 2u);
-	EXPECT_EQ(Buffer->GetUndoCount(), 1u);
-	EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 1);
-	EXPECT_EQ(Buffer->GetTransaction(0)->GetId(), Opaque);
-	EXPECT_TRUE(Buffer->GetTransaction(0)->HasExpired());
+	auto Participant = CreateTransactorReplacementParticipant(*Buffer);
+	ASSERT_TRUE(Participant->Prepare(Map));
+	ASSERT_TRUE(Participant->Validate());
+	int Notifications = 0;
+	const auto Listener = Buffer->OnUndoBufferChanged().AddLambda([&] {
+		++Notifications;
+		EXPECT_EQ(Buffer->GetQueueLength(), 1u);
+		EXPECT_EQ(Buffer->GetUndoCount(), 1u);
+		EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 0);
+		EXPECT_EQ(Buffer->GetRedoContext().TransactionId, Valid);
+	});
+	int Destructions = 0;
+	FReinstancedValueCommand::DestructionObserver = [&](DObject* Object) {
+		EXPECT_EQ(Object, Old);
+		EXPECT_TRUE(IsValid(Object));
+		++Destructions;
+	};
+	struct FResetObserver { ~FResetObserver() { FReinstancedValueCommand::DestructionObserver = {}; } } ResetObserver;
+	Participant->Commit();
+	Participant->OnObjectsReinstanced(Map);
+	EXPECT_EQ(Notifications, 1);
+	Buffer->OnUndoBufferChanged().Remove(Listener);
+	EXPECT_EQ(Destructions, 0);
+	ASSERT_TRUE(Participant->CanRetire());
+	EXPECT_EQ(Destructions, 2);
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
+	EXPECT_EQ(Buffer->GetTransaction(0)->GetId(), Valid);
+	EXPECT_FALSE(Buffer->RedoExpected(FailedRedo));
 	ASSERT_TRUE(Buffer->RedoExpected(Valid));
 	EXPECT_EQ(Replacement->Value, 42);
+	EXPECT_EQ(Old->Value, 7);
+	EXPECT_FALSE(Buffer->UndoExpected(FailedUndo));
+	ASSERT_TRUE(Buffer->UndoExpected(Valid));
+	EXPECT_EQ(Replacement->Value, 0);
 	EXPECT_EQ(Old->Value, 7);
 }
 
@@ -486,7 +529,7 @@ TEST_F(FTransactionReinstancingTests, ActorAnnotationRebindsTypedSceneCacheInPla
 	ASSERT_NE(Annotation, nullptr);
 	const auto& Cache = Annotation->GetComponentInstanceDataCache();
 	ASSERT_TRUE(Cache.Validate(AfterActor));
-	Cache.ApplyToActor(*AfterActor, ECacheApplyPhase::PostUserConstructionScript);
+	Cache.ApplyToActor(*AfterActor);
 	EXPECT_EQ(AfterRoot->GetRelativeLocation().x, 17.0);
 	AfterRoot->SetRelativeLocation({19.0, 0.0, 0.0});
 	FActorTransactionAnnotation CurrentAnnotation(*AfterActor);
@@ -526,7 +569,7 @@ TEST_F(FTransactionReinstancingTests, WritableCommandKeepsItsInstanceAndRebindsP
 	using namespace Durin;
 	ASSERT_EQ(Buffer->Begin("test", "Native command"), 0);
 	Old->Value = 12;
-	ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 12)));
+	ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Old, 0, 12)));
 	ASSERT_EQ(Buffer->End(), 1);
 	int Destructions = 0;
 	FReinstancedValueCommand::DestructionObserver = [&](DObject*) { ++Destructions; };
@@ -550,7 +593,7 @@ TEST_F(FTransactionReinstancingTests, UnsupportedCommandRetiresItsGenericPeerAsO
 	ASSERT_EQ(Buffer->Begin("test", "Mixed native command"), 0);
 	ASSERT_TRUE(Peer->Modify()); Peer->Value = 9;
 	Old->Value = 12;
-	ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 12, false)));
+	ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Old, 0, 12, false)));
 	ASSERT_EQ(Buffer->End(), 1);
 	ASSERT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 2u);
 	ASSERT_TRUE(Prepare());
@@ -623,11 +666,14 @@ TEST_F(FTransactionReinstancingTests, ActorHistoryReinstancingRestoresGeneratedI
 	EXPECT_EQ(AfterActor->ConstructionCalls, ConstructionCalls);
 	ASSERT_TRUE(Operation.TryCommit()); ASSERT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Operation.Retire());
-	ASSERT_TRUE(Buffer->Undo());
-	EXPECT_EQ(AfterActor->GeneratedCount, 1);
-	EXPECT_EQ(static_cast<DSceneComponent*>(AfterActor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)))->GetRelativeLocation().x, 17.0);
-	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(AfterActor->GeneratedCount, 2);
-	EXPECT_EQ(static_cast<DSceneComponent*>(AfterActor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)))->GetRelativeLocation().x, 77.0);
+	for (int Cycle = 0; Cycle < 2; ++Cycle)
+	{
+		ASSERT_TRUE(Buffer->Undo());
+		EXPECT_EQ(AfterActor->GeneratedCount, 1);
+		EXPECT_EQ(static_cast<DSceneComponent*>(AfterActor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)))->GetRelativeLocation().x, 17.0);
+		ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(AfterActor->GeneratedCount, 2);
+		EXPECT_EQ(static_cast<DSceneComponent*>(AfterActor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)))->GetRelativeLocation().x, 77.0);
+	}
 }
 
 TEST_F(FTransactionReinstancingTests, DerivedInstanceDataWithoutTypedCopyRejectsWithoutSlicingOrChangingSource)
@@ -665,7 +711,7 @@ TEST_F(FTransactionReinstancingTests, RetiredCommandDestructionWaitsForRetiremen
 {
 	using namespace Durin;
 	ASSERT_EQ(Buffer->Begin("test", "Retired destructor"), 0);
-	ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 12, false)));
+	ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Old, 0, 12, false)));
 	Old->Value = 12; ASSERT_EQ(Buffer->End(), 1);
 	int32 Destructions = 0;
 	bool bSawLiveOld = false;
@@ -678,26 +724,6 @@ TEST_F(FTransactionReinstancingTests, RetiredCommandDestructionWaitsForRetiremen
 	FReinstancedValueCommand::DestructionObserver = {};
 }
 
-TEST_F(FTransactionReinstancingTests, SerializedGeneratedSourceRejectsAmbiguousOwnerIdentity)
-{
-	using namespace Durin;
-	auto* Actor = NewObject<DTransactionConstructionActor>(Current, "Actor");
-	auto* OtherOwner = NewObject<AActor>(nullptr, "AmbiguousSourceOwner");
-	FByteBuffer Bytes;
-	FObjectMemoryWriter Writer(Bytes, EArchivePurpose::Transaction);
-	FObjectKey References[]{FObjectKey{}, FObjectKey(Actor), FObjectKey(Actor->GetRootComponent()->GetClass()), FObjectKey(OtherOwner)};
-	for (auto& Reference : References) Reference.SerializeForSnapshot(Writer);
-	auto Key = DTransactionConstructionActor::Key(0);
-	Writer << Key.Namespace << Key.Id.A << Key.Id.B << Key.Id.C << Key.Id.D;
-	FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction);
-	FActorComponentInstanceSourceInfo Source;
-	Source.Serialize(Reader);
-	EXPECT_TRUE(Reader.IsError());
-	EXPECT_FALSE(Source.Validate());
-	FObjectReplacementMap Map;
-	EXPECT_FALSE(Source.FindAndReplaceInstances(Map));
-}
-
 TEST_F(FTransactionReinstancingTests, UnaffectedNativeCommandMovesWithoutRequiringAReplacementHook)
 {
 	using namespace Durin; using namespace Durin;
@@ -706,7 +732,7 @@ TEST_F(FTransactionReinstancingTests, UnaffectedNativeCommandMovesWithoutRequiri
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Mixed affected and unaffected", Old});
 		ASSERT_TRUE(Old->Modify()); Old->Value = 12;
 		Peer->Value = 9;
-		ASSERT_TRUE(GUndo->StoreUndo(Peer.Get(), std::make_unique<FReinstancedValueCommand>(Peer.Get(), 0, 9, false)));
+		ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Peer.Get(), 0, 9, false)));
 	}
 	New->Value = 77;
 	ASSERT_TRUE(Prepare()); ASSERT_TRUE(Operation.TryCommit());

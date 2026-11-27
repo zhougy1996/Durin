@@ -125,6 +125,9 @@ namespace
 			ChangeTypes.push_back(Event.ChangeType);
 		}
 
+		void PostTransacted(const Durin::FTransactionObjectEvent&) override { ++TransactionEvents; }
+
+		int32 TransactionEvents = 0;
 		std::vector<Durin::EPropertyChangeType::Type> ChangeTypes;
 		int32 Value = 5;
 		std::string Text;
@@ -923,6 +926,8 @@ TEST(FReflectedPropertyViewTests, IntegerGestureReturningToOriginalPublishesOneF
 	ASSERT_TRUE(Draw(EEnd::Commit, std::nullopt));
 	EXPECT_EQ(Object->ChangeTypes, (std::vector<EPropertyChangeType::Type>{
 		EPropertyChangeType::Interactive, EPropertyChangeType::Interactive, EPropertyChangeType::ValueSet}));
+	EXPECT_EQ(Object->TransactionEvents, 0);
+	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
 	EXPECT_FALSE(Transactions->CanUndo());
 }
 

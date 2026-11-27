@@ -3,13 +3,19 @@
 
 using namespace Durin::Tests::ObjectState;
 
-TEST(FEngineTransactionAnnotationTests, GeneratedComponentEventsFollowSnapshotsAndReconstructedReplayInstances)
+TEST(FEngineTransactionAnnotationTests, ActorAndGeneratedComponentEventsFollowTransactionEndpoints)
 {
 	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedEvents"); ASSERT_NE(Actor, nullptr);
 	auto Scene = [&] { return static_cast<DTransactionLifecycleScene*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0))); };
 	std::vector<FTransactionObjectEvent> Events;
+	std::vector<FTransactionObjectEvent> ActorEvents;
+	Actor->TransactionObserver = [&](const auto& Event) {
+		EXPECT_TRUE(Event.Annotation);
+		EXPECT_EQ(Event.CreatedBy, ETransactionObjectChangeCreatedBy::TransactionRecord);
+		ActorEvents.push_back(Event);
+	};
 	Actor->GeneratedTransactionObserver = [&](auto& Component, const auto& Event) {
 		EXPECT_EQ(&Component, Scene()); EXPECT_TRUE(Component.IsRegistered());
 		EXPECT_EQ(Event.CreatedBy, ETransactionObjectChangeCreatedBy::TransactionAnnotation);
@@ -21,43 +27,46 @@ TEST(FEngineTransactionAnnotationTests, GeneratedComponentEventsFollowSnapshotsA
 	const auto Retired = FObjectKey(Scene());
 	ASSERT_EQ(Buffer->Begin("test", "Generated events"), 0); ASSERT_TRUE(Actor->Modify());
 	Scene()->SetRelativeLocation({12.0, 0.0, 0.0});
-	ASSERT_TRUE(GUndo->SnapshotObject(Actor)); ASSERT_EQ(Events.size(), 1u);
-	EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::Snapshot);
 	ASSERT_TRUE(Actor->RerunConstructionScripts());
-	EXPECT_EQ(Buffer->End(), 1); ASSERT_EQ(Events.size(), 2u);
-	EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::Finalized);
-	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Retired), nullptr);
-	ASSERT_TRUE(Buffer->Undo());
-	ASSERT_EQ(Events.size(), 3u); EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::UndoRedo);
-	EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(0.0));
-	ASSERT_TRUE(Buffer->Redo());
-	ASSERT_EQ(Events.size(), 4u); EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::UndoRedo);
-	EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(12.0, 0.0, 0.0));
+	EXPECT_TRUE(Events.empty()); EXPECT_TRUE(ActorEvents.empty());
+	EXPECT_EQ(Buffer->End(), 1);
+	auto CheckEvents = [&](size_t Count, ETransactionObjectEventType Type) {
+		ASSERT_EQ(ActorEvents.size(), Count); ASSERT_EQ(Events.size(), Count);
+		EXPECT_EQ(ActorEvents.back().Type, Type); EXPECT_EQ(Events.back().Type, Type);
+		EXPECT_EQ(ActorEvents.back().TransactionId, Events.front().TransactionId);
+		EXPECT_EQ(ActorEvents.back().OperationId, Events.back().OperationId);
+	};
+	CheckEvents(1, ETransactionObjectEventType::Finalized);
+	CollectGarbage(EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Retired), nullptr);
 	const auto Bytes = Buffer->GetUndoSize();
-	for (int32 Index = 0; Index < 3; ++Index)
+	for (size_t Cycle = 0; Cycle < 2; ++Cycle)
 	{
-		ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
+		ASSERT_TRUE(Buffer->Undo());
+		CheckEvents(2 + 2 * Cycle, ETransactionObjectEventType::UndoRedo);
+		EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(0.0));
+		ASSERT_TRUE(Buffer->Redo());
+		CheckEvents(3 + 2 * Cycle, ETransactionObjectEventType::UndoRedo);
+		EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(12.0, 0.0, 0.0));
 		EXPECT_EQ(Buffer->GetUndoSize(), Bytes);
 	}
+	Actor->TransactionObserver = {};
 	Actor->GeneratedTransactionObserver = {}; Scene()->TransactionObserver = {};
 	Buffer->Reset(); EXPECT_EQ(Buffer->GetUndoSize(), 0u);
 }
 
-TEST(FEngineTransactionAnnotationTests, GeneratedComponentFinalEventClosesLastSnapshotAtOriginalValue)
+TEST(FEngineTransactionAnnotationTests, GeneratedComponentReturningToInitialTransformProducesNoAdditionalEvent)
 {
 	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
-	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedSnapshotClosure");
+	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedNetZero");
 	auto* Scene = static_cast<DTransactionLifecycleScene*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	std::vector<FTransactionObjectEvent> Events;
 	Scene->TransactionObserver = [&](auto&, const auto& Event) { Events.push_back(Event); };
-	ASSERT_EQ(Buffer->Begin("test", "Generated closure"), 0); ASSERT_TRUE(Actor->Modify());
-	Scene->SetRelativeLocation({7.0, 0.0, 0.0}); ASSERT_TRUE(GUndo->SnapshotObject(Actor));
-	ASSERT_TRUE(GUndo->SnapshotObject(Actor)); EXPECT_EQ(Events.size(), 1u);
+	ASSERT_EQ(Buffer->Begin("test", "Generated net zero"), 0); ASSERT_TRUE(Actor->Modify());
+	Scene->SetRelativeLocation({7.0, 0.0, 0.0});
+	EXPECT_TRUE(Events.empty());
 	Scene->SetRelativeLocation({0.0, 0.0, 0.0}); EXPECT_EQ(Buffer->End(), 1);
-	ASSERT_EQ(Events.size(), 2u); EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::Finalized);
-	EXPECT_EQ(Events.back().Change.ChangedProperties, std::vector<FName>{"RelativeTransform"});
-	EXPECT_EQ(Events.back().CreatedBy, ETransactionObjectChangeCreatedBy::TransactionAnnotation);
+	EXPECT_TRUE(Events.empty());
 	Scene->TransactionObserver = {};
 }
 
@@ -209,29 +218,6 @@ TEST(FEngineTransactionAnnotationTests, StandaloneComponentRecordsAuthoredFields
 	EXPECT_EQ(Component->GetRelativeLocation().x, 17.0);
 }
 
-TEST(FEngineTransactionAnnotationTests, AnnotationArchivePreservesGeneratedInstanceData)
-{
-	using namespace Durin;
-	FTransactionEngineWorld Fixture;
-	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("AnnotationArchiveActor"); ASSERT_NE(Actor, nullptr);
-	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
-	auto* Generated = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
-	ASSERT_NE(Generated, nullptr);
-	Generated->SetRelativeLocation({9.0, 0.0, 0.0});
-	FActorTransactionAnnotation Original(*Actor);
-	FByteBuffer Bytes; FObjectMemoryWriter Writer(Bytes, EArchivePurpose::Transaction); Original.Serialize(Writer);
-	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
-	Actor->SetActorTickEnabled(true); Root->UnregisterComponent();
-	FActorTransactionAnnotation Restored; FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction); Restored.Serialize(Reader);
-	ASSERT_FALSE(Reader.IsError()) << Reader.GetError(); EXPECT_EQ(Reader.GetRemainingPayloadBytes(), 0u);
-	ASSERT_TRUE(Restored.Validate());
-	Generated->SetRelativeLocation({});
-	Restored.GetComponentInstanceDataCache().ApplyToActor(*Actor, ECacheApplyPhase::PostUserConstructionScript);
-	EXPECT_EQ(Generated->GetRelativeLocation(), FVector3(9.0, 0.0, 0.0));
-	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_FALSE(Root->IsRegistered());
-	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 1u);
-}
-
 TEST(FEngineTransactionAnnotationTests, ActorReplayUsesNormalComponentRegistrationAndPreservesLiveComponentTick)
 {
 	using namespace Durin; using namespace Durin;
@@ -274,16 +260,19 @@ TEST(FEngineTransactionAnnotationTests, GeneratedRootRecreatesWithoutRetainingOl
 	}
 	EXPECT_EQ(Actor->GetRootComponent(), nullptr); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
 	Actor->bRequestCollectionDuringConstruction = true;
-	ASSERT_TRUE(Buffer->Undo());
-	auto* Restored = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent()); ASSERT_NE(Restored, nullptr);
-	EXPECT_NE(FObjectKey(Restored), OldKey); EXPECT_EQ(Restored->GetWorldLocation(), BeforeWorld); EXPECT_EQ(Restored->CreatedLocation, FVector3(0.0));
-	EXPECT_EQ(Restored->Created, 1u); EXPECT_EQ(Restored->Registered, 1u); EXPECT_EQ(Restored->Initialized, 1u);
-	EXPECT_EQ(Other->GetRootComponent()->GetAttachParent(), Restored); EXPECT_EQ(Other->GetRootComponent()->GetWorldLocation(), ChildWorld);
-	ASSERT_TRUE(Buffer->Redo());
-	EXPECT_EQ(Actor->GetRootComponent(), nullptr);
-	ASSERT_TRUE(Buffer->Undo());
-	EXPECT_EQ(Other->GetRootComponent()->GetAttachParent(), Actor->GetRootComponent());
-	EXPECT_EQ(Other->GetRootComponent()->GetWorldLocation(), ChildWorld);
+	const auto DetachedPose = Other->GetRootComponent()->GetWorldLocation();
+	for (int Cycle = 0; Cycle < 2; ++Cycle)
+	{
+		ASSERT_TRUE(Buffer->Undo());
+		auto* Restored = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent()); ASSERT_NE(Restored, nullptr);
+		EXPECT_NE(FObjectKey(Restored), OldKey); EXPECT_EQ(Restored->GetWorldLocation(), BeforeWorld); EXPECT_EQ(Restored->CreatedLocation, FVector3(0.0));
+		EXPECT_EQ(Restored->Created, 1u); EXPECT_EQ(Restored->Registered, 1u); EXPECT_EQ(Restored->Initialized, 1u);
+		EXPECT_EQ(Other->GetRootComponent()->GetAttachParent(), Restored); EXPECT_EQ(Other->GetRootComponent()->GetWorldLocation(), ChildWorld);
+		ASSERT_TRUE(Buffer->Redo());
+		EXPECT_EQ(Actor->GetRootComponent(), nullptr);
+		EXPECT_EQ(Other->GetRootComponent()->GetAttachParent(), nullptr);
+		EXPECT_EQ(Other->GetRootComponent()->GetWorldLocation(), DetachedPose);
+	}
 }
 
 TEST(FEngineTransactionAnnotationTests, SerializedChildEditsAndGeneratedRootReconstructionPreserveBothPoses)
@@ -475,7 +464,7 @@ TEST(FEngineTransactionAnnotationTests, IncompatibleActorAnnotationReleasesShare
 	ASSERT_TRUE(Actor->RerunConstructionScripts()); EXPECT_EQ(Actor->ConstructionCalls, Before + 1);
 }
 
-TEST(FEngineTransactionAnnotationTests, RegisteredDerivedInstanceDataRoundTripsAndCopiesWithoutCentralTypeBranches)
+TEST(FEngineTransactionAnnotationTests, DerivedInstanceDataAppliesAndCopiesItsExactType)
 {
 	using namespace Durin;
 	FTransactionEngineWorld Fixture;
@@ -483,13 +472,9 @@ TEST(FEngineTransactionAnnotationTests, RegisteredDerivedInstanceDataRoundTripsA
 	auto* Component = static_cast<DTransactionLifecycleScene*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	ASSERT_NE(Component, nullptr); Component->bTypedInstanceData = true;
 	FComponentInstanceDataCache Original(*Actor);
-	FByteBuffer Bytes; FObjectMemoryWriter Writer(Bytes, EArchivePurpose::Transaction); Original.Serialize(Writer);
-	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
-	FComponentInstanceDataCache Restored; FObjectMemoryReader Reader(Bytes, EArchivePurpose::Transaction); Restored.Serialize(Reader);
-	ASSERT_FALSE(Reader.IsError()) << Reader.GetError(); EXPECT_EQ(Reader.GetRemainingPayloadBytes(), 0u);
 	FTypedSceneInstanceData::AppliedValue = 0;
-	ASSERT_TRUE(Restored.Validate(Actor));
-	Restored.ApplyToActor(*Actor, ECacheApplyPhase::PostUserConstructionScript);
+	ASSERT_TRUE(Original.Validate(Actor));
+	Original.ApplyToActor(*Actor);
 	EXPECT_EQ(FTypedSceneInstanceData::AppliedValue, 42);
 	FObjectReplacementMap Map;
 	auto Data = Component->GetComponentInstanceData(); auto Copy = Data->CreateReplacement(Map);
@@ -497,27 +482,4 @@ TEST(FEngineTransactionAnnotationTests, RegisteredDerivedInstanceDataRoundTripsA
 	auto* TypedCopy = dynamic_cast<FTypedSceneInstanceData*>(Copy->get()); ASSERT_NE(TypedCopy, nullptr);
 	EXPECT_EQ(TypedCopy->DomainValue, 42); TypedCopy->DomainValue = 91;
 	EXPECT_EQ(static_cast<FTypedSceneInstanceData*>(Data.get())->DomainValue, 42);
-	const auto Destroyed = FTypedSceneInstanceData::Destroyed;
-	{ auto Temporary = Data->GetDataType().Construct(); EXPECT_NE(Temporary, nullptr); }
-	EXPECT_EQ(FTypedSceneInstanceData::Destroyed, Destroyed + 1);
-}
-
-TEST(FEngineTransactionAnnotationTests, UnregisteredDerivedDataCannotBeSerializedOrSliced)
-{
-	using namespace Durin;
-	FTransactionEngineWorld Fixture;
-	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("UnsupportedCacheActor"); ASSERT_NE(Actor, nullptr);
-	auto* Component = static_cast<DTransactionLifecycleScene*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
-	ASSERT_NE(Component, nullptr); Component->bUnsupportedInstanceData = true;
-	FComponentInstanceDataCache Cache(*Actor);
-	FByteBuffer Bytes; FObjectMemoryWriter Writer(Bytes, EArchivePurpose::Transaction); Cache.Serialize(Writer);
-	EXPECT_TRUE(Writer.IsError()); FObjectReplacementMap Map;
-	EXPECT_FALSE(Component->GetComponentInstanceData()->CreateReplacement(Map));
-	EXPECT_EQ(FActorComponentInstanceData::FindDataType("Tests.UnknownInstanceData"), nullptr);
-	FByteBuffer UnknownBytes; FObjectMemoryWriter UnknownWriter(UnknownBytes, EArchivePurpose::Transaction);
-	auto ActorKey = FObjectKey(Actor); ActorKey.SerializeForSnapshot(UnknownWriter);
-	uint64 Count = 1; std::string UnknownName = "Tests.UnknownInstanceData"; UnknownWriter << Count << UnknownName;
-	ASSERT_FALSE(UnknownWriter.IsError());
-	FComponentInstanceDataCache UnknownCache; FObjectMemoryReader UnknownReader(UnknownBytes, EArchivePurpose::Transaction);
-	UnknownCache.Serialize(UnknownReader); EXPECT_TRUE(UnknownReader.IsError());
 }

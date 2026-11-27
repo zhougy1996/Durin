@@ -2,7 +2,7 @@
 
 using namespace Durin::Tests::ObjectState;
 
-TEST(FTransactionObjectEventTests, MixedDomainCommandCapturesItsOwnerBeforeBinding)
+TEST(FTransactionObjectEventTests, MixedCommandAndSnapshotShareParticipantNotifications)
 {
 	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
@@ -13,7 +13,7 @@ TEST(FTransactionObjectEventTests, MixedDomainCommandCapturesItsOwnerBeforeBindi
 	Target->TransactionObserver = [&](const auto& Event) { Events.push_back(Event.Type); };
 	ASSERT_EQ(Buffer->Begin("test", "Domain and ordinary fields"), 0);
 	ASSERT_TRUE(Target->Modify(false));
-	ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(DomainValue, 0, 1)));
+	ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), DomainValue, 0, 1)));
 	const auto Saves = Target->SerializationSaves;
 	ASSERT_TRUE(Target->Modify(false)); EXPECT_EQ(Target->SerializationSaves, Saves);
 	Target->Value = 9;
@@ -55,7 +55,7 @@ TEST(FTransactionObjectEventTests, ChangedTransactionRetainsAnUnchangedObjectBas
 	int DomainValue = 1;
 	ASSERT_EQ(Buffer->Begin("test", "Keep complete transaction"), 0);
 	ASSERT_TRUE(Target->Modify());
-	ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(DomainValue, 0, 1)));
+	ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), DomainValue, 0, 1)));
 	EXPECT_EQ(Buffer->End(), 1);
 	ASSERT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 2u);
 	Target->Value = 7;
@@ -65,53 +65,6 @@ TEST(FTransactionObjectEventTests, ChangedTransactionRetainsAnUnchangedObjectBas
 	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_EQ(Target->Value, 7);
 	EXPECT_EQ(DomainValue, 1);
-}
-
-TEST(FTransactionObjectEventTests, RepeatedSnapshotsRetainOneEntryAndReleaseObservationStorageAtEnd)
-{
-	using namespace Durin; using namespace Durin;
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
-	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "BoundedSnapshots"));
-	Target->Numbers.assign(1024u, 0);
-	ASSERT_EQ(Buffer->Begin("test", "Bounded capture"), 0); ASSERT_TRUE(Target->Modify());
-	Target->Value = 1; Target->Numbers[0] = 1;
-	EXPECT_EQ(Buffer->End(), 1);
-	const auto OrdinaryBytes = Buffer->GetUndoSize(); ASSERT_GT(OrdinaryBytes, 0u);
-	Buffer->Reset(); Target->Value = 0; Target->Numbers[0] = 0;
-	const auto Saves = Target->SerializationSaves;
-	ASSERT_EQ(Buffer->Begin("test", "Bounded capture"), 0); ASSERT_TRUE(Target->Modify());
-	auto* Transaction = static_cast<FTransaction*>(GUndo);
-	size_t InitialBytes = 0;
-	ASSERT_TRUE(Transaction->TryGetOwnedSize(InitialBytes));
-	size_t PeakBytes = 0;
-	for (int32 Index = 1; Index <= 32; ++Index)
-	{
-		Target->Value = Index; Target->Numbers[0] = Index;
-		ASSERT_TRUE(GUndo->SnapshotObject(Target.Get()));
-		size_t CurrentBytes = 0; ASSERT_TRUE(Transaction->TryGetOwnedSize(CurrentBytes));
-		if (Index == 1) PeakBytes = CurrentBytes;
-		else EXPECT_EQ(CurrentBytes, PeakBytes);
-		EXPECT_EQ(Transaction->GetRecordCount(), 1u); EXPECT_EQ(Buffer->GetQueueLength(), 1u);
-		EXPECT_EQ(Target->SerializationSaves, Saves + 1 + Index);
-	}
-	EXPECT_EQ(Buffer->End(), 1);
-	const auto FinalBytes = Buffer->GetUndoSize();
-	ASSERT_GT(PeakBytes, InitialBytes);
-	EXPECT_GE(PeakBytes - InitialBytes, Target->Numbers.size() * sizeof(int32));
-	EXPECT_EQ(FinalBytes, OrdinaryBytes);
-	ASSERT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 1u);
-	for (uint32 Index = 0; Index < 8; ++Index)
-	{
-		ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->Numbers[0], 0);
-		EXPECT_EQ(Buffer->GetUndoSize(), FinalBytes);
-		ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 32); EXPECT_EQ(Target->Numbers[0], 32);
-		EXPECT_EQ(Buffer->GetUndoSize(), FinalBytes); EXPECT_EQ(Buffer->GetQueueLength(), 1u);
-	}
-	Buffer->Reset(); EXPECT_EQ(Buffer->GetUndoSize(), 0u);
-	RecordProperty("ordinary_history_bytes", std::to_string(OrdinaryBytes));
-	RecordProperty("snapshot_peak_bytes", std::to_string(PeakBytes));
-	RecordProperty("final_history_bytes", std::to_string(FinalBytes));
-	RecordProperty("snapshots", "32");
 }
 
 TEST(FTransactionObjectEventTests, SynchronousEventsKeepContextAndRejectRecordingReentry)
@@ -132,8 +85,8 @@ TEST(FTransactionObjectEventTests, SynchronousEventsKeepContextAndRejectRecordin
 			Buffer->Cancel(); EXPECT_EQ(GUndo, Recording);
 			const auto Saves = Target->SerializationSaves; (void)Target->Modify(); EXPECT_EQ(Target->SerializationSaves, Saves);
 			EXPECT_FALSE(Recording->EndOperation());
-			EXPECT_FALSE(Recording->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 0, 99)));
-			EXPECT_EQ(Buffer->GetQueueLength(), 1u);
+			EXPECT_FALSE(Recording->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), Target->Value, 0, 99)));
+			EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 		}
 	};
 	ASSERT_EQ(Buffer->Begin("test", "Events"), 0); Recording = GUndo;
@@ -206,8 +159,8 @@ TEST(FTransactionObjectEventTests, CancelNoOpAndCustomOnlyDoNotInventObjectEvent
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Cancel"}); ASSERT_TRUE(Target->Modify()); Target->Value = 1; Scope.Cancel(); }
 	EXPECT_EQ(Events, 0u);
 	ASSERT_EQ(Buffer->Begin("test", "Custom observation"), 0);
-	Target->Value = 2; ASSERT_TRUE(Buffer->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 1, 2)));
-	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get())); EXPECT_EQ(Events, 0u); EXPECT_EQ(Buffer->End(), 1);
+	Target->Value = 2; ASSERT_TRUE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), Target->Value, 1, 2)));
+	EXPECT_EQ(Events, 0u); EXPECT_EQ(Buffer->End(), 1);
 	ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Events, 0u); EXPECT_EQ(Target->UndoCompletions, 2);
 }
 
@@ -246,75 +199,6 @@ TEST(FTransactionObjectEventTests, ReplayObserverFaultIsTerminal)
 	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
 }
 
-TEST(FTransactionObjectEventTests, SnapshotsAccumulateSelectionWithoutReplacingUndoBaseline)
-{
-	using namespace Durin; using namespace Durin;
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
-	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "SelectedSnapshots"));
-	std::vector<FTransactionObjectEvent> Events;
-	Target->TransactionObserver = [&](const auto& Event) {
-		Events.push_back(Event); EXPECT_EQ(GUndo->GetContext().OperationId, Event.OperationId);
-		EXPECT_FALSE(GUndo->SnapshotObject(Target.Get())); EXPECT_EQ(Buffer->Begin("reentry", "snapshot"), -1);
-	};
-	ASSERT_EQ(Buffer->Begin("test", "Snapshot selection"), 0);
-	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get())); EXPECT_TRUE(Events.empty()); ASSERT_TRUE(Target->Modify());
-	const auto Operation = GUndo->GetContext().OperationId;
-	const std::array<const FProperty*, 1> Value{Property("Value")}, Session{Property("SessionValue")};
-	Target->Value = 1; Target->SessionValue = 2;
-	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get(), Value)); ASSERT_EQ(Events.size(), 1u);
-	EXPECT_EQ(Events.back().Change.ChangedProperties, std::vector<FName>{"Value"});
-	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get(), Session)); EXPECT_EQ(Events.size(), 1u);
-	Target->Value = 3; Target->SessionValue = 4;
-	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get(), Session)); ASSERT_EQ(Events.size(), 2u);
-	EXPECT_TRUE(std::ranges::contains(Events.back().Change.ChangedProperties, FName("Value")));
-	EXPECT_TRUE(std::ranges::contains(Events.back().Change.ChangedProperties, FName("SessionValue")));
-	Target->Numbers = {1}; ASSERT_TRUE(GUndo->SnapshotObject(Target.Get())); ASSERT_EQ(Events.size(), 3u);
-	Target->Numbers = {2}; ASSERT_TRUE(GUndo->SnapshotObject(Target.Get(), Value)); ASSERT_EQ(Events.size(), 4u);
-	EXPECT_EQ(Events.back().Change.ChangedProperties, std::vector<FName>{"Numbers"});
-	EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(GUndo->GetContext().OperationId, Operation);
-	Target->TransactionObserver = [&](const auto& Event) { Events.push_back(Event); };
-	EXPECT_EQ(Buffer->End(), 1); ASSERT_EQ(Events.size(), 5u); EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::Finalized);
-	EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 1u);
-	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->SessionValue, 0); EXPECT_TRUE(Target->Numbers.empty());
-	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 3); EXPECT_EQ(Target->SessionValue, 4); EXPECT_EQ(Target->Numbers, std::vector<int32>{2});
-}
-
-TEST(FTransactionObjectEventTests, WholeObjectSnapshotsObserveNativeDataAndKeepOriginalUndo)
-{
-	using namespace Durin; using namespace Durin;
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
-	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "WholeSnapshots"));
-	std::vector<FTransactionObjectEvent> Events; Target->TransactionObserver = [&](const auto& Event) { Events.push_back(Event); };
-	ASSERT_EQ(Buffer->Begin("test", "Whole snapshot"), 0);
-	ASSERT_TRUE(Target->Modify(false));
-	Target->Value = 2; Target->NativeValue = 8;
-	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get())); ASSERT_EQ(Events.size(), 1u);
-	EXPECT_GT(Target->SerializationSaves, 0); EXPECT_TRUE(Events.back().Change.bNonPropertyDataChanged);
-	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get())); EXPECT_EQ(Events.size(), 1u);
-	ASSERT_TRUE(Target->Modify()); Target->Value = 4; Target->NativeValue = 9;
-	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get())); ASSERT_EQ(Events.size(), 2u);
-	EXPECT_EQ(Buffer->End(), 1); ASSERT_EQ(Events.size(), 3u);
-	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->NativeValue, 0);
-	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 4); EXPECT_EQ(Target->NativeValue, 9);
-}
-
-TEST(FTransactionObjectEventTests, SnapshotObserverFaultIsTerminal)
-{
-	auto Run = [&] {
-		using namespace Durin;
-		InitializeDObjectSystem();
-		Tests::FTestEditorTransactorOwner Buffer;
-		TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ThrowingSnapshotEvent"));
-		std::optional<FScopedTransaction> OldScope;
-		OldScope.emplace("Snapshot failure");
-		ASSERT_TRUE(Target->Modify());
-		Target->Value = 1;
-		Target->TransactionObserver = [](const auto&) { throw std::runtime_error("Injected snapshot observer failure."); };
-		GUndo->SnapshotObject(Target.Get());
-	};
-	EXPECT_DEATH(Run(), "Injected snapshot observer failure");
-}
-
 TEST(FTransactionObjectEventTests, RecordAndAnnotationEventsFollowEachObjectInOperationOrder)
 {
 	using namespace Durin; using namespace Durin;
@@ -328,9 +212,7 @@ TEST(FTransactionObjectEventTests, RecordAndAnnotationEventsFollowEachObjectInOp
 	First->TransactionObserver = [&](const auto&) { Trace.push_back("event1"); };
 	Second->TransactionObserver = [&](const auto& Event) { Trace.push_back("event2"); PeerEvents.push_back(Event); };
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Record and annotation events"}); ASSERT_TRUE(First->Modify()); ASSERT_TRUE(Second->Modify()); First->SupplementalValue = 2; Second->Value = 7;
-		ASSERT_TRUE(GUndo->SnapshotObject(First.Get()));
-		EXPECT_EQ(Trace, (std::vector<std::string>{"event1", "event2"}));
-		Trace.clear(); PeerEvents.clear(); First->SupplementalValue = 3;
+
 	}
 	ASSERT_EQ(PeerEvents.size(), 2u); EXPECT_EQ(Trace, (std::vector<std::string>{"event1", "event2", "event2"}));
 	EXPECT_TRUE(PeerEvents[0].Change.bNonPropertyDataChanged); EXPECT_EQ(PeerEvents[0].CreatedBy, ETransactionObjectChangeCreatedBy::TransactionAnnotation);
@@ -343,62 +225,4 @@ TEST(FTransactionObjectEventTests, RecordAndAnnotationEventsFollowEachObjectInOp
 	EXPECT_EQ(First->SupplementalValue, 0); EXPECT_EQ(Second->Value, 0);
 	Trace.clear(); ASSERT_TRUE(Buffer->Redo());
 	EXPECT_EQ(Trace, (std::vector<std::string>{"pre1", "pre2", "post1", "event1", "event2", "post2", "event2"}));
-}
-
-TEST(FTransactionObjectEventTests, FinalizedAnnotationComparesTheLastSnapshotAfterReturningToOriginal)
-{
-	using namespace Durin; using namespace Durin;
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
-	TStrongObjectPtr<DTransactionRecordParticipant> Owner(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationSnapshotOwner"));
-	TStrongObjectPtr<DTransactionRecordParticipant> Peer(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationSnapshotPeer"));
-	Owner->bAnnotationEnabled = Owner->bReportAnnotationChanges = true; Owner->AnnotationReference = Peer.Get();
-	std::vector<FTransactionObjectEvent> Events; Peer->TransactionObserver = [&](const auto& Event) { Events.push_back(Event); };
-	ASSERT_EQ(Buffer->Begin("test", "Annotation snapshot closure"), 0); ASSERT_TRUE(Owner->Modify());
-	Owner->SupplementalValue = 3; ASSERT_TRUE(GUndo->SnapshotObject(Owner.Get())); ASSERT_EQ(Events.size(), 1u);
-	EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::Snapshot);
-	Owner->SupplementalValue = 0; EXPECT_EQ(Buffer->End(), 1); ASSERT_EQ(Events.size(), 2u);
-	EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::Finalized);
-	EXPECT_EQ(Events.back().CreatedBy, ETransactionObjectChangeCreatedBy::TransactionAnnotation);
-	EXPECT_TRUE(Events.back().Change.bNonPropertyDataChanged); EXPECT_FALSE(Events.back().Annotation);
-}
-
-TEST(FTransactionObjectEventTests, FinalizedClosesLastSnapshotEvenWhenHistoryReturnsToNoOp)
-{
-	using namespace Durin; using namespace Durin;
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
-	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "SnapshotClosureNoOp"));
-	std::vector<FTransactionObjectEvent> Events;
-	Target->TransactionObserver = [&](const auto& Event) { Events.push_back(Event); };
-	ASSERT_EQ(Buffer->Begin("test", "Snapshot closure"), 0); ASSERT_TRUE(Target->Modify());
-	const auto Context = GUndo->GetContext();
-	Target->Value = 4; Target->NativeValue = 9;
-	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get())); ASSERT_EQ(Events.size(), 1u);
-	Target->Value = 0; Target->NativeValue = 0;
-	EXPECT_EQ(Buffer->End(), 1); EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-	ASSERT_EQ(Events.size(), 2u);
-	const auto& Final = Events.back();
-	EXPECT_EQ(Final.Type, ETransactionObjectEventType::Finalized);
-	EXPECT_EQ(Final.CreatedBy, ETransactionObjectChangeCreatedBy::TransactionRecord);
-	EXPECT_EQ(Final.TransactionId, Context.TransactionId); EXPECT_EQ(Final.OperationId, Context.OperationId);
-	EXPECT_EQ(Final.Change.OriginalObject, FObjectKey(Target.Get()));
-	EXPECT_EQ(Final.Change.ChangedProperties, (std::vector<FName>{"Value"}));
-	EXPECT_TRUE(Final.Change.bNonPropertyDataChanged);
-}
-
-TEST(FTransactionObjectEventTests, SelectedSnapshotClosureDoesNotReportUnobservedNetZeroFields)
-{
-	using namespace Durin; using namespace Durin;
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
-	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "SelectedSnapshotClosure"));
-	std::vector<FTransactionObjectEvent> Events;
-	Target->TransactionObserver = [&](const auto& Event) { Events.push_back(Event); };
-	ASSERT_EQ(Buffer->Begin("test", "Selected closure"), 0); ASSERT_TRUE(Target->Modify());
-	Target->Value = 4; Target->SessionValue = 9;
-	const std::array<const FProperty*, 1> Selected{Property("Value")};
-	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get(), Selected)); ASSERT_EQ(Events.size(), 1u);
-	Target->Value = 0; Target->SessionValue = 0;
-	EXPECT_EQ(Buffer->End(), 1); EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-	ASSERT_EQ(Events.size(), 2u);
-	EXPECT_EQ(Events.back().Change.ChangedProperties, (std::vector<FName>{"Value"}));
-	EXPECT_FALSE(Events.back().Change.bNonPropertyDataChanged);
 }

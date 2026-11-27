@@ -7,22 +7,18 @@
 
 namespace Durin
 {
-	class FArchive;
 	class FReferenceCollector;
 	class DObject;
 	class FObjectReplacementMap;
 
 	// Supplements serialized state with object-owned reconstruction information.
 	// Captured annotations own their data and enumerate every retained hard edge.
-	// Captured values stay fixed; reinstancing can update their references. Transaction history is an
-	// in-process owner; Serialize is for explicit annotation archive consumers,
-	// not implicit persistence or part of the object's serialized payload.
+	// Captured values stay fixed; reinstancing can update their references. Transaction history owns them in process.
 	class ITransactionObjectAnnotation
 	{
 	public:
 		virtual ~ITransactionObjectAnnotation() = default;
 		virtual auto AddReferencedObjects(FReferenceCollector& Collector) -> void = 0;
-		virtual auto Serialize(FArchive& Archive) -> void = 0;
 		virtual auto GetAllocatedSize() const -> size_t = 0;
 		// Allows native records to opt into the same expiry policy as custom changes.
 		virtual auto HasExpired() const noexcept -> bool { return false; }

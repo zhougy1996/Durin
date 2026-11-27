@@ -231,9 +231,9 @@ namespace
 		{ return {}; }
 
 		auto GetDescription() const -> std::string_view override { return "No-op"; }
-		auto Revert(Durin::DObject*) -> void override
+		auto Revert() -> void override
 		{}
-		auto Apply(Durin::DObject*) -> void override
+		auto Apply() -> void override
 		{}
 	};
 

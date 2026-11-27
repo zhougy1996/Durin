@@ -4,7 +4,6 @@
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
-#include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
@@ -13,39 +12,6 @@
 
 namespace Durin
 {
-	namespace
-	{
-		auto InstanceDataTypes() -> std::unordered_map<std::string, const FComponentInstanceDataType*>&
-		{
-			static std::unordered_map<std::string, const FComponentInstanceDataType*> Types;
-			return Types;
-		}
-		auto InstanceDataTypesMutex() -> std::mutex&
-		{
-			static std::mutex Mutex;
-			return Mutex;
-		}
-		auto SerializeReference(FArchive& Archive, FPersistentObjectRef& Reference) -> void
-		{
-			auto Key = Reference.GetKey(); Key.SerializeForSnapshot(Archive);
-			if (Archive.IsLoading() && !Archive.IsError()) Reference = FPersistentObjectRef::FromKey(Key);
-		}
-		auto SerializeTransform(FArchive& Ar, FTransform& Value) -> void
-		{
-			Ar << Value.Rotation.x << Value.Rotation.y << Value.Rotation.z << Value.Rotation.w;
-			Ar << Value.Translation.x << Value.Translation.y << Value.Translation.z;
-			Ar << Value.Scale3D.x << Value.Scale3D.y << Value.Scale3D.z;
-		}
-		template<typename T>
-		auto SerializeEntries(FArchive& Ar, std::vector<T>& Entries, auto Serialize) -> void
-		{
-			uint64 Count = Entries.size(); Ar << Count;
-			if (Count > 1000000) { Ar.SetError("Transaction annotation exceeds the component count limit."); return; }
-			if (Ar.IsLoading() && !Ar.IsError()) Entries.resize(static_cast<size_t>(Count));
-			for (auto& Entry : Entries) { if (Ar.IsError()) break; Serialize(Entry); }
-		}
-	}
-
 	FActorComponentInstanceSourceInfo::FActorComponentInstanceSourceInfo(const DActorComponent* Component)
 	{
 		if (!Component) return;
@@ -95,16 +61,6 @@ namespace Durin
 	{ return GeneratedOwner.Resolve() == &Owner && Key == InKey; }
 	auto FActorComponentInstanceSourceInfo::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{ Exact.AddReferencedObjects(Collector); GeneratedOwner.AddReferencedObjects(Collector); Class.AddReferencedObjects(Collector); Owner.AddReferencedObjects(Collector); }
-	auto FActorComponentInstanceSourceInfo::Serialize(FArchive& Ar) -> void
-	{
-		SerializeReference(Ar, Exact); SerializeReference(Ar, GeneratedOwner); SerializeReference(Ar, Class); SerializeReference(Ar, Owner);
-		Ar << Key.Namespace << Key.Id.A << Key.Id.B << Key.Id.C << Key.Id.D;
-		if (Ar.IsLoading() && (!GeneratedOwner.IsNull() && (!Exact.IsNull() || !Key.IsValid())))
-			Ar.SetError("Invalid generated component annotation endpoint.");
-		if (Ar.IsLoading() && !Ar.IsError())
-			if (auto Valid = Validate(); !Valid) Ar.SetError(Valid.error());
-	}
-
 	FActorRootComponentReconstructionData::FActorRootComponentReconstructionData(const AActor& Actor, const FActorRootComponentReconstructionData* Previous)
 		: SourceActor(const_cast<AActor*>(&Actor))
 	{
@@ -114,7 +70,7 @@ namespace Durin
 		if (bCachedGeneratedRoot)
 		{
 			RootParent = FActorComponentInstanceSourceInfo(RootComponent->GetAttachParent());
-			RootRelative = RootComponent->GetRelativeTransform(); RootWorld = RootComponent->GetWorldTransform();
+			RootRelative = RootComponent->GetRelativeTransform();
 		}
 		auto CaptureChild = [&](DSceneComponent& Child) {
 			const auto Endpoint = FActorComponentInstanceSourceInfo(&Child);
@@ -150,11 +106,10 @@ namespace Durin
 		if (SourceActor.Resolve() != &Actor) return std::unexpected("Root reconstruction owner mismatch.");
 		auto* SceneRoot = Cast<DSceneComponent>(Root.Resolve());
 		auto* Parent = Cast<DSceneComponent>(RootParent.Resolve());
-		if (bCachedGeneratedRoot && SceneRoot) Actor.SetRootComponent(SceneRoot);
-		if (!bRequireRoot && ((!Root.IsNull() && !SceneRoot) || Actor.GetRootComponent() != SceneRoot)) return {};
-		if ((!Root.IsNull() && !SceneRoot) || (SceneRoot && SceneRoot->GetOwner() != &Actor))
+		const bool bRestoreRoot = bRequireRoot || (SceneRoot && Actor.GetRootComponent() == SceneRoot);
+		if (bRestoreRoot && ((!Root.IsNull() && !SceneRoot) || (SceneRoot && SceneRoot->GetOwner() != &Actor)))
 			return std::unexpected("Actor transaction root identity is unavailable.");
-		if (bCachedGeneratedRoot)
+		if (bRestoreRoot && bCachedGeneratedRoot)
 		{
 			if (!SceneRoot || SceneRoot->GetOwner() != &Actor || (!RootParent.IsNull() && !Parent)
 				|| (Parent && (Parent == SceneRoot || Parent->IsAttachedTo(SceneRoot))))
@@ -164,23 +119,25 @@ namespace Durin
 		{
 			auto* Component = Cast<DSceneComponent>(Child.Target.Resolve());
 			auto* ParentComponent = Cast<DSceneComponent>(Child.Parent.Resolve());
+			if (!bRequireRoot && !Child.Parent.IsNull() && !ParentComponent) continue;
 			if (!Component || (!Child.Parent.IsNull() && !ParentComponent)
 				|| (ParentComponent && (ParentComponent == Component || ParentComponent->IsAttachedTo(Component))))
 				return std::unexpected("Actor attachment recovery participant cannot resolve safely.");
 		}
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!Actor.SetRootComponent(SceneRoot)) return std::unexpected("Actor transaction root could not be reconciled.");
-		if (bCachedGeneratedRoot)
+		if (bRequireRoot && !Actor.SetRootComponent(SceneRoot)) return std::unexpected("Actor transaction root could not be reconciled.");
+		if (bRestoreRoot && bCachedGeneratedRoot)
 		{
 			const bool AttachedRoot = SceneRoot->GetAttachParent() == Parent || (Parent ? SceneRoot->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative)
 				: SceneRoot->DetachFromComponent(EDetachmentTransformRule::KeepRelative));
 			if (!AttachedRoot) return std::unexpected("Actor generated-root attachment restore failed.");
-			SceneRoot->SetRelativeTransform(RootRelative);
+			if (bRequireRoot || !SceneRoot->IsTransformModifiedByConstructionScript()) SceneRoot->SetRelativeTransform(RootRelative);
 		}
 		for (const auto& Child : Attached)
 		{
 			auto* Component = Cast<DSceneComponent>(Child.Target.Resolve());
 			auto* ParentComponent = Cast<DSceneComponent>(Child.Parent.Resolve());
+			if (!bRequireRoot && !Child.Parent.IsNull() && !ParentComponent) continue;
 			if (!Component) return std::unexpected("Actor attachment recovery target expired.");
 			const bool Restored = Component->GetAttachParent() == ParentComponent || (ParentComponent
 				? Component->AttachToComponent(ParentComponent, EAttachmentTransformRule::KeepRelative)
@@ -194,11 +151,6 @@ namespace Durin
 	{
 		SourceActor.AddReferencedObjects(Collector); Root.AddReferencedObjects(Collector); RootParent.AddReferencedObjects(Collector);
 		for (const auto& Child : Attached) { Child.Target.AddReferencedObjects(Collector); Child.Parent.AddReferencedObjects(Collector); }
-	}
-	auto FActorRootComponentReconstructionData::Serialize(FArchive& Ar) -> void
-	{
-		SerializeReference(Ar, SourceActor); Ar << bCachedGeneratedRoot; Root.Serialize(Ar); RootParent.Serialize(Ar); SerializeTransform(Ar, RootRelative); SerializeTransform(Ar, RootWorld);
-		SerializeEntries(Ar, Attached, [&](auto& Value) { Value.Target.Serialize(Ar); Value.Parent.Serialize(Ar); SerializeTransform(Ar, Value.Relative); });
 	}
 	auto FActorRootComponentReconstructionData::GetAllocatedSize() const -> size_t
 	{
@@ -220,44 +172,24 @@ namespace Durin
 		return Exact.Resolve() == &Component;
 	}
 
-	auto FActorComponentInstanceData::RegisterDataType(const FComponentInstanceDataType& Type) -> void
-	{
-		if (Type.Name.empty()) throw std::logic_error("Component instance data requires a stable type name.");
-		std::lock_guard Lock(InstanceDataTypesMutex());
-		const auto [Entry, Inserted] = InstanceDataTypes().emplace(Type.Name, &Type);
-		if (!Inserted && Entry->second != &Type) throw std::logic_error("Duplicate component instance data type name.");
-	}
 	auto FActorComponentInstanceData::GetDataType() const -> const FComponentInstanceDataType&
-	{ return RegisterType<FActorComponentInstanceData>("Durin.ActorComponentInstanceData"); }
+	{ return CopyType<FActorComponentInstanceData>(); }
 	auto FSceneComponentInstanceData::GetDataType() const -> const FComponentInstanceDataType&
-	{ return RegisterType<FSceneComponentInstanceData>("Durin.SceneComponentInstanceData"); }
-	auto FActorComponentInstanceData::FindDataType(std::string_view Name) -> const FComponentInstanceDataType*
-	{
-		RegisterType<FActorComponentInstanceData>("Durin.ActorComponentInstanceData");
-		RegisterType<FSceneComponentInstanceData>("Durin.SceneComponentInstanceData");
-		std::lock_guard Lock(InstanceDataTypesMutex());
-		const auto Entry = InstanceDataTypes().find(std::string(Name));
-		return Entry == InstanceDataTypes().end() ? nullptr : Entry->second;
-	}
-
+	{ return CopyType<FSceneComponentInstanceData>(); }
 	FActorComponentInstanceData::FActorComponentInstanceData(const DActorComponent& Component) : Source(&Component) {}
 	auto FActorComponentInstanceData::MatchesComponent(const DActorComponent& Component, const FActorGeneratedComponentKey* Key) const -> bool
 	{ return Source.MatchesComponent(Component, Key); }
-	auto FActorComponentInstanceData::ApplyToComponent(DActorComponent&, ECacheApplyPhase) const -> void {}
+	auto FActorComponentInstanceData::ApplyToComponent(DActorComponent&) const -> void {}
 	auto FActorComponentInstanceData::AddReferencedObjects(FReferenceCollector& Collector) const -> void { Source.AddReferencedObjects(Collector); }
-	auto FActorComponentInstanceData::Serialize(FArchive& Archive) -> void { Source.Serialize(Archive); }
 
 	FSceneComponentInstanceData::FSceneComponentInstanceData(const DActorComponent& Component)
 		: FActorComponentInstanceData(Component), Relative(static_cast<const DSceneComponent&>(Component).GetRelativeTransform()) {}
-	auto FSceneComponentInstanceData::ApplyToComponent(DActorComponent& Component, ECacheApplyPhase Phase) const -> void
+	auto FSceneComponentInstanceData::ApplyToComponent(DActorComponent& Component) const -> void
 	{
-		if (Phase != ECacheApplyPhase::PostUserConstructionScript) return;
 		auto* Scene = Cast<DSceneComponent>(&Component);
 		if (!Scene) throw std::runtime_error("Scene instance data requires the same scene component class.");
 		if (!Scene->IsTransformModifiedByConstructionScript()) Scene->SetRelativeTransform(Relative);
 	}
-	auto FSceneComponentInstanceData::Serialize(FArchive& Archive) -> void
-	{ FActorComponentInstanceData::Serialize(Archive); SerializeTransform(Archive, Relative); }
 
 	FComponentInstanceDataCache::FComponentInstanceDataCache(const AActor& Actor)
 		: SourceActor(const_cast<AActor*>(&Actor))
@@ -302,7 +234,7 @@ namespace Durin
 		return {};
 	}
 
-	auto FComponentInstanceDataCache::ApplyToActor(AActor& Actor, ECacheApplyPhase Phase) const -> void
+	auto FComponentInstanceDataCache::ApplyToActor(AActor& Actor) const -> void
 	{
 		std::unordered_set<const FActorComponentInstanceData*> Applied;
 		for (const auto& Component : Actor.GetComponentsSnapshot())
@@ -314,7 +246,7 @@ namespace Durin
 				for (const auto& Data : ComponentsInstanceData)
 					if (Data && !Applied.contains(Data.get()) && Data->MatchesComponent(*Component))
 					{
-						Data->ApplyToComponent(*Component, Phase);
+						Data->ApplyToComponent(*Component);
 						Applied.insert(Data.get()); break;
 					}
 			}
@@ -323,35 +255,6 @@ namespace Durin
 	{
 		SourceActor.AddReferencedObjects(Collector);
 		for (const auto& Data : ComponentsInstanceData) if (Data) Data->AddReferencedObjects(Collector);
-	}
-	auto FComponentInstanceDataCache::Serialize(FArchive& Archive) -> void
-	{
-		SerializeReference(Archive, SourceActor);
-		uint64 Count = ComponentsInstanceData.size(); Archive << Count;
-		if (Count > 1000000) { Archive.SetError("Component instance cache count exceeds the limit."); return; }
-		if (Archive.IsLoading() && !Archive.IsError()) ComponentsInstanceData.resize(static_cast<size_t>(Count));
-		for (auto& Data : ComponentsInstanceData)
-		{
-			if (Archive.IsError()) break;
-			std::string TypeName;
-			if (Archive.IsSaving())
-			{
-				const auto* InstanceData = Data.get();
-				if (!InstanceData || InstanceData->GetDataType().Type != typeid(*InstanceData))
-				{ Archive.SetError("Component instance data has no matching registered type."); return; }
-				TypeName = Data->GetDataType().Name;
-			}
-			Archive << TypeName;
-			if (Archive.IsError()) break;
-			if (Archive.IsLoading())
-			{
-				const auto* Type = FActorComponentInstanceData::FindDataType(TypeName);
-				if (!Type) { Archive.SetError("Unknown component instance data type."); return; }
-				Data = Type->Construct();
-			}
-
-			if (!Archive.IsError()) Data->Serialize(Archive);
-		}
 	}
 	auto FComponentInstanceDataCache::GetAllocatedSize() const -> size_t
 	{

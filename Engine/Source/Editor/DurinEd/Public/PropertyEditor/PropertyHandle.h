@@ -139,6 +139,7 @@ namespace Durin::PropertyEditor
 		auto ApplyInternal(const FPropertyValueSnapshotPayload& ProposedValue,
 			std::string* OutError, bool* OutChanged) -> bool;
 		auto RestoreOriginalValue(std::string* OutError) -> bool;
+		auto CheckRecording(std::string* OutError) -> bool;
 		auto Reset(bool bCancelRecording = true) -> void;
 
 		template<typename TValue>

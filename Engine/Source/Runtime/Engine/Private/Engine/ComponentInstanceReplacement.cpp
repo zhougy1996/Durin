@@ -64,7 +64,7 @@ namespace Durin
 	{
 		const auto& Type = GetDataType();
 		if (Type.Type != typeid(*this))
-			return std::unexpected("Component instance data has no matching registered copy operation.");
+			return std::unexpected("Component instance data has no matching exact-type copy operation.");
 		auto Result = Type.Copy(*this);
 		if (auto Valid = Result->FindAndReplaceInstances(Map); !Valid) return std::unexpected(Valid.error());
 		return Result;

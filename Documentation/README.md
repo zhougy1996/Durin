@@ -123,7 +123,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Reflected edit targets, detached validation, object notifications, or edit sessions | [Reflected property editing](Editor/Architecture/PropertyEditing/ReflectedPropertyEditing.md) |
 | Details layouts, categories/search, custom property widgets, or host view lifetime | [Property Details views](Editor/Architecture/PropertyEditing/PropertyDetailsViews.md) |
 | Level Editor Actor/Component Details, aggregation, or material-slot controls | [Level Editor Details](Editor/Architecture/LevelEditing/LevelEditorDetails.md) |
-| Editor transaction identity, whole-object or array operation records, or collector-enumerated history references | [Transaction record foundation](Editor/Architecture/Transactions/TransactionRecords.md) |
+| Editor transaction identity, whole-object or custom records, or collector-enumerated history references | [Transaction record foundation](Editor/Architecture/Transactions/TransactionRecords.md) |
 | Editor transactor, scoped recording, bounded history, structural Undo/Redo, or transaction buffer ownership | [Editor transactor core](Editor/Architecture/Transactions/Transactors.md) |
 | Material-system long-term status, sequencing, or future milestones | [Material system roadmap](Roadmaps/MaterialSystem.md) |
 | Bounded implementation task or task selection | Run `.\DevTool.bat doc task list`, then open only the selected task |

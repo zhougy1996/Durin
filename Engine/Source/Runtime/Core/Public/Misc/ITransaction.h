@@ -7,23 +7,6 @@
 namespace Durin
 {
 	class DObject;
-	class FProperty;
-
-	// Uses stable reflected ownership rather than a live container address.
-	// Typed range payloads and mutation adapters are supplied by the owning module.
-	enum class ETransactionArrayOperation : int8 { Remove = -1, Replace = 0, Insert = 1 };
-	struct FTransactionArrayCapture
-	{
-		DObject* Object = nullptr;
-		const FProperty* Member = nullptr;
-		uint32 MemberIndex = 0;
-		size_t Index = 0;
-		size_t Count = 0;
-		ETransactionArrayOperation Operation = ETransactionArrayOperation::Replace;
-		// Optional reflected struct ancestors, from the object's member to the
-		// array's parent. No container address is retained by the recorder.
-		std::span<const FProperty* const> StructPath;
-	};
 
 	// Runtime object capture boundary. Editor owns the current recording's lifetime.
 	class ITransaction
@@ -38,9 +21,9 @@ namespace Durin
 		virtual auto EndOperation() -> FTransactionCaptureResult = 0;
 		virtual auto Apply() -> void = 0;
 		virtual auto Finalize() -> void = 0;
-		virtual auto StoreUndo(DObject* Object, std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult = 0;
-		virtual auto SnapshotObject(DObject* Object, std::span<const FProperty* const> Properties = {}) -> FTransactionCaptureResult = 0;
-		virtual auto SaveArray(const FTransactionArrayCapture& Capture) -> FTransactionCaptureResult = 0;
+		// Store an already-applied command. Its declared participants suppress later Modify() snapshots.
+		// Call Modify() before the first write to keep a whole-object baseline alongside the command.
+		virtual auto StoreUndo(std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult = 0;
 		// Unsupported inspection must be reported, never interpreted as no PIE references.
 		virtual auto ContainsPieObjects() const -> std::expected<bool, std::string> = 0;
 	};

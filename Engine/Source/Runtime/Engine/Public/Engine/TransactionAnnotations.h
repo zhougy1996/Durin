@@ -24,7 +24,6 @@ namespace Durin
 	class FActorTransactionAnnotation final : public ITransactionObjectAnnotation
 	{
 	public:
-		FActorTransactionAnnotation() = default;
 		ENGINE_API explicit FActorTransactionAnnotation(const AActor& Actor, const FActorTransactionAnnotation* Previous = nullptr);
 		ENGINE_API static auto CreateIfRequired(const AActor& Actor) -> std::shared_ptr<FActorTransactionAnnotation>;
 		ENGINE_API auto HasInstanceData() const -> bool;
@@ -33,14 +32,13 @@ namespace Durin
 		auto GetComponentInstanceDataCache() const -> const FComponentInstanceDataCache& { return Data.ComponentInstanceData; }
 		auto GetRootReconstructionData() const -> const FActorRootComponentReconstructionData& { return Data.RootData; }
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
-		ENGINE_API auto Serialize(FArchive& Archive) -> void override;
 		ENGINE_API auto GetAllocatedSize() const -> size_t override;
 		ENGINE_API auto FindAndReplaceInstances(const FObjectReplacementMap& Map) -> FTransactionCaptureResult override;
 		ENGINE_API auto ComputeAdditionalObjectChanges(const ITransactionObjectAnnotation* Original) const
 			-> std::vector<std::pair<DObject*, FTransactionObjectChange>> override;
 	private:
 		FActorTransactionAnnotationData Data;
-		// Observation only: not serialized reconstruction state or an obsolete instance root.
+		// Field observations for additional events on live generated components.
 		struct FDiffableComponentInfo
 		{
 			FActorComponentInstanceSourceInfo ComponentSourceInfo;

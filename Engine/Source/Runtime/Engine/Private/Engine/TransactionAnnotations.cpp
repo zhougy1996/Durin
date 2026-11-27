@@ -95,15 +95,6 @@ namespace Durin
 		return {};
 	}
 
-	namespace
-	{
-		auto SerializeReference(FArchive& Archive, FPersistentObjectRef& Reference) -> void
-		{
-			auto Key = Reference.GetKey(); Key.SerializeForSnapshot(Archive);
-			if (Archive.IsLoading() && !Archive.IsError()) Reference = FPersistentObjectRef::FromKey(Key);
-		}
-	}
-
 	FActorTransactionAnnotation::FActorTransactionAnnotation(const AActor& Actor, const FActorTransactionAnnotation* Previous)
 		: Data{FPersistentObjectRef(const_cast<AActor*>(&Actor)),
 			FComponentInstanceDataCache(Actor), FActorRootComponentReconstructionData(Actor, Previous ? &Previous->Data.RootData : nullptr)}
@@ -158,13 +149,6 @@ namespace Durin
 			Observation.ObjectInfo.Package.AddReferencedObjects(Collector);
 			if (Observation.SerializedObject) Observation.SerializedObject->AddReferencedObjects(Collector);
 		}
-	}
-	auto FActorTransactionAnnotation::Serialize(FArchive& Archive) -> void
-	{
-		if (Archive.IsLoading()) DiffableComponentInfos.clear();
-		SerializeReference(Archive, Data.Target);
-		Data.ComponentInstanceData.Serialize(Archive);
-		Data.RootData.Serialize(Archive);
 	}
 	auto FActorTransactionAnnotation::GetAllocatedSize() const -> size_t
 	{

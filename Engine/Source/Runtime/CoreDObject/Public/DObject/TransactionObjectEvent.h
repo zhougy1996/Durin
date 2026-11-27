@@ -10,7 +10,7 @@ namespace Durin
 	class ITransactionObjectAnnotation;
 	class DObject;
 
-	enum class ETransactionObjectEventType : uint8 { Snapshot, Finalized, UndoRedo };
+	enum class ETransactionObjectEventType : uint8 { Finalized, UndoRedo };
 	enum class ETransactionObjectChangeCreatedBy : uint8 { TransactionRecord, TransactionAnnotation };
 
 	// Owns an object's original identity and actual changed-field summary.

@@ -21,10 +21,8 @@ namespace
 	public:
 		FStateTestAnnotation(int32 InValue, DObject* InHard, size_t InBytes) : Value(InValue), Hard(InHard), Bytes(InBytes) {}
 		auto AddReferencedObjects(FReferenceCollector& Collector) -> void override { Hard.AddReferencedObjects(Collector); }
-		auto Serialize(FArchive& Ar) -> void override { ++SerializeCalls; Ar << Value; }
 		auto GetAllocatedSize() const -> size_t override { return Bytes; }
 		int32 Value = 0;
-		int32 SerializeCalls = 0;
 		FPersistentObjectRef Hard;
 		size_t Bytes = 0;
 	};

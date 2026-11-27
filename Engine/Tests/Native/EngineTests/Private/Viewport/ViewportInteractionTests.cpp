@@ -1,3 +1,4 @@
+#include "Viewport/TransformProxy.h"
 #include "ViewportTestSupport.h"
 #include "Viewport/ViewportPickingService.h"
 #include "Editor/EditorTransactionTestSupport.h"
@@ -114,6 +115,30 @@ TEST(FLevelViewportEditModeTests, KeepsInstancesPerManagerAndRepairsUnavailableM
 	ManagerB.Synchronize(ContextB);
 	EXPECT_EQ(ManagerB.GetActiveModeId(), "Select");
 	EXPECT_EQ(ProbeB->ForcedExitCount, 1);
+}
+
+TEST(FTransformProxyTests, SharedFrameRotatesAndScalesAboutTheInitialPivot)
+{
+	using namespace Durin;
+	using namespace Durin::LevelEditor;
+	auto First = std::make_shared<FProbeTransformTarget>();
+	auto Second = std::make_shared<FProbeTransformTarget>();
+	const FVector3 Pivot(5.0, 6.0, 7.0);
+	const FQuat Basis = Math::MakeQuaternionFromAxisAngleRadians(Math::HalfPi<FReal>(), FVectorConstants::Up);
+	const FVector3 Axis = Basis * FVectorConstants::Forward;
+	First->Transform.Translation = Pivot + Axis;
+	Second->Transform.Translation = Pivot - Axis;
+	FTransformProxy Proxy({{First, Second}, "Probes"}, Pivot, Basis);
+	auto Frame = Proxy.GetInitialTransform();
+	Frame.Rotation = Basis * Frame.Rotation;
+	ASSERT_TRUE(Proxy.SetTransform(Frame));
+	ExpectVectorNear(First->Transform.Translation, Pivot + Basis * Axis);
+	ExpectVectorNear(Second->Transform.Translation, Pivot - Basis * Axis);
+	Frame = Proxy.GetInitialTransform();
+	Frame.Scale3D.x = 2.0;
+	ASSERT_TRUE(Proxy.SetTransform(Frame));
+	ExpectVectorNear(First->Transform.Translation, Pivot + 2.0 * Axis);
+	ExpectVectorNear(Second->Transform.Translation, Pivot - 2.0 * Axis);
 }
 
 TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowledge)
@@ -422,6 +447,14 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_FALSE(TransformTransactions->CanUndo());
 
+	auto* Peer = Level->SpawnActor<Durin::ACameraActor>("Peer");
+	ASSERT_NE(Peer, nullptr);
+	auto* Third = Level->SpawnActor<Durin::ACameraActor>("OtherSelection");
+	ASSERT_NE(Third, nullptr);
+	const Durin::FVector3 ThirdLocation(7.0, 3.0, 5.0);
+	ASSERT_TRUE(Third->SetActorLocation(ThirdLocation));
+	Context.SetSelectedActors({Actor, Peer}, Actor);
+	Package->ClearDirty();
 	DragInput.bCancel = false;
 	DragInput.bLeftMousePressed = true;
 	DragInput.bLeftMouseDown = true;
@@ -434,16 +467,31 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	DragInput.bLeftMouseDown = false;
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	EXPECT_TRUE(Package->IsDirty());
-	EXPECT_EQ(TransformTransactions->GetUndoContext().Description, "Translate 'Selected'");
+	EXPECT_EQ(TransformTransactions->GetUndoContext().Description, "Translate 2 Actors");
 	const auto* Edit = TransformTransactions->GetTransaction(0);
 	ASSERT_NE(Edit, nullptr);
+	EXPECT_EQ(Edit->GetRecordCount(), 1u);
+	EXPECT_TRUE(Edit->ContainsObject(Actor->GetRootComponent()));
+	EXPECT_TRUE(Edit->ContainsObject(Peer->GetRootComponent()));
+	const auto Dragged = Actor->GetActorTransform().Translation;
+	EXPECT_GT(Durin::Math::Length(Dragged - InitialLocation), 0.001);
+	ExpectVectorNear(Peer->GetActorTransform().Translation, Dragged);
 	const auto Details = Edit->GetDetails();
 	EXPECT_NE(Details.find("'Selected'"), std::string::npos);
 	EXPECT_NE(Details.find("Location"), std::string::npos);
 	EXPECT_NE(Details.find("Delta"), std::string::npos);
+	Context.SelectActor(Third);
+	ASSERT_TRUE(Client.GetTransformGizmo().Update(Context, TranslateView, Input, TransformTransactions.Get()));
 	ASSERT_TRUE(TransformTransactions->Undo());
 	EXPECT_FALSE(Package->IsDirty());
+	ExpectVectorNear(Actor->GetActorTransform().Translation, InitialLocation);
+	ExpectVectorNear(Peer->GetActorTransform().Translation, InitialLocation);
+	ExpectVectorNear(Third->GetActorTransform().Translation, ThirdLocation);
 	ASSERT_TRUE(TransformTransactions->Redo());
+	ExpectVectorNear(Actor->GetActorTransform().Translation, Dragged);
+	ExpectVectorNear(Peer->GetActorTransform().Translation, Dragged);
+	ExpectVectorNear(Third->GetActorTransform().Translation, ThirdLocation);
+	Context.SelectActor(Actor);
 	EXPECT_TRUE(Package->IsDirty());
 
 	Client.GetTransformGizmo().SetMode(Durin::LevelEditor::ETransformGizmoMode::Rotate);
@@ -850,21 +898,40 @@ TEST(FTransformGizmoTests, DiscardedHistoryLeavesReleasedTransformAppliedAndDirt
 	ExpectVectorNear(Probe.Objects.front()->Transform.Translation, Preview.Translation);
 }
 
-TEST(FTransformGizmoTests, ReleaseAndReplayNeverOverwriteAnOutsideTransform)
+TEST(FTransformGizmoTests, ReleasePreservesAnOutsideTransformWrite)
 {
 	InitializeDObjectSystem();
-	for (bool bCommitted : {false, true})
-	{
-		FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1)); Durin::Tests::FTestEditorTransactorOwner Buffer;
-		Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get());
-		if (bCommitted) Probe.Release(Buffer.Get());
-		Probe.Objects[0]->Transform.Translation += Durin::FVector3(100, 200, 300);
-		const auto Outside = Probe.Objects[0]->Transform;
-		if (bCommitted) { EXPECT_DEATH((void)Buffer->Undo(), "The actor changed after planning"); }
-		else { Probe.Release(Buffer.Get()); EXPECT_FALSE(Buffer->CanUndo()); }
-		EXPECT_FALSE(Probe.Gizmo.IsDragging());
-		ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Outside.Translation);
-	}
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(1));
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
+	Probe.Begin(Buffer.Get());
+	Probe.Move(Buffer.Get());
+	Probe.Objects[0]->Transform.Translation += Durin::FVector3(100, 200, 300);
+	const auto Outside = Probe.Objects[0]->Transform;
+	Probe.Release(Buffer.Get());
+	EXPECT_FALSE(Probe.Gizmo.IsDragging());
+	EXPECT_FALSE(Buffer->CanUndo());
+	ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Outside.Translation);
+}
+
+TEST(FTransformGizmoTests, ReplayRestoresRecordedEndpointsAfterOutsideWrites)
+{
+	InitializeDObjectSystem();
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(1));
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
+	auto& Transform = Probe.Objects[0]->Transform;
+	const auto Before = Transform;
+	Probe.Begin(Buffer.Get());
+	Probe.Move(Buffer.Get());
+	Probe.Release(Buffer.Get());
+	const auto After = Transform;
+	Transform.Translation += Durin::FVector3(100, 200, 300);
+	ASSERT_TRUE(Buffer->Undo());
+	ExpectVectorNear(Transform.Translation, Before.Translation);
+	Transform.Translation -= Durin::FVector3(300, 200, 100);
+	ASSERT_TRUE(Buffer->Redo());
+	ExpectVectorNear(Transform.Translation, After.Translation);
 }
 
 TEST(FTransformGizmoTests, ForeignRecordingDefersRestoreWithoutJoiningItsHistory)
