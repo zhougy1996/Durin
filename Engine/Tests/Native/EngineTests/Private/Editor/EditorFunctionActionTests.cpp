@@ -444,6 +444,29 @@ TEST_F(FEditorFunctionTests, DirtyCallbackCancellationInvokesOnceWithoutUndoHist
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
+TEST_F(FEditorFunctionTests, InvalidatedActionPreservesDirtyCallbackEdit)
+{
+	Tests::FTestEditorTransactorOwner Buffer;
+	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(MakeActionPackage(), "RetiredAction"));
+	TStrongObjectPtr<DFunctionTarget> Other(NewObject<DFunctionTarget>(nullptr, "CallbackTarget"));
+	Target->ClearFlags(EObjectFlags::Transactional);
+	FPropertyView View;
+	const auto Listener = OnAssetPackagesChanged().AddLambda([&] {
+		if (!Buffer->IsActive()) return;
+		Other->Modify(false);
+		Other->Value = 19;
+		MarkAsGarbage(Target.Get());
+	});
+	const auto Result = ExecuteEditorFunction(View, {}, Request(Target));
+	OnAssetPackagesChanged().Remove(Listener);
+	EXPECT_EQ(Result.Error, EEditorFunctionError::Invocation);
+	EXPECT_FALSE(Result.bInvoked);
+	EXPECT_EQ(Other->Value, 19);
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Other->Value, 0);
+}
+
 TEST_F(FEditorFunctionTests, NestedInvocationPublishesWithTheOuterScope)
 {
 	Tests::FTestEditorTransactorOwner Buffer;

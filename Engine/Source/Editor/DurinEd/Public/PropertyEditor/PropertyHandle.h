@@ -140,7 +140,8 @@ namespace Durin::PropertyEditor
 			std::string* OutError, bool* OutChanged) -> bool;
 		auto RestoreOriginalValue(std::string* OutError) -> bool;
 		auto CheckRecording(std::string* OutError) -> bool;
-		auto Reset(bool bCancelRecording = true) -> void;
+		auto Deactivate() -> void;
+		auto Reset() -> void;
 
 		template<typename TValue>
 		auto WriteValue(const TValue& Value, std::string* OutError) -> bool;

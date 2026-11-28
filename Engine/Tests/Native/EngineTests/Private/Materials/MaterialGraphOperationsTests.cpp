@@ -374,6 +374,32 @@ TEST(FMaterialGraphOperationsTests, GroupedConfigurationAndOrdinaryOwnerEditsRep
 	}
 }
 
+TEST(FMaterialGraphOperationsTests, RejectedConfigurationPreservesTransactionStartedEdit)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "RejectedConfiguration"));
+	TStrongObjectPtr<DMaterial> Other(NewObject<DMaterial>(nullptr, "OtherMaterial", EObjectFlags::Transactional));
+	const auto OriginalName = Other->GetFName();
+	const auto OriginalDomain = Material->GetDomain();
+	FMaterialConfiguration Configuration{EMaterialDomain::PostProcess, {.ShadingModel = EMaterialShadingModel::Unlit}};
+	Tests::FTestEditorTransactorOwner History;
+	const auto Listener = History->OnTransactionStateChanged().AddLambda(
+		[&](const FTransactionContext&, ETransactionStateEventType Event) {
+			if (Event != ETransactionStateEventType::TransactionStarted) return;
+			Other->Modify(false);
+			Other->Rename("EditedMaterial");
+			Configuration.Properties.bIsSky = true; // Sky is incompatible with PostProcess.
+		});
+	const auto Result = MaterialEditing::SetConfiguration(*Material, Configuration);
+	History->OnTransactionStateChanged().Remove(Listener);
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Material->GetDomain(), OriginalDomain);
+	EXPECT_EQ(Other->GetFName(), FName("EditedMaterial"));
+	ASSERT_EQ(History->GetQueueLength(), 1u);
+	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(Other->GetFName(), OriginalName);
+}
+
 TEST(FMaterialGraphOperationsTests, AnonymousConfigurationRestoresDomainAndSchedulesOneGenerationPerReplay)
 {
 	InitializeDObjectSystem();

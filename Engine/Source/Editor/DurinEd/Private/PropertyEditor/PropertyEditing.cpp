@@ -518,7 +518,7 @@ namespace Durin
 			auto Recording = BeginPropertyRecording(Target, Description, *InTransactor, bOpenScope, TransactionScope);
 			if (!Recording)
 			{
-				Reset(bOwnsRecording);
+				Reset();
 				return FailPropertyEdit(OutError, Recording.error());
 			}
 		}
@@ -665,7 +665,7 @@ namespace Durin
 	auto PropertyEditor::FPropertyEdit::CheckRecording(std::string* OutError) -> bool
 	{
 		if (!TransactionScope || GUndo) return true;
-		Reset(false);
+		Reset();
 		return FailPropertyEdit(OutError, "The property transaction is no longer active.");
 	}
 
@@ -678,14 +678,14 @@ namespace Durin
 		const auto& Target = *Handle.PathTarget;
 		if (!TargetObject.IsValid() || !Target.Object->CanEditChange(Target.MemberProperty))
 		{
-			Reset(false);
+			Reset();
 			return FailPropertyEdit(OutError, "The property is no longer editable.");
 		}
 		bCommitting = true;
 		Handle.NotifyValueSet(Target, EPropertyValueSetFlags::DefaultFlags, false);
 		bCommitting = false;
 		if (!bActive) return FailPropertyEdit(OutError, "The property edit closed during publication.");
-		Reset(false);
+		Reset();
 		return true;
 	}
 
@@ -694,7 +694,7 @@ namespace Durin
 		if (!bActive || HasChanges())
 			return FailPropertyEdit(OutError, "Unchanged cancellation requires an active unchanged edit.");
 		CheckPropertyEditFinish(TransactionScope, "CancelUnchanged");
-		Reset(false);
+		Reset();
 		return true;
 	}
 
@@ -706,6 +706,12 @@ namespace Durin
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
 		std::string Error;
 		const bool bRestored = RestoreOriginalValue(OutError ? OutError : &Error);
+		if (bRestored && bOwnsRecording && TransactionScope)
+		{
+			// TransactionCanceled listeners must see the edit as closed.
+			Deactivate();
+			TransactionScope->Cancel();
+		}
 		Reset();
 		if (!bRestored && !OutError) DURIN_ERROR("Unable to restore the property preview: {}", Error);
 		return bRestored;
@@ -740,11 +746,15 @@ namespace Durin
 		return true;
 	}
 
-	auto PropertyEditor::FPropertyEdit::Reset(bool bCancelRecording) -> void
+	auto PropertyEditor::FPropertyEdit::Deactivate() -> void
 	{
 		if (GEditor) std::erase(GEditor->ActivePropertyEdits, this);
 		bActive = false;
-		if (bCancelRecording && bOwnsRecording && TransactionScope) TransactionScope->Cancel();
+	}
+
+	auto PropertyEditor::FPropertyEdit::Reset() -> void
+	{
+		Deactivate();
 		TransactionScope.reset();
 		bOwnsRecording = false;
 		Handle = {};

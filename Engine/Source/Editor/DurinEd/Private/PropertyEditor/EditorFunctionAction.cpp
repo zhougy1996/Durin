@@ -71,7 +71,6 @@ namespace Durin
 		Result.Error = CanExecuteEditorFunction(Context, Request);
 		if (Result.Error != EEditorFunctionError::None) return Report();
 		TStrongObjectPtr<DObject> Target(Request.Target);
-		TStrongObjectPtr<DTransactor> Transactor(GetTransactionEditor()->GetTransactor());
 		const auto* Function = Target->GetClass()->FindFunctionByName(Request.FunctionName);
 		if (ValidateFunctionInvocation(Target.Get(), Function, {}) != EFunctionInvokeError::None)
 		{
@@ -83,7 +82,6 @@ namespace Durin
 			FExecutionGuard() { bExecutingFunction = true; }
 			~FExecutionGuard() { bExecutingFunction = false; }
 		} Guard;
-		const bool bOwnsRecording = !Transactor->IsActive();
 		{
 			FScopedTransaction Transaction(Request.RootOwner.ToString() + "::" + Request.FunctionName.ToString(),
 				Function->GetDisplayName(), Target.Get());
@@ -95,7 +93,6 @@ namespace Durin
 			Target->Modify();
 			if (ValidateFunctionInvocation(Target.Get(), Function, {}) != EFunctionInvokeError::None)
 			{
-				if (bOwnsRecording) Transaction.Cancel();
 				Result.Error = EEditorFunctionError::Invocation;
 				return Report();
 			}

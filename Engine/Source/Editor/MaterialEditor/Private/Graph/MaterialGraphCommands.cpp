@@ -140,9 +140,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 				Object->Modify(false);
 			}
 		}
-		auto Result = Apply();
-		if (!Result && !bNested) Recording.Cancel();
-		return Result;
+		return Apply();
 	}
 
 	auto RecordGraphEdit(DObject& Owner, DTransactor* Transactions, std::string Description,

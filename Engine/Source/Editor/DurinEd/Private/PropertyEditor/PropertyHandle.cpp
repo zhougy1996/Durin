@@ -256,11 +256,7 @@ namespace Durin::PropertyEditor
 			{
 				auto Recording = BeginPropertyRecording(Target, std::format("Edit {}", Target.MemberProperty->NamePrivate),
 					**Transactor, bOpenScope, Scope);
-				if (!Recording)
-				{
-					if (Scope) Scope->Cancel();
-					return Fail(Recording.error());
-				}
+				if (!Recording) return Fail(Recording.error());
 			}
 		}
 

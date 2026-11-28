@@ -604,6 +604,86 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(After));
 }
 
+TEST(FReflectedPropertyEditSessionTests, RejectedRecordingKeepsOnlyTransactionStartedEdits)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	InitializeDObjectSystem();
+	FTestTransactorOwner Transactions;
+	TStrongObjectPtr<DReflectedTransactionTestObject> Object(NewObject<DReflectedTransactionTestObject>(nullptr, "RejectedProperty"));
+	TStrongObjectPtr<DReflectedTransactionTestObject> Other(NewObject<DReflectedTransactionTestObject>(nullptr, "CallbackEdit"));
+	FReflectedPropertyHandle Handle(*Object, "Value");
+	const auto Target = FPropertyEditTarget::ForMember(Object.Get(), Object->GetClass()->FindPropertyByName("Value"));
+	FPropertyEdit Session;
+	for (bool bBeginSession : {false, true})
+	{
+		for (bool bEditOther : {false, true})
+		{
+			SCOPED_TRACE(bBeginSession);
+			SCOPED_TRACE(bEditOther);
+			const auto Listener = Transactions.Get()->OnTransactionStateChanged().AddLambda(
+				[&](const FTransactionContext&, ETransactionStateEventType Event) {
+					if (Event != ETransactionStateEventType::TransactionStarted) return;
+					Object->SetFlags(EObjectFlags::DefaultSubobject);
+					if (bEditOther)
+					{
+						Other->Modify(false);
+						Other->Value = 19;
+					}
+				});
+			if (bBeginSession) EXPECT_FALSE(Session.Begin(Target, "Rejected edit", *Transactions.Get()));
+			else EXPECT_EQ(Handle.SetValue(7), FPropertyAccess::Fail);
+			Transactions.Get()->OnTransactionStateChanged().Remove(Listener);
+			Object->ClearFlags(EObjectFlags::DefaultSubobject);
+			EXPECT_FALSE(Session.IsActive());
+			EXPECT_FALSE(Transactions.Get()->IsActive());
+			EXPECT_EQ(Object->Value, 0);
+			ASSERT_EQ(Transactions.Get()->GetQueueLength(), bEditOther ? 1u : 0u);
+			if (bEditOther)
+			{
+				EXPECT_EQ(Other->Value, 19);
+				ASSERT_TRUE(Transactions.Get()->Undo());
+				EXPECT_EQ(Other->Value, 0);
+				Transactions.Get()->Reset();
+			}
+		}
+	}
+}
+
+TEST(FReflectedPropertyEditSessionTests, FailedPreviewRestoreKeepsReflectedMemberUndoable)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	InitializeDObjectSystem();
+	FTestTransactorOwner Transactions;
+	TStrongObjectPtr<DReflectedTransactionTestObject> Object(NewObject<DReflectedTransactionTestObject>(nullptr, "InterruptedPreview"));
+	const auto Target = FPropertyEditTarget::ForMember(Object.Get(), Object->FindProperty("Value"));
+	Object->Value = 5;
+	FPropertyEdit Session;
+	ASSERT_TRUE(Session.Begin(Target, "Preview value", *Transactions.Get()));
+	ASSERT_TRUE(Session.SetValue(int32{8}));
+
+	// Restoring this member from inside its own edit hook is rejected as a nested write.
+	std::string Error;
+	Object->PreChange = [&](FPropertyEditProposal&) -> std::expected<void, FObjectValidationError> {
+		EXPECT_FALSE(Session.Cancel(&Error));
+		return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::PropertyRejected,
+			.PropertyReason = EPropertyEditRejection::Rejected});
+	};
+	FReflectedPropertyHandle Handle(Target);
+	EXPECT_EQ(Handle.SetValue(9), FPropertyAccess::Fail);
+	EXPECT_EQ(Error, "A reflected property hook cannot start a nested edit of the same target.");
+	EXPECT_FALSE(Session.IsActive());
+	EXPECT_FALSE(Transactions.Get()->IsActive());
+	ASSERT_EQ(Object->Value, 8);
+	ASSERT_EQ(Transactions.Get()->GetQueueLength(), 1u);
+	Object->PreChange = {};
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(Object->Value, 5);
+	ASSERT_TRUE(Transactions.Get()->Redo());
+	EXPECT_EQ(Object->Value, 8);
+}
+
 TEST(FReflectedPropertyEditSessionTests, UnchangedNestedSessionPreservesOuterRecording)
 {
 	using namespace Durin; using namespace Durin;
@@ -619,6 +699,30 @@ TEST(FReflectedPropertyEditSessionTests, UnchangedNestedSessionPreservesOuterRec
 		EXPECT_TRUE(Transactions.Get()->IsActive());
 	}
 	ASSERT_TRUE(Transactions.Get()->Undo()); EXPECT_EQ(First->Value, 0);
+}
+
+TEST(FReflectedPropertyEditSessionTests, CancellingChangedNestedPreviewPreservesOuterUndo)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FTestTransactorOwner Transactions;
+	TStrongObjectPtr<DReflectedTransactionTestObject> Object(NewObject<DReflectedTransactionTestObject>(nullptr, "NestedPreview"));
+	{
+		FScopedTransaction Outer("Outer edit");
+		ASSERT_TRUE(Object->Modify());
+		Object->Value = 5;
+		PropertyEditor::FPropertyEdit Session;
+		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Object.Get(), Object->FindProperty("Value")),
+			"Nested preview", *Transactions.Get()));
+		ASSERT_TRUE(Session.SetValue(int32{8}));
+		ASSERT_TRUE(Session.Cancel());
+		EXPECT_FALSE(Session.IsActive());
+		EXPECT_EQ(Object->Value, 5);
+		EXPECT_TRUE(Transactions.Get()->IsActive());
+	}
+	ASSERT_EQ(Transactions.Get()->GetQueueLength(), 1u);
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(Object->Value, 0);
 }
 
 TEST(FReflectedPropertyEditSessionTests, DisablingThePropertyScopePreservesOuterRecording)
