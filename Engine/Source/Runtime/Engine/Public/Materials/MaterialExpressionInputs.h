@@ -11,17 +11,23 @@
 
 namespace Durin
 {
-	inline auto FindMaterialNumericInput(DMaterialExpression& Expression,
-		const FMaterialExpressionInput& Input) -> FMaterialNumericInput*
+	inline auto FindMaterialNumericInput(const DMaterialExpression& Expression,
+		const FMaterialExpressionInput& Input) -> const FMaterialNumericInput*
 	{
-		FMaterialNumericInput* Result = nullptr;
+		const FMaterialNumericInput* Result = nullptr;
 		Expression.GetClass()->ForEachProperty([&](FProperty* Property) {
 			if (Property->GetKind() != DurinCodeGen::EPropertyGenFlags::Struct
 				|| static_cast<FStructProperty*>(Property)->GetStruct() != FMaterialNumericInput::StaticStruct()) return;
-			auto* Numeric = static_cast<FMaterialNumericInput*>(Property->GetValuePtr(&Expression));
+			const auto* Numeric = static_cast<const FMaterialNumericInput*>(Property->GetValuePtr(&Expression));
 			if (&Numeric->Connection == &Input) Result = Numeric;
 		});
 		return Result;
+	}
+
+	inline auto FindMaterialNumericInput(DMaterialExpression& Expression,
+		const FMaterialExpressionInput& Input) -> FMaterialNumericInput*
+	{
+		return const_cast<FMaterialNumericInput*>(FindMaterialNumericInput(std::as_const(Expression), Input));
 	}
 
 	inline auto FindMaterialExpressionInputDefault(DMaterialExpression& Expression,

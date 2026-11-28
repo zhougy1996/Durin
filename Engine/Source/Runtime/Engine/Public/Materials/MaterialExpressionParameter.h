@@ -42,6 +42,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionParameter(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto IsAllowedIn(const DObject* MaterialOrFunction) const -> bool override;
 
 		DPROPERTY()
 		FMaterialExpressionParameterMetadata Metadata;

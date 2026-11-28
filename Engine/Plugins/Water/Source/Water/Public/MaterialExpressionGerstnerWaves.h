@@ -13,6 +13,11 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionGerstnerWaves(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Name = "Evaluate Gerstner Waves", .Description = "Evaluates water displacement and tangent-space normals.",
+				.Category = "Water"};
+		}
 #if DURIN_WITH_EDITORONLY_DATA
 		WATER_API auto GetOutputs() const -> std::span<const FMaterialExpressionOutput> override;
 #endif

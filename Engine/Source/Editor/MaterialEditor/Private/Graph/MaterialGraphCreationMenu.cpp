@@ -24,7 +24,7 @@ namespace Durin::MaterialEditor
 				Result += Index < Entry.InputNames.size()
 					? Entry.InputNames[Index] : std::format("Input {}", Index + 1);
 				Result += ": ";
-				if (MaterialNumericInputAllowsScalarBroadcast(Entry.Opcode, static_cast<uint32>(Index)))
+				if (Entry.Opcode && MaterialNumericInputAllowsScalarBroadcast(*Entry.Opcode, static_cast<uint32>(Index)))
 				{
 					Result += Entry.Opcode == EMaterialProgramOpcode::Normalize ? "Vector (automatic)" : "Numeric (automatic)";
 					continue;
@@ -42,7 +42,8 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphSchema::GetGraphContextActions(const DMaterialGraph& Graph,
 		const FMaterialGraphPin* Source) const -> std::vector<FMaterialGraphCreationAction>
 	{
-		if (!Graph.GetMaterialOrFunction()) return {};
+		const auto* Owner = Graph.GetMaterialOrFunction();
+		if (!Owner) return {};
 		std::optional<EMaterialProgramValueType> Type;
 		if (Source)
 		{
@@ -78,7 +79,7 @@ namespace Durin::MaterialEditor
 			}
 		std::ranges::sort(Paths);
 		for (const auto& Path : Paths) Actions.push_back(MakeFunctionCreationAction(Path));
-		std::erase_if(Actions, [&](const auto& Action) { return !CanCreate(Action, Type); });
+		std::erase_if(Actions, [&](const auto& Action) { return !CanCreate(*Owner, Action, Type); });
 		return Actions;
 	}
 
@@ -228,7 +229,7 @@ namespace Durin::MaterialEditor
 				}
 				ImGui::PushID(static_cast<int>(EntryIndex));
 				const std::string Label = !Entry ? Action.Name
-					: IsMaterialAdaptiveNumeric(Entry->Opcode) || Entry->Opcode == EMaterialProgramOpcode::AppendVector || Entry->Opcode == EMaterialProgramOpcode::Swizzle
+					: Entry->IsAdaptiveNumeric() || Entry->Opcode == EMaterialProgramOpcode::AppendVector || Entry->Opcode == EMaterialProgramOpcode::Swizzle
 					? std::format("{}  {}", Action.Name, GetCreationShortcutHint(*Entry))
 					: std::format("{}  ({})  {}", Action.Name, GetProgramTypeName(Entry->ResultType), GetCreationShortcutHint(*Entry));
 				if (ImGui::Selectable(Label.c_str(),

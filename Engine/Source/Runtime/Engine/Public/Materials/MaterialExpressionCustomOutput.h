@@ -19,5 +19,9 @@ namespace Durin
 		virtual auto GetNumOutputs() const -> int32 = 0;
 		virtual auto GetDisplayName() const -> std::string_view = 0;
 
+#if DURIN_WITH_EDITORONLY_DATA
+		// The active shading model validates these connections during compilation.
+		auto IsInputConnectionRequired(int32 Index) const -> bool override { return false; }
+#endif
 	};
 }

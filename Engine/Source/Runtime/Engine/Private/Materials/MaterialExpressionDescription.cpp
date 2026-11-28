@@ -11,11 +11,32 @@ namespace Durin
 			-> FMaterialExpressionDescription
 		{
 			using Behavior = EMaterialExpressionOutputBehavior;
-			const auto Opcode = *Info.Opcode;
 			const auto OutputBehavior = Info.bHasInstanceShape ? Behavior::Instance
-				: IsMaterialAdaptiveNumeric(Opcode) ? Behavior::AdaptiveNumeric : Behavior::Fixed;
-			FMaterialExpressionDescription Result{Class, Opcode, Info.Category, Info.Name, Info.Description, Info.SearchKeywords,
+				: Info.Opcode && IsMaterialAdaptiveNumeric(*Info.Opcode) ? Behavior::AdaptiveNumeric : Behavior::Fixed;
+			FMaterialExpressionDescription Result{Class, Info.Opcode, Info.Category, Info.Name, Info.Description, Info.SearchKeywords,
 				OutputBehavior, {}, Info.bRequiresAsset, Info.PaletteDefault, Info.bShowInPalette, Info.bRegisterForEditorCreation};
+			if (!Info.Opcode)
+			{
+				auto Type = Info.FixedOutputType;
+#if DURIN_WITH_EDITORONLY_DATA
+				if (!Type) Type = Default.GetOutputValueType(0);
+#endif
+				if (!Type) return Result;
+				FMaterialExpressionAuthoringShape Shape{*Type, {}, {}};
+				for (uint32 Index = 0; Index < Default.GetAuthoredInputCount(); ++Index)
+				{
+					const auto Input = Default.GetInputInfo(static_cast<int32>(Index));
+					if (!Input.Type) return Result;
+					const auto Name = Index < Info.InputNames.size() && !Info.InputNames[Index].empty()
+						? Info.InputNames[Index] : Default.GetInputName(static_cast<int32>(Index));
+					Shape.InputNames.emplace_back(Name.empty() ? "Value" : Name);
+					Shape.AcceptedInputTypes.push_back({*Input.Type});
+					if (Input.bAllowImplicitCast) AppendMaterialValidCastSources(Shape.AcceptedInputTypes.back());
+				}
+				Result.Shapes.push_back(std::move(Shape));
+				return Result;
+			}
+			const auto Opcode = *Info.Opcode;
 			for (uint8 TypeValue = 0; TypeValue <= static_cast<uint8>(EMaterialProgramValueType::StaticBool); ++TypeValue)
 			{
 				const auto Type = static_cast<EMaterialProgramValueType>(TypeValue);
@@ -49,40 +70,44 @@ namespace Durin
 			}
 			return Result;
 		}
+
+		struct FExpressionDescriptions
+		{
+			std::vector<FMaterialExpressionDescription> Descriptions;
+			std::unordered_map<const DClass*, size_t> ByClass;
+		};
+
+		auto GetExpressionDescriptions() -> const FExpressionDescriptions&
+		{
+			// Reflection and its class defaults must be initialized before the first call.
+			static const auto Cache = [] {
+				FExpressionDescriptions Result;
+				for (auto* Class : GetDerivedClasses(DMaterialExpression::StaticClass()))
+				{
+					if (Class->HasAnyClassFlags(EClassFlags::Abstract)) continue;
+					const auto* Default = Cast<DMaterialExpression>(Class->GetDefaultObject());
+					if (!Default) continue;
+					const auto Info = Default->GetCreationInfo();
+					if (Info.Name.empty()) continue;
+					const bool bInserted = Result.ByClass.emplace(Class, Result.Descriptions.size()).second;
+					requiref(bInserted, "Material expression descriptions require unique reflected classes.");
+					Result.Descriptions.push_back(DescribeClass(Class, *Default, Info));
+				}
+				return Result;
+			}();
+			return Cache;
+		}
 	}
 
 	auto GetMaterialExpressionDescriptions() -> std::span<const FMaterialExpressionDescription>
 	{
-		// Reflection and its class defaults must be initialized before the first call.
-		static const std::vector<FMaterialExpressionDescription> Descriptions = [] {
-			std::vector<FMaterialExpressionDescription> Result;
-			for (auto* Class : GetDerivedClasses(DMaterialExpression::StaticClass()))
-			{
-				if (Class->HasAnyClassFlags(EClassFlags::Abstract)) continue;
-				const auto* Default = Cast<DMaterialExpression>(Class->GetDefaultObject());
-				if (!Default) continue;
-				const auto Info = Default->GetCreationInfo();
-				if (!Info.Opcode) continue;
-				Result.push_back(DescribeClass(Class, *Default, Info));
-			}
-			std::unordered_map<const DClass*, bool> Classes;
-			for (const auto& Description : Result)
-				requiref(Description.ExpressionClass && Classes.emplace(Description.ExpressionClass, true).second,
-					"Material expression descriptions require unique reflected classes.");
-			return Result;
-		}();
-		return Descriptions;
+		return GetExpressionDescriptions().Descriptions;
 	}
 
 	auto FindMaterialExpressionDescription(const DClass* Class) -> const FMaterialExpressionDescription*
 	{
-		static const auto ByClass = [] {
-			std::unordered_map<const DClass*, const FMaterialExpressionDescription*> Result;
-			for (const auto& Description : GetMaterialExpressionDescriptions())
-				Result.emplace(Description.ExpressionClass, &Description);
-			return Result;
-		}();
-		const auto It = ByClass.find(Class);
-		return It == ByClass.end() ? nullptr : It->second;
+		const auto& Cache = GetExpressionDescriptions();
+		const auto It = Cache.ByClass.find(Class);
+		return It == Cache.ByClass.end() ? nullptr : &Cache.Descriptions[It->second];
 	}
 }

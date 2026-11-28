@@ -1,7 +1,6 @@
 #include "MaterialExpressionParameters.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
-#include "Materials/MaterialExpressionCustomOutput.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
@@ -12,7 +11,6 @@
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionSwitch.h"
 #include "Materials/MaterialExpressionTextureParameter.h"
-#include "Materials/MaterialExpressionTextureSample.h"
 #include "Misc/UnifiedError.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionBuild.h"
@@ -22,6 +20,7 @@
 #include "Materials/MaterialExpressionInputs.h"
 #include "MaterialGraphExpressionRegistry.h"
 #include "MaterialGraphCommands.h"
+#include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "MaterialGraphValueTypes.h"
 #include "Asset/Asset.h"
@@ -60,10 +59,33 @@ namespace Durin::MaterialEditor
 		check(false); std::terminate();
 	}
 
-	auto FMaterialGraphSchema::CanCreate(const FMaterialGraphCreationAction& Action,
+	auto FMaterialGraphSchema::AllowsCreation(const DObject& Owner, const FMaterialGraphCreationAction& Action,
+		std::optional<EMaterialProgramValueType> Source) const -> bool
+	{
+		if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Action.Payload))
+		{
+			const auto* Class = Entry->ExpressionClass;
+			if (!Class || !Class->IsChildOf(DMaterialExpression::StaticClass())) return false;
+			const auto* Default = Cast<DMaterialExpression>(Class->GetDefaultObject());
+			if (!Default || !Default->IsAllowedIn(&Owner)) return false;
+			if (!Source) return true;
+			if (Entry->AcceptedInputTypes.empty()) return false;
+			if (Accepts(Entry->AcceptedInputTypes.front(), *Source)) return true;
+			if (!Entry->IsAdaptiveNumeric()) return false;
+			const auto Inferred = GetMaterialProgramNodeSignature(*Entry->Opcode, *Source);
+			return Inferred && Inferred->InputCount && Accepts(Inferred->Inputs[0], *Source);
+		}
+		if (const auto* Port = std::get_if<FMaterialGraphPortCreation>(&Action.Payload))
+			return HasFunctionPorts() && Port->Type <= EMaterialProgramValueType::MaterialAttributes
+				&& (!Source || (Port->bOutput && AcceptsPort(Port->Type, *Source)));
+		if (std::holds_alternative<FMaterialGraphCollectionParameterCreation>(Action.Payload)) return !Source;
+		return true; // Function calls use the signature of the loaded asset.
+	}
+
+	auto FMaterialGraphSchema::CanCreate(const DObject& Owner, const FMaterialGraphCreationAction& Action,
 		std::optional<EMaterialProgramValueType> SourceType) const -> bool
 	{
-		if (!AllowsCreation(Action, SourceType)) return false;
+		if (!AllowsCreation(Owner, Action, SourceType)) return false;
 		if (!std::holds_alternative<std::string>(Action.Payload)) return true;
 		if (!SourceType) return true;
 		const auto Loaded = LoadCreationFunction(std::get<std::string>(Action.Payload));
@@ -76,7 +98,8 @@ namespace Durin::MaterialEditor
 	{
 		if (AuxiliaryNodes) AuxiliaryNodes->clear();
 		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> TMaterialGraphResult<DMaterialGraphNode*> {
-			if (!Graph.GetMaterialOrFunction()) return std::unexpected(RejectCommand("The graph owner is unavailable.", {}, EMaterialGraphCommandStatus::StaleOwner));
+			const auto* Owner = Graph.GetMaterialOrFunction();
+			if (!Owner) return std::unexpected(RejectCommand("The graph owner is unavailable.", {}, EMaterialGraphCommandStatus::StaleOwner));
 			FMaterialProgramLink Source;
 			std::optional<EMaterialProgramValueType> SourceType;
 			if (Pin)
@@ -89,7 +112,7 @@ namespace Durin::MaterialEditor
 				SourceType = Output.Type;
 				Source = {Node->GetView().Node.Id, Output.OutputIndex, Output.PortId};
 			}
-			if (!Graph.GetSchema().AllowsCreation(*this, SourceType))
+			if (!Graph.GetSchema().AllowsCreation(*Owner, *this, SourceType))
 				return std::unexpected(RejectCommand("This action is not compatible with the graph or source output."));
 			if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Payload))
 				return Graph.CreateCatalogNode(*Entry, X, Y, Pin, Transactions, AuxiliaryNodes);
@@ -235,13 +258,12 @@ namespace Durin::MaterialEditor
 	auto DMaterialGraph::CreateCatalogNode(const FMaterialGraphCatalogEntry& Entry, int32 X, int32 Y,
 		const FMaterialGraphPin* Source, DTransactor* Transactions, std::vector<DMaterialGraphNode*>* AuxiliaryNodes) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
-		const auto* Registration = FindMaterialGraphExpressionRegistration(Entry.ExpressionClass);
-		if (!Registration || Registration->CreationKind != EMaterialGraphCreationKind::Direct)
+		const auto* Description = FindMaterialExpressionDescription(Entry.ExpressionClass);
+		if (!Description || !CanCreateMaterialExpressionDirectly(*Description))
 			return std::unexpected(RejectCommand("The catalog expression class is unavailable for direct creation."));
-		const auto& Description = *Registration->Description;
-		const auto Shape = std::ranges::find(Description.Shapes, Entry.ResultType, &FMaterialExpressionAuthoringShape::ResultType);
-		if (Shape == Description.Shapes.end() || Entry.AcceptedInputTypes != Shape->AcceptedInputTypes
-			|| Description.SemanticOpcode != Entry.Opcode)
+		const auto Shape = std::ranges::find(Description->Shapes, Entry.ResultType, &FMaterialExpressionAuthoringShape::ResultType);
+		if (Shape == Description->Shapes.end() || Entry.AcceptedInputTypes != Shape->AcceptedInputTypes
+			|| Description->SemanticOpcode != Entry.Opcode)
 			return std::unexpected(RejectCommand("The catalog expression shape is stale."));
 		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner.Get())};
 		FProposedCallOutputs Outputs;
@@ -286,6 +308,8 @@ namespace Durin::MaterialEditor
 		}
 		TStrongObjectPtr<DMaterialExpression> Expression(NewRegisteredMaterialExpression(Entry.ExpressionClass));
 		if (!Expression) return std::unexpected(RejectCommand("The catalog expression class is unavailable."));
+		if (!Expression->IsAllowedIn(Owner.Get()))
+			return std::unexpected(RejectCommand("This expression is not supported by the graph."));
 		Expression->Id = FGuid::NewGuid();
 		if (auto* Declaration = Cast<DMaterialExpressionStaticBool>(Expression.Get()))
 		{
@@ -304,7 +328,6 @@ namespace Durin::MaterialEditor
 			Texture->DefaultValue.Dimension = EMaterialTextureDimension::TextureCube;
 		if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 		{
-			if (!GetSchema().CanOwnParameters()) return std::unexpected(RejectCommand("Functions cannot own root parameters."));
 			Parameter->Metadata.Id = FGuid::NewGuid();
 			const bool bTexture = Cast<DMaterialExpressionTextureParameter>(Expression.Get()) != nullptr;
 			const auto BaseName = bTexture ? std::string("TextureParameter") : std::string(GetProgramTypeName(Entry.ResultType)) + "Parameter";
@@ -316,27 +339,14 @@ namespace Durin::MaterialEditor
 		}
 		if (Entry.AcceptedInputTypes.size() != Expression->GetAuthoredInputCount())
 			return std::unexpected(RejectCommand("The catalog input shape is stale."));
-		// Custom terminals validate required connections when compiling their shading model.
-		const bool bAllowsDisconnectedInputs = Entry.Opcode == EMaterialProgramOpcode::MakeMaterialAttributes
-			|| Entry.Opcode == EMaterialProgramOpcode::SetMaterialAttributes
-			|| Cast<DMaterialExpressionCustomOutput>(Expression.Get()) != nullptr;
-		std::optional<uint32> InvalidInput;
+		bool bMissingRequiredInput = false;
 		if (auto* Blend = Cast<DMaterialExpressionBlendMaterialAttributes>(Expression.Get())) Blend->B = FirstInput;
 		VisitMaterialExpressionInputs(*Expression, [&](uint32 Index, FMaterialExpressionInput& Input) {
-			if (Index == 0 && FirstInput.IsConnected())
-			{
-				Input = FirstInput;
-				if (!IsMaterialAdaptiveNumeric(Entry.Opcode)) return;
-			}
-			if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression.Get()); Sample && &Input == &Sample->UV.Connection) return;
-			if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && &Input == &Sample->UV.Connection) return;
-			if ((Entry.Opcode == EMaterialProgramOpcode::QualitySwitch
-				|| Entry.Opcode == EMaterialProgramOpcode::FeatureLevelSwitch)
-				&& Index > 0) return;
-			if (!bAllowsDisconnectedInputs && !FindMaterialNumericInput(*Expression, Input) && !Input.IsConnected())
-				if (!InvalidInput) InvalidInput = Index;
+			if (Index == 0 && FirstInput.IsConnected()) Input = FirstInput;
+			if (!Input.IsConnected() && Expression->IsInputConnectionRequired(static_cast<int32>(Index)))
+				bMissingRequiredInput = true;
 		});
-		if (InvalidInput) return std::unexpected(RejectCommand("Create this node from a compatible texture or Surface output."));
+		if (bMissingRequiredInput) return std::unexpected(RejectCommand("Create this node from a compatible texture or Surface output."));
 		const auto Id = Expression->Id;
 		SetNodeLayout(*Expression, X, Y, std::move(DisplayName));
 		Candidate.Expressions.emplace_back(Expression.Get());
@@ -357,7 +367,7 @@ namespace Durin::MaterialEditor
 	{
 		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> TMaterialGraphResult<DMaterialGraphNode*> {
 			if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
-			if (!GetSchema().CanCreateExpression(Expression)) return std::unexpected(RejectCommand("This expression is not supported by the graph."));
+			if (!Expression.IsAllowedIn(Owner.Get())) return std::unexpected(RejectCommand("This expression is not supported by the graph."));
 			FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner.Get())};
 			if (std::ranges::any_of(Candidate.Expressions, [&](const auto& Value) { return Value->Id == Expression.Id; }))
 				return std::unexpected(RejectCommand("The expression GUID already exists."));
@@ -383,7 +393,7 @@ namespace Durin::MaterialEditor
 	{
 		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
 			if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-			if (!GetSchema().CanCreateExpression(Expression)) return RejectCommand("This expression is not supported by the graph.");
+			if (!Expression.IsAllowedIn(Owner.Get())) return RejectCommand("This expression is not supported by the graph.");
 			const auto Duplicated = DuplicateObject(&Expression, nullptr, NAME_None);
 			if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
 			TStrongObjectPtr<DMaterialExpression> Replacement(Duplicated.value());

@@ -47,6 +47,10 @@ namespace Durin
 		}
 		ENGINE_API auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override;
 #if DURIN_WITH_EDITORONLY_DATA
+		auto IsInputConnectionRequired(int32 Index) const -> bool override
+		{
+			return Index != 1 && Super::IsInputConnectionRequired(Index);
+		}
 		auto GetTextureSampleReadMode() -> EMaterialTextureReadMode* override { return &ReadMode; }
 		ENGINE_API auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override;
 #endif
@@ -134,6 +138,10 @@ namespace Durin
 		}
 		ENGINE_API auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override;
 #if DURIN_WITH_EDITORONLY_DATA
+		auto IsInputConnectionRequired(int32 Index) const -> bool override
+		{
+			return Index != 0 && Super::IsInputConnectionRequired(Index);
+		}
 		auto GetTextureSampleReadMode() -> EMaterialTextureReadMode* override { return &ReadMode; }
 		ENGINE_API auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override;
 #endif

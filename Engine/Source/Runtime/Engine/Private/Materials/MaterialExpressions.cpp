@@ -6,6 +6,7 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionInputs.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionIO.h"
@@ -24,6 +25,26 @@
 
 namespace Durin
 {
+	auto DMaterialExpression::IsAllowedIn(const DObject* MaterialOrFunction) const -> bool
+	{
+		return Cast<DMaterial>(MaterialOrFunction) || Cast<DMaterialFunction>(MaterialOrFunction);
+	}
+
+	auto DMaterialExpressionParameter::IsAllowedIn(const DObject* MaterialOrFunction) const -> bool
+	{
+		return Cast<DMaterial>(MaterialOrFunction) != nullptr;
+	}
+
+	auto DMaterialExpressionFunctionInput::IsAllowedIn(const DObject* MaterialOrFunction) const -> bool
+	{
+		return Cast<DMaterialFunction>(MaterialOrFunction) != nullptr;
+	}
+
+	auto DMaterialExpressionFunctionOutput::IsAllowedIn(const DObject* MaterialOrFunction) const -> bool
+	{
+		return Cast<DMaterialFunction>(MaterialOrFunction) != nullptr;
+	}
+
 #if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterialExpression::GetInput(int32 Index) -> FMaterialExpressionInput*
 	{
@@ -33,6 +54,13 @@ namespace Durin
 			if (Slot == static_cast<uint32>(Index)) Result = &Input;
 		});
 		return Result;
+	}
+
+	auto DMaterialExpression::IsInputConnectionRequired(int32 Index) const -> bool
+	{
+		const auto* Input = GetInput(Index);
+		// Numeric inputs can use a retained constant or the definition's default.
+		return Input && !FindMaterialNumericInput(*this, *Input);
 	}
 #endif
 	auto FMaterialPropertyInputs::Find(EMaterialProperty Property) const -> const FMaterialNumericInput*

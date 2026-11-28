@@ -8,18 +8,11 @@
 
 namespace Durin::MaterialEditor
 {
-	enum class EMaterialGraphCreationKind { Direct, AssetBound };
-	enum class EMaterialGraphPaletteShape { All, InspectOnly, Adaptive };
-
-	struct FMaterialGraphExpressionRegistration
+	inline auto CanCreateMaterialExpressionDirectly(const FMaterialExpressionDescription& Description) -> bool
 	{
-		const FMaterialExpressionDescription* Description;
-		EMaterialGraphCreationKind CreationKind;
-		EMaterialGraphPaletteShape PaletteShape;
-	};
+		return Description.bRegisterForEditorCreation && !Description.bRequiresAsset && !Description.Shapes.empty();
+	}
 
-	MATERIALEDITOR_API auto GetMaterialGraphExpressionRegistrations() -> std::span<const FMaterialGraphExpressionRegistration>;
-	MATERIALEDITOR_API auto FindMaterialGraphExpressionRegistration(const DClass* Class) -> const FMaterialGraphExpressionRegistration*;
 	MATERIALEDITOR_API auto NewRegisteredMaterialExpression(DClass* Class) -> DMaterialExpression*;
 
 	template<typename Expression>

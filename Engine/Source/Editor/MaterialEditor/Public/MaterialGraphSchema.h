@@ -2,9 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Materials/MaterialExpression.h"
-#include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionParameter.h"
 
 #include "MaterialGraphOperations.h"
 
@@ -39,33 +37,10 @@ namespace Durin::MaterialEditor
 			const FMaterialGraphPin* Source = nullptr) const -> std::vector<FMaterialGraphCreationAction>;
 		virtual auto HasFunctionPorts() const -> bool = 0;
 		virtual auto CanOwnParameters() const -> bool = 0;
-		virtual auto CanCreateExpression(const DMaterialExpression& Expression) const -> bool
-		{
-			if (Cast<DMaterialExpressionFunctionInput>(&Expression) || Cast<DMaterialExpressionFunctionOutput>(&Expression)) return HasFunctionPorts();
-			if (Cast<DMaterialExpressionParameter>(&Expression)) return CanOwnParameters();
-			return true;
-		}
-		MATERIALEDITOR_API auto CanCreate(const FMaterialGraphCreationAction& Action,
+		MATERIALEDITOR_API auto CanCreate(const DObject& Owner, const FMaterialGraphCreationAction& Action,
 			std::optional<EMaterialProgramValueType> SourceType = {}) const -> bool;
-		auto AllowsCreation(const FMaterialGraphCreationAction& Action,
-			std::optional<EMaterialProgramValueType> Source = {}) const -> bool
-		{
-			if (!AllowsAction(Action)) return false;
-			if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Action.Payload))
-			{
-				if (!Source) return true;
-				if (Entry->AcceptedInputTypes.empty()) return false;
-				if (Accepts(Entry->AcceptedInputTypes.front(), *Source)) return true;
-				if (!IsMaterialAdaptiveNumeric(Entry->Opcode)) return false;
-				const auto Inferred = GetMaterialProgramNodeSignature(Entry->Opcode, *Source);
-				return Inferred && Inferred->InputCount && Accepts(Inferred->Inputs[0], *Source);
-			}
-			if (const auto* Port = std::get_if<FMaterialGraphPortCreation>(&Action.Payload))
-				return HasFunctionPorts() && Port->Type <= EMaterialProgramValueType::MaterialAttributes
-					&& (!Source || (Port->bOutput && AcceptsPort(Port->Type, *Source)));
-			if (std::holds_alternative<FMaterialGraphCollectionParameterCreation>(Action.Payload)) return !Source;
-			return true; // Function calls use the signature of the loaded asset.
-		}
+		MATERIALEDITOR_API auto AllowsCreation(const DObject& Owner, const FMaterialGraphCreationAction& Action,
+			std::optional<EMaterialProgramValueType> Source = {}) const -> bool;
 		static auto Accepts(std::span<const EMaterialProgramValueType> Types, EMaterialProgramValueType Source) -> bool
 		{
 			return std::ranges::contains(Types, Source);
@@ -87,8 +62,6 @@ namespace Durin::MaterialEditor
 		{
 			return !bMaterialOutput;
 		}
-	protected:
-		virtual auto AllowsAction(const FMaterialGraphCreationAction& Action) const -> bool = 0;
 	};
 
 	class FMaterialSchema final : public FMaterialGraphSchema
@@ -96,8 +69,6 @@ namespace Durin::MaterialEditor
 	public:
 		auto HasFunctionPorts() const -> bool override { return false; }
 		auto CanOwnParameters() const -> bool override { return true; }
-	protected:
-		auto AllowsAction(const FMaterialGraphCreationAction& Action) const -> bool override { return Action.bMaterial; }
 	};
 
 	class FMaterialFunctionSchema final : public FMaterialGraphSchema
@@ -105,7 +76,5 @@ namespace Durin::MaterialEditor
 	public:
 		auto HasFunctionPorts() const -> bool override { return true; }
 		auto CanOwnParameters() const -> bool override { return false; }
-	protected:
-		auto AllowsAction(const FMaterialGraphCreationAction& Action) const -> bool override { return Action.bFunction; }
 	};
 }

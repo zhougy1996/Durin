@@ -303,25 +303,30 @@ catalog entries.
 
 Engine class-associated descriptions own names, categories, search aliases, input labels and
 authored shapes. See [expression descriptions](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md#class-associated-authoring-descriptions).
-`MaterialGraphExpressionRegistry` enumerates those descriptions for direct creation
-and derives adaptive palette widths from output behavior. Editor policies cover
-hidden classes, asset-bound creation and special palette shapes. Initialization
-validates complete direct-creation shapes once. Class and
-description pointers are borrowed for process lifetime. Catalog enumeration visits
-registered creation shapes. Existing nodes read the description for their bound
-expression class directly. Collection output types come from live declarations.
+The catalog enumerates the Engine description cache directly and includes complete
+direct-creation shapes. Palette search applies the description's visibility and
+default width, while structured callers can still use palette-hidden direct
+shapes. Existing nodes look up their bound expression class in the same cache.
+Collection output types come from live declarations.
 Function calls use port GUIDs and Surface root pins use material properties.
 
-Class plus result type identifies a creation shape. Opcode remains operation
-semantics for numeric rules and stale-payload validation. Creation action IDs use
+Class plus result type identifies a creation shape. When provided, the opcode
+supplies operation semantics for numeric rules and stale-payload validation.
+Creation action IDs use
 class names and shape widths (adaptive palette shapes share a class action).
 Ordinary and context-aware creation use the registered class factory inside graph
 commands; typed function/port/collection payloads still supply required context,
 and validation precedes transaction publication. Constants have separate concrete
 class registrations; narrow parameter shapes still create their typed swizzle
 projection. Internal MIR operations have no registration. Adding an ordinary
-expression requires its Engine description and Build method. The editor derives
-its catalog entry from that description.
+expression requires creation metadata, a default authoring shape, and a Build
+method. The editor derives its catalog entry from the reflected class description.
+The menu asks the class default object whether it is allowed in the destination
+asset. Creation, replacement, and paste check the expression's `IsAllowedIn`
+against the same owner. Catalog creation validates empty inputs through
+`IsInputConnectionRequired`. Numeric inputs can use inline defaults, and
+expressions can declare connection-only inputs optional when compilation provides
+a fallback.
 
 `TextureCoordinates` is the single authored mesh-UV expression and always returns
 Float2. Both "Texture Coordinates" and "UV Channel" palette searches find it;

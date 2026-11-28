@@ -17,6 +17,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionFunctionInput(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto IsAllowedIn(const DObject* MaterialOrFunction) const -> bool override;
 
 		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
 		{
@@ -49,6 +50,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionFunctionOutput(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto IsAllowedIn(const DObject* MaterialOrFunction) const -> bool override;
 
 		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
 		{

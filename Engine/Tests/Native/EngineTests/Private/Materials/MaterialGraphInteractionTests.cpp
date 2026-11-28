@@ -2710,9 +2710,9 @@ TEST(FMaterialGraphInteractionTests, FunctionCreationActionsShareCompatibilityAn
 	const auto Scalar = Testing::CreateGraphConstant(*AuthoringGraph, .3f);
 	ASSERT_TRUE(Scalar);
 	const auto Action = MakeFunctionCreationAction(Callee->GetObjectPath());
-	EXPECT_TRUE(AuthoringGraph->GetSchema().CanCreate(Action, EMaterialProgramValueType::Float));
-	EXPECT_TRUE(AuthoringGraph->GetSchema().CanCreate(Action, EMaterialProgramValueType::Float3));
-	EXPECT_FALSE(AuthoringGraph->GetSchema().CanCreate(Action, EMaterialProgramValueType::Texture2D));
+	EXPECT_TRUE(AuthoringGraph->GetSchema().CanCreate(*Material, Action, EMaterialProgramValueType::Float));
+	EXPECT_TRUE(AuthoringGraph->GetSchema().CanCreate(*Material, Action, EMaterialProgramValueType::Float3));
+	EXPECT_FALSE(AuthoringGraph->GetSchema().CanCreate(*Material, Action, EMaterialProgramValueType::Texture2D));
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	const auto Before = CaptureExpressions(*Material);
 	const auto Created = Action.PerformAction(*AuthoringGraph, 32, 64, Testing::ResolvePin(*AuthoringGraph, FMaterialProgramLink{Scalar.value()}), true).transform(Testing::GraphNodeId);
@@ -2763,9 +2763,9 @@ TEST(FMaterialGraphInteractionTests, FunctionCreationActionsShareCompatibilityAn
 	ASSERT_NE(RestoredInput, nullptr);
 	EXPECT_EQ(RestoredInput->Link.SourceNodeId, Scalar.value());
 	EXPECT_FALSE(Testing::WriteConnection(Material.Get(), Testing::ExpressionInput(Id, 0, FGuid::NewGuid()), FMaterialProgramLink{Scalar.value()}, false, false));
-	EXPECT_FALSE(AuthoringGraph->GetSchema().CanCreate(MakePortCreationAction(false, EMaterialProgramValueType::Float)));
+	EXPECT_FALSE(AuthoringGraph->GetSchema().CanCreate(*Material, MakePortCreationAction(false, EMaterialProgramValueType::Float)));
 	const auto OutputAction = MakePortCreationAction(true, EMaterialProgramValueType::Float3);
-	EXPECT_TRUE(FunctionAuthoringGraph->GetSchema().CanCreate(OutputAction, EMaterialProgramValueType::Float));
+	EXPECT_TRUE(FunctionAuthoringGraph->GetSchema().CanCreate(*Callee, OutputAction, EMaterialProgramValueType::Float));
 	const auto Input = MakePortCreationAction(false, EMaterialProgramValueType::Float).PerformAction(*FunctionAuthoringGraph, 0, 0, {}, false).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Input);
 	Transactions->Reset();

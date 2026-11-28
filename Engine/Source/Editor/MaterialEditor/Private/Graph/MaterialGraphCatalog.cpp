@@ -10,14 +10,10 @@ namespace Durin::MaterialEditor
 	auto MakeCreationAction(const FMaterialGraphCatalogEntry& Entry) -> FMaterialGraphCreationAction
 	{
 		return {.Id = std::format("expression:{}:{}", Entry.ExpressionClass ? Entry.ExpressionClass->GetName() : std::string{},
-			IsMaterialAdaptiveNumeric(Entry.Opcode) ? 0u : static_cast<uint32>(Entry.ResultType)),
+			Entry.IsAdaptiveNumeric() ? 0u : static_cast<uint32>(Entry.ResultType)),
 			.Name = Entry.OperationName, .Category = Entry.Category,
 			.Keywords = std::string(GetProgramTypeName(Entry.ResultType)) + " " + Entry.Description,
-			.Description = Entry.Description,
-			.bFunction = Entry.Opcode != EMaterialProgramOpcode::Parameter
-				&& Entry.Opcode != EMaterialProgramOpcode::TextureParameter
-				&& Entry.Opcode != EMaterialProgramOpcode::TextureSampleParameter2D
-				&& Entry.Opcode != EMaterialProgramOpcode::TextureSampleParameterCube, .Payload = Entry};
+			.Description = Entry.Description, .Payload = Entry};
 	}
 	auto MakeFunctionCreationAction(std::string Path) -> FMaterialGraphCreationAction
 	{
@@ -47,21 +43,20 @@ namespace Durin::MaterialEditor
 	auto MakePortCreationAction(bool bOutput, EMaterialProgramValueType Type) -> FMaterialGraphCreationAction
 	{
 		return {.Id = std::format("port:{}:{}", bOutput ? "output" : "input", static_cast<uint32>(Type)), .Name = bOutput ? "Function Output" : "Function Input",
-			.Category = "Functions", .Keywords = "function port", .bMaterial = false,
+			.Category = "Functions", .Keywords = "function port",
 			.Payload = FMaterialGraphPortCreation{bOutput, Type}};
 	}
 	namespace
 	{
-		auto MakeCatalogEntry(const FMaterialGraphExpressionRegistration& Registration,
+		auto MakeCatalogEntry(const FMaterialExpressionDescription& Description,
 			const FMaterialExpressionAuthoringShape& Shape) -> FMaterialGraphCatalogEntry
 		{
-			const auto& Description = *Registration.Description;
 			FMaterialGraphCatalogEntry Entry;
 			Entry.ExpressionClass = Description.ExpressionClass;
 			Entry.OperationName = Description.Name;
 			Entry.Category = Description.Category;
 			Entry.Description = Description.Description;
-			Entry.Opcode = *Description.SemanticOpcode;
+			Entry.Opcode = Description.SemanticOpcode;
 			Entry.ResultType = Shape.ResultType;
 			Entry.InputNames = Shape.InputNames;
 			Entry.AcceptedInputTypes = Shape.AcceptedInputTypes;
@@ -108,11 +103,11 @@ namespace Durin::MaterialEditor
 		-> std::vector<FMaterialGraphCatalogEntry>
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
-		for (const auto& Registration : GetMaterialGraphExpressionRegistrations())
+		for (const auto& Description : GetMaterialExpressionDescriptions())
 		{
-			if (Registration.CreationKind != EMaterialGraphCreationKind::Direct) continue;
-			for (const auto& Shape : Registration.Description->Shapes)
-				Result.push_back(MakeCatalogEntry(Registration, Shape));
+			if (!CanCreateMaterialExpressionDirectly(Description)) continue;
+			for (const auto& Shape : Description.Shapes)
+				Result.push_back(MakeCatalogEntry(Description, Shape));
 		}
 		std::ranges::stable_sort(Result, {}, &FMaterialGraphCatalogEntry::OperationName);
 		for (FMaterialGraphCatalogEntry& Entry : Result) PrepareSearchFields(Entry);
@@ -158,18 +153,13 @@ namespace Durin::MaterialEditor
 		for (size_t Ordinal = 0; Ordinal < Catalog.size(); ++Ordinal)
 		{
 			const FMaterialGraphCatalogEntry& Entry = Catalog[Ordinal];
-			const auto* Descriptor = FindMaterialGraphExpressionRegistration(Entry.ExpressionClass);
-			if (!Descriptor || Descriptor->CreationKind != EMaterialGraphCreationKind::Direct) continue;
-			switch (Descriptor->PaletteShape)
+			const auto* Description = FindMaterialExpressionDescription(Entry.ExpressionClass);
+			if (!Description || !CanCreateMaterialExpressionDirectly(*Description) || !Description->bShowInPalette) continue;
+			if (Description->OutputBehavior == EMaterialExpressionOutputBehavior::AdaptiveNumeric)
 			{
-			case EMaterialGraphPaletteShape::InspectOnly: continue;
-			case EMaterialGraphPaletteShape::Adaptive:
-				if (Entry.ResultType != SourceType.value_or(Descriptor->Description->PaletteDefault.value_or(EMaterialProgramValueType::Float))) continue;
-				break;
-			case EMaterialGraphPaletteShape::All:
-				if (Descriptor->Description->PaletteDefault && Entry.ResultType != *Descriptor->Description->PaletteDefault) continue;
-				break;
+				if (Entry.ResultType != SourceType.value_or(Description->PaletteDefault.value_or(EMaterialProgramValueType::Float))) continue;
 			}
+			else if (Description->PaletteDefault && Entry.ResultType != *Description->PaletteDefault) continue;
 			uint8 Match = Needle.empty() ? 3 : 4;
 			std::array<std::string, 4> FallbackSearchFields;
 			const std::array<std::string, 4>* SearchFields =

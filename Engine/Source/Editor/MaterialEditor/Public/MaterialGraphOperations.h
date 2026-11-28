@@ -109,13 +109,15 @@ namespace Durin::MaterialEditor
 		std::string Category;
 		std::string Description;
 		DClass* ExpressionClass = nullptr;
-		EMaterialProgramOpcode Opcode = EMaterialProgramOpcode::Constant;
+		std::optional<EMaterialProgramOpcode> Opcode;
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		std::vector<std::string> InputNames;
 		std::vector<std::vector<EMaterialProgramValueType>> AcceptedInputTypes;
 		// Prepared once with the catalog so repeated palette searches do not
 		// allocate and normalize every searchable field.
 		std::array<std::string, 4> NormalizedSearchFields;
+
+		auto IsAdaptiveNumeric() const -> bool { return Opcode && IsMaterialAdaptiveNumeric(*Opcode); }
 	};
 
 	struct FMaterialGraphPortCreation
@@ -133,7 +135,6 @@ namespace Durin::MaterialEditor
 	struct FMaterialGraphCreationAction
 	{
 		std::string Id, Name, Category, Keywords, Description;
-		bool bMaterial = true, bFunction = true;
 		std::variant<FMaterialGraphCatalogEntry, std::string,
 			FMaterialGraphPortCreation,
 			FMaterialGraphCollectionParameterCreation> Payload;

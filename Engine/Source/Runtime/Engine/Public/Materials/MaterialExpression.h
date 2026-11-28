@@ -98,8 +98,9 @@ namespace Durin
 		explicit DMaterialExpression(const FObjectInitializer& Initializer) : Super(Initializer) {}
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
-		// An opcode opts the concrete class into reflection-based discovery.
+		// A creation name opts the concrete class into reflection-based discovery.
 		virtual auto GetCreationInfo() const -> FMaterialExpressionCreationInfo { return {}; }
+		ENGINE_API virtual auto IsAllowedIn(const DObject* MaterialOrFunction) const -> bool;
 		// A borrowed field for transactional width edits. Each class keeps its serialized storage.
 		virtual auto GetAuthoredResultType() const -> const EMaterialProgramValueType* { return nullptr; }
 		auto GetAuthoredResultType() -> EMaterialProgramValueType*
@@ -120,6 +121,7 @@ namespace Durin
 			return const_cast<DMaterialExpression*>(this)->GetInput(Index);
 		}
 		virtual auto GetInputValueType(int32 Index) const -> std::optional<EMaterialProgramValueType> { return GetInputInfo(Index).Type; }
+		ENGINE_API virtual auto IsInputConnectionRequired(int32 Index) const -> bool;
 		virtual auto GetTextureSampleReadMode() -> EMaterialTextureReadMode* { return nullptr; }
 		virtual auto GetOutputs() const -> std::span<const FMaterialExpressionOutput> { return {}; }
 		virtual auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>

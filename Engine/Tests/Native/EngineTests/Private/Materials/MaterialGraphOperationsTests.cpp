@@ -100,6 +100,7 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		FMaterialProgramLink Resource;
 		if (!bParameter)
 		{
+			EXPECT_FALSE(Testing::CreateGraphCatalogNode(*AuthoringGraph, Opcode, Type::Float4));
 			const auto Texture = Testing::CreateGraphCatalogNode(*AuthoringGraph, Op::TextureParameter, bCube ? Type::TextureCube : Type::Texture2D);
 			ASSERT_TRUE(Texture) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Texture);
 			Resource = {Texture->front()};
@@ -125,6 +126,11 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		ASSERT_EQ(Node->Inputs.size(), static_cast<size_t>(Mip + 3));
 		EXPECT_EQ(Expression->GetInputName(Coordinate), bCube ? "Direction" : "UV");
 		EXPECT_EQ(Expression->GetInputValueType(Coordinate), CoordinateType);
+		EXPECT_EQ(Expression->IsInputConnectionRequired(0), !bParameter);
+		EXPECT_FALSE(Expression->IsInputConnectionRequired(Coordinate));
+		const auto* CoordinateInput = Expression->GetInput(Coordinate);
+		ASSERT_NE(CoordinateInput, nullptr);
+		EXPECT_FALSE(CoordinateInput->IsConnected());
 		EXPECT_NE(Expression->GetInput(Mip), nullptr);
 		EXPECT_FALSE(Node->Inputs[Mip].bActive);
 		if (bCube)
@@ -187,7 +193,7 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 }
 
 #if DURIN_MATERIAL_GRAPH_WATER_TESTS
-TEST(FMaterialGraphOperationsTests, GerstnerWavesSecondOutputUsesInstancePinForConnectionAndInference)
+TEST(FMaterialGraphOperationsTests, GerstnerWavesCreatesFromReflectionWithoutAnOpcode)
 {
 	InitializeDObjectSystem();
 	using Op = EMaterialProgramOpcode;
@@ -195,12 +201,38 @@ TEST(FMaterialGraphOperationsTests, GerstnerWavesSecondOutputUsesInstancePinForC
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
-	const auto Waves = Testing::MakeGraphExpression<DMaterialExpressionGerstnerWaves>();
-	ASSERT_TRUE(Graph->CreateExpression(*Waves, 0, 0, false));
+	const auto* Class = DMaterialExpressionGerstnerWaves::StaticClass();
+	const auto* Description = FindMaterialExpressionDescription(Class);
+	ASSERT_NE(Description, nullptr);
+	EXPECT_FALSE(Description->SemanticOpcode);
+	ASSERT_EQ(Description->Shapes.size(), 1u);
+	EXPECT_EQ(Description->Shapes.front().ResultType, Type::Float3);
+
+	const auto Rows = SearchCatalog("gerstner waves");
+	ASSERT_EQ(Rows.size(), 1u);
+	EXPECT_EQ(Rows.front().ExpressionClass, Class);
+	EXPECT_FALSE(Rows.front().Opcode);
+	EXPECT_TRUE(Rows.front().AcceptedInputTypes.empty());
+	const auto Menu = Graph->GetSchema().GetGraphContextActions(*Graph);
+	const auto Id = MakeCreationAction(Rows.front()).Id;
+	const auto Action = std::ranges::find(Menu, Id, &FMaterialGraphCreationAction::Id);
+	ASSERT_NE(Action, Menu.end());
+	const auto Created = Action->PerformAction(*Graph, 0, 0, nullptr, false);
+	ASSERT_TRUE(Created) << FormatMaterialGraphCommandResult(Created);
+	const auto* Waves = (*Created)->GetMaterialExpression();
+	ASSERT_NE(Waves, nullptr);
+	const auto WavesId = Waves->Id;
+	EXPECT_EQ(Waves->GetClass(), Class);
+	EXPECT_FALSE((*Created)->GetView().Node.Opcode);
+	ASSERT_EQ((*Created)->GetView().Outputs.size(), 2u);
+
+	auto Forged = Rows.front();
+	Forged.Opcode = Op::Constant;
+	EXPECT_FALSE(Testing::CreateGraphCatalogNode(*Graph, Forged, 0, 0, {}, false));
 	const auto Add = Testing::CreateGraphCatalogNode(*Graph, Op::Add, Type::Float);
 	ASSERT_TRUE(Add);
 	const auto Target = Testing::ExpressionInput(Add->front(), 0);
-	const FMaterialProgramLink TangentNormal{Waves->Id, 1};
+	const FMaterialProgramLink TangentNormal{WavesId, 1};
 	const auto* Pin = Testing::ResolvePin(*Graph, TangentNormal);
 	ASSERT_NE(Pin, nullptr);
 	EXPECT_EQ(Pin->SourceIndex, 1);
@@ -217,7 +249,7 @@ TEST(FMaterialGraphOperationsTests, GerstnerWavesSecondOutputUsesInstancePinForC
 	const auto* Expression = Testing::FindExpression(Material.Get(), Add->front());
 	ASSERT_NE(Expression, nullptr);
 	EXPECT_EQ(Expression->GetOutputValueType(0), Type::Float3);
-	EXPECT_FALSE(Testing::WriteConnection(Material.Get(), Target, {Waves->Id, 2}, true, false));
+	EXPECT_FALSE(Testing::WriteConnection(Material.Get(), Target, {WavesId, 2}, true, false));
 
 	const auto Normal = EMaterialProperty::MP_Normal;
 	ASSERT_TRUE(Testing::TryCreateConnection(*Graph, TangentNormal, Normal, false, false));
@@ -684,11 +716,67 @@ TEST(FMaterialGraphOperationsTests, ParameterAndChannelPaletteGroupsWidths)
 	const auto Swizzle = std::ranges::find(Channels, Op::Swizzle, &FMaterialGraphCatalogEntry::Opcode);
 	ASSERT_NE(Swizzle, Channels.end());
 	const FMaterialSchema Schema;
-	EXPECT_FALSE(Schema.CanCreate(MakeCreationAction(*Swizzle), Type::Texture2D));
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	EXPECT_FALSE(Schema.CanCreate(*Material, MakeCreationAction(*Swizzle), Type::Texture2D));
 	const auto Samples = SearchCatalog("sample", Type::Texture2D);
 	const auto Sample = std::ranges::find(Samples, Op::TextureSample2D, &FMaterialGraphCatalogEntry::Opcode);
 	ASSERT_NE(Sample, Samples.end());
-	EXPECT_TRUE(Schema.CanCreate(MakeCreationAction(*Sample), Type::Texture2D));
+	EXPECT_TRUE(Schema.CanCreate(*Material, MakeCreationAction(*Sample), Type::Texture2D));
+}
+
+TEST(FMaterialGraphOperationsTests, NodeCreationPolicyPreservesHostMenusAndOptionalSwitchInputs)
+{
+	InitializeDObjectSystem();
+	using Op = EMaterialProgramOpcode;
+	using Type = EMaterialProgramValueType;
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialGraph> MaterialGraph(DMaterialGraph::Create(*Material));
+	TStrongObjectPtr<DMaterialGraph> FunctionGraph(DMaterialGraph::Create(*Function));
+	const auto MenuEntry = [](const FMaterialGraphCreationAction& Action) -> std::optional<Op> {
+		const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Action.Payload);
+		return Entry ? Entry->Opcode : std::nullopt;
+	};
+	const auto MaterialMenu = MaterialGraph->GetSchema().GetGraphContextActions(*MaterialGraph);
+	const auto FunctionMenu = FunctionGraph->GetSchema().GetGraphContextActions(*FunctionGraph);
+	EXPECT_TRUE(std::ranges::contains(MaterialMenu, Op::TextureSampleParameter2D, MenuEntry));
+	EXPECT_FALSE(std::ranges::contains(FunctionMenu, Op::TextureSampleParameter2D, MenuEntry));
+	EXPECT_TRUE(std::ranges::contains(FunctionMenu, Op::TextureSample2D, MenuEntry));
+
+	const auto Parameter = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
+	const auto FunctionInput = Testing::MakeGraphExpression<DMaterialExpressionFunctionInput>();
+	EXPECT_TRUE(Parameter->IsAllowedIn(Material.Get()));
+	EXPECT_FALSE(Parameter->IsAllowedIn(Function.Get()));
+	EXPECT_FALSE(FunctionInput->IsAllowedIn(Material.Get()));
+	EXPECT_TRUE(FunctionInput->IsAllowedIn(Function.Get()));
+	EXPECT_FALSE(FunctionGraph->CreateExpression(*Parameter, 0, 0, false));
+	EXPECT_FALSE(MaterialGraph->CreateExpression(*FunctionInput, 0, 0, false));
+
+	for (auto* Graph : {MaterialGraph.Get(), FunctionGraph.Get()})
+	{
+		const auto& Menu = Graph == MaterialGraph.Get() ? MaterialMenu : FunctionMenu;
+		for (const auto Opcode : {Op::QualitySwitch, Op::FeatureLevelSwitch})
+		{
+			const auto Action = std::ranges::find(Menu, Opcode, MenuEntry);
+			ASSERT_NE(Action, Menu.end());
+			const auto Created = Action->PerformAction(*Graph, 0, 0, nullptr, false);
+			ASSERT_TRUE(Created) << FormatMaterialGraphCommandResult(Created);
+			const auto* Expression = (*Created)->GetMaterialExpression();
+			ASSERT_NE(Expression, nullptr);
+			const auto& Inputs = (*Created)->GetView().Inputs;
+			ASSERT_EQ(Inputs.size(), Opcode == Op::QualitySwitch ? 3u : 4u);
+			EXPECT_EQ(Inputs.front().Name, "Default");
+			EXPECT_EQ(Inputs.front().InlineDefault.Kind, EMaterialInputDefaultKind::Literal);
+			EXPECT_EQ(Inputs.front().InlineDefault.Type, Type::Float);
+			EXPECT_FLOAT_EQ(Inputs.front().InlineDefault.Literal.X, 0.f);
+			for (const auto& Input : Inputs)
+			{
+				EXPECT_FALSE(Expression->IsInputConnectionRequired(static_cast<int32>(Input.InputIndex)));
+				EXPECT_FALSE(Input.Link.SourceNodeId.IsValid());
+			}
+		}
+	}
 }
 
 TEST(FMaterialGraphOperationsTests, AppendInfersWidthsAndKeepsUndoableOverflowDiagnostics)
@@ -957,16 +1045,17 @@ TEST(FMaterialGraphOperationsTests, MathPaletteHasOneEntryPerOperationAndSourceW
 {
 	InitializeDObjectSystem();
 	using Type = EMaterialProgramValueType;
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 	const auto Catalog = EnumerateCatalog();
 	for (const auto Source : {std::optional<Type>{}, std::optional{Type::Float}, std::optional{Type::Float2},
 		std::optional{Type::Float3}, std::optional{Type::Float4}, std::optional{Type::Texture2D}})
 	{
 		auto Rows = SearchCatalog(Catalog, {}, Source);
 		const FMaterialSchema Schema;
-		std::erase_if(Rows, [&](const auto& Entry) { return !Schema.CanCreate(MakeCreationAction(Entry), Source); });
+		std::erase_if(Rows, [&](const auto& Entry) { return !Schema.CanCreate(*Material, MakeCreationAction(Entry), Source); });
 		for (const auto& Entry : Catalog)
 		{
-			if (!IsMaterialAdaptiveNumeric(Entry.Opcode)) continue;
+			if (!Entry.IsAdaptiveNumeric()) continue;
 			const bool bAllowed = Source != Type::Texture2D
 				&& !(Source == Type::Float && (Entry.Opcode == EMaterialProgramOpcode::Normalize
 					|| Entry.Opcode == EMaterialProgramOpcode::Reflect));
@@ -4240,8 +4329,8 @@ TEST(FMaterialGraphOperationsTests, CreationRequestConnectsAndUndoesAsOneEdit)
 	const auto Before = CaptureExpressions(*Material);
 	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const auto Action = MakeCreationAction(*Entry);
-	EXPECT_TRUE(AuthoringGraph->GetSchema().CanCreate(Action, EMaterialProgramValueType::Float));
-	EXPECT_FALSE(AuthoringGraph->GetSchema().CanCreate(Action, EMaterialProgramValueType::MaterialAttributes));
+	EXPECT_TRUE(AuthoringGraph->GetSchema().CanCreate(*Material, Action, EMaterialProgramValueType::Float));
+	EXPECT_FALSE(AuthoringGraph->GetSchema().CanCreate(*Material, Action, EMaterialProgramValueType::MaterialAttributes));
 	const auto Created = Action.PerformAction(*AuthoringGraph, 120, 240, Testing::ResolvePin(*AuthoringGraph, FMaterialProgramLink{Scalar.value()})).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Created) << FormatMaterialGraphCommandResult(Created);
 	const auto View = Testing::CaptureGraphView(*AuthoringGraph);

@@ -142,16 +142,18 @@ compiled result.
 
 `MaterialExpressionDescription.h` exposes immutable Engine class adapters through
 `GetMaterialExpressionDescriptions()` and `FindMaterialExpressionDescription()`.
-Each concrete reflected class has one description with its name, aliases,
-semantic operation, authored input labels,
-supported shapes, and fixed/adaptive/instance output behavior. The adapters and
-class lookup are initialized once after reflection initialization, borrow class
-pointers, and construct no expression or asset objects. Descriptions are runtime,
-nonserialized metadata; they contain no MaterialEditor policy and never enter
-compiler worker inputs.
+Concrete reflected classes opt into discovery with a creation name on the class
+default object. The description holds the name, aliases, optional semantic
+operation, creation flags, and authored shapes. One cache supplies both
+enumeration and class lookup. It is initialized once after reflection
+initialization and borrows class pointers for process lifetime. Descriptions
+are nonserialized metadata and stay outside compiler worker inputs.
 
 Authored shapes reuse shared value/type rules during initialization, then apply
-numeric broadcast and exact-normal authoring constraints. They are separate from
+numeric broadcast and exact-normal authoring constraints. Classes without a
+semantic operation can describe their default creation shape through their
+declared result type or first editor output, plus their typed default inputs.
+Their Build methods can compose existing operations. Authored shapes are separate from
 normalized MIR signatures: samples expose multiple indexed outputs, collections
 resolve declaration types, functions use live GUID ports, and attribute GUID selections and
 bindings control instance pins. Instance-dependent output behavior must be read

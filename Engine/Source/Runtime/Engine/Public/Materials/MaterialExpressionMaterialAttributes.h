@@ -66,6 +66,7 @@ namespace Durin
 			return {Definition.Name, GetMaterialSurfaceOutputType(Definition.Property)};
 		}
 #if DURIN_WITH_EDITORONLY_DATA
+		auto IsInputConnectionRequired(int32 Index) const -> bool override { return false; }
 		auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override
 		{
 			return DMaterialExpression::GetOutput(Index);
@@ -165,6 +166,9 @@ namespace Durin
 		DPROPERTY()
 		std::vector<FMaterialExpressionAttributeBinding> Attributes;
 
+#if DURIN_WITH_EDITORONLY_DATA
+		auto IsInputConnectionRequired(int32 Index) const -> bool override { return false; }
+#endif
 		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
 		{
 			return {.Opcode = EMaterialProgramOpcode::SetMaterialAttributes, .Name = "Set Material Attributes",

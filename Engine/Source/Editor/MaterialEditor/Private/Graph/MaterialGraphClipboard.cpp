@@ -85,7 +85,7 @@ namespace Durin::MaterialEditor
 				return std::unexpected(RejectCommand("Pasting would exceed the material graph node bounds."));
 			const bool bSameRoot = Payload.SourceRoot.Get() == Owner.Get();
 			if (std::ranges::any_of(Payload.Nodes, [&](const auto& Node) {
-				return Node.Expression.IsValid() && !GetSchema().CanCreateExpression(*Node.Expression.Get());
+				return Node.Expression.IsValid() && !Node.Expression->IsAllowedIn(Owner.Get());
 			}))
 				return std::unexpected(RejectCommand("The clipboard contains expressions unsupported by this graph."));
 			std::unordered_set<FGuid> ClipboardIds;

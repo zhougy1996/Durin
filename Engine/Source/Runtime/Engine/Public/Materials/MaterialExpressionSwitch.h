@@ -82,6 +82,12 @@ namespace Durin
 		FMaterialExpressionInput Low;
 		DPROPERTY()
 		FMaterialExpressionInput High;
+#if DURIN_WITH_EDITORONLY_DATA
+		auto IsInputConnectionRequired(int32 Index) const -> bool override
+		{
+			return Index == 0 && Super::IsInputConnectionRequired(Index);
+		}
+#endif
 		auto GetAuthoredInputCount() const -> uint32 override { return 3; }
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};
@@ -110,6 +116,12 @@ namespace Durin
 		FMaterialExpressionInput SM5;
 		DPROPERTY()
 		FMaterialExpressionInput SM6;
+#if DURIN_WITH_EDITORONLY_DATA
+		auto IsInputConnectionRequired(int32 Index) const -> bool override
+		{
+			return Index == 0 && Super::IsInputConnectionRequired(Index);
+		}
+#endif
 		auto GetAuthoredInputCount() const -> uint32 override { return 4; }
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};

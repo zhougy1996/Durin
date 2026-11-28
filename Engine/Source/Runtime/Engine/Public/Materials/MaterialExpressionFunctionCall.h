@@ -51,6 +51,11 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 		using Super::GetInput;
 		ENGINE_API auto GetInput(int32 Index) -> FMaterialExpressionInput* override;
+		auto IsInputConnectionRequired(int32 Index) const -> bool override
+		{
+			const auto* Port = GetInputInfo(Index).FunctionPort;
+			return Port && Port->bRequired;
+		}
 		ENGINE_API auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override;
 		ENGINE_API auto FindInputInfo(FGuid PortId) const -> FMaterialExpressionInputInfo;
 		ENGINE_API auto GetInputPorts() const -> std::span<const FMaterialFunctionPort>;
