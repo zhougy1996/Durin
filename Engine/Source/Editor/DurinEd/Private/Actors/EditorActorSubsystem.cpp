@@ -90,7 +90,7 @@ namespace Durin
 		}
 
 		template<class Edit>
-		auto SubmitAttachment(DTransactor& Transactions, DLevel& Level, std::span<AActor* const> Actors,
+		auto SubmitAttachment(DLevel& Level, std::span<AActor* const> Actors,
 			const char* Description, Edit Apply) -> bool
 		{
 			// Notifications may retire a later actor before its turn.
@@ -100,26 +100,21 @@ namespace Durin
 			bool Changed = false;
 			for (const auto& Target : Targets)
 			{
-				if (!Transactions.IsActive()) break;
 				auto* Actor = Target.Get();
 				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed()) continue;
 				auto* Root = Actor->GetRootComponent();
-				if (IsValid(Root)) Changed |= Apply(*Root);
+				if (!IsValid(Root) || !Apply(*Root)) continue;
+				Changed = true;
+				if (Target) Target->MarkPackageDirty();
 			}
 			return Changed;
 		}
 
-		auto CaptureRoot(DSceneComponent& Root, const DTransactor& Transactions) -> bool
-		{
-			Root.SetFlags(EObjectFlags::Transactional);
-			return Root.Modify(false) && Transactions.IsActive();
-		}
 	}
 	auto DEditorActorSubsystem::AttachActors(DLevel& Level, std::span<AActor* const> Actors, AActor* Parent,
 		EAttachmentTransformRule Rule, const FActorEditContext& Context) -> bool
 	{
-		auto Admission = Admit(Context, &Level);
-		if (!Admission) return false;
+		if (!Admit(Context, &Level)) return false;
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
 			if (!ValidateActors(Level, Actors) || !IsValid(Parent) || !ValidateActors(Level, {&Parent, 1}))
@@ -128,7 +123,7 @@ namespace Durin
 				if (WouldCreateCycle(*Actor, *Parent)) return false;
 
 			TObjectPtr<AActor> Destination(Parent);
-			return SubmitAttachment(*Admission, Level, Actors, "Attach actors", [&](DSceneComponent& Root) {
+			return SubmitAttachment(Level, Actors, "Attach actors", [&](DSceneComponent& Root) {
 				auto* Target = Destination.Get();
 				if (!IsValid(Target) || Target->IsBeingDestroyed() || !Level.ContainsActor(Target)) return false;
 				auto* ParentRoot = Target->GetRootComponent();
@@ -141,20 +136,24 @@ namespace Durin
 					if (Relative.Rotation == Identity.Rotation && Relative.Translation == Identity.Translation
 						&& Relative.Scale3D == Identity.Scale3D) return false;
 				}
-				return CaptureRoot(Root, *Admission) && Root.AttachToComponent(ParentRoot, Rule);
+				Root.SetFlags(EObjectFlags::Transactional);
+				(void)Root.Modify(false);
+				return Root.AttachToComponent(ParentRoot, Rule);
 			});
 		});
 	}
 	auto DEditorActorSubsystem::DetachActors(DLevel& Level, std::span<AActor* const> Actors,
 		EDetachmentTransformRule Rule, const FActorEditContext& Context) -> bool
 	{
-		auto Admission = Admit(Context, &Level);
-		if (!Admission) return false;
+		if (!Admit(Context, &Level)) return false;
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
 			if (!ValidateActors(Level, Actors)) return false;
-			return SubmitAttachment(*Admission, Level, Actors, "Detach actors", [&](DSceneComponent& Root) {
-				return Root.GetAttachParent() && CaptureRoot(Root, *Admission) && Root.DetachFromComponent(Rule);
+			return SubmitAttachment(Level, Actors, "Detach actors", [&](DSceneComponent& Root) {
+				if (!Root.GetAttachParent()) return false;
+				Root.SetFlags(EObjectFlags::Transactional);
+				(void)Root.Modify(false);
+				return Root.DetachFromComponent(Rule);
 			});
 		});
 	}

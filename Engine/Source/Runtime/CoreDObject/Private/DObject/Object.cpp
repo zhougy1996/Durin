@@ -188,15 +188,17 @@ namespace Durin
 		});
 	}
 
-	auto DObject::Rename(FName InName) -> void
+	auto DObject::Rename(FName InName, ERenameFlags Flags) -> bool
 	{
-		if (IsTemplateObject()) return;
-		if (NamePrivate.ToString() == InName.ToString() || !IsSiblingNameAvailable(*this, GetOuter(), InName)) return;
+		if (IsTemplateObject()) return false;
+		if (NamePrivate.ToString() == InName.ToString()) return true;
+		if (!IsSiblingNameAvailable(*this, GetOuter(), InName)) return false;
 		if (auto* Package = Cast<DPackage>(GetOuter()); Package && Package->IsAssetPackage()
-			&& !Package->CanUseTopLevelAssetName(InName, this)) return;
+			&& !Package->CanUseTopLevelAssetName(InName, this)) return false;
 		NamePrivate = InName;
 		Durin::Private::InvalidateSoftObjectCaches();
-		if (DPackage* Package = GetPackage(); Package && Package->IsAssetPackage()) MarkPackageDirty();
+		if (!EnumHasAnyFlags(Flags, ERenameFlags::DoNotDirty)) MarkPackageDirty();
+		return true;
 	}
 
 	auto DObject::Rename(FName InName, DObject* NewOuter) -> bool

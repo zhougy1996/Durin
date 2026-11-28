@@ -255,7 +255,7 @@ namespace Durin
 			for (auto* Declaration : *Declarations)
 			{
 				Declaration->SetFlags(EObjectFlags::Transactional);
-				if (!Declaration->Modify(false)) return false;
+				(void)Declaration->Modify(false);
 			}
 		}
 		FScopedMaterialGraphChange Batch(*this);

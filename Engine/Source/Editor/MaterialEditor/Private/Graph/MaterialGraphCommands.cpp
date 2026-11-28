@@ -137,9 +137,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 			{
 				if (!Recorded.insert(Object).second) continue;
 				Object->SetFlags(EObjectFlags::Transactional);
-				if (Object->Modify(false)) continue;
-				if (!bNested) Recording.Cancel();
-				return RejectCommand("Unable to record an edited graph object.");
+				Object->Modify(false);
 			}
 		}
 		auto Result = Apply();

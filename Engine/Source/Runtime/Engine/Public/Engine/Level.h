@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
+#include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/ObjectKey.h"
 
@@ -55,7 +56,8 @@ namespace Durin
 		ENGINE_API auto DestroyAllActors() -> void;
 		ENGINE_API auto ContainsActor(const AActor* Actor) const -> bool;
 		ENGINE_API auto FindActorByName(FName Name) const -> AActor*;
-		ENGINE_API auto RenameActor(AActor* Actor, FName RequestedName, ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> bool;
+		ENGINE_API auto RenameActor(AActor* Actor, FName RequestedName, ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested,
+			ERenameFlags Flags = ERenameFlags::None) -> bool;
 		// Includes unpublished preparations and undo-retained objects, not just Actors membership.
 		ENGINE_API auto IsActorNameAvailable(FName Name, const AActor* IgnoredActor = nullptr) const -> bool;
 		ENGINE_API auto ResolveActorName(FName RequestedName, ESpawnActorNameMode NameMode, const AActor* IgnoredActor = nullptr) const -> FName;

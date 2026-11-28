@@ -285,36 +285,29 @@ namespace Durin
 			FScopedTransaction Recording("ActorLabel", "Set actor label", Actor);
 			if (!Recording.IsOutstanding()) return false;
 			Actor->SetFlags(EObjectFlags::Transactional);
-			if (!Actor->Modify() || !Transactions->IsActive())
+			if (!Actor->SetActorLabel(Resolved))
 			{
 				if (bOwnsRecording) Recording.Cancel();
 				return false;
 			}
-			return Actor->SetActorLabel(Resolved);
+			return true;
 		});
 	}
 
 	auto DEditorActorSubsystem::RenameActor(DLevel& Level, AActor* Actor, FName Name, const FActorEditContext& Context, ESpawnActorNameMode NameMode) -> bool
 	{
-		auto Admission = Admit(Context, &Level);
-		if (!Admission) return false;
+		if (!Admit(Context, &Level)) return false;
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			auto* Transactions = Admission;
 			if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsTemplateObject() || Name.IsNone()) return false;
 			Name = Level.ResolveActorName(Name, NameMode, Actor);
 			if (Name.IsNone()) return false;
 			if (Actor->GetFName() == Name) return true;
-			const bool bOwnsRecording = !Transactions->IsActive();
 			FScopedTransaction Recording("ActorRename", "Rename actor", Actor);
 			if (!Recording.IsOutstanding()) return false;
 			Actor->SetFlags(EObjectFlags::Transactional);
-			if (!Actor->Modify() || !Transactions->IsActive())
-			{
-				if (bOwnsRecording) Recording.Cancel();
-				return false;
-			}
-			return Level.RenameActor(Actor, Name, ESpawnActorNameMode::RequiredReturnNull);
+			(void)Actor->Modify();
+			return Level.RenameActor(Actor, Name, ESpawnActorNameMode::RequiredReturnNull, ERenameFlags::DoNotDirty);
 
 		});
 	}

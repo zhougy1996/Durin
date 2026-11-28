@@ -4,11 +4,14 @@
 #include "Actors/CameraActor.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "Transactions/Transaction.h"
 #include "Engine/Level.h"
 #include "EditorSupportDelegates.h"
 #include "Editor/EditorActorSubsystemTestSupport.h"
 #include "NativeDObjectTestSupport.h"
+#include "NativeTestSupport.h"
+#include "Misc/MountPathTestSupport.h"
 
 namespace
 {
@@ -92,6 +95,48 @@ TEST(FEditorActorAttachmentTests, MultiActorReparentAndDetachRoundTripAsTransact
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(First->GetAttachParentActor(), nullptr);
 	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
+}
+
+TEST(FEditorActorAttachmentTests, CanceledBatchStillChangesAndDirtiesEachChildWithoutUndoHistory)
+{
+	Tests::FActorEditorFixture Fixture;
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/AttachmentBatch/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/AttachmentBatch/Level", Path));
+	TStrongObjectPtr<DPackage> Package(CreatePackage(Path));
+	ASSERT_TRUE(Package);
+	auto* Level = NewObject<DLevel>(Package.Get(), "Level");
+	ASSERT_TRUE(Fixture.GetWorld()->SetCurrentLevel(Level));
+	auto* Parent = Level->SpawnActor<ACameraActor>("Parent");
+	std::array<AActor*, 2> Children{Level->SpawnActor<ACameraActor>("First"), Level->SpawnActor<ACameraActor>("Second")};
+	ASSERT_TRUE(Parent && Children[0] && Children[1]);
+	auto* Transactions = Fixture.GetTransactions();
+	auto* Editor = Fixture.GetActorEditor();
+	for (const bool bAttach : {true, false})
+	{
+		Package->ClearDirty();
+		const auto Revision = Package->GetEditRevision();
+		AActor* ExpectedParent = bAttach ? Parent : nullptr;
+		int Cancellations = 0;
+		const auto Handle = OnAssetPackagesChanged().AddLambda([&] {
+			if (!Transactions->IsActive() || !Package->IsDirty()) return;
+			EXPECT_EQ(Children[0]->GetAttachParentActor(), ExpectedParent);
+			EXPECT_NE(Children[1]->GetAttachParentActor(), ExpectedParent);
+			++Cancellations;
+			Transactions->Cancel();
+		});
+		const bool bChanged = bAttach
+			? Editor->AttachActors(*Level, Children, Parent, EAttachmentTransformRule::KeepWorld, {false})
+			: Editor->DetachActors(*Level, Children, EDetachmentTransformRule::KeepWorld, {false});
+		OnAssetPackagesChanged().Remove(Handle);
+		EXPECT_TRUE(bChanged);
+		EXPECT_EQ(Cancellations, 1);
+		for (auto* Child : Children) EXPECT_EQ(Child->GetAttachParentActor(), ExpectedParent);
+		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_EQ(Package->GetEditRevision(), Revision + Children.size());
+		EXPECT_EQ(Transactions->GetQueueLength(), 0u);
+	}
 }
 
 TEST(FEditorActorAttachmentTests, SelectedTransformRulesProduceReversibleResults)

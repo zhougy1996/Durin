@@ -421,18 +421,26 @@ TEST_F(FEditorFunctionTests, EffectiveOverrideCanRemoveTheInheritedEditorButton)
 	EXPECT_EQ(Target->Value, 10);
 }
 
-TEST_F(FEditorFunctionTests, DirtyCallbackCancellationPreventsNativeInvocation)
+TEST_F(FEditorFunctionTests, DirtyCallbackCancellationInvokesOnceWithoutUndoHistory)
 {
 	Tests::FTestEditorTransactorOwner Buffer;
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(MakeActionPackage(), "CanceledAction"));
 	FPropertyView View;
-	const auto Handle = OnAssetPackagesChanged().AddLambda([&] { if (Buffer->IsActive()) Buffer->Cancel(); });
+	int Cancellations = 0;
+	const auto Handle = OnAssetPackagesChanged().AddLambda([&] {
+		if (Buffer->IsActive())
+		{
+			++Cancellations;
+			Buffer->Cancel();
+		}
+	});
 	const auto Result = ExecuteEditorFunction(View, {}, Request(Target));
 	OnAssetPackagesChanged().Remove(Handle);
-	EXPECT_EQ(Result.Error, EEditorFunctionError::History);
-	EXPECT_FALSE(Result.bInvoked);
-	EXPECT_EQ(Target->EventDispatches, 0);
-	EXPECT_EQ(Target->Invocations, 0);
+	EXPECT_EQ(Cancellations, 1);
+	EXPECT_EQ(Result.Error, EEditorFunctionError::None);
+	EXPECT_TRUE(Result.bInvoked);
+	EXPECT_EQ(Target->EventDispatches, 1);
+	EXPECT_EQ(Target->Invocations, 1);
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 

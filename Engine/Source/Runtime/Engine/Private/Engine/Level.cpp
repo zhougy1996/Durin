@@ -286,25 +286,30 @@ namespace Durin
 		return It == Actors.end() ? nullptr : It->Get();
 	}
 
-	auto DLevel::RenameActor(AActor* Actor, FName RequestedName, ESpawnActorNameMode NameMode) -> bool
+	auto DLevel::RenameActor(AActor* Actor, FName RequestedName, ESpawnActorNameMode NameMode, ERenameFlags Flags) -> bool
 	{
 		if (!ContainsActor(Actor) || RequestedName.IsNone()) return false;
 		const FName Name = ResolveActorName(RequestedName, NameMode, Actor);
 		if (Name.IsNone()) return false;
 		if (Actor->GetFName() == Name) return true;
 		// Freeze the fallback label of a legacy object before changing its internal name.
-		if (Actor->ActorLabel.empty()) Actor->ActorLabel = Actor->GetActorLabel();
-		Actor->Rename(Name);
+		const bool bFreezeLabel = Actor->ActorLabel.empty();
+		if (bFreezeLabel) Actor->ActorLabel = Actor->GetActorLabel();
+		if (!Actor->Rename(Name, Flags))
+		{
+			if (bFreezeLabel) Actor->ActorLabel.clear();
+			return false;
+		}
 #if DURIN_WITH_EDITOR
 		FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*this);
 #endif
-		MarkPackageDirty();
 		return true;
 	}
 
 	auto DLevel::SetPrimaryCameraActor(ACameraActor* Actor) -> bool
 	{
 		if (Actor && !ContainsActor(Actor)) return false;
+		if (PrimaryCameraActor.Get() == Actor) return true;
 		PrimaryCameraActor = Actor;
 		MarkPackageDirty();
 		return true;

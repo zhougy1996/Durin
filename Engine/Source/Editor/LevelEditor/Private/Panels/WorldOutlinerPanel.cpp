@@ -177,7 +177,7 @@ namespace Durin::LevelEditor
 		for (const TObjectPtr<AActor>& Actor : TargetActors)
 		{
 			if (!Actor || Actor->IsHidden() == bHidden) continue;
-			(void)Actor.Get()->Modify();
+			(void)Actor->Modify(false);
 			Actor->SetActorHiddenInGame(bHidden);
 		}
 	}
@@ -247,7 +247,7 @@ namespace Durin::LevelEditor
 				else if (ImGui::MenuItem("Set as Primary Camera"))
 				{
 					FScopedTransaction Transaction("Set primary camera");
-					(void)Context.Level->Modify();
+					(void)Context.Level->Modify(false);
 					if (!Context.Level->SetPrimaryCameraActor(Camera))
 						Context.SetError("Failed to set the primary camera.");
 				}

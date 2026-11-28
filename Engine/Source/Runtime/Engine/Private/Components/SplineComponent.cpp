@@ -43,7 +43,6 @@ namespace Durin
 		auto Evaluation = Candidate.BuildEvaluationData();
 		if (!std::isfinite(Evaluation->GetLocalLength())) return false;
 		const bool bRecorded = Modify(false);
-		if (GUndo && HasAnyObjectFlags(EObjectFlags::Transactional) && !bRecorded) return false;
 		SplineCurve = std::move(Candidate);
 		PublishSplineEvaluation(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build,
 			std::move(Evaluation), bRecorded ? GetRecordingHistoryId() : 0);
@@ -86,7 +85,7 @@ namespace Durin
 		if (Point.InputKey == FSplinePoint::AutoInputKey) Point.InputKey = Previous->InputKey;
 		if (!SplineCurve.IsValidPointKey(PointIndex, Point.InputKey)) return false;
 		if (*Previous == Point || bPublishingMutation) return false;
-		if (!Modify(false) && GUndo && HasAnyObjectFlags(EObjectFlags::Transactional)) return false;
+		(void)Modify(false);
 		if (!SplineCurve.UpdatePoint(PointIndex, Point)) return false;
 		if (bUpdateSpline) UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		return true;
@@ -145,7 +144,7 @@ namespace Durin
 	auto DSplineComponent::BeginPointEdit() -> bool
 	{
 		if (bPublishingMutation) return false;
-		if (!Modify(false) && GUndo && HasAnyObjectFlags(EObjectFlags::Transactional)) return false;
+		(void)Modify(false);
 		MarkPackageDirty();
 		return true;
 	}

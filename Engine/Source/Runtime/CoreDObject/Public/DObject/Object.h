@@ -21,6 +21,9 @@ namespace Durin
 	class ITransactionObjectAnnotation;
 	struct FTransactionObjectEvent;
 
+	enum class ERenameFlags : uint8 { None = 0, DoNotDirty = 1 << 2 };
+	ENUM_CLASS_FLAGS(ERenameFlags);
+
 	// Loaders validate owned graphs after all selected objects have values.
 	struct FObjectGraphLoadContext
 	{
@@ -82,7 +85,7 @@ namespace Durin
 		virtual auto GetPrimaryAssetId() const -> FPrimaryAssetId { return {}; }
 		virtual auto GetAssetBundleData() const -> FAssetBundleData { return {}; }
 
-		COREDOBJECT_API auto Rename(FName InName) -> void;
+		COREDOBJECT_API auto Rename(FName InName, ERenameFlags Flags = ERenameFlags::None) -> bool;
 		// Checked identity change; preserves object pointers and package export indexes.
 		COREDOBJECT_API auto Rename(FName InName, DObject* NewOuter) -> bool;
 
@@ -97,6 +100,7 @@ namespace Durin
 		COREDOBJECT_API auto GetPackage() const -> DPackage*;
 		COREDOBJECT_API auto GetObjectPath() const -> std::string;
 		COREDOBJECT_API auto MarkPackageDirty() -> void;
+		// False requests transaction capture without an immediate package dirty mark.
 		COREDOBJECT_API virtual auto Modify(bool bAlwaysMarkDirty = true) -> bool;
 		auto SetFlags(EObjectFlags Flags) -> void { ObjectFlags |= Flags; }
 		auto ClearFlags(EObjectFlags Flags) -> void { ObjectFlags &= ~Flags; }

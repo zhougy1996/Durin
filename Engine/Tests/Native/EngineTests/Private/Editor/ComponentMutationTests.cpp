@@ -984,7 +984,35 @@ TEST(FComponentMutationTests, AllComponentStructureCommandsShareOneHistoryAcross
 	EXPECT_TRUE(F.Scene.Lights.contains(static_cast<DLightComponent*>(Copy)));
 }
 
-TEST(FComponentMutationTests, DirtyNotificationCancellationStopsActorAndComponentWrites)
+TEST(FActorMutationTests, NameAndLabelEditsMarkOnceBeforeTransactionCommit)
+{
+	FComponentFixture F;
+	const auto Directory = Testing::CreateTestFixtureDirectory("NameEditRevision");
+	Testing::RegisterMountPointForTests("/NameEditRevision/", Directory.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/NameEditRevision/Level", Path));
+	TStrongObjectPtr<DPackage> Package(CreatePackage(Path));
+	ASSERT_TRUE(Package);
+	auto* Level = NewObject<DLevel>(Package.Get(), "Level");
+	ASSERT_TRUE(F.World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<AActor>("Original");
+	ASSERT_TRUE(Actor);
+	auto* Child = Actor->AddInstanceComponent(DActorComponent::StaticClass(), "Child");
+	ASSERT_TRUE(Child);
+	auto* Editor = F.Editor.GetActorEditor();
+	FScopedTransaction Scope("Name and label edits");
+	auto Revision = Package->GetEditRevision();
+	ASSERT_TRUE(Editor->SetActorLabel(*Level, Actor, "Display", {false}));
+	EXPECT_EQ(Package->GetEditRevision(), ++Revision);
+	ASSERT_TRUE(Editor->RenameActor(*Level, Actor, "Internal", {false}));
+	EXPECT_EQ(Package->GetEditRevision(), ++Revision);
+	ASSERT_TRUE(Editor->RenameComponent(*Actor, Child, "RenamedChild", {false}));
+	EXPECT_EQ(Package->GetEditRevision(), ++Revision);
+	ASSERT_TRUE(Level->SetPrimaryCameraActor(nullptr));
+	EXPECT_EQ(Package->GetEditRevision(), Revision);
+}
+
+TEST(FComponentMutationTests, DirtyNotificationCancellationAllowsLabelRenameAndReparentWithoutUndoHistory)
 {
 	FComponentFixture F;
 	const auto Directory = Testing::CreateTestFixtureDirectory("CancelOnDirty");
@@ -1000,8 +1028,7 @@ TEST(FComponentMutationTests, DirtyNotificationCancellationStopsActorAndComponen
 	auto* Child = static_cast<DSceneComponent*>(Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Child"));
 	auto* Parent = static_cast<DSceneComponent*>(Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Parent"));
 	ASSERT_TRUE(Child && Parent);
-	const auto Label = Actor->GetActorLabel();
-	const auto OriginalParent = Child->GetAttachParent();
+	ASSERT_NE(Child->GetAttachParent(), Parent);
 	auto* Editor = F.Editor.GetActorEditor();
 	int Cancellations = 0;
 	const auto Handle = OnAssetPackagesChanged().AddLambda([&] {
@@ -1011,16 +1038,18 @@ TEST(FComponentMutationTests, DirtyNotificationCancellationStopsActorAndComponen
 			F.Transactions->Cancel();
 		}
 	});
-	EXPECT_FALSE(Editor->SetActorLabel(*Level, Actor, "New label", {false}));
-	EXPECT_FALSE(Editor->RenameActor(*Level, Actor, "NewName", {false}));
-	EXPECT_FALSE(Editor->RenameComponent(*Actor, Child, "NewChild", {false}));
-	EXPECT_FALSE(Editor->ReparentComponent(*Actor, Child, Parent, {false}));
+	EXPECT_TRUE(Editor->SetActorLabel(*Level, Actor, "New label", {false}));
+	EXPECT_EQ(Cancellations, 1);
+	EXPECT_EQ(Actor->GetActorLabel(), "New label");
+	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
+	EXPECT_TRUE(Editor->RenameActor(*Level, Actor, "NewName", {false}));
+	EXPECT_TRUE(Editor->RenameComponent(*Actor, Child, "NewChild", {false}));
+	EXPECT_TRUE(Editor->ReparentComponent(*Actor, Child, Parent, {false}));
 	OnAssetPackagesChanged().Remove(Handle);
 	EXPECT_EQ(Cancellations, 4);
-	EXPECT_EQ(Actor->GetActorLabel(), Label);
-	EXPECT_EQ(Actor->GetFName(), FName("Original"));
-	EXPECT_EQ(Child->GetFName(), FName("Child"));
-	EXPECT_EQ(Child->GetAttachParent(), OriginalParent);
+	EXPECT_EQ(Actor->GetFName(), FName("NewName"));
+	EXPECT_EQ(Child->GetFName(), FName("NewChild"));
+	EXPECT_EQ(Child->GetAttachParent(), Parent);
 	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
 }
 

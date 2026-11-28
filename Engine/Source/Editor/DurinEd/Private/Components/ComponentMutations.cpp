@@ -136,11 +136,9 @@ namespace Durin
 	auto DEditorActorSubsystem::RenameComponent(AActor& Owner, DActorComponent* Component, FName RequestedName,
 		const FActorEditContext& Context) -> bool
 	{
-		auto Admission = Admit(Context, nullptr, &Owner);
-		if (!Admission) return false;
+		if (!Admit(Context, nullptr, &Owner)) return false;
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			auto* Transactions = Admission;
 			if (!IsValid(Component) || Component->IsTemplateObject()
 				|| Component->GetOwner() != &Owner || !Owner.OwnsComponent(Component) || RequestedName.IsNone()
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) return false;
@@ -149,9 +147,8 @@ namespace Durin
 			FScopedTransaction Recording("ComponentRename", "Rename component", Component);
 			if (!Recording.IsOutstanding()) return false;
 			Component->SetFlags(EObjectFlags::Transactional);
-			if (!Component->Modify() || !Transactions->IsActive()) return false;
-			Component->Rename(Name);
-			return true;
+			(void)Component->Modify();
+			return Component->Rename(Name, ERenameFlags::DoNotDirty);
 
 		});
 	}
@@ -159,11 +156,9 @@ namespace Durin
 	auto DEditorActorSubsystem::ReparentComponent(AActor& Owner, DSceneComponent* Component, DSceneComponent* Parent,
 		const FActorEditContext& Context) -> bool
 	{
-		auto Admission = Admit(Context, nullptr, &Owner);
-		if (!Admission) return false;
+		if (!Admit(Context, nullptr, &Owner)) return false;
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			auto* Transactions = Admission;
 			if (!IsValid(Component) || Component->IsBeingDestroyed() || Component->HasBegunPlay() || Component->GetOwner() != &Owner
 				|| !Owner.OwnsComponent(Component) || Owner.GetRootComponent() == Component
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated
@@ -174,7 +169,7 @@ namespace Durin
 			FScopedTransaction Scope("ComponentAttachment", "Reparent component", Component);
 			if (!Scope.IsOutstanding()) return false;
 			Component->SetFlags(EObjectFlags::Transactional);
-			if (!Component->Modify() || !Transactions->IsActive()) return false;
+			(void)Component->Modify();
 			return Parent ? Component->AttachToComponent(Parent, EAttachmentTransformRule::KeepWorld)
 				: Component->DetachFromComponent(EDetachmentTransformRule::KeepWorld);
 

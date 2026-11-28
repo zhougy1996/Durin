@@ -5134,6 +5134,41 @@ TEST(FMaterialGraphOperationsTests, CancelingRecordingOnStartLeavesThePreparedGr
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 }
 
+TEST(FMaterialGraphOperationsTests, MoveNodesPublishesWhenOneExpressionCannotBeRecorded)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "PartiallyRecordedMove"));
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	for (int X : {0, 128})
+	{
+		auto Constant = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
+		ASSERT_TRUE(Graph->CreateExpression(*Constant, X, 0, false));
+	}
+	const auto& Expressions = Material->GetExpressionCollection().Expressions;
+	ASSERT_EQ(Expressions.size(), 2u);
+	auto* First = Expressions[0].Get();
+	auto* Second = Expressions[1].Get();
+	const auto BeforeFirst = Graph->FindNode(First->Id)->GetView().Presentation;
+	const auto BeforeSecond = Graph->FindNode(Second->Id)->GetView().Presentation;
+	const std::array Moves{
+		FMaterialGraphNodePresentation{First->Id, BeforeFirst.X + 32, BeforeFirst.Y},
+		FMaterialGraphNodePresentation{Second->Id, BeforeSecond.X + 32, BeforeSecond.Y}};
+
+	Tests::FTestEditorTransactorOwner History;
+	// A default subobject of an instance is ineligible for transaction capture.
+	First->SetFlags(EObjectFlags::DefaultSubobject);
+	const bool bMoved = Graph->MoveNodes(Moves);
+	First->ClearFlags(EObjectFlags::DefaultSubobject);
+	ASSERT_TRUE(bMoved);
+	EXPECT_EQ(Graph->FindNode(First->Id)->GetView().Presentation.X, Moves[0].X);
+	EXPECT_EQ(Graph->FindNode(Second->Id)->GetView().Presentation.X, Moves[1].X);
+	ASSERT_EQ(History->GetQueueLength(), 1u);
+	EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 1u);
+	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(First->EditorLayout.X, Moves[0].X);
+	EXPECT_EQ(Second->EditorLayout.X, BeforeSecond.X);
+}
+
 
 TEST(FMaterialGraphOperationsTests, TextureSamplingModeUsesSharedUndoAndRetainsInactivePins)
 {

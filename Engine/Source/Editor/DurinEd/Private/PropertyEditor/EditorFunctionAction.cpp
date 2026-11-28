@@ -93,11 +93,6 @@ namespace Durin
 				return Report();
 			}
 			Target->Modify();
-			if (!Transactor->IsActive())
-			{
-				Result.Error = EEditorFunctionError::History;
-				return Report("Recording ended during capture.");
-			}
 			if (ValidateFunctionInvocation(Target.Get(), Function, {}) != EFunctionInvokeError::None)
 			{
 				if (bOwnsRecording) Transaction.Cancel();
