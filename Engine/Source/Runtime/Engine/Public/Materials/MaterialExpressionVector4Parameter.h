@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Materials/MaterialExpressionParameter.h"
+#include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialTypes.h"
 
 #include "MaterialExpressionVector4Parameter.gen.h"
@@ -16,6 +17,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionVector4Parameter(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Parameter, .Name = "Vector Parameter",
+				.Description = "Create a new numeric parameter exposed to material instances.",
+				.Category = "Parameters", .FixedOutputType = EMaterialProgramValueType::Float4};
+		}
 
 		DPROPERTY()
 		FVector4 DefaultValue{0.0};

@@ -45,6 +45,9 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	StaticDeclaration->Name = Durin::FName("UsePackageDetail");
 	StaticDeclaration->DefaultValue = false;
 	const Durin::FGuid StaticBoolId = StaticDeclaration->DeclarationId;
+	const Durin::FGuid StaticBoolNodeId = StaticDeclaration->Id;
+	const Durin::FGuid StaticSwitchNodeId = BaseGraph.Add(Durin::EMaterialProgramOpcode::StaticSwitch,
+		Durin::EMaterialProgramValueType::Float, {Durin::Testing::MakeLink(StaticBool)}, {}, {}).Id;
 	ASSERT_TRUE(BaseGraph.Apply(*Base));
 	Base->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
 	Base->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::NormalName(), Durin::FVector3(0.0, 1.0, 1.0));
@@ -161,6 +164,17 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 		nullptr);
 	auto* LoadedBase = Durin::Cast<Durin::DMaterial>(Loaded->GetParent());
 	ASSERT_NE(LoadedBase, nullptr);
+	const auto& LoadedExpressions = LoadedBase->GetExpressionCollection().Expressions;
+	const auto* LoadedDeclaration = Durin::Cast<Durin::DMaterialExpressionStaticBool>(
+		Durin::FindMaterialExpression(LoadedExpressions, StaticBoolNodeId));
+	const auto* LoadedSwitch = Durin::Cast<Durin::DMaterialExpressionStaticSwitch>(
+		Durin::FindMaterialExpression(LoadedExpressions, StaticSwitchNodeId));
+	ASSERT_NE(LoadedDeclaration, nullptr);
+	ASSERT_NE(LoadedSwitch, nullptr);
+	EXPECT_EQ(LoadedDeclaration->DeclarationId, StaticBoolId);
+	ASSERT_NE(LoadedSwitch->GetInput(0), nullptr);
+	EXPECT_EQ(LoadedSwitch->GetInput(0)->Expression.Get(), LoadedDeclaration);
+	EXPECT_EQ(LoadedSwitch->GetInput(0)->OutputIndex, 0);
 	LoadedBase->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.6, 0.4, 0.2));
 	ASSERT_TRUE(Loaded->GetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), RetainedBaseColor));
 	ExpectColorNear(Durin::FVector4f(Durin::FVector3f(RetainedBaseColor), 1.f), Durin::FVector4f(.6f, .4f, .2f, 1.f));

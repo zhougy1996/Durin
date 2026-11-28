@@ -4,6 +4,7 @@
 
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialProgramTypes.h"
 
 #include "MaterialExpressionTextureCoordinates.gen.h"
 
@@ -16,6 +17,20 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionTextureCoordinates(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::TextureCoordinates, .Name = "Texture Coordinates",
+				.Description = "Reads a mesh UV channel as Float2. Apply transforms with upstream math nodes.",
+				.Category = "Inputs", .FixedOutputType = EMaterialProgramValueType::Float2,
+				.SearchKeywords = "UV Channel UVChannel"};
+		}
+
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			if (Index == 0) return {.Name = "Channel", .Type = EMaterialProgramValueType::Float};
+			return {};
+		}
 
 		DPROPERTY()
 		FMaterialNumericInput Channel;

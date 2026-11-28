@@ -1,24 +1,5 @@
 #include "Materials/MaterialExpressionDescription.h"
-#include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
-#include "Materials/MaterialExpressionArithmetic.h"
-#include "Materials/MaterialExpressionVector.h"
-#include "Materials/MaterialExpressionMaterialAttributes.h"
-#include "Materials/MaterialExpressionScene.h"
-#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
-#include "Materials/MaterialExpressionCollectionParameter.h"
-#include "Materials/MaterialExpressionSwitch.h"
-#include "Materials/MaterialExpressionFunctionCall.h"
-#include "Materials/MaterialExpressionFunctionIO.h"
-#include "Materials/MaterialExpressionCustomData.h"
-#include "Materials/MaterialExpressionConstant.h"
-#include "Materials/MaterialExpressionScalarParameter.h"
-#include "Materials/MaterialExpressionTextureCoordinates.h"
-#include "Materials/MaterialExpressionTextureParameter.h"
-#include "Materials/MaterialExpressionTextureSample.h"
-#include "Materials/MaterialExpressionTransform.h"
-#include "Materials/MaterialExpressionVector4Parameter.h"
-#include "Materials/MaterialExpressionVertexInterpolator.h"
 #include "DObject/Class.h"
 #include "Misc/AssertionMacros.h"
 
@@ -26,37 +7,27 @@ namespace Durin
 {
 	namespace
 	{
-		template<typename Expression>
-		auto Describe(EMaterialProgramOpcode Opcode, std::string_view Category, std::string_view Name,
-			std::string_view Description, std::array<const char*, MaterialProgramMaxNodeInputCount> InputNames = {},
-			std::string_view Keywords = {}, std::optional<EMaterialProgramValueType> FixedType = {})
+		auto DescribeClass(DClass* Class, const DMaterialExpression& Default, const FMaterialExpressionCreationInfo& Info)
 			-> FMaterialExpressionDescription
 		{
-			static_assert(std::is_base_of_v<DMaterialExpression, Expression>);
 			using Behavior = EMaterialExpressionOutputBehavior;
-			const bool bInstance = Opcode == EMaterialProgramOpcode::FunctionInput
-				|| Opcode == EMaterialProgramOpcode::FunctionOutput || Opcode == EMaterialProgramOpcode::FunctionCall
-				|| Opcode == EMaterialProgramOpcode::CollectionParameter || Opcode == EMaterialProgramOpcode::Swizzle
-				|| Opcode == EMaterialProgramOpcode::AppendVector || Opcode == EMaterialProgramOpcode::GetMaterialAttributes
-				|| Opcode == EMaterialProgramOpcode::SetMaterialAttributes;
-			FMaterialExpressionDescription Result{Expression::StaticClass(), Opcode, Category, Name, Description, Keywords,
-				bInstance ? Behavior::Instance : IsMaterialAdaptiveNumeric(Opcode) ? Behavior::AdaptiveNumeric : Behavior::Fixed, {}};
+			const auto Opcode = *Info.Opcode;
+			const auto OutputBehavior = Info.bHasInstanceShape ? Behavior::Instance
+				: IsMaterialAdaptiveNumeric(Opcode) ? Behavior::AdaptiveNumeric : Behavior::Fixed;
+			FMaterialExpressionDescription Result{Class, Opcode, Info.Category, Info.Name, Info.Description, Info.SearchKeywords,
+				OutputBehavior, {}, Info.bRequiresAsset, Info.PaletteDefault, Info.bShowInPalette, Info.bRegisterForEditorCreation};
 			for (uint8 TypeValue = 0; TypeValue <= static_cast<uint8>(EMaterialProgramValueType::StaticBool); ++TypeValue)
 			{
 				const auto Type = static_cast<EMaterialProgramValueType>(TypeValue);
-				if (FixedType && Type != *FixedType) continue;
-				if constexpr (std::is_same_v<Expression, DMaterialExpressionVector4Parameter>)
-					if (Type == EMaterialProgramValueType::Float) continue;
+				if (Info.FixedOutputType && Type != *Info.FixedOutputType) continue;
 				const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
 				if (!Signature) continue;
 				FMaterialExpressionAuthoringShape Shape{Type, {}, {}};
 				for (uint8 Index = 0; Index < Signature->InputCount; ++Index)
 				{
-					if constexpr (std::is_same_v<Expression, DMaterialExpressionSingleLayerWaterOutput>)
-						Shape.InputNames.emplace_back(SingleLayerWater::GetOutputDefinition().Outputs[Index].Name);
-					else if (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes)
-						Shape.InputNames.emplace_back(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name);
-					else Shape.InputNames.emplace_back(InputNames[Index] ? InputNames[Index] : "Value");
+					const auto Name = Index < Info.InputNames.size() && !Info.InputNames[Index].empty()
+						? Info.InputNames[Index] : Default.GetInputName(Index);
+					Shape.InputNames.emplace_back(Name.empty() ? "Value" : Name);
 					Shape.AcceptedInputTypes.emplace_back(Signature->Inputs[Index].begin(), Signature->Inputs[Index].end());
 					if (!MaterialInputAllowsValidCast(Opcode, Index)) continue;
 					auto& Accepted = Shape.AcceptedInputTypes.back();
@@ -66,14 +37,13 @@ namespace Durin
 						&& CanValidCast(EMaterialProgramValueType::Float, Accepted.front()))
 						Accepted.push_back(EMaterialProgramValueType::Float);
 				}
-				if (IsMaterialSamplingNode(Opcode))
+				// An authored node can retain operands omitted from its default MIR signature.
+				for (uint32 Index = Signature->InputCount; Index < Default.GetAuthoredInputCount(); ++Index)
 				{
-					for (const auto Name : {"Mip Value", "DDX", "DDY"}) Shape.InputNames.emplace_back(Name);
-					Shape.AcceptedInputTypes.push_back({EMaterialProgramValueType::Float});
-					Shape.AcceptedInputTypes.push_back({Opcode == EMaterialProgramOpcode::TextureSampleCube || Opcode == EMaterialProgramOpcode::TextureSampleParameterCube
-						? EMaterialProgramValueType::Float3 : EMaterialProgramValueType::Float2});
-					Shape.AcceptedInputTypes.push_back({Opcode == EMaterialProgramOpcode::TextureSampleCube || Opcode == EMaterialProgramOpcode::TextureSampleParameterCube
-						? EMaterialProgramValueType::Float3 : EMaterialProgramValueType::Float2});
+					const auto Input = Default.GetInputInfo(static_cast<int32>(Index));
+					if (!Input.Type) break;
+					Shape.InputNames.emplace_back(Input.Name);
+					Shape.AcceptedInputTypes.push_back({*Input.Type});
 				}
 				Result.Shapes.push_back(std::move(Shape));
 			}
@@ -83,177 +53,18 @@ namespace Durin
 
 	auto GetMaterialExpressionDescriptions() -> std::span<const FMaterialExpressionDescription>
 	{
-		// Reflection must be initialized before the first call. No probe objects are created.
+		// Reflection and its class defaults must be initialized before the first call.
 		static const std::vector<FMaterialExpressionDescription> Descriptions = [] {
-			std::vector<FMaterialExpressionDescription> Result{
-				Describe<DMaterialExpressionScalarConstant>(EMaterialProgramOpcode::Constant, "Inputs", "Constant",
-					"A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu.", {}, "", EMaterialProgramValueType::Float),
-				Describe<DMaterialExpressionVector2Constant>(EMaterialProgramOpcode::Constant, "Inputs", "Constant",
-					"A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu.", {}, "", EMaterialProgramValueType::Float2),
-				Describe<DMaterialExpressionVector3Constant>(EMaterialProgramOpcode::Constant, "Inputs", "Constant",
-					"A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu.", {}, "", EMaterialProgramValueType::Float3),
-				Describe<DMaterialExpressionVector4Constant>(EMaterialProgramOpcode::Constant, "Inputs", "Constant",
-					"A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu.", {}, "", EMaterialProgramValueType::Float4),
-				Describe<DMaterialExpressionScalarParameter>(EMaterialProgramOpcode::Parameter, "Parameters", "Parameter",
-					"A value exposed by the material parameter definition.", {}, "", EMaterialProgramValueType::Float),
-				Describe<DMaterialExpressionVector4Parameter>(EMaterialProgramOpcode::Parameter, "Parameters", "Parameter",
-					"A value exposed by the material parameter definition.", {}, ""),
-				Describe<DMaterialExpressionTextureParameter>(EMaterialProgramOpcode::TextureParameter, "Parameters", "Texture Object Parameter",
-					"A texture resource for function inputs or multiple samples. For ordinary texture mapping, use Texture Sample Parameter 2D.", {}, ""),
-				Describe<DMaterialExpressionTextureSampleParameterCube>(EMaterialProgramOpcode::TextureSampleParameterCube, "Parameters", "Texture Sample Parameter Cube",
-					"Samples a named Cube texture with a Float3 direction.", {"Direction"}),
-				Describe<DMaterialExpressionTextureSampleCube>(EMaterialProgramOpcode::TextureSampleCube, "Textures", "Texture Sample Cube",
-					"Samples a connected Cube texture object with a Float3 direction.", {"Texture", "Direction"}),
-				Describe<DMaterialExpressionTextureSampleParameter2D>(EMaterialProgramOpcode::TextureSampleParameter2D, "Parameters", "Texture Sample Parameter 2D",
-					"Samples a named texture parameter with mesh UV0 or a connected Float2 UV expression. Outputs share one fetch.", {"UV"}, ""),
-				Describe<DMaterialExpressionWorldPosition>(EMaterialProgramOpcode::WorldPosition, "Inputs", "World Position",
-					"Surface position relative to the current view origin (Float3).", {}, ""),
-				Describe<DMaterialExpressionSingleLayerWaterOutput>(EMaterialProgramOpcode::SingleLayerWaterOutput, "Surface",
-					SingleLayerWater::GetOutputDefinition().DisplayName, "Sets the pixel inputs for the Single Layer Water shading model.", {},
-					"water refraction volume", EMaterialProgramValueType::Float),
-				Describe<DMaterialExpressionPrimitiveCustomData>(EMaterialProgramOpcode::PrimitiveCustomData, "Inputs", "Custom Primitive Data",
-					"Reads indexed numeric channels shared by the primitive's instances.", {}, "CPD"),
-				Describe<DMaterialExpressionInstanceCustomData>(EMaterialProgramOpcode::InstanceCustomData, "Inputs", "Per Instance Custom Data",
-					"Reads indexed numeric channels of the current stable mesh instance.", {}, "PICD"),
-				Describe<DMaterialExpressionTime>(EMaterialProgramOpcode::Time, "Inputs", "Time",
-					"Elapsed real time in seconds (Float), updated every rendered view.", {}, ""),
-				Describe<DMaterialExpressionCollectionParameter>(EMaterialProgramOpcode::CollectionParameter, "Parameters", "Collection Parameter",
-					"Reads a numeric value from a material parameter collection in the current world.", {}, ""),
-				Describe<DMaterialExpressionCameraPosition>(EMaterialProgramOpcode::CameraPosition, "Inputs", "Camera Position",
-					"Active pass camera position in translated world space; zero at the view origin (Float3).", {}, ""),
-				Describe<DMaterialExpressionProceduralSkyRadiance>(EMaterialProgramOpcode::ProceduralSkyRadiance, "Inputs", "Procedural Sky Radiance",
-					"Linear RGB radiance of the active analytic sky background. Returns black outside that background.", {}, ""),
-				Describe<DMaterialExpressionCameraVector>(EMaterialProgramOpcode::CameraVector, "Inputs", "Camera Vector",
-					"Direction from the fragment to the active pass camera (Float3).", {}, ""),
-				Describe<DMaterialExpressionObjectPosition>(EMaterialProgramOpcode::ObjectPosition, "Inputs", "Object Position",
-					"Render primitive bounds center relative to the current view origin (Float3).", {}, ""),
-				Describe<DMaterialExpressionVertexInterpolator>(EMaterialProgramOpcode::VertexInterpolator, "Vertex", "Vertex Interpolator",
-					"Evaluates the input per vertex and interpolates its value to pixel calculations.", {}, ""),
-				Describe<DMaterialExpressionVertexNormal>(EMaterialProgramOpcode::VertexNormal, "Inputs", "Vertex Normal",
-					"Post-vertex-factory world normal for vertex offsets or explicit interpolation.", {}, ""),
-				Describe<DMaterialExpressionSceneTexture>(EMaterialProgramOpcode::SceneTexture, "Scene", "Scene Texture",
-					"PostProcess-only logical scene input. Coordinates are viewport UV.", {"Coordinates"}, "scene postprocess"),
-				Describe<DMaterialExpressionSceneDepth>(EMaterialProgramOpcode::SceneDepth, "Scene", "Scene Depth",
-					"Point-sampled device depth, positive view depth and validity (Float3).", {"Coordinates"}, "depth postprocess"),
-				Describe<DMaterialExpressionScreenPosition>(EMaterialProgramOpcode::ScreenPosition, "Inputs", "Screen Position",
-					"Normalized position within the active pass viewport (Float2).", {}, ""),
-				Describe<DMaterialExpressionViewSize>(EMaterialProgramOpcode::ViewSize, "Inputs", "View Size",
-					"Active pass viewport size in pixels (Float2).", {}, ""),
-				Describe<DMaterialExpressionStaticBool>(EMaterialProgramOpcode::StaticBool, "Static Selection", "Static Bool",
-					"Declares a root-owned compile-time boolean keyed by stable GUID.", {}, ""),
-				Describe<DMaterialExpressionStaticSwitch>(EMaterialProgramOpcode::StaticSwitch, "Static Selection", "Static Switch",
-					"Selects exactly one branch from a static bool before normalized MIR.", {"Condition", "False", "True"}, ""),
-				Describe<DMaterialExpressionQualitySwitch>(EMaterialProgramOpcode::QualitySwitch, "Static Selection", "Quality Switch",
-					"Selects Low or High, using Default when that branch is unconnected.", {"Default", "Low", "High"}, ""),
-				Describe<DMaterialExpressionFeatureLevelSwitch>(EMaterialProgramOpcode::FeatureLevelSwitch, "Static Selection", "Feature Level Switch",
-					"Selects the accepted RHI feature tier, using Default when unconnected.", {"Default", "ES3_1", "SM5", "SM6"}, ""),
-				Describe<DMaterialExpressionTransformPosition>(EMaterialProgramOpcode::TransformPosition, "Transforms", "Transform Position",
-					"Transforms a spatial position between explicit coordinate spaces; World is relative to the current view origin.", {"Input"}, ""),
-				Describe<DMaterialExpressionTransformDirection>(EMaterialProgramOpcode::TransformDirection, "Transforms", "Transform Direction",
-					"Transforms a spatial direction between explicit coordinate spaces.", {"Input"}, ""),
-				Describe<DMaterialExpressionTransformNormal>(EMaterialProgramOpcode::TransformNormal, "Transforms", "Transform Normal",
-					"Transforms and normalizes a spatial normal with inverse-transpose semantics.", {"Input"}, ""),
-				Describe<DMaterialExpressionTextureCoordinates>(EMaterialProgramOpcode::TextureCoordinates, "Inputs", "Texture Coordinates",
-					"Reads a mesh UV channel as Float2. Apply transforms with upstream math nodes.", {"Channel"}, "UV Channel UVChannel"),
-				Describe<DMaterialExpressionTextureSample2D>(EMaterialProgramOpcode::TextureSample2D, "Textures", "Texture Sample 2D",
-					"Samples a connected texture resource. For a standalone replaceable texture, use Texture Sample Parameter 2D.", {"Texture", "UV"}, ""),
-				Describe<DMaterialExpressionAdd>(EMaterialProgramOpcode::Add, "Math", "Add",
-					"Adds two values component by component.", {"A", "B"}, ""),
-				Describe<DMaterialExpressionSubtract>(EMaterialProgramOpcode::Subtract, "Math", "Subtract",
-					"Subtracts the second value from the first.", {"A", "B"}, ""),
-				Describe<DMaterialExpressionMultiply>(EMaterialProgramOpcode::Multiply, "Math", "Multiply",
-					"Multiplies two values component by component.", {"A", "B"}, ""),
-				Describe<DMaterialExpressionDivide>(EMaterialProgramOpcode::Divide, "Math", "Divide",
-					"Divides the first value by the second.", {"A", "B"}, ""),
-				Describe<DMaterialExpressionMinimum>(EMaterialProgramOpcode::Minimum, "Math", "Minimum",
-					"Returns the component-wise minimum.", {"A", "B"}, ""),
-				Describe<DMaterialExpressionMaximum>(EMaterialProgramOpcode::Maximum, "Math", "Maximum",
-					"Returns the component-wise maximum.", {"A", "B"}, ""),
-				Describe<DMaterialExpressionNegate>(EMaterialProgramOpcode::Negate, "Math", "Negate",
-					"Reverses the sign of a value.", {}, ""),
-				Describe<DMaterialExpressionOneMinus>(EMaterialProgramOpcode::OneMinus, "Math", "One Minus",
-					"Subtracts a value from one.", {}, ""),
-				Describe<DMaterialExpressionAbsolute>(EMaterialProgramOpcode::Absolute, "Math", "Absolute",
-					"Returns the absolute value.", {}, ""),
-				Describe<DMaterialExpressionSaturate>(EMaterialProgramOpcode::Saturate, "Math", "Saturate",
-					"Clamps a value to the zero-to-one range.", {}, ""),
-				Describe<DMaterialExpressionNormalize>(EMaterialProgramOpcode::Normalize, "Math", "Normalize",
-					"Returns a unit-length vector.", {}, ""),
-				Describe<DMaterialExpressionClamp>(EMaterialProgramOpcode::Clamp, "Math", "Clamp",
-					"Constrains a value between minimum and maximum inputs.", {"Value", "Min", "Max"}, ""),
-				Describe<DMaterialExpressionLerp>(EMaterialProgramOpcode::Lerp, "Math", "Lerp",
-					"Interpolates between two values.", {"A", "B", "Alpha"}, ""),
-				Describe<DMaterialExpressionMakeVector2>(EMaterialProgramOpcode::MakeFloat2, "Channels", "Make Vector",
-					"Combines scalar inputs into a vector.", {"X", "Y"}, ""),
-				Describe<DMaterialExpressionMakeVector3>(EMaterialProgramOpcode::MakeFloat3, "Channels", "Make Vector",
-					"Combines scalar inputs into a vector.", {"X", "Y", "Z"}, ""),
-				Describe<DMaterialExpressionMakeVector4>(EMaterialProgramOpcode::MakeFloat4, "Channels", "Make Vector",
-					"Combines scalar inputs into a vector.", {"X", "Y", "Z", "W"}, ""),
-				Describe<DMaterialExpressionAppendVector>(EMaterialProgramOpcode::AppendVector, "Channels", "Append Vector",
-					"Concatenates A and B; output width follows the inputs (up to four components).", {"A", "B"}, ""),
-				Describe<DMaterialExpressionSwizzle>(EMaterialProgramOpcode::Swizzle, "Channels", "Component Mask",
-					"Selects, repeats or reorders channels (Component Mask / Truncate).", {}, ""),
-				Describe<DMaterialExpressionSplat2>(EMaterialProgramOpcode::Splat2, "Channels", "Splat",
-					"Replicates a scalar across vector components.", {}, ""),
-				Describe<DMaterialExpressionSplat3>(EMaterialProgramOpcode::Splat3, "Channels", "Splat",
-					"Replicates a scalar across vector components.", {}, ""),
-				Describe<DMaterialExpressionSplat4>(EMaterialProgramOpcode::Splat4, "Channels", "Splat",
-					"Replicates a scalar across vector components.", {}, ""),
-				Describe<DMaterialExpressionBlendNormalsRNM>(EMaterialProgramOpcode::BlendNormalsRNM, "Textures", "Blend Normals RNM",
-					"Blends two tangent-space normals with RNM.", {"Base", "Detail"}, ""),
-				Describe<DMaterialExpressionSine>(EMaterialProgramOpcode::Sine, "Math", "Sine",
-					"Returns the component-wise sine in radians.", {}, ""),
-				Describe<DMaterialExpressionCosine>(EMaterialProgramOpcode::Cosine, "Math", "Cosine",
-					"Returns the component-wise cosine in radians.", {}, ""),
-				Describe<DMaterialExpressionDot>(EMaterialProgramOpcode::Dot, "Math", "Dot Product",
-					"Returns the scalar dot product of equal-width vectors.", {"A", "B"}, ""),
-				Describe<DMaterialExpressionCross>(EMaterialProgramOpcode::Cross, "Math", "Cross Product",
-					"Returns the cross product of two Float3 values.", {"A", "B"}, ""),
-				Describe<DMaterialExpressionLength>(EMaterialProgramOpcode::Length, "Math", "Length",
-					"Returns the scalar length of a vector.", {}, ""),
-				Describe<DMaterialExpressionDistance>(EMaterialProgramOpcode::Distance, "Math", "Distance",
-					"Returns the scalar distance between equal-width values.", {"A", "B"}, ""),
-				Describe<DMaterialExpressionPow>(EMaterialProgramOpcode::Pow, "Math", "Power",
-					"Raises each base component to its exponent.", {"Base", "Exponent"}, ""),
-				Describe<DMaterialExpressionSqrt>(EMaterialProgramOpcode::Sqrt, "Math", "Square Root",
-					"Returns the component-wise square root.", {}, ""),
-				Describe<DMaterialExpressionExp>(EMaterialProgramOpcode::Exp, "Math", "Exponential",
-					"Returns the component-wise natural exponential.", {}, ""),
-				Describe<DMaterialExpressionLog>(EMaterialProgramOpcode::Log, "Math", "Natural Log",
-					"Returns the component-wise natural logarithm.", {}, ""),
-				Describe<DMaterialExpressionFloor>(EMaterialProgramOpcode::Floor, "Math", "Floor",
-					"Rounds each component down.", {}, ""),
-				Describe<DMaterialExpressionCeil>(EMaterialProgramOpcode::Ceil, "Math", "Ceil",
-					"Rounds each component up.", {}, ""),
-				Describe<DMaterialExpressionRound>(EMaterialProgramOpcode::Round, "Math", "Round",
-					"Rounds each component to the nearest integer.", {}, ""),
-				Describe<DMaterialExpressionFrac>(EMaterialProgramOpcode::Frac, "Math", "Fraction",
-					"Returns each component's fractional part.", {}, ""),
-				Describe<DMaterialExpressionFmod>(EMaterialProgramOpcode::Fmod, "Math", "Fmod",
-					"Returns the component-wise floating-point remainder.", {"A", "B"}, ""),
-				Describe<DMaterialExpressionStep>(EMaterialProgramOpcode::Step, "Math", "Step",
-					"Returns zero below Edge and one otherwise.", {"Edge", "Value"}, ""),
-				Describe<DMaterialExpressionSmoothStep>(EMaterialProgramOpcode::SmoothStep, "Math", "Smooth Step",
-					"Returns smooth Hermite interpolation between Min and Max.", {"Min", "Max", "Value"}, ""),
-				Describe<DMaterialExpressionSign>(EMaterialProgramOpcode::Sign, "Math", "Sign",
-					"Returns the sign of each component.", {}, ""),
-				Describe<DMaterialExpressionReflect>(EMaterialProgramOpcode::Reflect, "Math", "Reflect",
-					"Reflects an incident vector around a normal of equal width.", {"Incident", "Normal"}, ""),
-				Describe<DMaterialExpressionMakeMaterialAttributes>(EMaterialProgramOpcode::MakeMaterialAttributes, "Surface", "Make Material Attributes",
-					"Constructs typed material attributes using the shared property definitions.", {}, ""),
-				Describe<DMaterialExpressionBlendMaterialAttributes>(EMaterialProgramOpcode::BlendMaterialAttributes, "Surface", "Blend Material Attributes",
-					"Blends numeric attributes and safely normalizes blended normals.", {"A", "B", "Alpha"}, ""),
-				Describe<DMaterialExpressionFunctionInput>(EMaterialProgramOpcode::FunctionInput, "Functions", "Function Input",
-					"Reads an input from the function signature.", {}, ""),
-				Describe<DMaterialExpressionFunctionOutput>(EMaterialProgramOpcode::FunctionOutput, "Functions", "Function Output",
-					"Publishes a value through the function signature.", {}, ""),
-				Describe<DMaterialExpressionFunctionCall>(EMaterialProgramOpcode::FunctionCall, "Functions", "Function Call",
-					"Evaluates a material function with its bound inputs.", {}, ""),
-				Describe<DMaterialExpressionGetMaterialAttributes>(EMaterialProgramOpcode::GetMaterialAttributes, "Surface", "Get Material Attributes",
-					"Reads selected typed material attributes.", {"Attributes"}, ""),
-				Describe<DMaterialExpressionSetMaterialAttributes>(EMaterialProgramOpcode::SetMaterialAttributes, "Surface", "Set Material Attributes",
-					"Overrides connected attributes on the incoming surface. An open surface input uses the material attribute defaults.", {"Attributes"}, ""),
-			};
+			std::vector<FMaterialExpressionDescription> Result;
+			for (auto* Class : GetDerivedClasses(DMaterialExpression::StaticClass()))
+			{
+				if (Class->HasAnyClassFlags(EClassFlags::Abstract)) continue;
+				const auto* Default = Cast<DMaterialExpression>(Class->GetDefaultObject());
+				if (!Default) continue;
+				const auto Info = Default->GetCreationInfo();
+				if (!Info.Opcode) continue;
+				Result.push_back(DescribeClass(Class, *Default, Info));
+			}
 			std::unordered_map<const DClass*, bool> Classes;
 			for (const auto& Description : Result)
 				requiref(Description.ExpressionClass && Classes.emplace(Description.ExpressionClass, true).second,

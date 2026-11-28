@@ -73,6 +73,59 @@ namespace Durin
 		}
 	}
 
+	auto DMaterialExpressionFunctionCall::GetInputPorts() const -> std::span<const FMaterialFunctionPort>
+	{
+		if (!IsValid(Function.Get())) return {};
+		return Function->GetFunctionSignature().Inputs;
+	}
+
+	auto DMaterialExpressionFunctionCall::GetOutputPorts() const -> std::span<const FMaterialFunctionPort>
+	{
+		if (!IsValid(Function.Get())) return {};
+		return Function->GetFunctionSignature().Outputs;
+	}
+
+	auto DMaterialExpressionFunctionCall::FindInputBindingIndex(FGuid PortId) const -> int32
+	{
+		const auto It = std::ranges::find(FunctionInputs, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+		return It == FunctionInputs.end() ? -1 : static_cast<int32>(It - FunctionInputs.begin());
+	}
+
+	auto DMaterialExpressionFunctionCall::FindOutputBindingIndex(FGuid PortId) const -> int32
+	{
+		const auto It = std::ranges::find(FunctionOutputs, PortId, &FMaterialFunctionOutputBinding::OutputId);
+		return It == FunctionOutputs.end() ? -1 : static_cast<int32>(It - FunctionOutputs.begin());
+	}
+
+	auto DMaterialExpressionFunctionCall::GetInput(int32 Index) -> FMaterialExpressionInput*
+	{
+		const auto Ports = GetInputPorts();
+		if (Index < 0 || static_cast<size_t>(Index) >= Ports.size()) return nullptr;
+		const auto Binding = FindInputBindingIndex(Ports[Index].Id);
+		return Binding < 0 ? nullptr : &FunctionInputs[Binding].Input;
+	}
+
+	auto DMaterialExpressionFunctionCall::GetInputName(int32 Index) const -> std::string_view
+	{
+		const auto Ports = GetInputPorts();
+		if (Index < 0 || static_cast<size_t>(Index) >= Ports.size()) return {};
+		return Ports[Index].Name;
+	}
+
+	auto DMaterialExpressionFunctionCall::GetInputValueType(int32 Index) const -> std::optional<EMaterialProgramValueType>
+	{
+		const auto Ports = GetInputPorts();
+		if (Index < 0 || static_cast<size_t>(Index) >= Ports.size()) return {};
+		return Ports[Index].Type;
+	}
+
+	auto DMaterialExpressionFunctionCall::GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>
+	{
+		const auto Ports = GetOutputPorts();
+		if (Index < 0 || static_cast<size_t>(Index) >= Ports.size()) return {};
+		return FMaterialExpressionOutput{.Name = Ports[Index].Name, .Type = Ports[Index].Type};
+	}
+
 	auto DMaterialExpressionFunctionCall::UpdateFromFunctionResource(bool bRecreateAndLinkNode) -> bool
 	{
 		return RefreshCall(*this, Function.Get(), nullptr, bRecreateAndLinkNode);

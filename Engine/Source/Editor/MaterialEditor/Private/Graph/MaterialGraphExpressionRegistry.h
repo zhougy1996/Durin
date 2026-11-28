@@ -9,7 +9,7 @@
 namespace Durin::MaterialEditor
 {
 	enum class EMaterialGraphCreationKind { Direct, AssetBound };
-	enum class EMaterialGraphPaletteShape { All, InspectOnly, Scalar, ScalarOrVector4, Float2, Adaptive, AdaptiveVector };
+	enum class EMaterialGraphPaletteShape { All, InspectOnly, Adaptive };
 
 	struct FMaterialGraphExpressionRegistration
 	{

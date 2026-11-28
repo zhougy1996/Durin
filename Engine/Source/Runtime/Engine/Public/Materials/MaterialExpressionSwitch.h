@@ -18,6 +18,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionStaticBool(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::StaticBool, .Name = "Static Bool",
+				.Description = "Declares a root-owned compile-time boolean keyed by stable GUID.",
+				.Category = "Static Selection", .FixedOutputType = EMaterialProgramValueType::StaticBool};
+		}
 		DPROPERTY(Edit)
 		FGuid DeclarationId;
 		DPROPERTY(Edit)
@@ -33,6 +40,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionStaticSwitch(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::StaticSwitch, .Name = "Static Switch",
+				.Description = "Selects exactly one branch from a static bool before normalized MIR.",
+				.Category = "Static Selection", .InputNames = {"Condition", "False", "True"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -51,6 +66,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionQualitySwitch(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::QualitySwitch, .Name = "Quality Switch",
+				.Description = "Selects Low or High, using Default when that branch is unconnected.",
+				.Category = "Static Selection", .InputNames = {"Default", "Low", "High"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -69,6 +92,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionFeatureLevelSwitch(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::FeatureLevelSwitch, .Name = "Feature Level Switch",
+				.Description = "Selects the accepted RHI feature tier, using Default when unconnected.",
+				.Category = "Static Selection", .InputNames = {"Default", "ES3_1", "SM5", "SM6"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()

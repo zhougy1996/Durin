@@ -1,6 +1,7 @@
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpressionArithmetic.h"
+#include "Materials/MaterialExpressionNumeric.h"
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionScene.h"
@@ -62,6 +63,33 @@ namespace Durin
 		return Emitter.Output(0, Emitter.Parameter(Metadata.Name, EMaterialParameterType::Vector4));
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
+	auto DMaterialExpressionTextureParameter::GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>
+	{
+		if (Index != 0) return {};
+		return FMaterialExpressionOutput{.Name = {}, .Type = DefaultValue.Dimension == EMaterialTextureDimension::TextureCube
+			? EMaterialProgramValueType::TextureCube : EMaterialProgramValueType::Texture2D};
+	}
+
+	auto DMaterialExpressionCollectionParameter::GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>
+	{
+		if (Index != 0 || !IsValid(Collection.Get())) return {};
+		const auto* Declaration = Collection->FindDeclaration(ParameterId);
+		if (!Declaration) return {};
+		using Type = EMaterialProgramValueType;
+		Type Result;
+		switch (Declaration->Type)
+		{
+		case EMaterialParameterType::Scalar: Result = Type::Float; break;
+		case EMaterialParameterType::Vector2: Result = Type::Float2; break;
+		case EMaterialParameterType::Vector: Result = Type::Float3; break;
+		case EMaterialParameterType::Vector4: Result = Type::Float4; break;
+		default: return {};
+		}
+		return FMaterialExpressionOutput{.Name = {}, .Type = Result};
+	}
+#endif
+
 	auto DMaterialExpressionTextureParameter::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		if (!DefaultValue.IsValid()) return Emitter.Fail("Texture parameter resource, dimension or sampling policy is invalid.");
@@ -74,6 +102,40 @@ namespace Durin
 			return Emitter.Fail("Collection parameter expression has no collection asset.");
 		Emitter.Output(0, Emitter.CollectionParameter(*Collection, ParameterId));
 	}
+
+	auto DMaterialExpressionNumeric::GetNumericResultType(EMaterialProgramOpcode Opcode) const
+		-> std::optional<EMaterialProgramValueType>
+	{
+		if (const auto* AuthoredType = GetAuthoredResultType()) return *AuthoredType;
+		using Type = EMaterialProgramValueType;
+		for (const auto Candidate : {Type::Float, Type::Float2, Type::Float3, Type::Float4})
+			if (GetMaterialProgramNodeSignature(Opcode, Candidate)) return Candidate;
+		return {};
+	}
+
+	auto DMaterialExpressionNumeric::GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo
+	{
+		const auto Info = GetCreationInfo();
+		if (!Info.Opcode || Index < 0 || static_cast<uint32>(Index) >= GetAuthoredInputCount()) return {};
+		const auto Name = static_cast<size_t>(Index) < Info.InputNames.size() ? Info.InputNames[Index] : std::string_view{};
+		FMaterialExpressionInputInfo Input{.Name = Name.empty() ? "Value" : Name};
+		if (const auto Type = GetNumericResultType(*Info.Opcode))
+			if (const auto Signature = GetMaterialProgramNodeSignature(*Info.Opcode, *Type);
+				Signature && Index < Signature->InputCount && Signature->Inputs[Index].size() == 1)
+				Input.Type = Signature->Inputs[Index].front();
+		return Input;
+	}
+
+#if DURIN_WITH_EDITORONLY_DATA
+	auto DMaterialExpressionNumeric::GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>
+	{
+		if (Index != 0) return {};
+		if (const auto Opcode = GetCreationInfo().Opcode)
+			if (const auto Type = GetNumericResultType(*Opcode))
+				return FMaterialExpressionOutput{.Name = {}, .Type = *Type};
+		return {};
+	}
+#endif
 
 	auto DMaterialExpressionAdd::Build(MIR::FEmitter& Emitter) const -> void
 	{
@@ -346,6 +408,14 @@ namespace Durin
 			.ResultType = static_cast<EMaterialProgramValueType>(Scalars.size() - 1), .Inputs = std::move(Scalars)}));
 	}
 
+	auto DMaterialExpressionSwizzle::GetNumericResultType(EMaterialProgramOpcode) const
+		-> std::optional<EMaterialProgramValueType>
+	{
+		if (Components.empty()) return EMaterialProgramValueType::Float;
+		if (Components.size() > 4) return {};
+		return static_cast<EMaterialProgramValueType>(Components.size() - 1);
+	}
+
 	auto DMaterialExpressionSwizzle::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		if (Components.empty() || Components.size() > 4) return Emitter.Fail("Swizzle must select one to four components.");
@@ -594,6 +664,82 @@ namespace Durin
 			}
 		}
 	}
+
+	namespace
+	{
+		auto DescribeTextureSampleInput(EMaterialProgramOpcode Opcode, int32 Index, EMaterialTextureReadMode Mode)
+			-> FMaterialExpressionInputInfo
+		{
+			using Op = EMaterialProgramOpcode;
+			using Type = EMaterialProgramValueType;
+			if (Index < 0) return {};
+			const bool bCube = Opcode == Op::TextureSampleCube || Opcode == Op::TextureSampleParameterCube;
+			const bool bParameter = Opcode == Op::TextureSampleParameter2D || Opcode == Op::TextureSampleParameterCube;
+			const auto CoordinateType = bCube ? Type::Float3 : Type::Float2;
+			if (!bParameter && Index == 0) return {"Texture", bCube ? Type::TextureCube : Type::Texture2D};
+			switch (Index - (bParameter ? 0 : 1))
+			{
+			case 0: return {bCube ? "Direction" : "UV", CoordinateType};
+			case 1: return {"Mip Value", Type::Float, Mode == EMaterialTextureReadMode::Level || Mode == EMaterialTextureReadMode::Bias};
+			case 2: return {"DDX", CoordinateType, Mode == EMaterialTextureReadMode::Grad};
+			case 3: return {"DDY", CoordinateType, Mode == EMaterialTextureReadMode::Grad};
+			default: return {};
+			}
+		}
+
+#if DURIN_WITH_EDITORONLY_DATA
+		auto DescribeTextureSampleOutput(EMaterialProgramOpcode Opcode, int32 Index) -> std::optional<FMaterialExpressionOutput>
+		{
+			const auto Outputs = GetMaterialSampleOutputs(Opcode);
+			if (Index < 0 || static_cast<size_t>(Index) >= Outputs.size()) return {};
+			const auto& Output = Outputs[Index];
+			return FMaterialExpressionOutput{Output.Name, Output.Type, static_cast<uint8>(Output.Id)};
+		}
+#endif
+	}
+
+	auto DMaterialExpressionTextureSample2D::GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo
+	{
+		return DescribeTextureSampleInput(Opcode, Index, ReadMode);
+	}
+
+	auto DMaterialExpressionTextureSampleCube::GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo
+	{
+		return DescribeTextureSampleInput(Opcode, Index, ReadMode);
+	}
+
+	auto DMaterialExpressionTextureSampleParameter2D::GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo
+	{
+		return DescribeTextureSampleInput(Opcode, Index, ReadMode);
+	}
+
+	auto DMaterialExpressionTextureSampleParameterCube::GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo
+	{
+		return DescribeTextureSampleInput(Opcode, Index, ReadMode);
+	}
+
+#if DURIN_WITH_EDITORONLY_DATA
+	auto DMaterialExpressionTextureSample2D::GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>
+	{
+		return DescribeTextureSampleOutput(Opcode, Index);
+	}
+
+	auto DMaterialExpressionTextureSampleCube::GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>
+	{
+		return DescribeTextureSampleOutput(Opcode, Index);
+	}
+
+	auto DMaterialExpressionTextureSampleParameter2D::GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>
+	{
+		return DescribeTextureSampleOutput(Opcode, Index);
+	}
+
+	auto DMaterialExpressionTextureSampleParameterCube::GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>
+	{
+		return DescribeTextureSampleOutput(Opcode, Index);
+	}
+
+#endif
 
 	auto DMaterialExpressionTextureSample2D::Build(MIR::FEmitter& Emitter) const -> void
 	{

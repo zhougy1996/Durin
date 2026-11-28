@@ -41,8 +41,20 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 5; }
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {Opcode, "Texture Sample 2D", "Samples a connected texture resource. For a standalone replaceable texture, use Texture Sample Parameter 2D.", "Textures"};
+		}
+		ENGINE_API auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override;
+#if DURIN_WITH_EDITORONLY_DATA
+		auto GetTextureSampleReadMode() -> EMaterialTextureReadMode* override { return &ReadMode; }
+		ENGINE_API auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override;
+#endif
+
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
+	private:
+		static constexpr auto Opcode = EMaterialProgramOpcode::TextureSample2D;
 	};
 
 	// Samples a connected resource using a Float3 direction source.
@@ -74,8 +86,20 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 5; }
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {Opcode, "Texture Sample Cube", "Samples a connected Cube texture object with a Float3 direction.", "Textures"};
+		}
+		ENGINE_API auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override;
+#if DURIN_WITH_EDITORONLY_DATA
+		auto GetTextureSampleReadMode() -> EMaterialTextureReadMode* override { return &ReadMode; }
+		ENGINE_API auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override;
+#endif
+
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
+	private:
+		static constexpr auto Opcode = EMaterialProgramOpcode::TextureSampleCube;
 	};
 
 	// A combined resource owner adds only UV sampling state.
@@ -104,8 +128,20 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 4; }
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {Opcode, "Texture Sample Parameter 2D", "Samples a named texture parameter with mesh UV0 or a connected Float2 UV expression. Outputs share one fetch.", "Parameters"};
+		}
+		ENGINE_API auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override;
+#if DURIN_WITH_EDITORONLY_DATA
+		auto GetTextureSampleReadMode() -> EMaterialTextureReadMode* override { return &ReadMode; }
+		ENGINE_API auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override;
+#endif
+
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
+	private:
+		static constexpr auto Opcode = EMaterialProgramOpcode::TextureSampleParameter2D;
 	};
 
 	// A combined resource owner owns Cube direction sampling state.
@@ -134,7 +170,19 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 4; }
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {Opcode, "Texture Sample Parameter Cube", "Samples a named Cube texture with a Float3 direction.", "Parameters"};
+		}
+		ENGINE_API auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override;
+#if DURIN_WITH_EDITORONLY_DATA
+		auto GetTextureSampleReadMode() -> EMaterialTextureReadMode* override { return &ReadMode; }
+		ENGINE_API auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override;
+#endif
+
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
+	private:
+		static constexpr auto Opcode = EMaterialProgramOpcode::TextureSampleParameterCube;
 	};
 }

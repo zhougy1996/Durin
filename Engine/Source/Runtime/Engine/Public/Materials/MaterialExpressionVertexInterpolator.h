@@ -16,6 +16,15 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionVertexInterpolator(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::VertexInterpolator, .Name = "Vertex Interpolator",
+				.Description = "Evaluates the input per vertex and interpolates its value to pixel calculations.",
+				.Category = "Vertex"};
+		}
+
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()

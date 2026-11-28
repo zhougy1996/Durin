@@ -86,12 +86,10 @@ namespace Durin::MaterialEditor
 				return {&Input->Input, &Input->InputDefault};
 			}
 			const auto Index = std::get<uint32>(Key);
-			FEditableInput Result;
-			VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
-				if (Pin == Index) Result.Source = &Input;
-			});
-			if (!Result.Source) return {.Message = "The expression input is unavailable."};
 			if (Cast<DMaterialExpressionFunctionCall>(Expression)) return {.Message = "A function input requires a port identity."};
+			FEditableInput Result;
+			if (std::in_range<int32>(Index)) Result.Source = Expression->GetInput(static_cast<int32>(Index));
+			if (!Result.Source) return {.Message = "The expression input is unavailable."};
 			Result.Numeric = FindMaterialNumericInput(*Expression, *Result.Source);
 			Result.Default = Result.Numeric ? &Result.Numeric->Constant : nullptr;
 			if (Result.Numeric)
@@ -100,9 +98,11 @@ namespace Durin::MaterialEditor
 				const auto Shape = std::ranges::find(Catalog, Expression->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
 				if (Shape != Catalog.end())
 				{
-					const auto* TypeProperty = Expression->GetClass()->FindPropertyByName("ResultType");
-					auto Type = TypeProperty ? *static_cast<const EMaterialProgramValueType*>(TypeProperty->GetValuePtr(Expression)) : Shape->ResultType;
-					if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression)) Type = static_cast<EMaterialProgramValueType>(Swizzle->Components.size() - 1);
+					auto Type = Shape->ResultType;
+					if (const auto* AuthoredType = Expression->GetAuthoredResultType()) Type = *AuthoredType;
+					else if (const auto InstanceType = IsMaterialSamplingNode(Shape->Opcode)
+						? Expression->GetInputValueType(static_cast<int32>(Index)) : Expression->GetOutputValueType(0))
+						Type = *InstanceType;
 					Result.Inherited = GetMaterialNumericInputFallback(Shape->Opcode, Type, Index);
 				}
 			}

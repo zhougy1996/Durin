@@ -445,6 +445,8 @@ TEST(FMaterialGraphPersistenceTests, TextureCoordinatesRetainChannelLinkAndDefau
 	auto Coordinates = Testing::MakeGraphExpression<DMaterialExpressionTextureCoordinates>();
 	Coordinates->Channel.Constant = {2.f};
 	Coordinates->Channel.Connection = {Channel.Get()};
+	const auto CoordinatesId = Coordinates->Id;
+	const auto ChannelId = Channel->Id;
 	ASSERT_TRUE(Material->SetMaterialExpressions(
 		std::array<DMaterialExpression*, 2>{Channel.Get(), Coordinates.Get()}, {}));
 	const auto Expected = CaptureExpressions(*Material);
@@ -466,6 +468,15 @@ TEST(FMaterialGraphPersistenceTests, TextureCoordinatesRetainChannelLinkAndDefau
 	}
 	ASSERT_NE(Material, nullptr);
 	EXPECT_EQ(CaptureExpressions(*Material), Expected);
+	const auto* LoadedCoordinates = Cast<DMaterialExpressionTextureCoordinates>(
+		FindMaterialExpression(Material->GetExpressionCollection().Expressions, CoordinatesId));
+	ASSERT_NE(LoadedCoordinates, nullptr);
+	EXPECT_EQ(LoadedCoordinates->GetOutputValueType(0), EMaterialProgramValueType::Float2);
+	EXPECT_EQ(LoadedCoordinates->GetInputName(0), "Channel");
+	ASSERT_NE(LoadedCoordinates->GetInput(0), nullptr);
+	EXPECT_EQ(LoadedCoordinates->GetInput(0)->GetExpressionId(), ChannelId);
+	EXPECT_EQ(LoadedCoordinates->GetInput(0)->OutputIndex, 0);
+	EXPECT_EQ(LoadedCoordinates->Channel.Constant, (std::vector<float>{2.f}));
 	EXPECT_FALSE(Material->GetPackage()->IsDirty());
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -612,7 +623,13 @@ TEST(FMaterialGraphPersistenceTests, SecondFunctionOutputRetainsItsIndexAcrossHi
 	Port.Type = EMaterialProgramValueType::Float;
 	const auto Constant = Testing::CreateGraphConstant(*BodyAuthoringGraph, .25f);
 	ASSERT_TRUE(Constant);
-	ASSERT_TRUE(BodyAuthoringGraph->AddPort(true, Port, {Constant.value()}, 0, 0, false));
+	const auto OutputTerminal = BodyAuthoringGraph->AddPort(true, Port, {Constant.value()}, 0, 0, false);
+	ASSERT_TRUE(OutputTerminal);
+	const auto* OutputExpression = (*OutputTerminal)->GetMaterialExpression();
+	ASSERT_NE(OutputExpression, nullptr);
+	EXPECT_EQ(OutputExpression->GetInputName(0), Port.Name);
+	EXPECT_EQ(OutputExpression->GetInputValueType(0), Port.Type);
+	EXPECT_FALSE(OutputExpression->GetOutput(0));
 	const auto Check = [&](DMaterial& Owner) {
 		const auto& Input = Owner.GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Connection;
 		auto* Upstream = Cast<DMaterialExpressionFunctionCall>(Input.Expression.Get());
@@ -1082,7 +1099,13 @@ TEST(FMaterialGraphPersistenceTests, TextureSamplingModeAndInactiveOperandsRound
 	Cube->DDY.SetConstant({.5f,.75f,1.f});
 	Cube->DefaultValue.SamplerState.AddressW = EMaterialSamplerAddressMode::ClampToEdge;
 	Cube->DefaultValue.TextureFallback = EMaterialTextureFallback::Black;
-	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 2>{Sample.Get(), Cube.Get()}, {}));
+	const auto SampleId = Sample->Id;
+	const auto CubeId = Cube->Id;
+	Cube->MipValue.Connection = {Sample.Get(), 2};
+	FMaterialRootInputs Inputs;
+	Inputs.Get(EMaterialProperty::MP_EmissiveColor) = {Sample.Get(), 1};
+	Inputs.Get(EMaterialProperty::MP_Metallic) = {Cube.Get(), 3};
+	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 2>{Sample.Get(), Cube.Get()}, Inputs));
 	const auto Expected = CaptureExpressions(*Material);
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	Sample.Reset();
@@ -1107,6 +1130,16 @@ TEST(FMaterialGraphPersistenceTests, TextureSamplingModeAndInactiveOperandsRound
 	EXPECT_EQ(LoadedCube->DefaultValue.SamplerState.AddressW, EMaterialSamplerAddressMode::ClampToEdge);
 	EXPECT_EQ(LoadedCube->DefaultValue.TextureFallback, EMaterialTextureFallback::Black);
 	EXPECT_EQ(LoadedCube->DDX.Constant, (std::vector<float>{.125f,.25f,.5f}));
+	EXPECT_EQ(LoadedCube->MipValue.Connection.GetExpressionId(), SampleId);
+	EXPECT_EQ(LoadedCube->MipValue.Connection.OutputIndex, 2);
+	const auto* Emissive = Material->GetExpressionInputForProperty(EMaterialProperty::MP_EmissiveColor);
+	ASSERT_NE(Emissive, nullptr);
+	EXPECT_EQ(Emissive->GetExpressionId(), SampleId);
+	EXPECT_EQ(Emissive->OutputIndex, 1);
+	const auto* Metallic = Material->GetExpressionInputForProperty(EMaterialProperty::MP_Metallic);
+	ASSERT_NE(Metallic, nullptr);
+	EXPECT_EQ(Metallic->GetExpressionId(), CubeId);
+	EXPECT_EQ(Metallic->OutputIndex, 3);
 	const auto* Definition = Material->FindParameterDefinition("Cube");
 	ASSERT_NE(Definition, nullptr);
 	EXPECT_EQ(Definition->Value.GetTexture().Dimension, EMaterialTextureDimension::TextureCube);
@@ -1155,6 +1188,10 @@ TEST(FMaterialGraphPersistenceTests, SceneInputDomainCoordinatesAndFilteringSurv
 	ASSERT_NE(Node,Material->GetExpressionCollection().Expressions.end());
 	const auto* Loaded = Cast<DMaterialExpressionSceneTexture>(Node->Get()); EXPECT_FALSE(Loaded->bFiltered);
 	EXPECT_EQ(Loaded->SceneTextureId,EMaterialSceneTextureId::PostProcessInput0);
+	EXPECT_EQ(Loaded->GetInputName(0), "Coordinates");
+	EXPECT_EQ(Loaded->GetInputValueType(0), EMaterialProgramValueType::Float2);
+	EXPECT_EQ(Loaded->GetInput(0), &Loaded->Coordinates.Connection);
+	EXPECT_EQ(Loaded->GetOutputValueType(0), EMaterialProgramValueType::Float4);
 	EXPECT_EQ(Loaded->Coordinates.Constant,(std::vector<float>{.25f,.75f}));
 	ASSERT_TRUE(Material->CompileEdits()) << FormatMaterialProgramDiagnostics(Material->GetMaterialCompileDiagnostics());
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());

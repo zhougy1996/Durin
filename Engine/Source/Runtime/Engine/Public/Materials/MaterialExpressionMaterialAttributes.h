@@ -52,6 +52,25 @@ namespace Durin
 		auto GetExpressionInputForProperty(EMaterialProperty Property) -> FMaterialExpressionInput*
 			{ return const_cast<FMaterialExpressionInput*>(std::as_const(*this).GetExpressionInputForProperty(Property)); }
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::MakeMaterialAttributes, .Name = "Make Material Attributes",
+				.Description = "Constructs typed material attributes using the shared property definitions.",
+				.Category = "Surface", .FixedOutputType = EMaterialProgramValueType::MaterialAttributes};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			const auto Definitions = FMaterialAttributeDefinitionMap::GetDefinitions();
+			if (Index < 0 || static_cast<size_t>(Index) >= Definitions.size()) return {};
+			const auto& Definition = Definitions[Index];
+			return {Definition.Name, GetMaterialSurfaceOutputType(Definition.Property)};
+		}
+#if DURIN_WITH_EDITORONLY_DATA
+		auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override
+		{
+			return DMaterialExpression::GetOutput(Index);
+		}
+#endif
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		auto GetAuthoredInputCount() const -> uint32 override { return uint32(FMaterialAttributeDefinitionMap::GetDefinitions().size()); }
 
@@ -75,6 +94,31 @@ namespace Durin
 		auto IsSelected(EMaterialProperty Property) const -> bool
 			{ return std::ranges::contains(AttributeIDs, FMaterialAttributeDefinitionMap::GetID(Property)); }
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::GetMaterialAttributes, .Name = "Get Material Attributes",
+				.Description = "Reads selected typed material attributes.",
+				.Category = "Surface", .InputNames = {"Attributes"}, .bHasInstanceShape = true};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			if (Index == 0) return {"Material Attributes", EMaterialProgramValueType::MaterialAttributes};
+			return {};
+		}
+#if DURIN_WITH_EDITORONLY_DATA
+		auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override
+		{
+			if (Index < 0) return {};
+			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
+			{
+				if (!std::ranges::contains(AttributeIDs, Definition.AttributeID)) continue;
+				if (Index-- == 0)
+					return FMaterialExpressionOutput{Definition.Name, Definition.Semantics.Type,
+						static_cast<uint8>(Definition.Property), Definition.AttributeID};
+			}
+			return {};
+		}
+#endif
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
@@ -121,6 +165,26 @@ namespace Durin
 		DPROPERTY()
 		std::vector<FMaterialExpressionAttributeBinding> Attributes;
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::SetMaterialAttributes, .Name = "Set Material Attributes",
+				.Description = "Overrides connected attributes on the incoming surface. An open surface input uses the material attribute defaults.",
+				.Category = "Surface", .InputNames = {"Attributes"},
+				.FixedOutputType = EMaterialProgramValueType::MaterialAttributes, .bHasInstanceShape = true};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			if (Index == 0) return {"Material Attributes", EMaterialProgramValueType::MaterialAttributes};
+			// Override inputs use their stored material property selector plus one.
+			if (Index < 0 || !std::in_range<uint8>(Index - 1)) return {};
+			const auto Property = static_cast<EMaterialProperty>(Index - 1);
+			const auto* Definition = FMaterialAttributeDefinitionMap::Find(Property);
+			if (!Definition || !std::ranges::contains(Attributes, Definition->AttributeID, &FMaterialExpressionAttributeBinding::AttributeID))
+				return {};
+			return {.Name = Definition->Name, .Type = GetMaterialSurfaceOutputType(Property),
+				.bAllowImplicitCast = MaterialInputAllowsValidCast(EMaterialProgramOpcode::MakeMaterialAttributes, static_cast<uint32>(Property))};
+		}
+
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		auto GetAuthoredInputCount() const -> uint32 override { return 1 + static_cast<uint32>(Attributes.size()); }
 
@@ -140,6 +204,23 @@ namespace Durin
 		FMaterialExpressionInput B;
 		DPROPERTY()
 		FMaterialNumericInput Alpha;
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::BlendMaterialAttributes, .Name = "Blend Material Attributes",
+				.Description = "Blends numeric attributes and safely normalizes blended normals.",
+				.Category = "Surface", .FixedOutputType = EMaterialProgramValueType::MaterialAttributes};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			using Type = EMaterialProgramValueType;
+			switch (Index)
+			{
+			case 0: return {"A", Type::MaterialAttributes};
+			case 1: return {"B", Type::MaterialAttributes};
+			case 2: return {"Alpha", Type::Float};
+			default: return {};
+			}
+		}
 		auto GetAuthoredInputCount() const -> uint32 override { return 3; }
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};

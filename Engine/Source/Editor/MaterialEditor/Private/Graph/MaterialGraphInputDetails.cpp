@@ -8,7 +8,6 @@
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionScene.h"
 #include "Materials/MaterialExpressionVector.h"
-#include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialFunction.h"
 #include "Widgets/MaterialDetailsStyle.h"
@@ -457,20 +456,22 @@ namespace Durin::MaterialEditor
 			else if (!Changed) DrawParameterValue(Parameter);
 		}
 		std::optional<EMaterialTextureReadMode> SamplingMode;
-		const auto EditSamplingMode = [&](const auto* Sample) {
-			if (!Sample || Changed) return;
-			SamplingMode = Sample->ReadMode;
+		if (const auto* ReadMode = Expression ? Expression->GetTextureSampleReadMode() : nullptr; ReadMode && !Changed)
+		{
+			SamplingMode = *ReadMode;
 			int Mode = static_cast<int>(*SamplingMode);
-			if (!DetailsStyle::EditRow("Sampling", [&] { return ImGui::Combo("##Value", &Mode, "Implicit\0Level\0Bias\0Grad\0"); })) return;
-			using ExpressionType = std::remove_cv_t<std::remove_pointer_t<decltype(Sample)>>;
-			TStrongObjectPtr<ExpressionType> Copy(DuplicateObject(Sample, nullptr, NAME_None).value());
-			Copy->ReadMode = static_cast<EMaterialTextureReadMode>(Mode);
-			Submit(EditorGraph->ReplaceExpression(*Copy));
-		};
-		EditSamplingMode(Cast<DMaterialExpressionTextureSampleCube>(Expression.Get()));
-		EditSamplingMode(Cast<DMaterialExpressionTextureSampleParameterCube>(Expression.Get()));
-		EditSamplingMode(Cast<DMaterialExpressionTextureSample2D>(Expression.Get()));
-		EditSamplingMode(Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()));
+			if (DetailsStyle::EditRow("Sampling", [&] { return ImGui::Combo("##Value", &Mode, "Implicit\0Level\0Bias\0Grad\0"); }))
+			{
+				const auto Duplicated = DuplicateObject(Expression.Get(), nullptr, NAME_None);
+				if (!Duplicated) Submit(GraphEditInternals::RejectCommand(ToString(Duplicated.error())));
+				else
+				{
+					TStrongObjectPtr<DMaterialExpression> Copy(*Duplicated);
+					*Copy->GetTextureSampleReadMode() = static_cast<EMaterialTextureReadMode>(Mode);
+					Submit(EditorGraph->ReplaceExpression(*Copy));
+				}
+			}
+		}
 		if (const auto* Scene = Cast<DMaterialExpressionSceneTexture>(Expression.Get()); Scene && !Changed)
 		{
 			int Id = static_cast<int>(Scene->SceneTextureId);

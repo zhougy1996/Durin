@@ -30,7 +30,7 @@ namespace Durin
 	}
 
 	// Process-lifetime class adapter; all class pointers are borrowed from reflection.
-	// No expression instances, asset owners, or editor policy are retained here.
+	// Reflected descriptions copy immutable creation information from class defaults.
 	struct FMaterialExpressionDescription
 	{
 		DClass* ExpressionClass;
@@ -41,6 +41,10 @@ namespace Durin
 		std::string_view SearchKeywords;
 		EMaterialExpressionOutputBehavior OutputBehavior;
 		std::vector<FMaterialExpressionAuthoringShape> Shapes;
+		bool bRequiresAsset = false;
+		std::optional<EMaterialProgramValueType> PaletteDefault{};
+		bool bShowInPalette = true;
+		bool bRegisterForEditorCreation = true;
 	};
 
 	ENGINE_API auto GetMaterialExpressionDescriptions() -> std::span<const FMaterialExpressionDescription>;

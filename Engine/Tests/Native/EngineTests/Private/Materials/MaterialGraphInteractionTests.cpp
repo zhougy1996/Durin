@@ -796,6 +796,25 @@ TEST(FMaterialGraphInteractionTests, FunctionNodesCanBeCreatedFromSearchBeforeWi
 		return Call && Call->Function == Callee && std::ranges::none_of(Call->FunctionInputs, [](const auto& Binding) { return Binding.Input.IsConnected() || !Binding.InputDefault.empty(); });
 	});
 	EXPECT_EQ(Calls, 1);
+	const auto CallExpression = std::ranges::find_if(Function->GetExpressionCollection().Expressions, [](const auto& E) {
+		return Cast<DMaterialExpressionFunctionCall>(E.Get()) != nullptr;
+	});
+	ASSERT_NE(CallExpression, Function->GetExpressionCollection().Expressions.end());
+	const auto& Call = *Cast<DMaterialExpressionFunctionCall>(CallExpression->Get());
+	const auto Ports = Call.GetInputPorts();
+	const auto Port = std::ranges::find(Ports, Required.Id, &FMaterialFunctionPort::Id);
+	ASSERT_NE(Port, Ports.end());
+	const auto PortIndex = static_cast<int32>(Port - Ports.begin());
+	const auto Binding = std::ranges::find(Call.FunctionInputs, Required.Id, &FMaterialExpressionFunctionInputBinding::InputId);
+	ASSERT_NE(Binding, Call.FunctionInputs.end());
+	EXPECT_EQ(Call.GetInputName(PortIndex), "Required Amount");
+	EXPECT_EQ(Call.GetInputValueType(PortIndex), Required.Type);
+	EXPECT_EQ(Call.GetInput(PortIndex), &Binding->Input);
+	EXPECT_EQ(Call.GetInput(static_cast<int32>(Ports.size())), nullptr);
+	ASSERT_FALSE(Call.GetOutputPorts().empty());
+	ASSERT_TRUE(Call.GetOutput(0));
+	EXPECT_EQ(Call.GetOutput(0)->Name, Callee->GetFunctionSignature().Outputs.front().Name);
+	EXPECT_EQ(Call.GetOutputValueType(0), Callee->GetFunctionSignature().Outputs.front().Type);
 	EXPECT_EQ(FMaterialGraphCanvasTestAccess::RecentAction(Canvas), MakeFunctionCreationAction(Callee->GetObjectPath()).Id);
 	EXPECT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Transactions->Redo());

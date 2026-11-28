@@ -3707,6 +3707,15 @@ TEST(FMaterialSingleLayerWaterTests, CompilesTypedWaterOutputAndReplaysCookedEnt
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	TStrongObjectPtr<DMaterialExpressionSingleLayerWaterOutput> Water(
 		NewObject<DMaterialExpressionSingleLayerWaterOutput>(nullptr, NAME_None));
+	const auto Slots = SingleLayerWater::GetOutputDefinition().Outputs;
+	ASSERT_EQ(Water->GetNumOutputs(), static_cast<int32>(Slots.size()));
+	for (int32 Index = 0; Index < Water->GetNumOutputs(); ++Index)
+	{
+		EXPECT_EQ(Water->GetInputName(Index), Slots[Index].Name);
+		EXPECT_EQ(Water->GetInputValueType(Index), Slots[Index].Semantics.Type);
+		EXPECT_NE(Water->GetInput(Index), nullptr);
+	}
+	EXPECT_FALSE(Water->GetOutput(0));
 	TStrongObjectPtr<DMaterialExpressionVector3Constant> Coefficient(
 		NewObject<DMaterialExpressionVector3Constant>(nullptr, NAME_None));
 	Water->Id = FGuid::NewGuid();

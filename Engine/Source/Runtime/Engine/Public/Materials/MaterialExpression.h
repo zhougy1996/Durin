@@ -12,6 +12,7 @@
 namespace Durin
 {
 	struct FMaterialParameterMetadata;
+	enum class EMaterialTextureReadMode : uint8;
 
 #if DURIN_WITH_EDITORONLY_DATA
 	enum class EMaterialExpressionSetParameterValueFlags : uint32
@@ -53,6 +54,33 @@ namespace Durin
 	{
 		std::string_view Name;
 		EMaterialProgramValueType Type;
+		// Legacy selectors can differ from the ordinal passed to GetOutput.
+		std::optional<uint8> StoredIndex;
+		FGuid PortId{};
+	};
+
+	struct FMaterialExpressionInputInfo
+	{
+		std::string_view Name;
+		std::optional<EMaterialProgramValueType> Type;
+		bool bActive = true;
+		bool bAllowImplicitCast = false;
+	};
+
+	struct FMaterialExpressionCreationInfo
+	{
+		std::optional<EMaterialProgramOpcode> Opcode;
+		std::string_view Name;
+		std::string_view Description;
+		std::string_view Category;
+		bool bRequiresAsset = false;
+		std::array<std::string_view, 4> InputNames{};
+		std::optional<EMaterialProgramValueType> PaletteDefault{};
+		bool bShowInPalette = true;
+		std::optional<EMaterialProgramValueType> FixedOutputType{};
+		std::string_view SearchKeywords{};
+		bool bRegisterForEditorCreation = true;
+		bool bHasInstanceShape = false;
 	};
 
 	// Package-internal expression identity. Family-specific state lives in derived types.
@@ -64,13 +92,50 @@ namespace Durin
 		explicit DMaterialExpression(const FObjectInitializer& Initializer) : Super(Initializer) {}
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+		// An opcode opts the concrete class into reflection-based discovery.
+		virtual auto GetCreationInfo() const -> FMaterialExpressionCreationInfo { return {}; }
+		// A borrowed field for transactional width edits. Each class keeps its serialized storage.
+		virtual auto GetAuthoredResultType() const -> const EMaterialProgramValueType* { return nullptr; }
+		auto GetAuthoredResultType() -> EMaterialProgramValueType*
+		{
+			return const_cast<EMaterialProgramValueType*>(std::as_const(*this).GetAuthoredResultType());
+		}
+		virtual auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo { return {}; }
+		virtual auto GetInputName(int32 Index) const -> std::string_view { return GetInputInfo(Index).Name; }
 #if DURIN_WITH_EDITORONLY_DATA
 		// Authored presentation. An unset layout uses the graph's default position.
 		DPROPERTY(EditorOnly)
 		FMaterialExpressionLayout EditorLayout;
 
-		// Fixed output ports of a plugin expression, in Build output index order.
+		// Query indices describe the current instance. Persisted links may use other selectors.
+		ENGINE_API virtual auto GetInput(int32 Index) -> FMaterialExpressionInput*;
+		auto GetInput(int32 Index) const -> const FMaterialExpressionInput*
+		{
+			return const_cast<DMaterialExpression*>(this)->GetInput(Index);
+		}
+		virtual auto GetInputValueType(int32 Index) const -> std::optional<EMaterialProgramValueType> { return GetInputInfo(Index).Type; }
+		virtual auto GetTextureSampleReadMode() -> EMaterialTextureReadMode* { return nullptr; }
 		virtual auto GetOutputs() const -> std::span<const FMaterialExpressionOutput> { return {}; }
+		virtual auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>
+		{
+			const auto Outputs = GetOutputs();
+			if (!Outputs.empty())
+			{
+				if (Index < 0 || static_cast<size_t>(Index) >= Outputs.size()) return {};
+				return Outputs[Index];
+			}
+			if (Index != 0) return {};
+			if (const auto* Type = GetAuthoredResultType())
+				return FMaterialExpressionOutput{.Name = {}, .Type = *Type};
+			if (const auto Type = GetCreationInfo().FixedOutputType)
+				return FMaterialExpressionOutput{.Name = {}, .Type = *Type};
+			return {};
+		}
+		auto GetOutputValueType(int32 Index) const -> std::optional<EMaterialProgramValueType>
+		{
+			if (const auto Output = GetOutput(Index)) return Output->Type;
+			return {};
+		}
 		virtual auto SetParameterValue(const FName& Name, const FMaterialParameterMetadata& Meta,
 			EMaterialExpressionSetParameterValueFlags Flags = EMaterialExpressionSetParameterValueFlags::None) -> bool { return false; }
 		virtual auto CanRenameNode() const -> bool { return false; }

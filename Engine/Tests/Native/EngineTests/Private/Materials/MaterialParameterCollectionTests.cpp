@@ -432,6 +432,7 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 	ASSERT_TRUE(SavePackage(Collection->GetPackage()));
 	auto* AuthoringMaterial = NewObject<DMaterial>(nullptr,
 		"CollectionGraphAuthoring");
+	AuthoringMaterial->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*AuthoringMaterial));
 	const auto Action = MakeCollectionParameterCreationAction(Collection->GetObjectPath(), Tint.Id, "Tint");
 	const auto Created = Action.PerformAction(*AuthoringGraph, 120, 80, {}, false).transform(Testing::GraphNodeId);
@@ -449,6 +450,9 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 	ASSERT_NE(CollectionExpression, nullptr);
 	EXPECT_EQ(CollectionExpression->Collection.Get(), Collection);
 	EXPECT_EQ(CollectionExpression->ParameterId, Tint.Id);
+	EXPECT_EQ(CollectionExpression->GetOutputValueType(0), EMaterialProgramValueType::Float3);
+	EXPECT_FALSE(CollectionExpression->GetOutput(1));
+	EXPECT_EQ(CollectionExpression->GetInput(0), nullptr);
 	const auto View = Testing::CaptureGraphView(*AuthoringGraph);
 	const auto Read = std::ranges::find(View.Nodes, Created.value(), [](const auto& Node) { return Node.Node.Id; });
 	ASSERT_NE(Read, View.Nodes.end());
@@ -457,6 +461,16 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 	EXPECT_EQ(Read->PrimaryLabel, "Collection Parameter");
 	ASSERT_EQ(Read->Outputs.size(), 1);
 	EXPECT_EQ(Read->Outputs.front().Type, EMaterialProgramValueType::Float3);
+
+	const auto Rows = SearchCatalog("add", EMaterialProgramValueType::Float3);
+	const auto Add = std::ranges::find(Rows, EMaterialProgramOpcode::Add, &FMaterialGraphCatalogEntry::Opcode);
+	ASSERT_NE(Add, Rows.end());
+	const auto* Reader = AuthoringGraph->FindNode(*Created);
+	ASSERT_NE(Reader, nullptr);
+	const auto Added = MakeCreationAction(*Add).PerformAction(*AuthoringGraph, 360, 80, Reader->GetOutputPin(0), false);
+	ASSERT_TRUE(Added) << FormatMaterialGraphCommandResult(Added);
+	EXPECT_EQ(Added.value()->GetView().Inputs.front().Link, (FMaterialProgramLink{*Created}));
+	EXPECT_EQ(Added.value()->GetView().Outputs.front().Type, EMaterialProgramValueType::Float3);
 
 	MarkObjectHierarchyAsGarbage(AuthoringMaterial);
 	ASSERT_TRUE(UnloadPackage(Path));

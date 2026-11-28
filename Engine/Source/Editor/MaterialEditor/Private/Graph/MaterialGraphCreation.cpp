@@ -125,7 +125,8 @@ namespace Durin::MaterialEditor
 				if (!Loaded->FindDeclaration(Spec->ParameterId))
 					return std::unexpected(RejectCommand("The selected collection declaration no longer exists."));
 				TStrongObjectPtr<DMaterialExpressionCollectionParameter> Expression(
-					NewObject<DMaterialExpressionCollectionParameter>(nullptr, NAME_None));
+					NewRegisteredMaterialExpression<DMaterialExpressionCollectionParameter>());
+				if (!Expression) return std::unexpected(RejectCommand("The collection parameter expression class is unavailable."));
 				Expression->Id = FGuid::NewGuid();
 				Expression->Collection = Loaded;
 				Expression->ParameterId = Spec->ParameterId;
@@ -185,7 +186,8 @@ namespace Durin::MaterialEditor
 			const auto NodeId = FGuid::NewGuid();
 			if (bOutput)
 			{
-				auto* Terminal = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
+				auto* Terminal = NewRegisteredMaterialExpression<DMaterialExpressionFunctionOutput>();
+				if (!Terminal) return std::unexpected(RejectCommand("The function output expression is unavailable."));
 				Terminal->Id = NodeId; Terminal->Port = std::move(Port);
 				auto* Upstream = FindMaterialExpression(Candidate.Expressions, Source.SourceNodeId);
 				if (Source.SourceNodeId.IsValid() && !Upstream) return std::unexpected(RejectCommand("The source expression no longer exists."));
@@ -195,7 +197,8 @@ namespace Durin::MaterialEditor
 			}
 			else
 			{
-				auto* Terminal = NewObject<DMaterialExpressionFunctionInput>(nullptr, NAME_None);
+				auto* Terminal = NewRegisteredMaterialExpression<DMaterialExpressionFunctionInput>();
+				if (!Terminal) return std::unexpected(RejectCommand("The function input expression is unavailable."));
 				Terminal->Id = NodeId; Terminal->Port = std::move(Port);
 				SetNodeLayout(*Terminal, X, Y);
 				Candidate.Expressions.emplace_back(Terminal);
@@ -272,7 +275,8 @@ namespace Durin::MaterialEditor
 			&& !FirstInput.IsConnected())
 		{
 			TStrongObjectPtr<DMaterialExpressionStaticBool> Condition(
-				NewObject<DMaterialExpressionStaticBool>(nullptr, NAME_None));
+				NewRegisteredMaterialExpression<DMaterialExpressionStaticBool>());
+			if (!Condition) return std::unexpected(RejectCommand("The static bool expression class is unavailable."));
 			Condition->Id = GeneratedStaticBoolId = FGuid::NewGuid();
 			Condition->DeclarationId = FGuid::NewGuid();
 			Condition->Name = MakeUniqueStaticBoolName();
@@ -288,8 +292,7 @@ namespace Durin::MaterialEditor
 			Declaration->DeclarationId = FGuid::NewGuid();
 			Declaration->Name = MakeUniqueStaticBoolName();
 		}
-		if (auto* Property = Expression->GetClass()->FindPropertyByName("ResultType"))
-			*static_cast<EMaterialProgramValueType*>(Property->GetValuePtr(Expression.Get())) = Entry.ResultType;
+		if (auto* Type = Expression->GetAuthoredResultType()) *Type = Entry.ResultType;
 		if (auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()))
 		{
 			if (Entry.ResultType > EMaterialProgramValueType::Float4) return std::unexpected(RejectCommand("The swizzle width is invalid."));
@@ -408,7 +411,8 @@ namespace Durin::MaterialEditor
 			if (std::ranges::any_of(Closure, [&](const auto& Dependency) { return Dependency.AssetPath == Owner.Get()->GetObjectPath(); }))
 				return std::unexpected(RejectCommand("This call would introduce recursive function dependencies."));
 			const FGuid Id = FGuid::NewGuid();
-			TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+			TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewRegisteredMaterialExpression<DMaterialExpressionFunctionCall>());
+			if (!Call) return std::unexpected(RejectCommand("The function call expression class is unavailable."));
 			Call->Id = Id;
 			if (!Call->SetMaterialFunction(&Function)) return std::unexpected(RejectCommand("The selected function is unavailable."));
 			std::unordered_set<FGuid> BoundInputs;

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Materials/MaterialExpression.h"
+#include "Materials/MaterialProgramTypes.h"
 
 #include "MaterialExpressionConstant.gen.h"
 
@@ -15,6 +16,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionScalarConstant(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Constant, .Name = "Constant",
+				.Description = "A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu.",
+				.Category = "Inputs", .FixedOutputType = EMaterialProgramValueType::Float};
+		}
 
 		DPROPERTY(Edit)
 		float Value = 0.0f;
@@ -31,6 +39,13 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionVector2Constant(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Constant, .Name = "Constant",
+				.Description = "A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu.",
+				.Category = "Inputs", .bShowInPalette = false, .FixedOutputType = EMaterialProgramValueType::Float2};
+		}
+
 		DPROPERTY(Edit)
 		FVector2 Value{0.0};
 
@@ -45,6 +60,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionVector3Constant(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Constant, .Name = "Constant",
+				.Description = "A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu.",
+				.Category = "Inputs", .bShowInPalette = false, .FixedOutputType = EMaterialProgramValueType::Float3};
+		}
 
 		DPROPERTY(Edit)
 		FVector3 Value{0.0};
@@ -63,6 +85,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionVector4Constant(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Constant, .Name = "Constant",
+				.Description = "A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu.",
+				.Category = "Inputs", .bShowInPalette = false, .FixedOutputType = EMaterialProgramValueType::Float4};
+		}
 
 		DPROPERTY(Edit)
 		FVector4 Value{0.0};

@@ -1669,6 +1669,71 @@ TEST(FMaterialExpressionTests, ClassDescriptionsPreserveAuthoredShapesWithoutOwn
 }
 
 
+TEST(FMaterialExpressionTests, ContextExpressionPinsMatchEmittedTypesSpacesAndStages)
+{
+	using namespace Durin;
+	using Op = EMaterialProgramOpcode;
+	using Type = EMaterialProgramValueType;
+	using Stage = EMaterialEvaluationStage;
+	using Kind = EMaterialSpatialKind;
+	using Space = EMaterialCoordinateSpace;
+	InitializeDObjectSystem();
+	struct FCase
+	{
+		DClass* Class;
+		Op Opcode;
+		FMaterialValueSemantics Semantics;
+	};
+	const FCase Cases[]{
+		{DMaterialExpressionTextureCoordinates::StaticClass(), Op::UVChannel, {Type::Float2}},
+		{DMaterialExpressionWorldPosition::StaticClass(), Op::WorldPosition, {Type::Float3, Stage::Both, Kind::Position, Space::World}},
+		{DMaterialExpressionObjectPosition::StaticClass(), Op::ObjectPosition, {Type::Float3, Stage::Both, Kind::Position, Space::World}},
+		{DMaterialExpressionCameraPosition::StaticClass(), Op::CameraPosition, {Type::Float3, Stage::Both, Kind::Position, Space::World}},
+		{DMaterialExpressionCameraVector::StaticClass(), Op::CameraVector, {Type::Float3, Stage::Pixel, Kind::Direction, Space::World}},
+		{DMaterialExpressionVertexNormal::StaticClass(), Op::VertexNormal, {Type::Float3, Stage::Vertex, Kind::Normal, Space::World}},
+		{DMaterialExpressionScreenPosition::StaticClass(), Op::ScreenPosition, {Type::Float2, Stage::Pixel, Kind::ScreenCoordinate, Space::Screen}},
+		{DMaterialExpressionViewSize::StaticClass(), Op::ViewSize, {Type::Float2}},
+		{DMaterialExpressionTime::StaticClass(), Op::Time, {Type::Float}},
+		{DMaterialExpressionProceduralSkyRadiance::StaticClass(), Op::ProceduralSkyRadiance, {Type::Float3, Stage::Pixel}},
+	};
+	for (const auto& Case : Cases)
+	{
+		SCOPED_TRACE(Case.Class->GetName());
+		TStrongObjectPtr<DMaterialExpression> Expression(NewObject<DMaterialExpression>(Case.Class, nullptr, NAME_None));
+		ASSERT_TRUE(Expression);
+		Expression->Id = FGuid::NewGuid();
+		const bool bCoordinates = Case.Opcode == Op::UVChannel;
+		const auto* Description = FindMaterialExpressionDescription(Case.Class);
+		ASSERT_NE(Description, nullptr);
+		EXPECT_EQ(Expression->GetCreationInfo().Opcode, bCoordinates ? Op::TextureCoordinates : Case.Opcode);
+		ASSERT_EQ(Description->Shapes.size(), 1u);
+		EXPECT_EQ(Description->Shapes.front().ResultType, Case.Semantics.Type);
+		EXPECT_EQ(Expression->GetOutputValueType(0), Case.Semantics.Type);
+		EXPECT_FALSE(Expression->GetOutput(1));
+
+		const auto Built = MIR::BuildGraph(std::array{Expression.Get()}, std::array{FMaterialExpressionInput{Expression.Get(), 0}});
+		ASSERT_TRUE(Built) << FormatMaterialProgramDiagnostics(Built.Diagnostics);
+		ASSERT_EQ(Built.Roots.size(), 1u);
+		const auto& Output = Built.IR.Nodes.at(Built.Roots.front());
+		EXPECT_EQ(Output.Opcode, Case.Opcode);
+		EXPECT_EQ(Output.GetSemantics(), Case.Semantics);
+		if (bCoordinates)
+		{
+			EXPECT_NE(Expression->GetInput(0), nullptr);
+			EXPECT_EQ(Expression->GetInputName(0), "Channel");
+			EXPECT_EQ(Expression->GetInputValueType(0), Type::Float);
+			EXPECT_EQ(Expression->GetInput(1), nullptr);
+			ASSERT_EQ(Output.Inputs.size(), 1u);
+			EXPECT_FLOAT_EQ(Built.IR.Nodes.at(Output.Inputs[0]).GetLiteral().X, 0.f);
+		}
+		else
+		{
+			EXPECT_EQ(Expression->GetInput(0), nullptr);
+			EXPECT_FALSE(Expression->GetInputValueType(0));
+		}
+	}
+}
+
 TEST(FMaterialExpressionTests, TextureReadModesLowerOnlyActiveOperandsAndPreserveDefaults)
 {
 	using namespace Durin;

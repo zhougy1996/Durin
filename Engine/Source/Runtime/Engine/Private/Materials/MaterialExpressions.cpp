@@ -6,6 +6,7 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionInputs.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionParameter.h"
@@ -23,6 +24,17 @@
 
 namespace Durin
 {
+#if DURIN_WITH_EDITORONLY_DATA
+	auto DMaterialExpression::GetInput(int32 Index) -> FMaterialExpressionInput*
+	{
+		if (Index < 0) return nullptr;
+		FMaterialExpressionInput* Result = nullptr;
+		VisitMaterialExpressionInputs(*this, [&](uint32 Slot, FMaterialExpressionInput& Input) {
+			if (Slot == static_cast<uint32>(Index)) Result = &Input;
+		});
+		return Result;
+	}
+#endif
 	auto FMaterialPropertyInputs::Find(EMaterialProperty Property) const -> const FMaterialNumericInput*
 	{
 		switch (Property)

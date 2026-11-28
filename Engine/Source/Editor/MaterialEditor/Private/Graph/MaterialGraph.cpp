@@ -9,7 +9,6 @@
 #include "MaterialExpressionParameters.h"
 #include "Materials/MaterialExpressionInputs.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionTextureSample.h"
 
 namespace Durin::MaterialEditor
 {
@@ -103,7 +102,14 @@ namespace Durin::MaterialEditor
 				if (const auto* Terminal = Cast<DMaterialExpressionFunctionInput>(E))
 					return Terminal->Port.Type;
 				const auto Shape = std::ranges::find(Catalog, E->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
-				if (Shape == Catalog.end()) { bValid = false; return Type::Float; }
+				if (Shape == Catalog.end())
+				{
+					// Asset-bound nodes use instance outputs and have no direct palette shape.
+					if (E->GetCreationInfo().bRequiresAsset)
+						if (const auto OutputType = E->GetOutputValueType(Input.OutputIndex)) return *OutputType;
+					bValid = false;
+					return Type::Float;
+				}
 				const auto Opcode = Shape->Opcode;
 				if (IsMaterialSamplingNode(Opcode))
 				{
@@ -119,10 +125,8 @@ namespace Durin::MaterialEditor
 				}
 				if (Resolved.contains(E)) return Resolved.at(E);
 				if (!Active.insert(E).second) { bValid = false; return Type::Float; }
-				auto* Property = E->GetClass()->FindPropertyByName("ResultType");
-				auto Result = Property ? *static_cast<Type*>(Property->GetValuePtr(E)) : Shape->ResultType;
-				if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(E))
-					Result = static_cast<Type>(Swizzle->Components.size() - 1);
+				auto* AuthoredType = E->GetAuthoredResultType();
+				auto Result = AuthoredType ? *AuthoredType : E->GetOutputValueType(0).value_or(Shape->ResultType);
 				const auto PreviousType = Result;
 				if (!Affected.contains(E)) { Active.erase(E); return Result; }
 				bool bInputChanged = false;
@@ -151,7 +155,7 @@ namespace Durin::MaterialEditor
 					else
 					{
 						const auto Inferred = static_cast<Type>(AWidth + BWidth - 1);
-						if (Append->ResultType != Inferred) { Write(*Append, Append->ResultType, Inferred); }
+						if (AuthoredType && *AuthoredType != Inferred) Write(*Append, *AuthoredType, Inferred);
 						Result = Inferred;
 					}
 				}
@@ -177,8 +181,7 @@ namespace Durin::MaterialEditor
 					});
 					if (bOperand) Result = Inferred;
 					if (!GetMaterialProgramNodeSignature(Opcode, Result)) bValid = false;
-					if (Property && *static_cast<Type*>(Property->GetValuePtr(E)) != Result)
-					{ Write(*E, *static_cast<Type*>(Property->GetValuePtr(E)), Result); }
+					if (AuthoredType && *AuthoredType != Result) Write(*E, *AuthoredType, Result);
 					VisitMaterialExpressionInputs(*E, [&](uint32 Slot, FMaterialExpressionInput& Operand) {
 						if (Opcode == EMaterialProgramOpcode::Lerp && Slot == 2) return;
 						if (auto* Numeric = FindMaterialNumericInput(*E, Operand))
@@ -780,12 +783,8 @@ namespace Durin::MaterialEditor
 				return Definition && Attributes->IsSelected(Definition->Property);
 			}
 			if (Input.GetOutputId().IsValid() || Cast<DMaterialExpressionFunctionOutput>(E)) return false;
-			if (Cast<DMaterialExpressionTextureSampleParameter2D>(E))
-				return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameter2D, Input.OutputIndex) != nullptr;
-			if (Cast<DMaterialExpressionTextureSampleParameterCube>(E)) return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameterCube, Input.OutputIndex) != nullptr;
-			if (Cast<DMaterialExpressionTextureSampleCube>(E)) return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleCube, Input.OutputIndex) != nullptr;
-			if (Cast<DMaterialExpressionTextureSample2D>(E))
-				return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSample2D, Input.OutputIndex) != nullptr;
+			if (const auto Opcode = E->GetCreationInfo().Opcode; Opcode && IsMaterialSamplingNode(*Opcode))
+				return FindMaterialSampleOutput(*Opcode, Input.OutputIndex) != nullptr;
 			return Input.OutputIndex == 0;
 		}
 

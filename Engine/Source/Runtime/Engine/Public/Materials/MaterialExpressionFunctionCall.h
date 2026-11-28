@@ -40,7 +40,24 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionFunctionCall(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::FunctionCall, .Name = "Function Call",
+				.Description = "Evaluates a material function with its bound inputs.", .Category = "Functions",
+				.bRequiresAsset = true, .bHasInstanceShape = true};
+		}
+
 #if DURIN_WITH_EDITORONLY_DATA
+		using Super::GetInput;
+		ENGINE_API auto GetInput(int32 Index) -> FMaterialExpressionInput* override;
+		ENGINE_API auto GetInputName(int32 Index) const -> std::string_view override;
+		ENGINE_API auto GetInputValueType(int32 Index) const -> std::optional<EMaterialProgramValueType> override;
+		ENGINE_API auto GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput> override;
+		ENGINE_API auto GetInputPorts() const -> std::span<const FMaterialFunctionPort>;
+		ENGINE_API auto GetOutputPorts() const -> std::span<const FMaterialFunctionPort>;
+		ENGINE_API auto FindInputBindingIndex(FGuid PortId) const -> int32;
+		ENGINE_API auto FindOutputBindingIndex(FGuid PortId) const -> int32;
+
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DMaterialFunctionInterface> Function;
 #endif

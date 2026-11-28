@@ -65,11 +65,6 @@ namespace Durin::MaterialEditor
 			Entry.ResultType = Shape.ResultType;
 			Entry.InputNames = Shape.InputNames;
 			Entry.AcceptedInputTypes = Shape.AcceptedInputTypes;
-			if (Entry.Opcode == EMaterialProgramOpcode::Parameter)
-			{
-				Entry.OperationName = Shape.ResultType == EMaterialProgramValueType::Float ? "Scalar Parameter" : "Vector Parameter";
-				Entry.Description = "Create a new numeric parameter exposed to material instances.";
-			}
 			return Entry;
 		}
 
@@ -168,23 +163,12 @@ namespace Durin::MaterialEditor
 			switch (Descriptor->PaletteShape)
 			{
 			case EMaterialGraphPaletteShape::InspectOnly: continue;
-			case EMaterialGraphPaletteShape::Scalar:
-				if (Entry.ResultType != EMaterialProgramValueType::Float) continue;
-				break;
-			case EMaterialGraphPaletteShape::ScalarOrVector4:
-				if (Entry.ResultType != EMaterialProgramValueType::Float
-					&& Entry.ResultType != EMaterialProgramValueType::Float4) continue;
-				break;
-			case EMaterialGraphPaletteShape::Float2:
-				if (Entry.ResultType != EMaterialProgramValueType::Float2) continue;
-				break;
 			case EMaterialGraphPaletteShape::Adaptive:
-			case EMaterialGraphPaletteShape::AdaptiveVector:
-				if (Entry.ResultType != SourceType.value_or(
-					Descriptor->PaletteShape == EMaterialGraphPaletteShape::AdaptiveVector
-						? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float)) continue;
+				if (Entry.ResultType != SourceType.value_or(Descriptor->Description->PaletteDefault.value_or(EMaterialProgramValueType::Float))) continue;
 				break;
-			case EMaterialGraphPaletteShape::All: break;
+			case EMaterialGraphPaletteShape::All:
+				if (Descriptor->Description->PaletteDefault && Entry.ResultType != *Descriptor->Description->PaletteDefault) continue;
+				break;
 			}
 			uint8 Match = Needle.empty() ? 3 : 4;
 			std::array<std::string, 4> FallbackSearchFields;

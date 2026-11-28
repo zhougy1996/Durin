@@ -18,6 +18,14 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionNormalize(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Normalize, .Name = "Normalize",
+				.Description = "Returns a unit-length vector.",
+				.Category = "Math", .PaletteDefault = EMaterialProgramValueType::Float2};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
+
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
@@ -36,6 +44,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionDot(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Dot, .Name = "Dot Product",
+				.Description = "Returns the scalar dot product of equal-width vectors.",
+				.Category = "Math", .InputNames = {"A", "B"}};
+		}
 		DPROPERTY()
 		FMaterialNumericInput A{2};
 		DPROPERTY()
@@ -50,6 +65,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionCross(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Cross, .Name = "Cross Product",
+				.Description = "Returns the cross product of two Float3 values.",
+				.Category = "Math", .InputNames = {"A", "B"}};
+		}
 		DPROPERTY()
 		FMaterialNumericInput A{3};
 		DPROPERTY()
@@ -64,6 +86,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionLength(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Length, .Name = "Length",
+				.Description = "Returns the scalar length of a vector.",
+				.Category = "Math"};
+		}
 		DPROPERTY()
 		FMaterialNumericInput Input{2};
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
@@ -76,6 +105,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionDistance(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Distance, .Name = "Distance",
+				.Description = "Returns the scalar distance between equal-width values.",
+				.Category = "Math", .InputNames = {"A", "B"}};
+		}
 		DPROPERTY()
 		FMaterialNumericInput A{2};
 		DPROPERTY()
@@ -91,6 +127,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionMakeVector2(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::MakeFloat2, .Name = "Make Vector",
+				.Description = "Combines scalar inputs into a vector.",
+				.Category = "Channels", .InputNames = {"X", "Y"}, .bShowInPalette = false};
+		}
 
 		DPROPERTY()
 		FMaterialNumericInput X;
@@ -111,6 +154,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionMakeVector3(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::MakeFloat3, .Name = "Make Vector",
+				.Description = "Combines scalar inputs into a vector.",
+				.Category = "Channels", .InputNames = {"X", "Y", "Z"}, .bShowInPalette = false};
+		}
 
 		DPROPERTY()
 		FMaterialNumericInput X;
@@ -134,6 +184,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionMakeVector4(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::MakeFloat4, .Name = "Make Vector",
+				.Description = "Combines scalar inputs into a vector.",
+				.Category = "Channels", .InputNames = {"X", "Y", "Z", "W"}, .bShowInPalette = false};
+		}
 
 		DPROPERTY()
 		FMaterialNumericInput X;
@@ -161,6 +218,13 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionSplat2(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Splat2, .Name = "Splat",
+				.Description = "Replicates a scalar across vector components.",
+				.Category = "Channels", .bShowInPalette = false};
+		}
+
 		DPROPERTY()
 		FMaterialNumericInput Input;
 
@@ -177,6 +241,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionSplat3(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Splat3, .Name = "Splat",
+				.Description = "Replicates a scalar across vector components.",
+				.Category = "Channels", .bShowInPalette = false};
+		}
 
 		DPROPERTY()
 		FMaterialNumericInput Input;
@@ -195,6 +266,13 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionSplat4(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Splat4, .Name = "Splat",
+				.Description = "Replicates a scalar across vector components.",
+				.Category = "Channels", .bShowInPalette = false};
+		}
+
 		DPROPERTY()
 		FMaterialNumericInput Input;
 
@@ -211,6 +289,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionBlendNormalsRNM(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::BlendNormalsRNM, .Name = "Blend Normals RNM",
+				.Description = "Blends two tangent-space normals with RNM.",
+				.Category = "Textures", .InputNames = {"Base", "Detail"}};
+		}
 
 		DPROPERTY()
 		FMaterialNumericInput Base{3};
@@ -231,6 +316,15 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionAppendVector(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::AppendVector, .Name = "Append Vector",
+				.Description = "Concatenates A and B; output width follows the inputs (up to four components).",
+				.Category = "Channels", .InputNames = {"A", "B"}, .PaletteDefault = EMaterialProgramValueType::Float2,
+				.bHasInstanceShape = true};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		FMaterialNumericInput A;
 		DPROPERTY()
@@ -250,6 +344,13 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionSwizzle(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Swizzle, .Name = "Component Mask",
+				.Description = "Selects, repeats or reorders channels (Component Mask / Truncate).",
+				.Category = "Channels", .PaletteDefault = EMaterialProgramValueType::Float, .bHasInstanceShape = true};
+		}
+
 		DPROPERTY()
 		FMaterialNumericInput Input;
 
@@ -268,5 +369,7 @@ namespace Durin
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
+	protected:
+		ENGINE_API auto GetNumericResultType(EMaterialProgramOpcode Opcode) const -> std::optional<EMaterialProgramValueType> override;
 	};
 }

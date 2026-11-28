@@ -18,6 +18,14 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionAdd(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Add, .Name = "Add",
+				.Description = "Adds two values component by component.",
+				.Category = "Math", .InputNames = {"A", "B"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
+
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
@@ -40,6 +48,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionSubtract(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Subtract, .Name = "Subtract",
+				.Description = "Subtracts the second value from the first.",
+				.Category = "Math", .InputNames = {"A", "B"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
@@ -64,6 +80,14 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionMultiply(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Multiply, .Name = "Multiply",
+				.Description = "Multiplies two values component by component.",
+				.Category = "Math", .InputNames = {"A", "B"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
+
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
@@ -86,6 +110,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionDivide(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Divide, .Name = "Divide",
+				.Description = "Divides the first value by the second.",
+				.Category = "Math", .InputNames = {"A", "B"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
@@ -110,6 +142,14 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionMinimum(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Minimum, .Name = "Minimum",
+				.Description = "Returns the component-wise minimum.",
+				.Category = "Math", .InputNames = {"A", "B"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
+
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
@@ -132,6 +172,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionMaximum(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Maximum, .Name = "Maximum",
+				.Description = "Returns the component-wise maximum.",
+				.Category = "Math", .InputNames = {"A", "B"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
@@ -156,6 +204,14 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionNegate(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Negate, .Name = "Negate",
+				.Description = "Reverses the sign of a value.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
+
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
@@ -175,6 +231,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionOneMinus(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::OneMinus, .Name = "One Minus",
+				.Description = "Subtracts a value from one.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
@@ -196,6 +260,14 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionAbsolute(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Absolute, .Name = "Absolute",
+				.Description = "Returns the absolute value.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
+
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
@@ -215,6 +287,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionSaturate(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Saturate, .Name = "Saturate",
+				.Description = "Clamps a value to the zero-to-one range.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
@@ -236,6 +316,14 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionSine(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Sine, .Name = "Sine",
+				.Description = "Returns the component-wise sine in radians.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
+
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
@@ -256,6 +344,14 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionCosine(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Cosine, .Name = "Cosine",
+				.Description = "Returns the component-wise cosine in radians.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
+
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
@@ -274,6 +370,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionPow(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Pow, .Name = "Power",
+				.Description = "Raises each base component to its exponent.",
+				.Category = "Math", .InputNames = {"Base", "Exponent"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -290,6 +394,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionSqrt(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Sqrt, .Name = "Square Root",
+				.Description = "Returns the component-wise square root.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -304,6 +416,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionExp(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Exp, .Name = "Exponential",
+				.Description = "Returns the component-wise natural exponential.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -318,6 +438,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionLog(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Log, .Name = "Natural Log",
+				.Description = "Returns the component-wise natural logarithm.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -332,6 +460,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionFloor(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Floor, .Name = "Floor",
+				.Description = "Rounds each component down.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -346,6 +482,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionCeil(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Ceil, .Name = "Ceil",
+				.Description = "Rounds each component up.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -360,6 +504,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionRound(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Round, .Name = "Round",
+				.Description = "Rounds each component to the nearest integer.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -374,6 +526,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionFrac(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Frac, .Name = "Fraction",
+				.Description = "Returns each component's fractional part.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -388,6 +548,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionFmod(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Fmod, .Name = "Fmod",
+				.Description = "Returns the component-wise floating-point remainder.",
+				.Category = "Math", .InputNames = {"A", "B"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -404,6 +572,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionStep(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Step, .Name = "Step",
+				.Description = "Returns zero below Edge and one otherwise.",
+				.Category = "Math", .InputNames = {"Edge", "Value"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -420,6 +596,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionSmoothStep(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::SmoothStep, .Name = "Smooth Step",
+				.Description = "Returns smooth Hermite interpolation between Min and Max.",
+				.Category = "Math", .InputNames = {"Min", "Max", "Value"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -438,6 +622,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionSign(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Sign, .Name = "Sign",
+				.Description = "Returns the sign of each component.",
+				.Category = "Math"};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		DPROPERTY()
@@ -452,6 +644,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionReflect(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Reflect, .Name = "Reflect",
+				.Description = "Reflects an incident vector around a normal of equal width.",
+				.Category = "Math", .InputNames = {"Incident", "Normal"}, .PaletteDefault = EMaterialProgramValueType::Float2};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float2;
 		DPROPERTY()
@@ -469,6 +669,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionClamp(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Clamp, .Name = "Clamp",
+				.Description = "Constrains a value between minimum and maximum inputs.",
+				.Category = "Math", .InputNames = {"Value", "Min", "Max"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
@@ -495,6 +703,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionLerp(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+		auto GetCreationInfo() const -> FMaterialExpressionCreationInfo override
+		{
+			return {.Opcode = EMaterialProgramOpcode::Lerp, .Name = "Lerp",
+				.Description = "Interpolates between two values.",
+				.Category = "Math", .InputNames = {"A", "B", "Alpha"}};
+		}
+		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
