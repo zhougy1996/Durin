@@ -1130,7 +1130,7 @@ namespace Durin::LevelEditor
 			return;
 		}
 		if (!Capabilities.bCanEditScene) ImGui::BeginDisabled();
-		FTransformGizmo& Gizmo = ViewportClient->GetTransformGizmo();
+		DTransformGizmo& Gizmo = ViewportClient->GetTransformGizmo();
 		bool bOpenSnapSettings = false;
 		float X = Layout.ViewModeButtonPosition.x + Layout.ViewModeButtonSize.x + Layout.Gap;
 		const float Y = Layout.ViewModeButtonPosition.y;

@@ -23,44 +23,6 @@ namespace Durin::LevelEditor
 	class IViewportPickingBackend;
 	class FViewportPickingService;
 
-	// Captures one frame of normalized viewport navigation and gizmo input.
-	struct FLevelEditorViewportInput
-	{
-		float DeltaSeconds = 0.0f;
-		FVector2f MouseDelta{0.0f};
-		float MouseWheel = 0.0f;
-		bool bHovered = false;
-		bool bFocused = false;
-		bool bWantTextInput = false;
-		bool bAlt = false;
-		bool bShift = false;
-		bool bCtrl = false;
-		bool bLeftMouseDown = false;
-		bool bMiddleMouseDown = false;
-		bool bRightMouseDown = false;
-		bool bLeftMousePressed = false;
-		bool bLeftMouseDoubleClicked = false;
-		bool bMiddleMousePressed = false;
-		bool bRightMousePressed = false;
-		bool bMoveForward = false;
-		bool bMoveBackward = false;
-		bool bMoveLeft = false;
-		bool bMoveRight = false;
-		bool bMoveDown = false;
-		bool bMoveUp = false;
-		bool bFocusSelection = false;
-		bool bRequestSelection = false;
-		bool bCancel = false;
-		bool bModeTranslate = false;
-		bool bModeRotate = false;
-		bool bModeScale = false;
-		bool bDelete = false;
-		bool bDuplicate = false;
-		bool bAppend = false;
-		FVector2f MousePosition{0.0f};
-		FVector2f ViewportSize{0.0f};
-	};
-
 	// Builds the editor scene view and coordinates navigation, picking, and gizmos.
 	class FLevelEditorViewportClient final : public FViewportClient
 	{
@@ -103,8 +65,8 @@ namespace Durin::LevelEditor
 		auto SetSelectedComponent(DActorComponent* Component, const std::vector<FEditorSubElementSelection>& Elements) -> void;
 		auto FocusActor(const AActor* Actor) -> void;
 		auto FocusLocation(const FVector3& WorldLocation) -> void;
-		auto GetTransformGizmo() -> FTransformGizmo& { return TransformGizmo; }
-		auto GetTransformGizmo() const -> const FTransformGizmo& { return TransformGizmo; }
+		auto GetTransformGizmo() -> DTransformGizmo& { return *TransformGizmo.Get(); }
+		auto GetTransformGizmo() const -> const DTransformGizmo& { return *TransformGizmo.Get(); }
 		auto IsGridVisible() const -> bool { return bShowGrid; }
 		auto SetGridVisible(bool bVisible) -> void;
 		auto GetNearClip() const -> float { return NearClip; }
@@ -154,7 +116,7 @@ namespace Durin::LevelEditor
 		bool bFlyNavigation = false;
 		bool bOrbitNavigation = false;
 		bool bPanNavigation = false;
-		mutable FTransformGizmo TransformGizmo;
+		TStrongObjectPtr<DTransformGizmo> TransformGizmo;
 		mutable FPreparedSceneView PreparedSceneView;
 		std::unique_ptr<FViewportPickingService> PickingService;
 	};

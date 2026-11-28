@@ -144,37 +144,36 @@ namespace Durin::LevelEditor
 			return true;
 		}
 
-		class FSplineElementTransformTarget final : public ITransformGizmoTarget
+		class FSplineElementTransformTarget
 		{
+			struct FAlignedTangentState final : FTransformGizmoEditState
+			{
+				FVector3 HandlePosition, Arrive, Leave;
+			};
 		public:
 			FSplineElementTransformTarget(DSplineComponent* InSpline, FEditorSubElementSelection InElement)
-				: Spline(InSpline), Element(InElement) { BeginTransformEditSequence(); }
-			void BeginTransformEditSequence() override
+				: Spline(InSpline), Element(InElement) {}
+
+			auto CaptureEditState() const -> std::shared_ptr<const FTransformGizmoEditState>
 			{
-				if (Element.Kind == EEditorSubElementKind::Point) return;
-				if (const auto* Point = ResolvePoint())
-				{
-					InitialHandlePosition = GetTransform().Translation;
-					InitialArrive = Point->ArriveTangent;
-					InitialLeave = Point->LeaveTangent;
-				}
+				if (Element.Kind == EEditorSubElementKind::Point) return {};
+				const auto* Point = ResolvePoint();
+				if (!Point || Point->TangentMode != ESplineTangentMode::ManualAligned) return {};
+				auto State = std::make_shared<FAlignedTangentState>();
+				State->HandlePosition = GetTransform().Translation;
+				State->Arrive = Point->ArriveTangent;
+				State->Leave = Point->LeaveTangent;
+				return State;
 			}
-			auto GetTopologyRevisionReader() const -> FTopologyRevisionReader override
+			auto GetTopologyRevisionReader() const -> FTopologyRevisionReader
 			{
 				return [](const DObject& Component, uint64 HistoryId) {
 					return static_cast<const DSplineComponent&>(Component).GetForeignTopologyRevision(HistoryId);
 				};
 			}
-			auto IsValid() const -> bool override { return ResolvePoint() != nullptr; }
-			auto GetIdentity() const -> FTransformGizmoTargetIdentity override { return {Spline.Get(), Element.Index, static_cast<uint8>(Element.Kind), Element.TopologyRevision}; }
-			auto GetDataOwner() const -> DObject* override { return Spline.Get(); }
-			auto AddReferencedObjects(FReferenceCollector& Collector) -> void override
-			{
-				// Element indices and topology revisions belong to this exact spline generation.
-				DObject* Object = Spline.Get();
-				if (Object) Collector.AddReferencedObject(Object);
-			}
-			auto GetTransform() const -> FTransform override
+			auto IsValid(uint64 ReplayHistoryId = 0) const -> bool { return ResolvePoint(ReplayHistoryId) != nullptr; }
+			auto GetIdentity() const -> FTransformGizmoTargetIdentity { return {Spline.Get(), Element.Index, static_cast<uint8>(Element.Kind), Element.TopologyRevision}; }
+			auto GetTransform() const -> FTransform
 			{
 				FTransform Result;
 				const FSplinePoint* Point = ResolvePoint();
@@ -192,10 +191,10 @@ namespace Durin::LevelEditor
 				}
 				return Result;
 			}
-			auto SetTransform(const FTransform& Transform) -> bool override
+			auto SetTransform(const FTransform& Transform, FTransformGizmoWriteContext Context) const -> bool
 			{
 				DSplineComponent* Resolved = Spline.Get();
-				const FSplinePoint* Existing = ResolvePoint();
+				const FSplinePoint* Existing = ResolvePoint(Context.ReplayHistoryId);
 				if (!Resolved || !Existing) return false;
 				const uint32 Index = static_cast<uint32>(Element.Index);
 				FSplinePoint Point = *Existing;
@@ -215,31 +214,33 @@ namespace Durin::LevelEditor
 					else Point.LeaveTangent = Tangent;
 					if (Point.TangentMode == ESplineTangentMode::ManualAligned)
 					{
-						if (Transform.Translation == InitialHandlePosition)
+						const auto* State = static_cast<const FAlignedTangentState*>(Context.InitialState);
+						if (State && Math::LengthSquared(Transform.Translation - State->HandlePosition) <= 1.e-16)
 						{
-							Point.ArriveTangent = InitialArrive;
-							Point.LeaveTangent = InitialLeave;
+							Point.ArriveTangent = State->Arrive;
+							Point.LeaveTangent = State->Leave;
 						}
 						else Point.ArriveTangent = Point.LeaveTangent = Tangent;
 					}
 				}
 				return Point == *Existing || Resolved->UpdateSplinePoint(Index, Point);
 			}
-			auto GetPackage() const -> DPackage* override { return Spline.Get() ? Spline.Get()->GetPackage() : nullptr; }
-			auto GetLabel() const -> std::string override { return Element.Kind == EEditorSubElementKind::Point ? "Spline Point" : "Spline Tangent"; }
-			auto GetCapabilities() const -> ETransformGizmoCapability override { return Element.Kind == EEditorSubElementKind::Point
+			auto GetLabel() const -> std::string { return Element.Kind == EEditorSubElementKind::Point ? "Spline Point" : "Spline Tangent"; }
+			auto GetCapabilities() const -> ETransformGizmoCapability { return Element.Kind == EEditorSubElementKind::Point
 				? ETransformGizmoCapability::All
 				: ETransformGizmoCapability::Translate; }
 		private:
-			auto ResolvePoint() const -> const FSplinePoint*
+			auto ResolvePoint(uint64 ReplayHistoryId = 0) const -> const FSplinePoint*
 			{
 				DSplineComponent* Resolved = Spline.Get();
-				if (!Resolved || Element.TopologyRevision != Resolved->GetSplineTopologyRevision()) return nullptr;
+				if (!Resolved) return nullptr;
+				// The command checks this component's foreign topology revision before replay.
+				const bool bValidatedReplay = ReplayHistoryId && FScopedTransactionHistoryReplay::GetHistoryId() == ReplayHistoryId;
+				if (!bValidatedReplay && Element.TopologyRevision != Resolved->GetSplineTopologyRevision()) return nullptr;
 				return Resolved->GetSplinePoint(static_cast<uint32>(Element.Index));
 			}
 			TWeakObjectPtr<DSplineComponent> Spline;
 			FEditorSubElementSelection Element;
-			FVector3 InitialHandlePosition{}, InitialArrive{}, InitialLeave{};
 		};
 
 		auto DrawSplineAttributeSamples(DSplineComponent& Spline, const FSplineEvaluationSegment& Segment,
@@ -427,10 +428,25 @@ namespace Durin::LevelEditor
 				if (!Spline) return Result;
 				const auto& Elements = Context.GetSelectedSubElements();
 				const FEditorSubElementSelection& Primary = Context.GetSelectedSubElement();
+				const auto AddElement = [&](FEditorSubElementSelection Element)
+				{
+					FSplineElementTransformTarget Target(Spline, Element);
+					FTransformComponentOptions Options;
+					Options.Identity = Target.GetIdentity();
+					Options.Label = Target.GetLabel();
+					Options.Capabilities = Target.GetCapabilities();
+					Options.Validate = [Target](uint64 HistoryId) { return Target.IsValid(HistoryId); };
+					if (Element.Kind != EEditorSubElementKind::Point)
+						Options.CaptureEditState = [Target] { return Target.CaptureEditState(); };
+					Options.ReadRevision = Target.GetTopologyRevisionReader();
+					Result.AddComponentCustom(Spline, [Target] { return Target.GetTransform(); },
+						[Target](const FTransform& Value, FTransformGizmoWriteContext Context) { return Target.SetTransform(Value, Context); },
+						std::move(Options));
+				};
 				if (Primary.Kind == EEditorSubElementKind::ArriveTangent || Primary.Kind == EEditorSubElementKind::LeaveTangent)
-					Result.Targets.push_back(std::make_shared<FSplineElementTransformTarget>(Spline, Primary));
+					AddElement(Primary);
 				else for (const FEditorSubElementSelection& Element : Elements)
-					if (Element.Kind == EEditorSubElementKind::Point) Result.Targets.push_back(std::make_shared<FSplineElementTransformTarget>(Spline, Element));
+					if (Element.Kind == EEditorSubElementKind::Point) AddElement(Element);
 				return Result;
 			}
 		private:

@@ -3,6 +3,7 @@
 #include "Transactions/Transaction.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Viewport/TransformGizmo.h"
+#include "LevelEditorTransformTargets.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Actors/EditorActorSubsystem.h"
 

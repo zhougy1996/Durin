@@ -224,12 +224,12 @@ namespace Durin::LevelEditor
 		PreferredPlayDestination = Destination;
 	}
 
-	auto FSceneViewportPanel::GetTransformGizmo() -> FTransformGizmo*
+	auto FSceneViewportPanel::GetTransformGizmo() -> DTransformGizmo*
 	{
 		return ViewportClient ? &ViewportClient->GetTransformGizmo() : nullptr;
 	}
 
-	auto FSceneViewportPanel::GetTransformGizmo() const -> const FTransformGizmo*
+	auto FSceneViewportPanel::GetTransformGizmo() const -> const DTransformGizmo*
 	{
 		return ViewportClient ? &ViewportClient->GetTransformGizmo() : nullptr;
 	}

@@ -1,4 +1,5 @@
 #include "ViewportTestSupport.h"
+#include "Viewport/TransformGizmoStateTarget.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "DObject/Class.h"
 #include "Math/Operations.h"
@@ -388,19 +389,58 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndExpiresTheWh
 	const auto InitialHandle = Handles.Targets.front()->GetTransform();
 	auto MovedHandle = InitialHandle;
 	MovedHandle.Translation += FVectorConstants::Right;
-	ASSERT_TRUE(Handles.Targets.front()->SetTransform(MovedHandle));
-	ASSERT_TRUE(Handles.Targets.front()->SetTransform(InitialHandle));
+	const auto AlignedState = Handles.Targets.front()->CaptureEditState();
+	ASSERT_TRUE(AlignedState);
+	ASSERT_TRUE(Handles.Targets.front()->SetTransform(MovedHandle, {AlignedState.get()}));
+	ASSERT_TRUE(Handles.Targets.front()->SetTransform(InitialHandle, {AlignedState.get()}));
 	EXPECT_EQ(*Spline->GetSplinePoint(0), InitialPoint);
+
+	// Drive the same tangent through two gestures without a component snapshot.
+	{
+		Tests::FTestEditorTransactorOwner History;
+		Spline->ClearFlags(EObjectFlags::Transactional);
+		ASSERT_TRUE(Client.GetTransformGizmo().Update(Handles, View, {}, History.Get()));
+		TStrongObjectPtr<DTransformProxy> Proxy(Client.GetTransformGizmo().GetActiveTarget());
+		ASSERT_NE(Proxy.Get(), nullptr);
+		const auto DragTangent = [&](const FVector3& Offset) {
+			TStrongObjectPtr<DTransformGizmoStateTarget> State(NewObject<DTransformGizmoStateTarget>(nullptr, NAME_None));
+			Proxy->BeginTransformEditSequence();
+			State->Initialize(Proxy.Get(), History.Get(), "Move spline tangent");
+			State->BeginUpdate();
+			auto Frame = Proxy->GetTransform();
+			Frame.Translation += Offset;
+			ASSERT_TRUE(Proxy->SetTransform(Frame));
+			State->EndUpdate();
+		};
+		DragTangent(FVectorConstants::Right);
+		const auto First = *Spline->GetSplinePoint(0);
+		DragTangent(FVectorConstants::Up);
+		const auto SecondDrag = *Spline->GetSplinePoint(0);
+		ASSERT_NE(First.LeaveTangent, InitialPoint.LeaveTangent);
+		ASSERT_NE(SecondDrag.LeaveTangent, First.LeaveTangent);
+		ASSERT_EQ(History->GetQueueLength(), 2u);
+		EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 1u);
+		ASSERT_TRUE(History->Undo());
+		EXPECT_EQ(*Spline->GetSplinePoint(0), First);
+		ASSERT_TRUE(History->Undo());
+		EXPECT_EQ(*Spline->GetSplinePoint(0), InitialPoint);
+		ASSERT_TRUE(History->Redo());
+		EXPECT_EQ(*Spline->GetSplinePoint(0), First);
+		ASSERT_TRUE(History->Redo());
+		EXPECT_EQ(*Spline->GetSplinePoint(0), SecondDrag);
+		Spline->SetFlags(EObjectFlags::Transactional);
+	}
 
 	Context.SelectSubElement(Spline, {EEditorSubElementKind::Point, 0, Spline->GetSplineTopologyRevision()});
 	auto Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
 	Context.SelectSubElement(Second, {EEditorSubElementKind::Point, 0, Second->GetSplineTopologyRevision()});
 	const auto SecondTargets = Manager.GetActiveMode()->GetGizmoTargets(Context);
 	ASSERT_EQ(SecondTargets.Targets.size(), 1u);
+	EXPECT_FALSE(SecondTargets.Targets.front()->CaptureEditState());
 	Targets.Targets.push_back(SecondTargets.Targets.front());
 	ASSERT_EQ(Targets.Targets.size(), 2u);
 
-	FTransformGizmo Gizmo;
+	auto& Gizmo = Client.GetTransformGizmo();
 	FLevelEditorViewportInput Input;
 	Input.ViewportSize = {800.0f, 600.0f};
 	ASSERT_TRUE(Gizmo.Update(Targets, View, Input, nullptr));

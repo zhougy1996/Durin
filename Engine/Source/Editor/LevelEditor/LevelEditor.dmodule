@@ -10,7 +10,8 @@
         "Public/LevelEditorSubsystem.h",
         "Private/LevelAssetEditor.h",
         "Private/Viewport/TransformGizmoStateTarget.h",
-        "Private/Viewport/TransformProxy.h"
+        "Public/Viewport/TransformProxy.h",
+        "Public/Viewport/TransformGizmo.h"
     ],
     "PrivateDependencies": [
         "AssetTools",

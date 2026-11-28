@@ -1,4 +1,5 @@
 #include "Viewport/LevelEditorViewportClient.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Viewport/ViewportPickingService.h"
 #include "Viewport/EditorPrimitiveDrawing.h"
 #include "MonaImGui.h"
@@ -140,9 +141,13 @@ namespace Durin::LevelEditor
 	FLevelEditorViewportClient::FLevelEditorViewportClient()
 		: PickingService(std::make_unique<FViewportPickingService>())
 	{
+		TransformGizmo = NewObject<DTransformGizmo>(nullptr, NAME_None);
 	}
 
-	FLevelEditorViewportClient::~FLevelEditorViewportClient() = default;
+	FLevelEditorViewportClient::~FLevelEditorViewportClient()
+	{
+		TransformGizmo->CancelUpdate();
+	}
 	auto FLevelEditorViewportClient::SetEditorOwner(DEditorEngine* Editor) -> void { EditorOwner = Editor; }
 
 	auto FLevelEditorViewportClient::CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool
@@ -210,7 +215,7 @@ namespace Durin::LevelEditor
 		AppendCollisionDebug(View, Level);
 		AppendSelectionBounds(View);
 		Visualizations.AppendToView(View, HoveredVisualization.Actor ? &HoveredVisualization : nullptr);
-		TransformGizmo.AppendOverlayPrimitives(View);
+		TransformGizmo->AppendOverlayPrimitives(View);
 		FViewPrimitiveDrawInterface(View).Seal();
 		OutFrame.View = std::move(View);
 		OutFrame.Visualizations = std::move(Visualizations);

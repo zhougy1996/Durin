@@ -91,7 +91,7 @@ namespace Durin::LevelEditor
 		FYamlNodeRef GizmoNode = Root.AddMap("TransformGizmo");
 		if (SceneViewportPanel)
 		{
-			if (const FTransformGizmo* Gizmo = SceneViewportPanel->GetTransformGizmo())
+			if (const DTransformGizmo* Gizmo = SceneViewportPanel->GetTransformGizmo())
 			{
 				const FTransformGizmoSnapSettings& Settings = Gizmo->GetSnapSettings();
 				GizmoNode.SetChildValue("Mode", static_cast<int64>(Gizmo->GetMode()));
@@ -136,7 +136,7 @@ namespace Durin::LevelEditor
 
 	auto FLevelEditorWorkspaceSettings::ApplyTo(FSceneViewportPanel& SceneViewportPanel) const -> void
 	{
-		if (FTransformGizmo* Gizmo = SceneViewportPanel.GetTransformGizmo())
+		if (DTransformGizmo* Gizmo = SceneViewportPanel.GetTransformGizmo())
 		{
 			Gizmo->SetMode(static_cast<ETransformGizmoMode>(std::min<uint8>(GizmoMode, 2)));
 			Gizmo->SetSpace(static_cast<ETransformGizmoSpace>(std::min<uint8>(GizmoSpace, 2)));

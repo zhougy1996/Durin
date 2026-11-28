@@ -20,7 +20,7 @@ FLevelViewportEditModeRegistry
             v
 FSceneViewportPanel (one workspace viewport)
   uses host-owned FEditorModeTools
-  owns FLevelEditorViewportClient and FTransformGizmo
+  owns FLevelEditorViewportClient and DTransformGizmo
   owns FViewportPickingService through its viewport client
             |
             +--> active ILevelViewportEditMode instance
@@ -221,34 +221,35 @@ not replace the established fly, orbit, pan, dolly, or focus path.
 
 ## Transform Gizmo Targets
 
-`FTransformGizmo` operates on `ITransformGizmoTarget` instances rather than
-Actor storage. A target supplies stable identity, validity, transform,
-parent-relative rotation, affected package, label, and capability mask. A
-target set supplies the current collection and transaction label.
+The viewport's `DTransformGizmo` accepts a selection proxy through
+`SetActiveTarget()`. Actor roots register with `AddComponent()`. Spline
+points and tangent handles register with `AddComponentCustom()`, supplying
+a transform getter, a boolean setter and element-specific history checks.
+The bound component owns the transaction snapshot. A failed setter requests
+restoration of the whole drag.
 
-The gizmo binds a `DTransformProxy` to the active selection. Successive drags
-share its frame. Changing the selection creates a new binding. On press,
-`BeginTransformEditSequence()` samples current element transforms. Release or
-successful cancellation ends the sequence and releases its baselines. Undo and
-Redo update the recorded proxy. The handles and the next drag read that frame
-while its selection is active. The gizmo computes a frame from
-pointer input and snapping. The proxy applies it to each target from its initial
-world transform, including rotation and scale about the shared pivot.
-The gizmo delegates transaction and restoration to a `DTransformGizmoStateTarget`.
-On press, `BeginUpdate()` opens the transaction and binds one
-`FTransformProxyChangeSource` to the proxy. Before the first write to each data owner, the proxy calls
-`Modify()` to mark its package dirty. During recording the proxy also verifies
-that the transaction contains the owner's whole-object snapshot before invoking
-the setter. A failed admission cancels the entire gesture.
-Actor transforms belong to their root component and all points on a spline share
-one component snapshot. Before the first admitted write, the command captures
-the Actor's original root binding or the spline component's history-specific
-topology revision. Selected points on one spline share that revision.
-Previews without a transaction can edit either target directly.
-On normal release, `EndChange()` reads the shared frame and `EndUpdate()`
-stores one proxy command and closes the transaction. Component snapshots replay
-the actual data, while the command restores the shared frame.
-Later changes of selection or viewport lifetime do not redirect replay.
+The gizmo binds a `DTransformProxy` to the selection and fixes each target's
+transform relative to its shared frame. On press it reuses the proxy while the
+frame still reproduces the live transforms. A new selection or a changed
+relative transform (for example after clamping) gets a new proxy. Each drag
+captures world transforms for whole-selection cancellation. Only a manual
+aligned tangent also captures its initial handle position and both tangent
+vectors, so each step can restore unequal lengths on replay or cancellation.
+
+`DTransformGizmoStateTarget::BeginUpdate()` starts one transaction and attaches
+a change source. Each preview write calls `Modify()` on the target's data
+owner. The transaction can capture one whole-object snapshot per component.
+A target whose component has no snapshot participates through its proxy binding.
+Before the first write to each target the change records its Actor root identity
+or its spline component's history-specific topology revision.
+
+On normal release, `EndChange()` reads the final frame and `EndUpdate()`
+submits one proxy command. Undo and Redo call `SetTransform()` with the
+recorded frame on the original proxy, driving its targets through their setters
+even after a selection change. Redo applies the released frame after replaying
+component snapshots. While that selection is active, replay also makes its
+recorded proxy the handle's active target. Changing selection detaches the old
+proxies from the viewport.
 The document controller owns save admission for both commands and direct calls:
 saving and save-producing rename require an idle transactor and no active gesture
 or unfinished restore.
@@ -256,7 +257,7 @@ Cancel, target invalidation and mode exit restore the original targets.
 An empty drag records one proxy command and leaves the scene package's dirty flag unchanged.
 A fully clamped write still marks its package dirty. Cancel restores transforms
 and leaves the current dirty flags in place. History-free previews and discarded
-PIE recordings also mark the asset package on the first write. Target capability masks prevent unsupported operations before mutation.
+PIE recordings also mark the asset package on each preview write. Target capability masks prevent unsupported operations before mutation.
 
 On Escape, `CancelUpdate()` discards the recording and restores all surviving
 original targets to their initial transforms, including targets edited by another

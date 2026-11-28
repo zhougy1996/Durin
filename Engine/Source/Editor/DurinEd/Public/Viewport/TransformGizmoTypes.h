@@ -3,9 +3,13 @@
 #include "CoreMinimal.h"
 
 #include "Math/Transform.h"
+#include "DurinEdAPI.h"
+#include "DObject/WeakObjectPtr.h"
 
 namespace Durin
 {
+	class DSceneComponent;
+	class AActor;
 	class DPackage;
 	class DObject;
 	class FReferenceCollector;
@@ -41,39 +45,60 @@ namespace Durin::LevelEditor
 		auto operator==(const FTransformGizmoTargetIdentity&) const -> bool = default;
 	};
 
-	// Adapts an arbitrary editable object to the transform gizmo contract.
-	class ITransformGizmoTarget
+	struct FTransformGizmoEditState
 	{
-	public:
-		virtual ~ITransformGizmoTarget() = default;
-		// Indexed targets share the topology revision of their data owner.
-		using FTopologyRevisionReader = uint64 (*)(const DObject&, uint64 HistoryId);
-		virtual auto GetTopologyRevisionReader() const -> FTopologyRevisionReader { return nullptr; }
-		virtual auto IsValid() const -> bool = 0;
-		virtual auto GetIdentity() const -> FTransformGizmoTargetIdentity = 0;
-		// All persistent effects of SetTransform must be restored by this owner's whole-object snapshot.
-		// The proxy captures and verifies the owner before a transactional preview write.
-		virtual auto GetDataOwner() const -> DObject* = 0;
-		// Refresh any adapter-specific baselines needed to restore this gesture.
-		virtual void BeginTransformEditSequence() {}
-		virtual auto GetTransform() const -> FTransform = 0;
-		// Apply a preview or restoration. The proxy calls Modify() before the owner's first preview write.
-		virtual auto SetTransform(const FTransform& Transform) -> bool = 0;
-		virtual auto GetParentRotation() const -> FQuat { return FQuatConstants::Identity; }
-		virtual auto GetPackage() const -> DPackage* { return nullptr; }
-		virtual auto GetLabel() const -> std::string = 0;
-		virtual auto GetCapabilities() const -> ETransformGizmoCapability { return ETransformGizmoCapability::All; }
-		virtual auto AddReferencedObjects(FReferenceCollector& Collector) -> void
-		{
-			(void)Collector;
-		}
+		virtual ~FTransformGizmoEditState() = default;
+	};
+
+	struct FTransformGizmoWriteContext
+	{
+		const FTransformGizmoEditState* InitialState = nullptr;
+		uint64 ReplayHistoryId = 0;
+	};
+
+	using FTopologyRevisionReader = uint64 (*)(const DObject&, uint64 HistoryId);
+	using FComponentTransformGetter = std::function<FTransform()>;
+	using FComponentTransformSetter = std::function<bool(const FTransform&, FTransformGizmoWriteContext)>;
+
+	struct FTransformComponentOptions
+	{
+		FTransformGizmoTargetIdentity Identity{};
+		std::string Label;
+		ETransformGizmoCapability Capabilities = ETransformGizmoCapability::All;
+		std::function<bool(uint64)> Validate;
+		std::function<std::shared_ptr<const FTransformGizmoEditState>()> CaptureEditState;
+		FTopologyRevisionReader ReadRevision = nullptr;
+	};
+
+	struct FTransformComponentBinding
+	{
+		TWeakObjectPtr<DSceneComponent> Component;
+		TWeakObjectPtr<AActor> RootOwner;
+		FComponentTransformGetter Getter;
+		FComponentTransformSetter Setter;
+		FTransformComponentOptions Options;
+
+		DURINED_API bool IsValid(uint64 ReplayHistoryId = 0) const;
+		DURINED_API DSceneComponent* GetDataOwner() const;
+		auto GetIdentity() const { return Options.Identity; }
+		DURINED_API FTransform GetTransform() const;
+		DURINED_API bool SetTransform(const FTransform& Value, FTransformGizmoWriteContext Context = {}) const;
+		DURINED_API FQuat GetParentRotation() const;
+		DURINED_API DPackage* GetPackage() const;
+		DURINED_API void AddReferencedObjects(FReferenceCollector& Collector) const;
+		auto GetLabel() const -> const std::string& { return Options.Label; }
+		auto GetCapabilities() const { return Options.Capabilities; }
+		auto GetTopologyRevisionReader() const { return Options.ReadRevision; }
+		auto CaptureEditState() const { return Options.CaptureEditState ? Options.CaptureEditState() : nullptr; }
 	};
 
 	struct FTransformGizmoTargetSet
 	{
-		std::vector<std::shared_ptr<ITransformGizmoTarget>> Targets;
+		std::vector<std::shared_ptr<const FTransformComponentBinding>> Targets;
 		std::string CollectionLabel = "Targets";
 		auto IsEmpty() const -> bool { return Targets.empty(); }
+		DURINED_API void AddComponent(DSceneComponent* Component);
+		DURINED_API void AddComponentCustom(DSceneComponent* Component, FComponentTransformGetter Getter,
+			FComponentTransformSetter Setter, FTransformComponentOptions Options = {});
 	};
-
-} // namespace Durin::LevelEditor
+}

@@ -1,4 +1,5 @@
 #include "Viewport/TransformGizmo.h"
+#include "LevelEditorTransformTargets.h"
 #include "Viewport/TransformGizmoStateTarget.h"
 
 #include "Components/SceneComponent.h"
@@ -21,7 +22,7 @@ namespace Durin::LevelEditor
 		// Keep the manipulator comfortably readable without letting its projected size vary with scene scale.
 		constexpr float GizmoPixels = 112.0f;
 		constexpr float HitRadiusPixels = 12.0f;
-		constexpr double Epsilon = 1.e-8;
+		constexpr double GizmoTolerance = 1.e-8;
 
 		auto ThemeColor(MonaImGui::EUIThemeColor Color, float Alpha) -> FVector4f
 		{
@@ -69,7 +70,7 @@ namespace Durin::LevelEditor
 		auto RayPlane(const FVector3& Origin, const FVector3& Direction, const FVector3& PlanePoint, const FVector3& PlaneNormal, FVector3& Out) -> bool
 		{
 			const double Denominator = Math::Dot(Direction, PlaneNormal);
-			if (std::abs(Denominator) <= Epsilon) return false;
+			if (std::abs(Denominator) <= GizmoTolerance) return false;
 			const double T = Math::Dot(PlanePoint - Origin, PlaneNormal) / Denominator;
 			if (!std::isfinite(T)) return false;
 			Out = Origin + Direction * T;
@@ -93,7 +94,7 @@ namespace Durin::LevelEditor
 
 		auto Snap(double Value, double Step) -> double
 		{
-			return Step > Epsilon ? std::round(Value / Step) * Step : Value;
+			return Step > GizmoTolerance ? std::round(Value / Step) * Step : Value;
 		}
 
 		auto RotationFromX(const FVector3& Direction) -> FQuat
@@ -101,43 +102,13 @@ namespace Durin::LevelEditor
 			const FVector3 From = FVectorConstants::Forward;
 			const FVector3 To = Math::Normalize(Direction);
 			const double Dot = Math::Dot(From, To);
-			if (Dot > 1.0 - Epsilon) return FQuatConstants::Identity;
-			if (Dot < -1.0 + Epsilon)
+			if (Dot > 1.0 - GizmoTolerance) return FQuatConstants::Identity;
+			if (Dot < -1.0 + GizmoTolerance)
 				return Math::MakeQuaternionFromAxisAngleRadians(Math::Pi<double>(), FVectorConstants::Up);
 			const FVector3 Cross = Math::Cross(From, To);
 			return Math::Normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
 		}
 
-		class FActorTransformGizmoTarget final : public ITransformGizmoTarget
-		{
-		public:
-			explicit FActorTransformGizmoTarget(AActor* InActor) : Actor(InActor) {}
-			auto IsValid() const -> bool override { return Actor && !Actor->IsHidden() && Actor->GetRootComponent(); }
-			auto GetIdentity() const -> FTransformGizmoTargetIdentity override { return {Actor.Get()}; }
-			auto GetDataOwner() const -> DObject* override { return Actor ? Actor->GetRootComponent() : nullptr; }
-			auto GetTransform() const -> FTransform override { return Actor ? Actor->GetActorTransform() : FTransform{}; }
-			auto SetTransform(const FTransform& Transform) -> bool override
-			{
-				return Actor && Actor->SetActorTransform(Transform);
-			}
-			auto GetParentRotation() const -> FQuat override
-			{
-				if (Actor && Actor->GetRootComponent())
-					if (const DSceneComponent* Parent = Actor->GetRootComponent()->GetAttachParent()) return Parent->GetWorldRotation();
-				return FQuatConstants::Identity;
-			}
-			auto GetPackage() const -> DPackage* override { return Actor ? Actor->GetPackage() : nullptr; }
-			auto GetLabel() const -> std::string override { return Actor ? Actor->GetActorLabel() : "Missing Actor"; }
-			auto AddReferencedObjects(FReferenceCollector& Collector) -> void override
-			{
-				DObject* Object = Actor.Get();
-				if (Object) Collector.AddReferencedObject(Object);
-				if (Object != Actor.Get()) Actor = Cast<AActor>(Object);
-			}
-
-		private:
-			TObjectPtr<AActor> Actor;
-		};
 	} // namespace
 
 	auto MakeActorTransformGizmoTargets(const FLevelEditorContext& Context) -> FTransformGizmoTargetSet
@@ -151,17 +122,22 @@ namespace Durin::LevelEditor
 			bool bSelectedAncestor = false;
 			for (AActor* Parent = Actor->GetAttachParentActor(); Parent; Parent = Parent->GetAttachParentActor())
 				if (Context.IsActorSelected(Parent)) { bSelectedAncestor = true; break; }
-			if (!bSelectedAncestor) Result.Targets.push_back(std::make_shared<FActorTransformGizmoTarget>(Actor));
+			if (!bSelectedAncestor) Result.AddComponent(Actor->GetRootComponent());
 		}
 		return Result;
 	}
 
-	auto FTransformGizmo::RebuildState(const FTransformGizmoTargetSet& Targets, const FSceneView& View) -> bool
+}
+
+namespace Durin
+{
+	using namespace LevelEditor;
+	auto DTransformGizmo::RebuildState(const FTransformGizmoTargetSet& Targets, const FSceneView& View, DTransactor* Transactions) -> bool
 	{
 		FVector3 Sum(0.0);
 		size_t Count = 0;
 		ActiveCapabilities = ETransformGizmoCapability::All;
-		for (const std::shared_ptr<ITransformGizmoTarget>& Target : Targets.Targets)
+		for (const auto& Target : Targets.Targets)
 		{
 			if (Target && Target->IsValid())
 			{
@@ -172,19 +148,21 @@ namespace Durin::LevelEditor
 		}
 		if (Count == 0 || Count != Targets.Targets.size())
 		{
-			SetActiveTarget(nullptr);
+			ActiveTarget.reset();
 			WorldScale = 0.0f;
 			return false;
 		}
 		const auto Center = Sum / static_cast<double>(Count);
 		const auto& Primary = Targets.Targets.front();
 		const auto Rotation = Primary->GetTransform().Rotation;
+		auto* Proxy = GetActiveTarget();
 		if (!Proxy || !Proxy->MatchesSelection(Targets))
 		{
-			auto* Target = NewObject<DTransformProxy>(nullptr, NAME_None);
-			Target->Initialize(Targets, Center, Rotation);
-			SetActiveTarget(Target);
+			Proxy = NewObject<DTransformProxy>(nullptr, NAME_None);
+			Proxy->Initialize(Targets, Center, Rotation);
+			SetActiveTarget(Proxy, Transactions);
 		}
+		TransactionProvider = Transactions;
 		Proxy->SyncSelectionFrame(Center, Rotation);
 		Pivot = Proxy->GetTransform().Translation;
 		Basis = FQuatConstants::Identity;
@@ -205,7 +183,7 @@ namespace Durin::LevelEditor
 		return std::isfinite(WorldScale) && WorldScale > 0.0f;
 	}
 
-	auto FTransformGizmo::HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle
+	auto DTransformGizmo::HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle
 	{
 		FVector2f Center;
 		if (!SceneViewProjection::ProjectWorldToViewport(View, Pivot, Center)) return ETransformGizmoHandle::None;
@@ -278,7 +256,7 @@ namespace Durin::LevelEditor
 		return Best;
 	}
 
-	auto FTransformGizmo::BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
+	auto DTransformGizmo::BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
 	{
 		ActiveHandle = HitTest(View, Input.MousePosition);
 		if (ActiveHandle == ETransformGizmoHandle::None) return false;
@@ -303,7 +281,7 @@ namespace Durin::LevelEditor
 		else
 		{
 			const FVector3 Side = Math::Cross(RayDirection, DragAxis);
-			if (Math::LengthSquared(Side) <= Epsilon)
+			if (Math::LengthSquared(Side) <= GizmoTolerance)
 			{
 				ActiveHandle = ETransformGizmoHandle::None;
 				return false;
@@ -316,17 +294,25 @@ namespace Durin::LevelEditor
 			return false;
 		}
 		DragStartVector = DragStartPoint - Pivot;
-		if (Math::LengthSquared(DragStartVector) > Epsilon) DragStartVector = Math::Normalize(DragStartVector);
+		if (Math::LengthSquared(DragStartVector) > GizmoTolerance) DragStartVector = Math::Normalize(DragStartVector);
 		DragStartMouseY = Input.MousePosition.y;
+		auto* Proxy = GetActiveTarget();
+		if (!Proxy->MatchesTargetTransforms())
+		{
+			const auto Frame = Proxy->GetTransform();
+			Proxy = NewObject<DTransformProxy>(nullptr, NAME_None);
+			Proxy->Initialize(Targets, Frame.Translation, Frame.Rotation, Frame.Scale3D);
+			Proxy->Activate(ActiveTarget);
+		}
 		StateTarget = NewObject<DTransformGizmoStateTarget>(nullptr, NAME_None);
-		Proxy->BeginTransformEditSequence(Targets);
+		Proxy->BeginTransformEditSequence();
 		const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
 		StateTarget->Initialize(Proxy, Transactions, Action);
 		StateTarget->BeginUpdate();
 		return true;
 	}
 
-	auto FTransformGizmo::ComputeDragFrame(const FSceneView& View, const FLevelEditorViewportInput& Input) -> std::optional<FTransform>
+	auto DTransformGizmo::ComputeDragFrame(const FSceneView& View, const FLevelEditorViewportInput& Input) -> std::optional<FTransform>
 	{
 		FVector3 RayOrigin, RayDirection, Current;
 		if (!SceneViewProjection::BuildViewportRay(View, Input.MousePosition, RayOrigin, RayDirection) || !RayPlane(RayOrigin, RayDirection, Pivot, DragPlaneNormal, Current)) return std::nullopt;
@@ -343,18 +329,18 @@ namespace Durin::LevelEditor
 					Snapped += Axis * Snap(Math::Dot(Delta, Axis), SnapSettings.Translation);
 				Delta = Snapped;
 			}
-			auto Frame = Proxy->GetInitialTransform();
+			auto Frame = GetActiveTarget()->GetInitialTransform();
 			Frame.Translation += Delta;
 			return Frame;
 		}
 		else if (Mode == ETransformGizmoMode::Rotate)
 		{
 			FVector3 Vector = Current - Pivot;
-			if (Math::LengthSquared(Vector) <= Epsilon) return std::nullopt;
+			if (Math::LengthSquared(Vector) <= GizmoTolerance) return std::nullopt;
 			Vector = Math::Normalize(Vector);
 			double Angle = std::atan2(Math::Dot(DragAxis, Math::Cross(DragStartVector, Vector)), Math::Dot(DragStartVector, Vector));
 			if (bSnap) Angle = Math::DegreesToRadians(Snap(Math::RadiansToDegrees(Angle), SnapSettings.RotationDegrees));
-			auto Frame = Proxy->GetInitialTransform();
+			auto Frame = GetActiveTarget()->GetInitialTransform();
 			Frame.Rotation = Math::Normalize(Math::MakeQuaternionFromAxisAngleRadians(Angle, DragAxis) * Frame.Rotation);
 			return Frame;
 		}
@@ -372,31 +358,52 @@ namespace Durin::LevelEditor
 				Factors.y = Factor;
 			else if (ActiveHandle == ETransformGizmoHandle::Z)
 				Factors.z = Factor;
-			auto Frame = Proxy->GetInitialTransform();
+			auto Frame = GetActiveTarget()->GetInitialTransform();
 			Frame.Scale3D *= Factors;
 			return Frame;
 		}
 	}
 
-	DTransformProxy* FTransformGizmo::GetActiveTarget() const { return Proxy.Get(); }
-
-	void FTransformGizmo::SetActiveTarget(DTransformProxy* Target)
+	void DTransformGizmo::SetActiveTarget(DTransformProxy* Target, DTransactor* Transactions)
 	{
-		Proxy = Target;
+		if (Target == GetActiveTarget() && Transactions == TransactionProvider.Get()) return;
+		CancelUpdate();
+		if (IsDragging()) return;
+		ActiveTarget.reset();
+		TransactionProvider = Transactions;
+		HoveredHandle = ETransformGizmoHandle::None;
+		WorldScale = 0.0f;
+		if (Target)
+		{
+			ActiveTarget = std::make_shared<TStrongObjectPtr<DTransformProxy>>();
+			Target->Activate(ActiveTarget);
+		}
 	}
 
-	auto FTransformGizmo::ClearDrag() -> void
+	bool DTransformGizmo::Update(const FSceneView& View, const FLevelEditorViewportInput& Input)
+	{
+		auto* Proxy = GetActiveTarget();
+		const auto Selection = Proxy ? Proxy->GetSelection() : FTransformGizmoTargetSet{};
+		return Update(Selection, View, Input, TransactionProvider.Get());
+	}
+
+	DTransformProxy* DTransformGizmo::GetActiveTarget() const
+	{
+		return ActiveTarget ? ActiveTarget->Get() : nullptr;
+	}
+
+	auto DTransformGizmo::ClearDrag() -> void
 	{
 		StateTarget.Reset();
 		ActiveHandle = ETransformGizmoHandle::None;
 	}
 
-	FTransformGizmo::~FTransformGizmo()
+	DTransformGizmo::~DTransformGizmo()
 	{
 		if (IsDragging()) CancelUpdate();
 	}
 
-	auto FTransformGizmo::CancelUpdate() -> void
+	auto DTransformGizmo::CancelUpdate() -> void
 	{
 		if (!IsDragging()) return;
 		if (StateTarget)
@@ -410,22 +417,23 @@ namespace Durin::LevelEditor
 		ClearDrag();
 	}
 
-	auto FTransformGizmo::Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
+	auto DTransformGizmo::Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
 	{
 		const bool bSucceeded = Update(MakeActorTransformGizmoTargets(Context), View, Input, Transactions);
 		if (!bSucceeded) Context.SetError("Unable to apply or restore the transform gesture.");
 		return bSucceeded;
 	}
 
-	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool try
+	auto DTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool try
 	{
 		if (bUpdating) return true;
 		if (IsDragging())
 		{
+			auto* Proxy = GetActiveTarget();
 			if (Input.bCancel || !StateTarget->CanContinueWith(Transactions) || !Proxy->MatchesSelection(Targets))
 			{
 				CancelUpdate();
-				if (!IsDragging()) RebuildState(Targets, View);
+				if (!IsDragging()) RebuildState(Targets, View, Transactions);
 				return !IsDragging() || GUndo != nullptr;
 			}
 			{
@@ -434,7 +442,7 @@ namespace Durin::LevelEditor
 				{
 					StateTarget->EndUpdate();
 					ClearDrag();
-					RebuildState(Targets, View);
+					RebuildState(Targets, View, Transactions);
 				}
 				else if (const auto Frame = ComputeDragFrame(View, Input); Frame && !Proxy->SetTransform(*Frame))
 					StateTarget->RequestCancel();
@@ -453,7 +461,7 @@ namespace Durin::LevelEditor
 			if (Input.bModeRotate) Mode = ETransformGizmoMode::Rotate;
 			if (Input.bModeScale) Mode = ETransformGizmoMode::Scale;
 		}
-		if (!RebuildState(Targets, View))
+		if (!RebuildState(Targets, View, Transactions))
 		{
 			HoveredHandle = ETransformGizmoHandle::None;
 			return true;
@@ -466,8 +474,9 @@ namespace Durin::LevelEditor
 	catch (const std::exception& Error) { DURIN_WARN("Transform update failed: {}", Error.what()); CancelUpdate(); return false; }
 	catch (...) { DURIN_WARN("Transform update failed."); CancelUpdate(); return false; }
 
-	auto FTransformGizmo::AppendOverlayPrimitives(FSceneView& View) const -> void
+	auto DTransformGizmo::AppendOverlayPrimitives(FSceneView& View) const -> void
 	{
+		auto* Proxy = GetActiveTarget();
 		if (!Proxy || WorldScale <= 0.0f) return;
 		const auto& DisplayPivot = Proxy->GetTransform().Translation;
 		const auto& DisplayBasis = GetEffectiveSpace() == ETransformGizmoSpace::Local ? Proxy->GetTransform().Rotation : Basis;

@@ -54,8 +54,8 @@ namespace Durin::LevelEditor
 		auto PrepareForLevelChange(FLevelEditorContext& Context) -> bool;
 		auto FinalizeViewportFrame(FLevelEditorContext& Context) -> void;
 		auto SetPreferredPlayMode(EPlayStartLocation StartLocation, EPlayDestination Destination) -> void;
-		auto GetTransformGizmo() -> FTransformGizmo*;
-		auto GetTransformGizmo() const -> const FTransformGizmo*;
+		auto GetTransformGizmo() -> DTransformGizmo*;
+		auto GetTransformGizmo() const -> const DTransformGizmo*;
 		auto GetEditModeManager() -> FEditorModeTools& { return EditModeManager; }
 		auto IsOcclusionCullingEnabled() const -> bool;
 		auto SetOcclusionCullingEnabled(bool bEnabled) -> void;
