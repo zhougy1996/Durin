@@ -5,6 +5,9 @@
 
 namespace Durin
 {
+	class FShaderType;
+	class FVertexFactoryType;
+
 	// Owns finalized material program content, shared as const after publication.
 	class FMaterialShaderMap final : public FMaterialCompilationOutput
 	{
@@ -26,6 +29,9 @@ namespace Durin
 		// Elapsed seconds for this map's shader-job stage; retained hits reuse this value.
 		float CompileTime = 0;
 
+		// Pass processors supply their selected shader type. Shared vertex entries serve multiple passes.
+		ENGINE_API auto FindShaderIndex(const FShaderType& Type, const FVertexFactoryType* Factory,
+			uint32 PermutationId) const -> std::optional<size_t>;
 		ENGINE_API auto GetShaderMapId() const -> FMaterialProgramIdentity;
 		ENGINE_API static auto FindId(FMaterialProgramIdentity Identity) -> std::shared_ptr<const FMaterialShaderMap>;
 		ENGINE_API static auto Register(std::shared_ptr<const FMaterialShaderMap> ShaderMap, bool Replace = false)

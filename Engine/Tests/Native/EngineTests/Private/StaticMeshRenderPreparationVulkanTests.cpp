@@ -2478,8 +2478,8 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 		FTextureReference Reference;
 		std::array<FTextureRHIRef, 2> Textures;
 		const auto MaterialProxy = Material->GetRenderProxy();
-		const FGuid TextureParameterId = Sample->Metadata.Id;
-		const FGuid BrightnessParameterId = Brightness->Metadata.Id;
+		const FMaterialFieldKey TextureParameterKey(Sample->Metadata.Name.ToString());
+		const FMaterialFieldKey BrightnessParameterKey(Brightness->Metadata.Name.ToString());
 		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			const std::array<std::array<uint8, 4>, 2> Colors{{{255, 0, 0, 255}, {0, 255, 0, 255}}};
 			for (size_t Index = 0; Index < Textures.size(); ++Index)
@@ -2497,7 +2497,7 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 			Reference.SetReferencedTexture_RenderThread(Textures[0]);
 			Data = MaterialProxy->GetMaterialWithFallback();
 			FMaterialRenderRepresentationBuilder Builder(Data.Representation);
-			ASSERT_TRUE(Builder.SetTexture(TextureParameterId, Reference.GetTextureReferenceRHI()));
+			ASSERT_TRUE(Builder.SetTexture(TextureParameterKey, Reference.GetTextureReferenceRHI()));
 			FMaterialRenderValidationDiagnostic Diagnostic;
 			ASSERT_TRUE(Builder.Build(Data.Representation, Diagnostic));
 			FProceduralProxy Proxy;
@@ -2538,7 +2538,7 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 			if (Frame == 5)
 			{
 				FMaterialRenderRepresentationBuilder Builder(Data.Representation);
-				ASSERT_TRUE(Builder.SetScalar(BrightnessParameterId, 0.25f));
+				ASSERT_TRUE(Builder.SetScalar(BrightnessParameterKey, 0.25f));
 				FMaterialRenderValidationDiagnostic Diagnostic;
 				ASSERT_TRUE(Builder.Build(Data.Representation, Diagnostic));
 				Publish();
@@ -2551,7 +2551,7 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 				FMaterialRenderRepresentationBuilder Builder(Data.Representation);
 				FMaterialSamplerState Sampler;
 				Sampler.MagFilter = EMaterialSamplerMagFilter::Nearest;
-				ASSERT_TRUE(Builder.SetTexture(TextureParameterId, Reference.GetTextureReferenceRHI(), Sampler));
+				ASSERT_TRUE(Builder.SetTexture(TextureParameterKey, Reference.GetTextureReferenceRHI(), Sampler));
 				FMaterialRenderValidationDiagnostic Diagnostic;
 				ASSERT_TRUE(Builder.Build(Data.Representation, Diagnostic));
 				Publish();

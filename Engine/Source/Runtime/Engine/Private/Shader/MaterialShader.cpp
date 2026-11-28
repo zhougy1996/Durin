@@ -1,5 +1,5 @@
+#include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialPreparedProgram.h"
-#include "Materials/MaterialProgramCompiler.h"
 #include "Shader/ShaderMapPreparation.h"
 #include "Shader/MaterialShader.h"
 #include "RenderResourcePreparation.h"
@@ -241,44 +241,17 @@ namespace Durin
 		return Result;
 	}
 
-	auto FMeshMaterialShaderMap::TryCreate(
-		FMeshMaterialShaderMapBuildInput Input,
+	auto FMeshMaterialShaderMap::Assemble(const FMeshMaterialShaderMapCompileInput& Input,
+		const FShaderCompilerOutput& CompilerOutput, std::span<const FMaterialShaderEntryRequest* const> Entries,
 		FMeshMaterialShaderMap& OutMap) -> FShaderOperationResult
 	{
 		FShaderOperationResult Result;
-		OutMap = {};
-
-		if (Input.ShaderTypes.empty())
-		{
-			return std::unexpected(std::string("Material shader map requires at least one shader type."));
-		}
-		if (!std::isfinite(Input.Identity.OpacityMaskThreshold))
-		{
-			return std::unexpected(std::string("Material shader identity has a non-finite opacity mask threshold."));
-		}
-		if (Input.bContainsGeneratedMaterialStages
-			&& Input.CompiledProgramIdentity != Input.Identity.ProgramIdentity)
-		{
-			return std::unexpected(std::format(
-				"Compiled material program identity '{}' does not match requested identity '{}'.",
-				(Input.CompiledProgramIdentity.ToString()), (Input.Identity.ProgramIdentity.ToString())));
-		}
-		if (Input.bContainsGeneratedMaterialStages
-			&& (Input.Target.empty() || Input.CompiledTarget != Input.Target))
-		{
-			return std::unexpected(std::format(
-				"Compiled material target '{}' does not match requested target '{}'.",
-				(Input.CompiledTarget), (Input.Target)));
-		}
 
 		std::vector<std::pair<FXxHash128, std::string>> ExactTypes;
 		size_t MaterialTypeCount = 0;
-		for (const FShaderType* Type : Input.ShaderTypes)
+		for (size_t Index = 0; Index < Input.ShaderTypes.size(); ++Index)
 		{
-			if (Type == nullptr)
-			{
-				return std::unexpected(std::string("Material shader map contains a null shader type."));
-			}
+			const auto* Type = Input.ShaderTypes[Index];
 			if (IsMaterialShaderType(Type))
 				++MaterialTypeCount;
 			FMaterialShaderPermutationIdentity Permutation{
@@ -288,47 +261,10 @@ namespace Durin
 				.Target = Input.Target,
 				.PermutationId = Input.LocalPermutationId,
 				.Frequency = Type->GetFrequency()};
-			if (Input.bContainsGeneratedMaterialStages)
+			if (const auto* Entry = Entries[Index])
 			{
-				if (const auto* D = FindMaterialShaderEntry(Type->GetName()); D) {
-					if (D->PermutationId != Input.LocalPermutationId || (D->VertexFactory && D->VertexFactory() != Input.VertexFactoryType))
-						return std::unexpected(std::string("Registered Material Shader permutation or Vertex Factory is incompatible."));
-				}
-				const auto SourceEntry = Type->GetEntryPoint();
-				const auto Contract = std::ranges::find_if(Input.GeneratedEntries, [&](const auto& E) {
-					return E.Shader.ShaderType == Type->GetName() && E.Shader.EntryPoint == SourceEntry
-						&& E.Shader.Frequency == Type->GetFrequency() && E.Shader.PermutationId == Input.LocalPermutationId;
-				});
-				// Indirect factories retain their own fixed vertex program.
-				if (Contract != Input.GeneratedEntries.end())
-				{
-					auto RequestedMaterial = Input.Identity;
-					if (RequestedMaterial.BlendMode != EMaterialBlendMode::Masked)
-						RequestedMaterial.OpacityMaskThreshold = FMaterialStaticProperties{}.OpacityMaskThreshold;
-					if (Contract->Shader.Material != RequestedMaterial || Contract->Shader.Target != Input.Target
-						|| Contract->Shader.PassContractVersion != CurrentMaterialPassContractVersion
-						|| (Contract->Mesh && (!Input.VertexFactoryType || Contract->Mesh->VertexFactoryType != Input.VertexFactoryType->GetName())))
-						return std::unexpected(std::format("Generated material execution contract is incompatible: requested {}, compiled {}, factory {}.", GetMaterialShaderIdentityText(Permutation), GetMaterialShaderIdentityText(Contract->Shader), Input.VertexFactoryType ? std::string(Input.VertexFactoryType->GetName()) : "none"));
-					if (const auto* D = FindMaterialShaderEntry(Type->GetName()); D) {
-                        const auto Slot = std::ranges::find(Input.ShaderTypes, Type) - Input.ShaderTypes.begin();
-                        if (size_t(Slot) >= Input.CompilerOutput.CompiledShaders.size()) return std::unexpected(std::string("Material binding code slot is missing."));
-                        if (!Input.CompiledParameters) return std::unexpected(std::string("Compiled parameter metadata is missing."));
-                        const auto& Parameters = *Input.CompiledParameters;
-                        const auto Schema = BuildMaterialParameterSchema(D->ShaderType, Parameters.Layout, Parameters.CollectionLayouts);
-                        const auto Logical = ValidateMaterialShaderBindings(Input.CompilerOutput.CompiledShaders[Slot].Reflection,
-                            D->ShaderType, D->Frequency, Parameters.Layout, Parameters.CollectionLayouts);
-                        if (!Schema || Contract->ParameterSchemaIdentity != Schema->Identity || !Logical || *Logical != Contract->Bindings
-                            || Contract->ParameterMapIdentity != GetMaterialParameterMapIdentity(*Contract, Input.CompilerOutput.CompiledShaders[Slot]))
-                            return std::unexpected(std::string("Accepted material schema/allocation does not match its compiled product."));
-
-						FMaterialStaticProperties P; P.BlendMode = static_cast<EMaterialBlendMode>(uint8(Input.Identity.BlendMode)); P.ShadingModel = static_cast<EMaterialShadingModel>(uint8(Input.Identity.ShadingModel));
-						if (Contract->Shader.OutputLayout != GetMaterialShaderOutputLayout(*D, P)) return std::unexpected(std::string("Material Shader output contract is incompatible."));
-					}
-					Permutation.PassContractVersion = Contract->Shader.PassContractVersion;
-					Permutation.OutputLayout = Contract->Shader.OutputLayout;
-				}
-				else if (Type->GetFrequency() == EShaderFrequency::Fragment || FindMaterialShaderEntry(Type->GetName()))
-					return std::unexpected(std::string("Generated material entry contract is missing."));
+				Permutation.PassContractVersion = Entry->Shader.PassContractVersion;
+				Permutation.OutputLayout = Entry->Shader.OutputLayout;
 			}
 			if (IsMeshMaterialShaderType(Type))
 			{
@@ -370,26 +306,30 @@ namespace Durin
 
 		auto Candidate = std::make_shared<FMeshMaterialShaderMapPayload>();
 		Candidate->ShaderMap = std::make_shared<FShaderMapBase>();
-		if (!(Result = Candidate->ShaderMap->Initialize(Input.ShaderTypes, Input.CompilerOutput, Input.CompileOptions, true)))
+		if (!(Result = Candidate->ShaderMap->Initialize(Input.ShaderTypes, CompilerOutput, Input.CompileOptions, true)))
 		{
 			return Result;
 		}
-		for (const FShaderType* Type : Input.ShaderTypes)
+		for (size_t Index = 0; Index < Input.ShaderTypes.size(); ++Index)
 		{
+			const auto* Type = Input.ShaderTypes[Index];
 			FShader* Shader = Candidate->ShaderMap->GetShader(Type);
 			if (Shader == nullptr)
 			{
 				return std::unexpected(std::format("Material shader map is missing type '{}'.", (std::string(Type->GetName()))));
 			}
-            if (IsMaterialShaderType(Type)) {
-                const auto Entry = std::ranges::find(Input.GeneratedEntries, std::string(Type->GetName()), [](const auto& E) { return E.Shader.ShaderType; });
-                if (Entry != Input.GeneratedEntries.end()) static_cast<FMaterialShader*>(Shader)->SetAcceptedParameterBindings(Entry->Bindings);
-                else if (const auto* D = FindMaterialShaderEntry(Type->GetName()); D && !Input.bContainsGeneratedMaterialStages) {
-                    const auto Bindings = ValidateMaterialShaderBindings(Shader->GetReflection(), D->ShaderType, D->Frequency, {}, {});
-                    if (!Bindings) return std::unexpected(Bindings.error());
-                    static_cast<FMaterialShader*>(Shader)->SetAcceptedParameterBindings(*Bindings);
-                }
-            }
+			if (IsMaterialShaderType(Type))
+			{
+				auto* MaterialShader = static_cast<FMaterialShader*>(Shader);
+				if (const auto* Entry = Entries[Index])
+					MaterialShader->SetAcceptedParameterBindings(Entry->Bindings);
+				else if (const auto* D = FindMaterialShaderEntry(Type->GetName()))
+				{
+					const auto Bindings = ValidateMaterialShaderBindings(Shader->GetReflection(), D->ShaderType, D->Frequency, {}, {});
+					if (!Bindings) return std::unexpected(Bindings.error());
+					MaterialShader->SetAcceptedParameterBindings(*Bindings);
+				}
+			}
 
 			if (Input.bCreateRHIShaders
 				&& Shader->GetOrCreateRHIShader(false) == nullptr)
@@ -406,7 +346,7 @@ namespace Durin
 	}
 
 	template<class TResult>
-	static auto CompileMeshMaterialShaderMap(
+	auto FMeshMaterialShaderMap::Compile(
 		FMeshMaterialShaderMapCompileInput Input,
 		FMeshMaterialShaderMap& OutMap,
 		TResult (*Initialize)(FShaderMapBase&, std::span<const FShaderType* const>, const FShaderCompileOptions&)) -> TResult
@@ -419,35 +359,38 @@ namespace Durin
 			return std::unexpected(std::string("Material shader map requires at least one shader type."));
 		}
 
+		if (!std::isfinite(Input.Identity.OpacityMaskThreshold))
+			return std::unexpected(std::string("Invalid material opacity mask threshold."));
+		const auto* Accepted = Input.AcceptedMap.get();
+		if (Accepted && (Accepted->ShaderMapId != Input.Identity.ProgramIdentity || Accepted->Layout.Identity != Input.Identity.RenderLayout
+			|| Accepted->PassContractVersion != CurrentMaterialPassContractVersion || Accepted->Target != Input.Target))
+			return std::unexpected(std::string("Accepted material shader map does not match the requested program, layout, pass contract or target."));
+
+		auto Material = Input.Identity;
+		if (Material.BlendMode != EMaterialBlendMode::Masked)
+			Material.OpacityMaskThreshold = FMaterialStaticProperties{}.OpacityMaskThreshold;
+
 		std::vector<const FShaderType*> FixedTypes;
-		std::vector<const FShaderCode*> SelectedGenerated(
-			Input.ShaderTypes.size(), nullptr);
+		std::vector<const FShaderCode*> SelectedGenerated(Input.ShaderTypes.size());
+		std::vector<const FMaterialShaderEntryRequest*> Entries(Input.ShaderTypes.size());
 		for (size_t Index = 0; Index < Input.ShaderTypes.size(); ++Index)
 		{
-			const FShaderType* Type = Input.ShaderTypes[Index];
-			if (Type == nullptr)
+			const auto* Type = Input.ShaderTypes[Index];
+			if (!Type) return std::unexpected(std::string("Material shader map contains a null shader type."));
+			if (!Accepted || (Input.bUseFixedVertexStage && Type->GetFrequency() == EShaderFrequency::Vertex))
 			{
-				return std::unexpected(std::string("Material shader map contains a null shader type."));
-			}
-			const auto Contract = std::ranges::find_if(Input.GeneratedEntries, [&](const auto& E) {
-				return E.Shader.ShaderType == Type->GetName() && E.Shader.EntryPoint == Type->GetEntryPoint()
-					&& E.Shader.Frequency == Type->GetFrequency() && E.Shader.PermutationId == Input.LocalPermutationId;
-			});
-			const auto Generated = Contract == Input.GeneratedEntries.end() || Input.GeneratedEntries.size() != Input.GeneratedStages.size()
-				? Input.GeneratedStages.end() : Input.GeneratedStages.begin() + (Contract - Input.GeneratedEntries.begin());
-			if (Generated != Input.GeneratedStages.end() && (Generated->SourceEntryPoint != Type->GetEntryPoint() || Generated->Frequency != Type->GetFrequency()))
-				return std::unexpected(std::string("Generated material code does not match its registered execution contract."));
-			if (Generated != Input.GeneratedStages.end()) SelectedGenerated[Index] = &*Generated;
-			else if (!Input.GeneratedStages.empty()
-				&& IsMaterialShaderType(Type)
-				&& (!IsMeshMaterialShaderType(Type) || FindMaterialShaderEntry(Type->GetName())))
-			{
-				return std::unexpected(std::format(
-				"Accepted material program has no {} stage for type '{}'.",
-				(std::string(Type->GetEntryPoint())), (std::string(Type->GetName()))));
-			}
-			else
 				FixedTypes.push_back(Type);
+				continue;
+			}
+			const auto Slot = Accepted->FindShaderIndex(*Type, Input.VertexFactoryType, Input.LocalPermutationId);
+			if (!Slot)
+				return std::unexpected(std::format("Accepted material program has no compatible stage for type '{}' permutation {}.",
+					Type->GetName(), Input.LocalPermutationId));
+			const auto& Entry = Accepted->Entries[*Slot];
+			if (Entry.Shader.Material != Material)
+				return std::unexpected(std::string("Accepted material entry does not match the requested material properties."));
+			Entries[Index] = &Entry;
+			SelectedGenerated[Index] = &Accepted->CompiledShaders[*Slot];
 		}
 
 		// Compile each source independently before linking validated stage interfaces.
@@ -504,34 +447,19 @@ namespace Durin
 				(*FoundMap)->GetCode()->GetCompiledShader(*(*FoundMap)->FindShaderIndex(Type)));
 		}
 
-		return FMeshMaterialShaderMap::TryCreate({
-			.Identity = Input.Identity,
-			.Target = std::move(Input.Target),
-			.LocalPermutationId = Input.LocalPermutationId,
-			.VertexFactoryType = Input.VertexFactoryType,
-			.MeshPassKey = Input.MeshPassKey,
-			.MeshPermutationId = Input.MeshPermutationId,
-			.ShaderTypes = Input.ShaderTypes,
-			.CompilerOutput = std::move(Combined),
-			.CompileOptions = std::move(Input.CompileOptions),
-			.bContainsGeneratedMaterialStages = !Input.GeneratedStages.empty(),
-			.CompiledProgramIdentity = Input.CompiledProgramIdentity,
-			.CompiledTarget = std::move(Input.CompiledTarget),
-			.GeneratedEntries = Input.GeneratedEntries,
-            .CompiledParameters = Input.CompiledParameters,
-			.bCreateRHIShaders = Input.bCreateRHIShaders}, OutMap);
+		return Assemble(Input, Combined, Entries, OutMap);
 	}
 
 	auto FMeshMaterialShaderMap::TryCompile(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderMapQueryResult
 	{
-		return CompileMeshMaterialShaderMap(std::move(Input), OutMap, InitializeShaderMapFromTypes);
+		return Compile(std::move(Input), OutMap, InitializeShaderMapFromTypes);
 	}
 
 	auto FMeshMaterialShaderMap::TryCompileSync(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion
 	{
 		if (IsInRenderingThread())
 			return FShaderCompletion::Failure("Synchronous shader compilation is forbidden on the rendering thread.");
-		return CompileMeshMaterialShaderMap(std::move(Input), OutMap, InitializeShaderMapFromTypesSync);
+		return Compile(std::move(Input), OutMap, InitializeShaderMapFromTypesSync);
 	}
 
 	auto FMeshMaterialShaderMap::GetIdentity() const

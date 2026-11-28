@@ -1,4 +1,4 @@
-#include "Materials/MaterialProgramCompiler.h"
+#include "Materials/MaterialShaderMap.h"
 #include "Shader/ShaderMapPreparation.h"
 #pragma once
 
@@ -163,12 +163,16 @@ namespace Durin
 				{
 					std::swap(Entries[0], Entries[1]); std::swap(ComposedStages[0], ComposedStages[1]);
 				}
+				auto Accepted = std::make_shared<FMaterialShaderMap>();
+				Accepted->ShaderMapId = Program;
+				Accepted->Target = Entries.front().Shader.Target;
+				Accepted->Entries = std::move(Entries);
+				Accepted->CompiledShaders = std::move(ComposedStages);
 				ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompileSync({
 					.Identity = {.ProgramIdentity = Program}, .Target = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"),
 					.VertexFactoryType = *Factory, .MeshPassKey = static_cast<uint32>(Pass),
 					.ShaderTypes = ComposedTypes, .FixedShaderRuntimeRequest = Request.Name,
-					.GeneratedStages = ComposedStages, .CompiledProgramIdentity = Program,
-					.CompiledTarget = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"), .GeneratedEntries = Entries, .CompiledParameters = std::make_shared<FMaterialCompilationOutput>(), .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << ShaderResult.Error;
+					.AcceptedMap = Accepted, .bUseFixedVertexStage = Pass == 2, .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << ShaderResult.Error;
 				if (Pass == 2)
 				{
 					const std::array<const FShaderType*, 2> OpaqueTypes{RuntimeTypes.front(), FragmentTypes[3]};

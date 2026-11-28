@@ -94,23 +94,8 @@ namespace Durin::RendererPrivate
 		RendererPrivate::FRenderStageTimings Timings(false, "InitializeMaterialShaderMap",
 			GRenderFrameCounterRenderThread <= 5 ? 0.25 : 20.0);
 		Timings.Next("CheckAcceptedProgramIdentity");
-		if (MaterialProgram != nullptr)
-		{
-			// Engine validates the immutable program before publication. Consumption
-			// checks this request's identity; Pending must not revalidate the artifact.
-			if (!MaterialProgram->HasShaderMap())
-				return std::unexpected(std::string("Accepted material program has no shader map."));
-			if (MaterialProgram->GetShaderMap().ShaderMapId != Identity.ProgramIdentity)
-				return std::unexpected(std::format(
-				"Compiled material program identity '{}' does not match requested identity '{}'.",
-				(MaterialProgram->GetShaderMap().ShaderMapId.ToString()), (Identity.ProgramIdentity.ToString())));
-			if (MaterialProgram->GetShaderMap().Layout.Identity != Identity.RenderLayout)
-				return std::unexpected(std::format("Material layout '{}' version {} does not match '{}' version {}.",
-				(MaterialProgram->GetShaderMap().Layout.Identity.Id.ToString()), (MaterialProgram->GetShaderMap().Layout.Identity.Version), (Identity.RenderLayout.Id.ToString()), (Identity.RenderLayout.Version)));
-			if (MaterialProgram->GetShaderMap().PassContractVersion != CurrentMaterialPassContractVersion)
-				return std::unexpected(std::format("Material pass contract {} does not match {}.", (MaterialProgram->GetShaderMap().PassContractVersion), (CurrentMaterialPassContractVersion)));
-		}
-		Timings.Next("AdaptGeneratedStages");
+		if (MaterialProgram && !MaterialProgram->HasShaderMap())
+			return std::unexpected(std::string("Accepted material program has no shader map."));
 		const auto Factory = FindMeshVertexFactory(VertexFactoryType.GetStableKey());
 		if (!Factory)
 		{
@@ -118,34 +103,6 @@ namespace Durin::RendererPrivate
 		}
 		const std::array<const FShaderType*, 2> Types{
 			&VertexType, &FragmentType};
-		std::span<const FShaderCode> GeneratedStages = MaterialProgram
-			? std::span<const FShaderCode>(MaterialProgram->GetShaderMap().CompiledShaders)
-			: std::span<const FShaderCode>{};
-		// A declared generated use must never fall through to a fixed-source
-		// compilation when its geometry or pass was excluded at material build.
-		if (MaterialProgram)
-		{
-			for (const auto Entry : {FragmentType.GetEntryPoint(),
-				Factory->UsesGeneratedMaterialVertexStage(MeshPassKey) ? VertexType.GetEntryPoint() : std::string_view{}})
-				if (!Entry.empty() && !std::ranges::any_of(GeneratedStages,
-					[Entry](const auto& Stage) { return Stage.SourceEntryPoint == Entry; }))
-					return std::unexpected(std::format(
-				"Accepted material program has no {} stage for type '{}'.",
-				(std::string(Entry)), (std::string{})));
-		}
-		std::span<const FMaterialShaderEntryRequest> GeneratedEntries = MaterialProgram ? std::span<const FMaterialShaderEntryRequest>(MaterialProgram->GetShaderMap().Entries) : std::span<const FMaterialShaderEntryRequest>{};
-		std::vector<FMaterialShaderEntryRequest> FactoryCompatibleEntries;
-		std::vector<FShaderCode> FactoryCompatibleStages;
-		if (!Factory->UsesGeneratedMaterialVertexStage(MeshPassKey))
-		{
-			for (const auto& Stage : GeneratedStages)
-				if (Stage.Frequency != EShaderFrequency::Vertex)
-					FactoryCompatibleStages.push_back(Stage);
-			GeneratedStages = FactoryCompatibleStages;
-			for (const auto& Entry : GeneratedEntries)
-				if (Entry.Shader.Frequency != EShaderFrequency::Vertex) FactoryCompatibleEntries.push_back(Entry);
-			GeneratedEntries = FactoryCompatibleEntries;
-		}
 		Timings.Next("TryCompileShaderMap");
 		return FMeshMaterialShaderMap::TryCompile({
 			.Identity = Identity,
@@ -157,13 +114,8 @@ namespace Durin::RendererPrivate
 			.CompileOptions = VertexCompileOptions,
 			.FixedShaderRuntimeRequest = Factory->GetRuntimeRequestName(MeshPassKey),
 			.FixedFragmentRuntimeRequest = FragmentType.GetName() == "FSurfaceOpaqueShadowFragmentShader" ? "Surface.OpaqueShadow" : FragmentType.GetEntryPoint() == "HitProxyFragmentMain" ? "Surface.HitProxy" : "",
-			.GeneratedStages = GeneratedStages,
-			.CompiledProgramIdentity = MaterialProgram
-				? MaterialProgram->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{},
-			.CompiledTarget = MaterialProgram
-				? MaterialProgram->GetShaderMap().Target : std::string{},
-			.GeneratedEntries = GeneratedEntries,
-            .CompiledParameters = MaterialProgram ? MaterialProgram->ShaderMap : nullptr,
+			.AcceptedMap = MaterialProgram ? MaterialProgram->ShaderMap : nullptr,
+			.bUseFixedVertexStage = !Factory->UsesGeneratedMaterialVertexStage(MeshPassKey),
 			.bCreateRHIShaders = true}, OutShaderMap);
 	}
 

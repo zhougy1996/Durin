@@ -1,5 +1,7 @@
 #include "Materials/MaterialShaderMap.h"
 #include "MaterialPreparedProgram.h"
+#include "Shader/Shader.h"
+#include "VertexFactory.h"
 namespace Durin
 {
 	FMaterialShaderMap::FMaterialShaderMap() = default;
@@ -13,6 +15,20 @@ namespace Durin
 	{ static const FMaterialShaderMap Empty; return ShaderMap ? *ShaderMap : Empty; }
 	auto FMaterialProgram::GetDebugData() const -> const FMaterialProgramDebugData&
 	{ static const FMaterialProgramDebugData Empty; const auto& Debug = GetShaderMap().DebugData; return Debug ? *Debug : Empty; }
+	auto FMaterialShaderMap::FindShaderIndex(const FShaderType& Type, const FVertexFactoryType* Factory,
+		uint32 PermutationId) const -> std::optional<size_t>
+	{
+		const auto Entry = std::ranges::find_if(Entries, [&](const FMaterialShaderEntryRequest& Candidate) {
+			return Candidate.Shader.ShaderType == Type.GetName() && Candidate.Shader.PermutationId == PermutationId
+				&& Candidate.Shader.Frequency == Type.GetFrequency() && Candidate.Shader.EntryPoint == Type.GetEntryPoint()
+				&& (!Candidate.Mesh || (Factory && Candidate.Mesh->VertexFactoryType == Factory->GetName()));
+		});
+		if (Entry == Entries.end()) return {};
+		const size_t Index = Entry - Entries.begin();
+		if (Index >= CompiledShaders.size() || CompiledShaders[Index].Frequency != Type.GetFrequency()
+			|| CompiledShaders[Index].SourceEntryPoint != Type.GetEntryPoint()) return {};
+		return Index;
+	}
 	auto FMaterialShaderMap::GetShaderMapId() const -> FMaterialProgramIdentity
 	{
 		return ShaderMapId;

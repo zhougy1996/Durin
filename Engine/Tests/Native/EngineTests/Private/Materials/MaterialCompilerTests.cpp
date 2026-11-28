@@ -135,8 +135,7 @@ TEST(FMaterialShaderStageTests, RegisteredFactoryPolicyCompilesAndRejectsEntryOn
 	FMeshMaterialShaderMapCompileInput Admission{
 		.Identity = Entry->Shader.Material, .Target = Map.Target, .LocalPermutationId = 37,
 		.VertexFactoryType = GetM15TestFactory(), .ShaderTypes = std::span(&Type, 1),
-		.GeneratedStages = Map.CompiledShaders, .CompiledProgramIdentity = Map.ShaderMapId,
-		.CompiledTarget = Map.Target, .GeneratedEntries = Map.Entries, .CompiledParameters = Compiled.Resource.ShaderMap, .bCreateRHIShaders = false};
+		.AcceptedMap = Compiled.Resource.ShaderMap, .bCreateRHIShaders = false};
 	Admission.CompileOptions.Target = VulkanShaderTarget;
 	FMeshMaterialShaderMap Accepted;
 	const auto Admitted = FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted);
@@ -171,9 +170,18 @@ TEST(FMaterialShaderStageTests, RegisteredFactoryPolicyCompilesAndRejectsEntryOn
 	Admission.VertexFactoryType = nullptr;
 	EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
 	Admission.VertexFactoryType = GetM15TestFactory();
-	auto WrongEntries = Map.Entries;
-	for (auto& E : WrongEntries) if (E.Shader.ShaderType == "FM15TestVertexShader") E.Shader.ShaderType = "DifferentTypeWithSameEntry";
-	Admission.GeneratedEntries = WrongEntries;
+	// Local and extension factories both use VertexMain. The local pass type was excluded above.
+	const auto& Types = FShaderType::GetTypeList();
+	const auto LocalType = std::ranges::find_if(Types, [](const auto* Shader) {
+		return Shader->GetName() == "FStaticMeshVertexShader";
+	});
+	ASSERT_NE(LocalType, Types.end());
+	ASSERT_EQ((*LocalType)->GetEntryPoint(), Type->GetEntryPoint());
+	const auto* Local = FindMaterialShaderEntry((*LocalType)->GetName());
+	ASSERT_TRUE(Local && Local->VertexFactory);
+	EXPECT_FALSE(Map.FindShaderIndex(**LocalType, Local->VertexFactory(), Local->PermutationId));
+	EXPECT_FALSE(Map.FindShaderIndex(*Type, Local->VertexFactory(), Admission.LocalPermutationId));
+	Admission.Identity.ProgramIdentity.Digest.HashLow ^= 1;
 	EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
 	Input.Environment.Quality = EMaterialQualityLevel::High;
 	EXPECT_FALSE(std::ranges::contains(SelectMaterialShaderEntries(Input.StaticProperties, true, Input.IR.Domain, &Input.Environment), std::string("FM15TestVertexShader")));
@@ -184,9 +192,7 @@ TEST(FMaterialShaderStageTests, RegisteredFactoryPolicyCompilesAndRejectsEntryOn
 	EXPECT_EQ(std::ranges::count(SameEntry.GetShaderMap().CompiledShaders, std::string("VertexMain"), &FShaderCode::SourceEntryPoint), 2);
 	const auto& Both = SameEntry.GetShaderMap();
 	Admission.Identity = std::ranges::find_if(Both.Entries, [](const auto& E) { return E.Shader.ShaderType == "FM15TestVertexShader"; })->Shader.Material;
-	Admission.GeneratedEntries = Both.Entries; Admission.GeneratedStages = Both.CompiledShaders;
-    Admission.CompiledParameters = SameEntry.Resource.ShaderMap;
-	Admission.CompiledProgramIdentity = Both.ShaderMapId;
+	Admission.AcceptedMap = SameEntry.Resource.ShaderMap;
 	EXPECT_TRUE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
 	auto Swapped = Both.CompiledShaders;
 	std::swap(Swapped[0], Swapped[2]);
@@ -3917,18 +3923,15 @@ TEST(FMaterialBindingContractTests, PublishedBindingsRejectMissingExtraWrongKind
     const FShaderType* RuntimeType = *Type;
     const auto* Descriptor = FindMaterialShaderEntry(Entry->Shader.ShaderType);
     ASSERT_NE(Descriptor, nullptr);
-    auto RuntimeEntries = Map.Entries;
     FMeshMaterialShaderMapCompileInput Admission{
         .Identity = Entry->Shader.Material, .Target = Map.Target, .LocalPermutationId = Entry->Shader.PermutationId,
         .VertexFactoryType = Descriptor->VertexFactory ? Descriptor->VertexFactory() : nullptr,
-        .ShaderTypes = std::span(&RuntimeType, 1), .GeneratedStages = Map.CompiledShaders,
-        .CompiledProgramIdentity = Map.ShaderMapId, .CompiledTarget = Map.Target,
-        .GeneratedEntries = RuntimeEntries, .CompiledParameters = Compiled.Resource.ShaderMap, .bCreateRHIShaders = false};
+        .ShaderTypes = std::span(&RuntimeType, 1), .AcceptedMap = Compiled.Resource.ShaderMap, .bCreateRHIShaders = false};
     Admission.CompileOptions.Target = VulkanShaderTarget;
     FMeshMaterialShaderMap RuntimeMap;
     const auto Admitted = FMeshMaterialShaderMap::TryCompileSync(Admission, RuntimeMap);
     ASSERT_TRUE(Admitted) << Admitted.Error;
-    RuntimeEntries[Slot].Bindings.clear();
+    Admission.Identity.RenderLayout.Id = FGuid{};
     EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Admission, RuntimeMap));
     EXPECT_FALSE(RuntimeMap);
     for (uint32 Mutation = 0; Mutation < 16; ++Mutation)

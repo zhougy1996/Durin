@@ -1,4 +1,4 @@
-#include "Materials/MaterialProgramCompiler.h"
+#include "Materials/MaterialShaderMap.h"
 #include <gtest/gtest.h>
 #include "NativeRHIBackendTestSupport.h"
 
@@ -568,51 +568,26 @@ namespace Durin
 			.ProgramIdentity = {.Digest = {.HashLow = 11, .HashHigh = 12}},
 			.BlendMode = FMaterialShaderBlendModeKey(0),
 			.ShadingModel = FMaterialShaderShadingModelKey(1)};
-		const std::array Entries{
-			FMaterialShaderEntryRequest{.Shader = {.Material = Identity, .ShaderType = std::string(FragmentType.GetName()),
-				.EntryPoint = "fragmentMain", .Target = "vulkan-spirv-1.5", .Frequency = EShaderFrequency::Fragment,
-				.PassContractVersion = CurrentMaterialPassContractVersion}}};
-
+		auto Accepted = std::make_shared<FMaterialShaderMap>();
+		Accepted->ShaderMapId = Identity.ProgramIdentity;
+		Accepted->Target = "vulkan-spirv-1.5";
 		const std::array<const FShaderType*, 2> TypesA{&VertexType, &FragmentType};
-		FShaderCompilerOutput OutputA;
-		OutputA.Status = EShaderBuildStatus::Ok;
-		OutputA.CompiledShaders = {
+		for (const auto* Type : TypesA)
+			Accepted->Entries.push_back({.Shader = {.Material = Identity, .ShaderType = std::string(Type->GetName()),
+				.EntryPoint = std::string(Type->GetEntryPoint()), .Target = Accepted->Target, .Frequency = Type->GetFrequency(),
+				.PassContractVersion = CurrentMaterialPassContractVersion}});
+		Accepted->CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "MaterialVertex", 51),
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 52)};
-		FMeshMaterialShaderMap MapA;
+		FMeshMaterialShaderMapCompileInput Input{.Identity = Identity, .Target = Accepted->Target,
+			.VertexFactoryType = &VertexFactoryType, .MeshPassKey = 1, .ShaderTypes = TypesA,
+			.AcceptedMap = Accepted, .bCreateRHIShaders = false};
+		FMeshMaterialShaderMap MapA, MapB;
 		FShaderCompletion Error;
-		ASSERT_TRUE((Error = FMeshMaterialShaderMap::TryCreate({
-			.Identity = Identity,
-			.Target = "vulkan-spirv-1.5",
-			.VertexFactoryType = &VertexFactoryType,
-			.MeshPassKey = 1,
-			.ShaderTypes = TypesA,
-			.CompilerOutput = OutputA,
-			.bContainsGeneratedMaterialStages = true,
-			.CompiledProgramIdentity = Identity.ProgramIdentity,
-			.CompiledTarget = "vulkan-spirv-1.5",
-			.GeneratedEntries = Entries,
-			.bCreateRHIShaders = false}, MapA))) << Error.Error;
-
+		ASSERT_TRUE((Error = FMeshMaterialShaderMap::TryCompileSync(Input, MapA))) << Error.Error;
 		const std::array<const FShaderType*, 2> TypesB{&FragmentType, &VertexType};
-		FShaderCompilerOutput OutputB;
-		OutputB.Status = EShaderBuildStatus::Ok;
-		OutputB.CompiledShaders = {
-			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 52),
-			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "MaterialVertex", 51)};
-		FMeshMaterialShaderMap MapB;
-		ASSERT_TRUE((Error = FMeshMaterialShaderMap::TryCreate({
-			.Identity = Identity,
-			.Target = "vulkan-spirv-1.5",
-			.VertexFactoryType = &VertexFactoryType,
-			.MeshPassKey = 1,
-			.ShaderTypes = TypesB,
-			.CompilerOutput = OutputB,
-			.bContainsGeneratedMaterialStages = true,
-			.CompiledProgramIdentity = Identity.ProgramIdentity,
-			.CompiledTarget = "vulkan-spirv-1.5",
-			.GeneratedEntries = Entries,
-			.bCreateRHIShaders = false}, MapB))) << Error.Error;
+		Input.ShaderTypes = TypesB;
+		ASSERT_TRUE((Error = FMeshMaterialShaderMap::TryCompileSync(Input, MapB))) << Error.Error;
 		EXPECT_EQ(MapA.GetCompatibilityHash(), MapB.GetCompatibilityHash());
 		EXPECT_EQ(MapA.GetCompatibilityText(), MapB.GetCompatibilityText());
 
@@ -628,36 +603,21 @@ namespace Durin
 	{
 		FShaderType& FragmentType = FMaterialFixtureFragmentShader::StaticType();
 		const std::array<const FShaderType*, 1> Types{&FragmentType};
-		FShaderCompilerOutput Output;
-		Output.Status = EShaderBuildStatus::Ok;
-		Output.CompiledShaders = {MakeCompiledShader(
-			EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 61)};
-		const FMeshMaterialShaderMapIdentity Identity{
-			.ProgramIdentity = {.Digest = {.HashLow = 1, .HashHigh = 1}}};
+		auto Accepted = std::make_shared<FMaterialShaderMap>();
+		Accepted->ShaderMapId = {.Digest = {.HashLow = 2, .HashHigh = 2}};
+		Accepted->Target = "vulkan-spirv-1.5";
+		const FMeshMaterialShaderMapIdentity Identity{.ProgramIdentity = Accepted->ShaderMapId};
+		Accepted->Entries.push_back({.Shader = {.Material = Identity, .ShaderType = std::string(FragmentType.GetName()),
+			.EntryPoint = "fragmentMain", .Target = Accepted->Target, .Frequency = EShaderFrequency::Fragment}});
+		Accepted->CompiledShaders = {MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 61)};
+		FMeshMaterialShaderMapCompileInput Input{.Identity = Identity, .Target = Accepted->Target,
+			.ShaderTypes = Types, .AcceptedMap = Accepted, .bCreateRHIShaders = false};
 		FMeshMaterialShaderMap Map;
-		FShaderCompletion Error;
-		EXPECT_FALSE((Error = FMeshMaterialShaderMap::TryCreate({
-			.Identity = Identity,
-			.Target = "vulkan-spirv-1.5",
-			.ShaderTypes = Types,
-			.CompilerOutput = Output,
-			.bContainsGeneratedMaterialStages = true,
-			.CompiledProgramIdentity = {.Digest = {.HashLow = 2, .HashHigh = 2}},
-			.CompiledTarget = "vulkan-spirv-1.5",
-			.bCreateRHIShaders = false}, Map)));
-		ASSERT_FALSE(Error);
-
-		Output.CompiledShaders[0].SourceEntryPoint = "missingMain";
-		EXPECT_FALSE((Error = FMeshMaterialShaderMap::TryCreate({
-			.Identity = Identity,
-			.Target = "vulkan-spirv-1.5",
-			.ShaderTypes = Types,
-			.CompilerOutput = Output,
-			.bContainsGeneratedMaterialStages = true,
-			.CompiledProgramIdentity = Identity.ProgramIdentity,
-			.CompiledTarget = "vulkan-spirv-1.5",
-			.bCreateRHIShaders = false}, Map)));
-		ASSERT_FALSE(Error);
+		Input.Identity.ProgramIdentity.Digest.HashLow ^= 1;
+		EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Input, Map));
+		Input.Identity = Identity;
+		Accepted->CompiledShaders.front().SourceEntryPoint = "missingMain";
+		EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Input, Map));
 	}
 
 	TEST_F(FShaderFoundationTests, ShaderMapLookupByTypeIsStable)

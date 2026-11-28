@@ -205,25 +205,6 @@ namespace Durin
 		} \
 		namespace { const FMeshMaterialShaderType* const ShaderClass##_MeshMaterialShaderRegistration = &ShaderClass::StaticType(); }
 
-	struct FMeshMaterialShaderMapBuildInput
-	{
-		FMeshMaterialShaderMapIdentity Identity;
-		std::string Target;
-		uint32 LocalPermutationId = 0;
-		const FVertexFactoryType* VertexFactoryType = nullptr;
-		uint32 MeshPassKey = 0;
-		uint32 MeshPermutationId = 0;
-		std::span<const FShaderType* const> ShaderTypes;
-		FShaderCompilerOutput CompilerOutput;
-		FShaderCompileOptions CompileOptions;
-		bool bContainsGeneratedMaterialStages = false;
-		FMaterialProgramIdentity CompiledProgramIdentity;
-		std::string CompiledTarget;
-		std::span<const FMaterialShaderEntryRequest> GeneratedEntries;
-		std::shared_ptr<const FMaterialCompilationOutput> CompiledParameters;
-		bool bCreateRHIShaders = true;
-	};
-
 	struct FMeshMaterialShaderMapCompileInput
 	{
 		FMeshMaterialShaderMapIdentity Identity;
@@ -236,13 +217,9 @@ namespace Durin
 		FShaderCompileOptions CompileOptions;
 		std::string FixedShaderRuntimeRequest;
 		std::string FixedFragmentRuntimeRequest;
-		// Products and execution contracts share canonical full-key slots, including
-		// when multiple registered types use the same source entry spelling.
-		std::span<const FShaderCode> GeneratedStages;
-		FMaterialProgramIdentity CompiledProgramIdentity;
-		std::string CompiledTarget;
-		std::span<const FMaterialShaderEntryRequest> GeneratedEntries;
-		std::shared_ptr<const FMaterialCompilationOutput> CompiledParameters;
+		// The pass selects ShaderTypes; generated code and bindings share one accepted map.
+		std::shared_ptr<const FMaterialShaderMap> AcceptedMap;
+		bool bUseFixedVertexStage = false;
 		bool bCreateRHIShaders = true;
 	};
 
@@ -253,7 +230,6 @@ namespace Durin
 		explicit operator bool() const { return Payload != nullptr; }
 
 		// Native admission can yield Pending; OutMap is published only on success.
-		ENGINE_API static auto TryCreate(FMeshMaterialShaderMapBuildInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderOperationResult;
 		ENGINE_API static auto TryCompile(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderMapQueryResult;
 		// Startup/tool assembly with explicit synchronous fixed-stage compilation.
 		ENGINE_API static auto TryCompileSync(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion;
@@ -266,6 +242,12 @@ namespace Durin
 			-> const FPipelineLayoutDesc&;
 
 	private:
+		template<class TResult>
+		static auto Compile(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap,
+			TResult (*Initialize)(FShaderMapBase&, std::span<const FShaderType* const>, const FShaderCompileOptions&)) -> TResult;
+		static auto Assemble(const FMeshMaterialShaderMapCompileInput& Input, const FShaderCompilerOutput& CompilerOutput,
+			std::span<const FMaterialShaderEntryRequest* const> Entries, FMeshMaterialShaderMap& OutMap) -> FShaderOperationResult;
+
 		explicit FMeshMaterialShaderMap(
 			std::shared_ptr<FMeshMaterialShaderMapPayload> InPayload)
 			: Payload(std::move(InPayload)) {}
