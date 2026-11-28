@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Materials/MaterialExpressionInputs.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"

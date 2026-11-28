@@ -1,5 +1,6 @@
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialGraphChanges.h"
+#include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/PropertyChange.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
@@ -45,12 +46,30 @@ namespace Durin
 		return Cast<DMaterialFunction>(MaterialOrFunction) != nullptr;
 	}
 
+	auto DMaterialExpression::VisitStoredInputs(const FStoredInputVisitor& Visit) -> void
+	{
+		uint32 Index = 0;
+		GetClass()->ForEachProperty([&](FProperty* Property) {
+			if (Property->GetKind() != DurinCodeGen::EPropertyGenFlags::Struct) return;
+			const auto* Struct = static_cast<FStructProperty*>(Property)->GetStruct();
+			if (Struct == FMaterialNumericInput::StaticStruct())
+			{
+				for (uint32 Element = 0; Element < Property->GetArrayDim(); ++Element)
+					Visit(Index++, static_cast<FMaterialNumericInput*>(Property->GetValuePtr(this, Element))->Connection);
+				return;
+			}
+			if (Struct != FMaterialExpressionInput::StaticStruct()) return;
+			for (uint32 Element = 0; Element < Property->GetArrayDim(); ++Element)
+				Visit(Index++, *static_cast<FMaterialExpressionInput*>(Property->GetValuePtr(this, Element)));
+		});
+	}
+
 #if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterialExpression::GetInput(int32 Index) -> FMaterialExpressionInput*
 	{
 		if (Index < 0) return nullptr;
 		FMaterialExpressionInput* Result = nullptr;
-		VisitMaterialExpressionInputs(*this, [&](uint32 Slot, FMaterialExpressionInput& Input) {
+		VisitStoredInputs([&](uint32 Slot, FMaterialExpressionInput& Input) {
 			if (Slot == static_cast<uint32>(Index)) Result = &Input;
 		});
 		return Result;
@@ -286,6 +305,19 @@ namespace Durin
 		case EMaterialProperty::MP_Refraction: return &Refraction;
 		default: return nullptr;
 		}
+	}
+
+	auto DMaterialExpressionMakeMaterialAttributes::VisitStoredInputs(const FStoredInputVisitor& Visit) -> void
+	{
+		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
+			Visit(static_cast<uint32>(Definition.Property), *GetExpressionInputForProperty(Definition.Property));
+	}
+
+	auto DMaterialExpressionSetMaterialAttributes::VisitStoredInputs(const FStoredInputVisitor& Visit) -> void
+	{
+		Super::VisitStoredInputs(Visit);
+		for (auto& Attribute : Attributes)
+			Visit(static_cast<uint32>(Attribute.GetProperty()) + 1, Attribute.Input);
 	}
 
 	auto DMaterialExpressionSetMaterialAttributes::Serialize(FArchive& Ar) -> void

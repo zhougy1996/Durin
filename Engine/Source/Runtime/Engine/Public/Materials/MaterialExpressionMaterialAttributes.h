@@ -73,6 +73,7 @@ namespace Durin
 		}
 #endif
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
+		ENGINE_API auto VisitStoredInputs(const FStoredInputVisitor& Visit) -> void override;
 		auto GetAuthoredInputCount() const -> uint32 override { return uint32(FMaterialAttributeDefinitionMap::GetDefinitions().size()); }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
@@ -194,6 +195,7 @@ namespace Durin
 		}
 
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
+		ENGINE_API auto VisitStoredInputs(const FStoredInputVisitor& Visit) -> void override;
 		auto GetAuthoredInputCount() const -> uint32 override { return 1 + static_cast<uint32>(Attributes.size()); }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;

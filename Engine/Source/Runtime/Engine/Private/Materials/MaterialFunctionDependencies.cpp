@@ -9,6 +9,12 @@
 
 namespace Durin
 {
+	auto DMaterialExpressionFunctionCall::VisitStoredInputs(const FStoredInputVisitor& Visit) -> void
+	{
+		for (uint32 Index = 0; Index < FunctionInputs.size(); ++Index)
+			Visit(Index, FunctionInputs[Index].Input);
+	}
+
 #if DURIN_WITH_EDITORONLY_DATA
 	namespace
 	{

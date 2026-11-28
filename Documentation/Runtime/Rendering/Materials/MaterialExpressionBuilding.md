@@ -163,9 +163,12 @@ The catalog reads input names from the class default object's `GetInputInfo`.
 An input can supply a `CatalogAlias` to preserve distinct creation wording.
 Graph pins display the instance's input name.
 
-`MaterialExpressionInputs.h` owns reflected connection traversal and retained
-numeric-default lookup. Fixed members retain declaration order; function calls
-visit binding order. MIR and editor readers borrow the material's named numeric
+`VisitStoredInputs` enumerates an expression's stored connection fields. The
+base implementation uses reflected declaration order for fixed inputs. Make
+uses material property indices, Set appends its stored overrides at sparse
+property-based indices, and calls visit stored binding order. Signature ports
+without a binding have no stored connection slot. `MaterialExpressionInputs.h`
+also provides retained numeric-default lookup. MIR and editor readers borrow the material's named numeric
 fields through `GetNumericInputForProperty`. Make exposes its connection-only
 fields through `GetExpressionInputForProperty`. The same accessor on the material
 accepts both numeric properties and `MP_MaterialAttributes`. Compiler capture

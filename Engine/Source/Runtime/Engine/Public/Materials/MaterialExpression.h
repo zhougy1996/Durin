@@ -110,6 +110,10 @@ namespace Durin
 		}
 		virtual auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo { return {}; }
 		virtual auto GetInputName(int32 Index) const -> std::string_view { return GetInputInfo(Index).Name; }
+		using FStoredInputVisitor = std::function<void(uint32, FMaterialExpressionInput&)>;
+		// Enumerates authored storage slots, including disconnected fields and retained bindings.
+		// The callback must not change which slots exist during enumeration.
+		ENGINE_API virtual auto VisitStoredInputs(const FStoredInputVisitor& Visit) -> void;
 #if DURIN_WITH_EDITORONLY_DATA
 		// Authored presentation. An unset layout uses the graph's default position.
 		DPROPERTY(EditorOnly)

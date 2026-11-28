@@ -3,6 +3,7 @@
 #include "Editor/EditorTransactionTestSupport.h"
 #include "MaterialGraph.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
+#include "Materials/MaterialExpressionInputs.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialShaderMap.h"
 #include "FunctionPortTestFixture.h"
@@ -221,16 +222,24 @@ TEST(FMaterialFunctionEditingTests, UnboundCallPinsCreateBothBindingsInOneTransa
 		ASSERT_NE(LiveSource, nullptr);
 		EXPECT_EQ(LiveSource->FunctionOutputs.size(), OutputSlot < 0 ? 1u : 2u);
 		EXPECT_EQ(LiveSource->FunctionOutputs[0].OutputId, First.Id);
-		const auto* LiveTarget = Cast<DMaterialExpressionFunctionCall>(InPin->GetOwningNode()->GetMaterialExpression());
+		auto* LiveTarget = Cast<DMaterialExpressionFunctionCall>(InPin->GetOwningNode()->GetMaterialExpression());
 		ASSERT_NE(LiveTarget, nullptr);
 		EXPECT_EQ(LiveTarget->FindInputInfo(Input.Id).StoredIndex, InputSlot);
+		std::vector<uint32> StoredSlots;
+		VisitMaterialExpressionInputs(*LiveTarget, [&](uint32 Index, FMaterialExpressionInput& Link) {
+			StoredSlots.push_back(Index);
+			EXPECT_EQ(Link.GetOutputId(), Output.Id);
+			EXPECT_EQ(Link.OutputIndex, OutputSlot);
+		});
 		if (InputSlot < 0)
 		{
+			EXPECT_TRUE(StoredSlots.empty());
 			EXPECT_TRUE(LiveTarget->FunctionInputs.empty());
 			EXPECT_TRUE(InPin->LinkedTo.empty());
 		}
 		else
 		{
+			EXPECT_EQ(StoredSlots, (std::vector<uint32>{static_cast<uint32>(InputSlot)}));
 			ASSERT_EQ(LiveTarget->FunctionInputs.size(), 1u);
 			EXPECT_EQ(LiveTarget->FunctionInputs[InputSlot].Input.GetOutputId(), Output.Id);
 			EXPECT_EQ(LiveTarget->FunctionInputs[InputSlot].Input.OutputIndex, OutputSlot);

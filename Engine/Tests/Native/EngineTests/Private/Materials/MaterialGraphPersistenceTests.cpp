@@ -7,9 +7,12 @@
 #include "Materials/MaterialCustomVersion.h"
 #include "Graph/MaterialEditorPreviewParameter.h"
 #include "Graph/MaterialGraphInteraction.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionArithmetic.h"
 #include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionInputs.h"
+#include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionScene.h"
@@ -850,13 +853,16 @@ TEST(FMaterialGraphPersistenceTests, PackedFunctionAndRetainedIndividualInputsRo
 	Make->Metallic = {Weight.Get()};
 	auto RoughnessValue = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>({71, 1, 1, 4});
 	RoughnessValue->Value = .25f;
-	Make->Roughness = {RoughnessValue.Get()};
+	const auto RoughnessProperty = EMaterialProperty::MP_Roughness;
+	auto Set = Testing::MakeGraphExpression<DMaterialExpressionSetMaterialAttributes>({71, 1, 1, 5});
+	Set->Surface = {Make.Get()};
+	Set->Attributes = {{RoughnessProperty, {RoughnessValue.Get()}}};
 	auto Output = Testing::MakeGraphExpression<DMaterialExpressionFunctionOutput>({71, 1, 1, 3});
 	Output->Port = Function->GetFunctionSignature().Outputs.front();
 	Output->Port.Id = {71, 2, 1, 1};
 	Output->Port.Name = "SurfaceAttributes";
-	Output->Source = {Make.Get()};
-	const std::array<DMaterialExpression*, 4> Body{Weight.Get(), Make.Get(), Output.Get(), RoughnessValue.Get()};
+	Output->Source = {Set.Get()};
+	const std::array<DMaterialExpression*, 5> Body{Weight.Get(), Make.Get(), Output.Get(), RoughnessValue.Get(), Set.Get()};
 	ASSERT_TRUE(Function->SetFunctionExpressions(Body));
 	auto Call = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>({71, 3, 1, 1});
 	ASSERT_TRUE(Call->SetMaterialFunction(Function));
@@ -888,6 +894,22 @@ TEST(FMaterialGraphPersistenceTests, PackedFunctionAndRetainedIndividualInputsRo
 	EXPECT_FALSE(Stored.bUseMaterialAttributes);
 	EXPECT_EQ(Stored.Attributes.GetExpressionId(), Call->Id);
 	EXPECT_EQ(Stored.Attributes.GetOutputId(), Output->Port.Id);
+	const auto* LoadedCall = Cast<DMaterialExpressionFunctionCall>(Stored.Attributes.Expression.Get());
+	ASSERT_NE(LoadedCall, nullptr);
+	const auto* LoadedFunction = Cast<DMaterialFunction>(LoadedCall->Function.Get());
+	ASSERT_NE(LoadedFunction, nullptr);
+	auto* LoadedSet = Cast<DMaterialExpressionSetMaterialAttributes>(
+		FindMaterialExpression(LoadedFunction->GetExpressionCollection().Expressions, Set->Id));
+	ASSERT_NE(LoadedSet, nullptr);
+	ASSERT_EQ(LoadedSet->Attributes.size(), 1u);
+	EXPECT_EQ(LoadedSet->Attributes.front().AttributeID, FMaterialAttributeDefinitionMap::GetID(RoughnessProperty));
+	const auto OverrideSlot = static_cast<uint32>(RoughnessProperty) + 1;
+	std::vector<std::pair<uint32, FGuid>> StoredInputs;
+	VisitMaterialExpressionInputs(*LoadedSet, [&](uint32 Index, FMaterialExpressionInput& Link) {
+		StoredInputs.emplace_back(Index, Link.GetExpressionId());
+	});
+	EXPECT_EQ(StoredInputs, (std::vector<std::pair<uint32, FGuid>>{{0, Make->Id}, {OverrideSlot, RoughnessValue->Id}}));
+	EXPECT_EQ(LoadedSet->GetInput(1), nullptr);
 	const auto& Roughness = Stored.Get(EMaterialProperty::MP_Roughness);
 	EXPECT_EQ(Roughness.Connection.GetExpressionId(), Individual->Id);
 	EXPECT_TRUE(Roughness.UseConstant);

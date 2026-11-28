@@ -1,6 +1,8 @@
 #include "MaterialGraph.h"
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/Material.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Graph/MaterialGraphCommands.h"

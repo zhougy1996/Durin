@@ -78,6 +78,7 @@ namespace Durin
 		ENGINE_API auto UpdateFromFunctionResource(bool bRecreateAndLinkNode = true) -> bool;
 		ENGINE_API auto SetMaterialFunction(DMaterialFunctionInterface* NewFunction) -> bool;
 #endif
+		ENGINE_API auto VisitStoredInputs(const FStoredInputVisitor& Visit) -> void override;
 		auto GetAuthoredInputCount() const -> uint32 override { return static_cast<uint32>(FunctionInputs.size()); }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
