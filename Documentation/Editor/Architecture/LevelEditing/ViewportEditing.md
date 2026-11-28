@@ -231,7 +231,8 @@ their packages, and the shared pivot and basis. The gizmo computes a frame from
 pointer input and snapping. The proxy applies it to each target from its initial
 world transform, including rotation and scale about the shared pivot.
 Targets apply preview and restoration transforms without marking packages dirty.
-On press, `BeginUpdate()` opens the gesture transaction and creates one `FTransformProxyChangeSource` per data owner,
+The gizmo delegates transaction and restoration to a `DTransformGizmoStateTarget`.
+On press, its `BeginUpdate()` opens the gesture transaction and creates one `FTransformProxyChangeSource` per data owner,
 using the same element snapshots as the preview. On release, `EndUpdate()`
 reads the actual final transforms, records each change and closes the transaction. Only sources with
 changed elements contribute a record through `StoreUndo(Owner, Change)`. Actor transforms belong to their root scene components. Spline

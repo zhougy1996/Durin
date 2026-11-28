@@ -1,4 +1,5 @@
 #include "Viewport/TransformGizmo.h"
+#include "Viewport/TransformGizmoStateTarget.h"
 
 #include "Components/SceneComponent.h"
 #include "Transactions/Transactor.h"
@@ -269,7 +270,7 @@ namespace Durin::LevelEditor
 		return Best;
 	}
 
-	auto FTransformGizmo::BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool
+	auto FTransformGizmo::BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
 	{
 		ActiveHandle = HitTest(View, Input.MousePosition);
 		if (ActiveHandle == ETransformGizmoHandle::None) return false;
@@ -309,13 +310,16 @@ namespace Durin::LevelEditor
 		DragStartVector = DragStartPoint - Pivot;
 		if (Math::LengthSquared(DragStartVector) > Epsilon) DragStartVector = Math::Normalize(DragStartVector);
 		DragStartMouseY = Input.MousePosition.y;
-		Proxy = std::make_unique<FTransformProxy>(Targets, Pivot, Basis);
+		StateTarget = NewObject<DTransformGizmoStateTarget>(nullptr, NAME_None);
+		Proxy = std::make_shared<FTransformProxy>(Targets, Pivot, Basis);
 		if (!Proxy->MatchesSelection(Targets))
 		{
 			ClearDrag();
 			return false;
 		}
-		BeginUpdate();
+		const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
+		StateTarget->Initialize(Proxy, Transactions, Action);
+		StateTarget->BeginUpdate();
 		return true;
 	}
 
@@ -375,12 +379,9 @@ namespace Durin::LevelEditor
 
 	auto FTransformGizmo::ClearDrag() -> void
 	{
-		RecordingOperationId = 0;
-		TransactionManager = nullptr;
-		ChangeSources.clear();
+		StateTarget.Reset();
 		Proxy.reset();
 		ActiveHandle = ETransformGizmoHandle::None;
-		bRestorePending = false;
 	}
 
 	FTransformGizmo::~FTransformGizmo()
@@ -388,59 +389,19 @@ namespace Durin::LevelEditor
 		if (IsDragging()) CancelUpdate();
 	}
 
-	auto FTransformGizmo::OwnsRecording() const -> bool
-	{
-		return RecordingOperationId && GUndo && GUndo->GetContext().OperationId == RecordingOperationId;
-	}
-
-	auto FTransformGizmo::BeginUpdate() -> void
-	{
-		if (!TransactionManager) return;
-		const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
-		ChangeSources = Proxy->CreateChangeSources(TransactionManager->GetHistoryId(), Action);
-		const auto Description = Proxy->DescribeChange(Action);
-		if (GUndo || TransactionManager->Begin("TransformGizmo", Description) < 0)
-			throw std::runtime_error("Unable to begin the transform transaction.");
-		RecordingOperationId = GUndo->GetContext().OperationId;
-	}
-
-	auto FTransformGizmo::EndUpdate() -> void
-	{
-		if (!Proxy->CaptureFinalValues()) throw std::runtime_error("Transform target is unavailable.");
-		const bool bChanged = Proxy->HasChanges();
-		const auto PackageRevisions = Proxy->GetPackageEditRevisions();
-		if (TransactionManager)
-		{
-			if (!OwnsRecording()) throw std::runtime_error("Transform transaction is no longer active.");
-			for (const auto& Source : ChangeSources)
-			{
-				auto Change = Source.EndChange();
-				if (bRestorePending || !OwnsRecording()) throw std::runtime_error("Transform update interrupted.");
-				if (Change && !TransactionManager->StoreUndo(Source.GetChangeTarget(), std::move(Change)))
-					throw std::runtime_error("Unable to record the transform change.");
-			}
-			if (bRestorePending || !OwnsRecording()) throw std::runtime_error("Transform update interrupted.");
-			TransactionManager->End();
-		}
-		if (bChanged)
-		{
-			for (const auto& [Package, Revision] : PackageRevisions)
-				if (Package && Package->GetEditRevision() == Revision) Package->MarkDirty();
-		}
-		ClearDrag();
-	}
-
 	auto FTransformGizmo::CancelUpdate() -> void
 	{
 		if (!IsDragging()) return;
-		bRestorePending = true;
-		if (bUpdating) return;
-		const TGuardValue Guard(bUpdating, true);
-		if (OwnsRecording() && TransactionManager) TransactionManager->Cancel();
-		if (GUndo) return;
+		if (StateTarget)
+		{
+			StateTarget->RequestCancel();
+			if (bUpdating) return;
+			const TGuardValue Guard(bUpdating, true);
+			StateTarget->CancelUpdate();
+			if (StateTarget->IsCancelPending()) return;
+		}
 		DisplayPivot = Pivot;
 		DisplayBasis = Basis;
-		if (Proxy && !Proxy->Restore()) return;
 		ClearDrag();
 	}
 
@@ -456,19 +417,17 @@ namespace Durin::LevelEditor
 		if (bUpdating) return true;
 		if (IsDragging())
 		{
-			const bool bRecordingInterrupted = (RecordingOperationId || GUndo) && !OwnsRecording();
-			if (bRestorePending || Input.bCancel || bRecordingInterrupted
-				|| TransactionManager.Get() != Transactions || !Proxy->MatchesSelection(Targets))
+			if (Input.bCancel || !StateTarget->CanContinueWith(Transactions) || !Proxy->MatchesSelection(Targets))
 			{
 				CancelUpdate();
 				return !IsDragging() || GUndo != nullptr;
 			}
 			{
 				const TGuardValue Guard(bUpdating, true);
-				if (!Input.bLeftMouseDown) EndUpdate();
-				else if (!Proxy->UpdatePreview(ComputeDragFrame(View, Input))) bRestorePending = true;
+				if (!Input.bLeftMouseDown) { StateTarget->EndUpdate(); ClearDrag(); }
+				else if (!Proxy->UpdatePreview(ComputeDragFrame(View, Input))) StateTarget->RequestCancel();
 			}
-			if (bRestorePending) { CancelUpdate(); return false; }
+			if (StateTarget && StateTarget->IsCancelPending()) { CancelUpdate(); return false; }
 			return true;
 		}
 		if (GUndo || (Transactions && ResolveEditorTransactor(true).value_or(nullptr) != Transactions))
@@ -490,8 +449,7 @@ namespace Durin::LevelEditor
 		HoveredHandle = Input.bHovered ? HitTest(View, Input.MousePosition) : ETransformGizmoHandle::None;
 		if (!Input.bLeftMousePressed || HoveredHandle == ETransformGizmoHandle::None) return true;
 		const TGuardValue Guard(bUpdating, true);
-		TransactionManager = Transactions;
-		return BeginDrag(Targets, View, Input);
+		return BeginDrag(Targets, View, Input, Transactions);
 	}
 	catch (const std::exception& Error) { DURIN_WARN("Transform update failed: {}", Error.what()); CancelUpdate(); return false; }
 	catch (...) { DURIN_WARN("Transform update failed."); CancelUpdate(); return false; }

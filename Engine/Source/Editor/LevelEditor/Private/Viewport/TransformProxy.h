@@ -19,8 +19,7 @@ namespace Durin::LevelEditor
 		auto GetInitialTransform() const -> const FTransform& { return InitialFrame; }
 		auto UpdatePreview(const std::optional<FTransform>& Frame) -> bool;
 		auto MatchesSelection(const FTransformGizmoTargetSet& Targets) const -> bool;
-		auto HasChanges() const -> bool;
-		auto CaptureFinalValues() -> bool;
+		auto CaptureFinalValues() -> std::optional<bool>;
 		auto CreateChangeSources(uint64 HistoryId, std::string_view Action) const -> std::vector<FTransformProxyChangeSource>;
 		auto Restore() -> bool;
 		auto GetPackageEditRevisions() const -> std::vector<std::pair<TObjectPtr<DPackage>, uint64>>;

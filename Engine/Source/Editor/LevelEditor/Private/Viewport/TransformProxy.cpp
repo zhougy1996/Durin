@@ -210,21 +210,16 @@ namespace Durin::LevelEditor
 			});
 	}
 
-	auto FTransformProxy::HasChanges() const -> bool
+	auto FTransformProxy::CaptureFinalValues() -> std::optional<bool>
 	{
-		return std::ranges::any_of(Snapshots, [](const auto& Snapshot) {
-			return !SameTransform(Snapshot.Initial, Snapshot.Final);
-		});
-	}
-
-	auto FTransformProxy::CaptureFinalValues() -> bool
-	{
+		bool bChanged = false;
 		for (auto& Snapshot : Snapshots)
 		{
-			if (!Snapshot.Target->IsValid() || FObjectKey(Snapshot.Target->GetDataOwner()) != Snapshot.Owner) return false;
+			if (!Snapshot.Target->IsValid() || FObjectKey(Snapshot.Target->GetDataOwner()) != Snapshot.Owner) return std::nullopt;
 			Snapshot.Final = Snapshot.Target->GetTransform();
+			bChanged |= !SameTransform(Snapshot.Initial, Snapshot.Final);
 		}
-		return true;
+		return bChanged;
 	}
 
 	auto FTransformProxy::GetPackageEditRevisions() const -> std::vector<std::pair<TObjectPtr<DPackage>, uint64>>

@@ -4,13 +4,14 @@
 
 #include "CoreMinimal.h"
 
-#include "DObject/ObjectPtr.h"
+#include "DObject/StrongObjectPtr.h"
 #include "SceneView.h"
 #include "LevelEditorTransformTargets.h"
 
 namespace Durin
 {
 	class DTransactor;
+	class DTransformGizmoStateTarget;
 }
 
 namespace Durin
@@ -54,6 +55,9 @@ namespace Durin::LevelEditor
 	class FTransformGizmo
 	{
 	public:
+		FTransformGizmo() = default;
+		FTransformGizmo(const FTransformGizmo&) = delete;
+		auto operator=(const FTransformGizmo&) -> FTransformGizmo& = delete;
 		auto Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool;
 		auto Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool;
 		auto AppendOverlayPrimitives(FSceneView& View) const -> void;
@@ -74,11 +78,8 @@ namespace Durin::LevelEditor
 	private:
 		auto RebuildState(const FTransformGizmoTargetSet& Targets, const FSceneView& View) -> bool;
 		auto HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle;
-		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
+		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool;
 		auto ComputeDragFrame(const FSceneView& View, const FLevelEditorViewportInput& Input) -> std::optional<FTransform>;
-		auto BeginUpdate() -> void;
-		auto EndUpdate() -> void;
-		auto OwnsRecording() const -> bool;
 		auto ClearDrag() -> void;
 
 		ETransformGizmoMode Mode = ETransformGizmoMode::Translate;
@@ -91,17 +92,14 @@ namespace Durin::LevelEditor
 		FQuat Basis{1.0, 0.0, 0.0, 0.0};
 		FQuat DisplayBasis{1.0, 0.0, 0.0, 0.0};
 		float WorldScale = 1.0f;
-		std::unique_ptr<FTransformProxy> Proxy;
-		std::vector<FTransformProxyChangeSource> ChangeSources;
+		std::shared_ptr<FTransformProxy> Proxy;
+		TStrongObjectPtr<DTransformGizmoStateTarget> StateTarget;
 		ETransformGizmoCapability ActiveCapabilities = ETransformGizmoCapability::None;
 		FVector3 DragAxis{0.0};
 		FVector3 DragPlaneNormal{0.0};
 		FVector3 DragStartPoint{0.0};
 		FVector3 DragStartVector{0.0};
 		float DragStartMouseY = 0.0f;
-		TObjectPtr<DTransactor> TransactionManager;
-		uint64 RecordingOperationId = 0;
 		bool bUpdating = false;
-		bool bRestorePending = false;
 	};
 }

@@ -53,7 +53,7 @@ durin_add_native_test(RoadViewportQualificationTests
 		${_road_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_road_level_editor_private}/Viewport/TransformProxy.cpp
 		${_road_level_editor_private}/Workspace/LevelEditorContext.cpp
-	LIBRARIES RoadWeaver Engine DurinEd Renderer MeshBuilder Mona MonaImGui
+	LIBRARIES LevelEditor RoadWeaver Engine DurinEd Renderer MeshBuilder Mona MonaImGui
 	INCLUDE_DIRECTORIES ${_road_level_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
 	COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS

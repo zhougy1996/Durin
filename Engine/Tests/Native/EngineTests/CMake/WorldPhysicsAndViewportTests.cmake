@@ -142,6 +142,7 @@ if(DURIN_WITH_EDITOR)
 			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MonaImGui/Private
 		COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS
 		LIBRARIES
+			LevelEditor
 			Core
 			CoreDObject
 			RHI

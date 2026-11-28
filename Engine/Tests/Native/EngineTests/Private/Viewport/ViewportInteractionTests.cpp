@@ -872,6 +872,7 @@ TEST(FTransformGizmoTests, DestroyingAnActiveGizmoCancelsItsRecording)
 		Initial = Target->Transform;
 		Probe.Begin(Buffer.Get());
 		ASSERT_TRUE(Buffer->IsActive());
+		CollectGarbage(EObjectFlags::Standalone);
 		Probe.Move(Buffer.Get());
 		ASSERT_NE(Target->Transform.Translation, Initial.Translation);
 	}
