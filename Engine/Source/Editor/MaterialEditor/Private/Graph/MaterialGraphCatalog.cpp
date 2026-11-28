@@ -59,7 +59,7 @@ namespace Durin::MaterialEditor
 			FMaterialGraphCatalogEntry Entry;
 			Entry.ExpressionClass = Description.ExpressionClass;
 			Entry.OperationName = Description.Name;
-			Entry.Category = Registration.Category;
+			Entry.Category = Description.Category;
 			Entry.Description = Description.Description;
 			Entry.Opcode = *Description.SemanticOpcode;
 			Entry.ResultType = Shape.ResultType;

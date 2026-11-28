@@ -5057,7 +5057,19 @@ TEST(FMaterialGraphOperationsTests, ClassRegistrySeparatesCreationIdentityFromSh
 			EXPECT_FALSE(Description->Shapes.empty());
 	}
 	EXPECT_EQ(NewRegisteredMaterialExpression(DMaterialExpression::StaticClass()), nullptr);
+	for (const auto& Description : GetMaterialExpressionDescriptions())
+	{
+		const bool Hidden = Description.SemanticOpcode == EMaterialProgramOpcode::PrimitiveCustomData
+			|| Description.SemanticOpcode == EMaterialProgramOpcode::InstanceCustomData;
+		EXPECT_EQ(Classes.contains(Description.ExpressionClass), !Hidden) << Description.Name;
+	}
 	const auto Catalog = EnumerateCatalog();
+	for (const auto& Entry : Catalog)
+	{
+		const auto* Description = FindMaterialExpressionDescription(Entry.ExpressionClass);
+		ASSERT_NE(Description, nullptr);
+		EXPECT_EQ(Entry.Category, Description->Category) << Entry.OperationName;
+	}
 	const auto Scalar = std::ranges::find(Catalog, DMaterialExpressionScalarConstant::StaticClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
 	const auto Vector = std::ranges::find(Catalog, DMaterialExpressionVector3Constant::StaticClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
 	ASSERT_NE(Scalar, Catalog.end()); ASSERT_NE(Vector, Catalog.end());

@@ -14,7 +14,6 @@ namespace Durin::MaterialEditor
 	struct FMaterialGraphExpressionRegistration
 	{
 		const FMaterialExpressionDescription* Description;
-		const char* Category;
 		EMaterialGraphCreationKind CreationKind;
 		EMaterialGraphPaletteShape PaletteShape;
 	};

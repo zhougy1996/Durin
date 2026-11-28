@@ -301,11 +301,12 @@ and attribute defaults; parameter entries receive unique metadata.
 legacy `StandardSurface` and role-bound `TextureCoordinate` are not authorable
 catalog entries.
 
-Engine class-associated descriptions own names, search aliases, input labels and
-authored shapes; see [expression descriptions](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md#class-associated-authoring-descriptions).
-`MaterialGraphExpressionRegistry` binds those descriptions to editor category,
-creation kind and palette policy by reflected class. Initialization validates
-unique registrations and complete direct-creation shapes once; class and
+Engine class-associated descriptions own names, categories, search aliases, input labels and
+authored shapes. See [expression descriptions](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md#class-associated-authoring-descriptions).
+`MaterialGraphExpressionRegistry` enumerates those descriptions for direct creation
+and derives adaptive palette widths from output behavior. Editor policies cover
+hidden classes, asset-bound creation and special palette shapes. Initialization
+validates complete direct-creation shapes once. Class and
 description pointers are borrowed for process lifetime. Catalog enumeration visits
 registered creation shapes. Existing nodes read the description for their bound
 expression class directly. Collection output types come from live declarations.
@@ -319,8 +320,8 @@ commands; typed function/port/collection payloads still supply required context,
 and validation precedes transaction publication. Constants have separate concrete
 class registrations; narrow parameter shapes still create their typed swizzle
 projection. Internal MIR operations have no registration. Adding an ordinary
-expression requires its Engine class adapter, editor policy and Build method,
-with no opcode switch in catalog construction, inspection or creation.
+expression requires its Engine description and Build method. The editor derives
+its catalog entry from that description.
 
 `TextureCoordinates` is the single authored mesh-UV expression and always returns
 Float2. Both "Texture Coordinates" and "UV Channel" palette searches find it;

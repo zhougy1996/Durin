@@ -35,6 +35,7 @@ namespace Durin
 	{
 		DClass* ExpressionClass;
 		std::optional<EMaterialProgramOpcode> SemanticOpcode;
+		std::string_view Category;
 		std::string_view Name;
 		std::string_view Description;
 		std::string_view SearchKeywords;
