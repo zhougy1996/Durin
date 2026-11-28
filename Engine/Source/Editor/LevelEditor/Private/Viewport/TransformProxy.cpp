@@ -5,7 +5,7 @@
 #include "DObject/Package.h"
 #include "Math/Operations.h"
 #include "Math/TransformDecomposition.h"
-#include "Transactions/Transactor.h"
+#include "Misc/Transaction.h"
 
 namespace Durin::LevelEditor
 {
@@ -265,57 +265,41 @@ namespace Durin::LevelEditor
 		return bRestored;
 	}
 
-
-	auto FTransformProxy::RecordChanges(DTransactor& Transactions, std::string_view Action) -> bool try
+	auto FTransformProxy::DescribeChange(std::string_view Action) const -> std::string
 	{
-		struct FOwnerChange
-		{
-			TStrongObjectPtr<DObject> Owner;
-			std::vector<FTransformProxyChange::FEntry> Entries;
-		};
-		std::vector<FOwnerChange> Groups;
-		std::unordered_map<DObject*, size_t> OwnerIndices;
-		for (const auto& Snapshot : Snapshots)
-		{
-			if (SameTransform(Snapshot.Initial, Snapshot.Preview)) continue;
-			auto Target = Snapshot.Target->CreateHistoryTarget(Transactions.GetHistoryId());
-			if (!Target) Target = Snapshot.Target;
-			auto* Owner = Target->GetDataOwner();
-			if (!IsValid(Owner) || FObjectKey(Owner) != Snapshot.Owner) return false;
-			const auto [It, Added] = OwnerIndices.try_emplace(Owner, Groups.size());
-			if (Added) Groups.push_back({TStrongObjectPtr<DObject>(Owner), {}});
-			Groups[It->second].Entries.push_back({std::move(Target), Snapshot.Initial, Snapshot.Preview});
-		}
-		if (Groups.empty()) return false;
-		const auto Description = Snapshots.size() == 1 ? std::format("{} '{}'", Action, Snapshots.front().Target->GetLabel())
+		return Snapshots.size() == 1 ? std::format("{} '{}'", Action, Snapshots.front().Target->GetLabel())
 			: std::format("{} {} {}", Action, Snapshots.size(), CollectionLabel);
-		if (GUndo || ResolveEditorTransactor(true).value_or(nullptr) != &Transactions || !CheckPreviewOwnership()) return false;
-		FScopedTransaction Recording("TransformGizmo", Description, nullptr);
-		if (!Recording.IsOutstanding()) return false;
-		try
-		{
-			if (CheckPreviewOwnership())
-			{
-				for (auto& Group : Groups)
-				{
-					auto Change = std::make_unique<FTransformProxyChange>(Action, CollectionLabel, std::move(Group.Entries));
-					if (!IsValid(Group.Owner.Get()) || !Transactions.StoreUndo(Group.Owner.Get(), std::move(Change)))
-					{
-						Recording.Cancel();
-						return false;
-					}
-				}
-				return true;
-			}
-		}
-		catch (...)
-		{
-			Recording.Cancel();
-			throw;
-		}
-		Recording.Cancel();
-		return false;
 	}
-	catch (const std::exception& Error) { DURIN_WARN("Transform recording failed: {}", Error.what()); return false; }
-	catch (...) { DURIN_WARN("Transform recording failed."); return false; }
+
+	auto FTransformProxyChangeSource::BeginChange(const FTransformProxy& Proxy) -> std::vector<FTransformProxyChangeSource>
+	{
+		std::vector<FTransformProxyChangeSource> Sources;
+		std::unordered_map<FObjectKey, size_t> ByOwner;
+		for (size_t Index = 0; Index < Proxy.Snapshots.size(); ++Index)
+		{
+			const auto Owner = Proxy.Snapshots[Index].Owner;
+			const auto [It, Added] = ByOwner.try_emplace(Owner, Sources.size());
+			if (Added) Sources.emplace_back().Owner = Owner;
+			Sources[It->second].SnapshotIndices.push_back(Index);
+		}
+		return Sources;
+	}
+
+	auto FTransformProxyChangeSource::EndChange(const FTransformProxy& Proxy, uint64 HistoryId, std::string_view Action) const
+		-> std::unique_ptr<FCommandChange>
+	{
+		std::vector<FTransformProxyChange::FEntry> Entries;
+		for (const size_t Index : SnapshotIndices)
+		{
+			const auto& Snapshot = Proxy.Snapshots[Index];
+			if (SameTransform(Snapshot.Initial, Snapshot.Preview)) continue;
+			auto Target = Snapshot.Target->CreateHistoryTarget(HistoryId);
+			if (!Target) Target = Snapshot.Target;
+			if (Owner.IsNull() || FObjectKey(Target->GetDataOwner()) != Owner)
+				throw std::runtime_error("Transform history target lost its data owner.");
+			Entries.push_back({std::move(Target), Snapshot.Initial, Snapshot.Preview});
+		}
+		if (Entries.empty()) return nullptr;
+		return std::make_unique<FTransformProxyChange>(Action, Proxy.CollectionLabel, std::move(Entries));
+	}
 }

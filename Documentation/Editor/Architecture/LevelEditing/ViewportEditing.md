@@ -231,9 +231,10 @@ their packages, and the shared pivot and basis. The gizmo computes a frame from
 pointer input and snapping. The proxy applies it to each target from its initial
 world transform, including rotation and scale about the shared pivot.
 Targets apply preview and restoration transforms without marking packages dirty.
-On release the gizmo groups changed elements by data owner and appends one
-`FTransformProxyChange` per owner through `StoreUndo(Owner, Change)` in one
-transaction. Actor transforms belong to their root scene components. Spline
+At drag start the gizmo creates one `FTransformProxyChangeSource` per data owner,
+using the same element snapshots as the preview. On release the gizmo opens one
+transaction and asks each source for its completed change. Only sources with
+changed elements contribute a record through `StoreUndo(Owner, Change)`. Actor transforms belong to their root scene components. Spline
 points and tangent handles belong to their spline component. Each command
 retains its elements' initial and actual preview transforms. A rejected group
 cancels the recording before the gizmo restores its previews.

@@ -313,6 +313,7 @@ namespace Durin::LevelEditor
 			ClearDrag();
 			return false;
 		}
+		ChangeSources = FTransformProxyChangeSource::BeginChange(*Proxy);
 		bRestorePending = false;
 		return true;
 	}
@@ -373,9 +374,34 @@ namespace Durin::LevelEditor
 
 	auto FTransformGizmo::ClearDrag() -> void
 	{
+		ChangeSources.clear();
 		Proxy.reset();
 		ActiveHandle = ETransformGizmoHandle::None;
 		bRestorePending = false;
+	}
+
+	auto FTransformGizmo::CommitDrag(DTransactor& Transactions) -> bool
+	{
+		std::optional<FScopedTransaction> Recording;
+		try
+		{
+			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
+			const auto Description = Proxy->DescribeChange(Action);
+			if (GUndo || ResolveEditorTransactor(true).value_or(nullptr) != &Transactions) return false;
+			Recording.emplace("TransformGizmo", Description, nullptr);
+			if (!Recording->IsOutstanding()) return false;
+
+			const auto StoreChange = [&](const FTransformProxyChangeSource& Source) {
+				auto Change = Source.EndChange(*Proxy, Transactions.GetHistoryId(), Action);
+				return !Change || Transactions.StoreUndo(Source.GetChangeTarget(), std::move(Change));
+			};
+			if (Proxy->CheckPreviewOwnership() && std::ranges::all_of(ChangeSources, StoreChange)
+				&& Proxy->CheckPreviewOwnership()) return true;
+		}
+		catch (const std::exception& Error) { DURIN_WARN("Transform recording failed: {}", Error.what()); }
+		catch (...) { DURIN_WARN("Transform recording failed."); }
+		if (Recording) Recording->Cancel();
+		return false;
 	}
 
 	auto FTransformGizmo::FinishDrag(DTransactor* Transactions) -> bool
@@ -383,14 +409,10 @@ namespace Durin::LevelEditor
 		if (!Proxy->CheckPreviewOwnership()) { CancelDrag(); return false; }
 		if (!Proxy->HasChanges()) return CancelDrag();
 		const auto PackageRevisions = Proxy->GetPackageEditRevisions();
-		if (Transactions)
+		if (Transactions && !CommitDrag(*Transactions))
 		{
-			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
-			if (!Proxy->RecordChanges(*Transactions, Action))
-			{
-				CancelDrag();
-				return false;
-			}
+			CancelDrag();
+			return false;
 		}
 		// A committed transaction marks its packages. A release without history still needs a dirty mark.
 		for (const auto& [Package, Revision] : PackageRevisions)

@@ -76,6 +76,7 @@ namespace Durin::LevelEditor
 		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
 		auto UpdateDrag(const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
 		auto FinishDrag(DTransactor* Transactions) -> bool;
+		auto CommitDrag(DTransactor& Transactions) -> bool;
 		auto ClearDrag() -> void;
 
 		ETransformGizmoMode Mode = ETransformGizmoMode::Translate;
@@ -89,6 +90,7 @@ namespace Durin::LevelEditor
 		FQuat DisplayBasis{1.0, 0.0, 0.0, 0.0};
 		float WorldScale = 1.0f;
 		std::optional<FTransformProxy> Proxy;
+		std::vector<FTransformProxyChangeSource> ChangeSources;
 		ETransformGizmoCapability ActiveCapabilities = ETransformGizmoCapability::None;
 		FVector3 DragAxis{0.0};
 		FVector3 DragPlaneNormal{0.0};
