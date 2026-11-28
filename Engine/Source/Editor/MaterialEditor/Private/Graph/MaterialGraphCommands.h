@@ -19,6 +19,15 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	using FProposedNumerics = std::unordered_map<const FMaterialNumericInput*, FMaterialNumericInput>;
 	using FProposedCallOutputs = std::unordered_map<DMaterialExpressionFunctionCall*, std::vector<FMaterialFunctionOutputBinding>>;
 
+	struct FExpressionOutputPin
+	{
+		FMaterialExpressionOutput Output;
+		int32 SourceIndex;
+	};
+
+	auto GetExpressionOutputPin(const DMaterialExpression& Expression, int32 Ordinal) -> std::optional<FExpressionOutputPin>;
+	auto FindExpressionOutputPin(const DMaterialExpression& Expression, int32 SourceIndex, FGuid PortId = {}) -> std::optional<FExpressionOutputPin>;
+	auto GetExpressionInputFallback(const DMaterialExpression& Expression, int32 Index) -> std::vector<float>;
 	auto ResolveGraphOutput(DMaterialExpression* Source, int32 Index, FGuid Port, FProposedCallOutputs& CallOutputs) -> FMaterialExpressionInput;
 	auto PrepareExpressionReplacement(FMaterialExpressionCollection& Collection, FMaterialRootInputs* Root,
 		FProposedLinks& Links, DMaterialExpression& Previous, DMaterialExpression& Replacement) -> void;

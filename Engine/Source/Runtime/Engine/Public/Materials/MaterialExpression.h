@@ -50,13 +50,16 @@ namespace Durin
 		auto operator==(const FMaterialExpressionLayout&) const -> bool = default;
 	};
 
+	struct FMaterialFunctionPort;
+
 	struct FMaterialExpressionOutput
 	{
 		std::string_view Name;
 		EMaterialProgramValueType Type;
 		// Legacy selectors can differ from the ordinal passed to GetOutput.
-		std::optional<uint8> StoredIndex;
+		std::optional<int32> StoredIndex;
 		FGuid PortId{};
+		const FMaterialFunctionPort* FunctionPort = nullptr;
 	};
 
 	struct FMaterialExpressionInputInfo
@@ -65,6 +68,9 @@ namespace Durin
 		std::optional<EMaterialProgramValueType> Type;
 		bool bActive = true;
 		bool bAllowImplicitCast = false;
+		std::optional<int32> StoredIndex{};
+		const FMaterialFunctionPort* FunctionPort = nullptr;
+		std::span<const float> InlineDefault{};
 	};
 
 	struct FMaterialExpressionCreationInfo

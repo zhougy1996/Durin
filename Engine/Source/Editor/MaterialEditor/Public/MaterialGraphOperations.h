@@ -87,6 +87,7 @@ namespace Durin::MaterialEditor
 		bool bUseConstant = false;
 		bool bAdvanced = false;
 		bool bActive = true;
+		std::optional<int32> StoredIndex{};
 	};
 
 	struct FMaterialGraphOutputPinView

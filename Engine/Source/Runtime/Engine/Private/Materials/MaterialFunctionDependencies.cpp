@@ -99,31 +99,40 @@ namespace Durin
 
 	auto DMaterialExpressionFunctionCall::GetInput(int32 Index) -> FMaterialExpressionInput*
 	{
-		const auto Ports = GetInputPorts();
-		if (Index < 0 || static_cast<size_t>(Index) >= Ports.size()) return nullptr;
-		const auto Binding = FindInputBindingIndex(Ports[Index].Id);
+		const auto Binding = GetInputInfo(Index).StoredIndex.value_or(-1);
 		return Binding < 0 ? nullptr : &FunctionInputs[Binding].Input;
 	}
 
-	auto DMaterialExpressionFunctionCall::GetInputName(int32 Index) const -> std::string_view
+	auto DMaterialExpressionFunctionCall::FindInputInfo(FGuid PortId) const -> FMaterialExpressionInputInfo
 	{
 		const auto Ports = GetInputPorts();
-		if (Index < 0 || static_cast<size_t>(Index) >= Ports.size()) return {};
-		return Ports[Index].Name;
+		const auto Port = std::ranges::find(Ports, PortId, &FMaterialFunctionPort::Id);
+		return Port == Ports.end() ? FMaterialExpressionInputInfo{} : GetInputInfo(static_cast<int32>(Port - Ports.begin()));
 	}
+#endif
 
-	auto DMaterialExpressionFunctionCall::GetInputValueType(int32 Index) const -> std::optional<EMaterialProgramValueType>
+	auto DMaterialExpressionFunctionCall::GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		const auto Ports = GetInputPorts();
 		if (Index < 0 || static_cast<size_t>(Index) >= Ports.size()) return {};
-		return Ports[Index].Type;
+		const auto& Port = Ports[Index];
+		const auto Binding = FindInputBindingIndex(Port.Id);
+		return {.Name = Port.Name, .Type = Port.Type, .bAllowImplicitCast = true, .StoredIndex = Binding, .FunctionPort = &Port,
+			.InlineDefault = Binding < 0 ? std::span<const float>{} : std::span<const float>(FunctionInputs[Binding].InputDefault)};
+#else
+		return {};
+#endif
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterialExpressionFunctionCall::GetOutput(int32 Index) const -> std::optional<FMaterialExpressionOutput>
 	{
 		const auto Ports = GetOutputPorts();
 		if (Index < 0 || static_cast<size_t>(Index) >= Ports.size()) return {};
-		return FMaterialExpressionOutput{.Name = Ports[Index].Name, .Type = Ports[Index].Type};
+		const auto& Port = Ports[Index];
+		return FMaterialExpressionOutput{.Name = Port.Name, .Type = Port.Type, .StoredIndex = FindOutputBindingIndex(Port.Id),
+			.PortId = Port.Id, .FunctionPort = &Port};
 	}
 
 	auto DMaterialExpressionFunctionCall::UpdateFromFunctionResource(bool bRecreateAndLinkNode) -> bool

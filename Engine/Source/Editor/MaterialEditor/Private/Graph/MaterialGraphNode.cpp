@@ -6,7 +6,6 @@
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
-#include "Materials/MaterialExpressionCustomOutput.h"
 #include "Materials/MaterialExpressionDescription.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
@@ -62,14 +61,6 @@ namespace Durin::MaterialEditor
 			const std::array Lanes{&Result.Literal.X, &Result.Literal.Y, &Result.Literal.Z, &Result.Literal.W};
 			for (size_t Index = 0; Index < Values.size(); ++Index) *Lanes[Index] = Values[Index];
 			return Result;
-		}
-		auto OrderedPorts(std::span<const FMaterialFunctionPort> Ports) -> std::vector<const FMaterialFunctionPort*>
-		{
-			std::vector<const FMaterialFunctionPort*> Ordered;
-			Ordered.reserve(Ports.size());
-			for (const auto& Port : Ports) Ordered.push_back(&Port);
-			std::ranges::stable_sort(Ordered, {}, &FMaterialFunctionPort::DisplayOrder);
-			return Ordered;
 		}
 	}
 
@@ -307,12 +298,9 @@ namespace Durin::MaterialEditor
 			Pin.Id = Match == Previous.end() ? FGuid::NewGuid() : Match->Id;
 			Pins.push_back(std::move(Pin));
 		};
-		const auto* Call = Cast<DMaterialExpressionFunctionCall>(MaterialExpression.Get());
 		for (const auto& Input : View.Inputs)
 		{
-			auto Index = static_cast<int32>(Input.InputIndex);
-			if (Call)
-				Index = Call->FindInputBindingIndex(Input.PortId);
+			const auto Index = Input.StoredIndex.value_or(static_cast<int32>(Input.InputIndex));
 			AddPin(EMaterialGraphPinDirection::Input, Index, static_cast<int32>(&Input - View.Inputs.data()), Input.PortId);
 		}
 		for (const auto& Output : View.Outputs)
@@ -411,86 +399,96 @@ namespace Durin::MaterialEditor
 	{
 		auto* Expression = MaterialExpression.Get();
 		const auto& Node = View.Node;
-		if (!Cast<DMaterialExpressionFunctionCall>(Expression))
-			VisitMaterialExpressionInputs(*Expression, [&](uint32 InputIndex, FMaterialExpressionInput& Input) {
-				const auto Index = static_cast<int32>(InputIndex);
-				const auto Info = Expression->GetInputInfo(Index);
-				// Stale attribute selectors remain in storage for traversal but have no graph pin.
-				if (Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes && !Info.Type) return;
-				const auto Name = Info.Name.empty() ? Expression->GetInputName(Index) : Info.Name;
-				FMaterialGraphPinView Pin{.InputIndex = InputIndex,
-					.Name = !Name.empty() ? std::string(Name)
-						: Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value"};
-				if (Node.Opcode == EMaterialProgramOpcode::FunctionOutput) Pin.Name = Info.Name;
-				Pin.bActive = Info.bActive;
-				if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
-				else if (Info.Type) Pin.AcceptedTypes = {*Info.Type};
-				if (Info.bAllowImplicitCast) AppendMaterialValidCastSources(Pin.AcceptedTypes);
-				if (Node.Opcode && IsMaterialAdaptiveNumeric(*Node.Opcode)
-					&& !(Node.Opcode == EMaterialProgramOpcode::Lerp && InputIndex == 2))
-				{
-					// Keep the resolved width first for pin styling, while allowing reconnection.
-					const auto TypeHint = Info.Type.value_or(Node.ResultType);
-					Pin.AcceptedTypes = {TypeHint};
-					for (const auto Type : {EMaterialProgramValueType::Float, EMaterialProgramValueType::Float2,
-						EMaterialProgramValueType::Float3, EMaterialProgramValueType::Float4})
-						if (Type != TypeHint && !(Node.Opcode == EMaterialProgramOpcode::Normalize && Type == EMaterialProgramValueType::Float))
-							Pin.AcceptedTypes.push_back(Type);
-				}
-				if (const auto* Numeric = FindMaterialNumericInput(*Expression, Input))
-				{
-					Pin.bUseConstant = Numeric->UseConstant;
-					Pin.bSupportsConstant = true;
-					Pin.RetainedConstant = DefaultView(Numeric->Constant);
-					if (Numeric->UseConstant)
-						Pin.InlineDefault = Pin.RetainedConstant;
-					else if (Node.Opcode)
-						Pin.InlineDefault = DefaultView(GetMaterialNumericInputFallback(*Node.Opcode, Node.ResultType, InputIndex));
-				}
-				if (!Input.IsConnected() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None) Pin.SourceType = Pin.InlineDefault.Type;
-				else if (!Input.IsConnected() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
-				View.Inputs.push_back(std::move(Pin));
-			});
-		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
-		{
-			for (const auto* Port : OrderedPorts(Call->GetInputPorts()))
+		const auto AppendInput = [&](uint32 InputIndex, const FMaterialExpressionInputInfo& Info, const FMaterialExpressionInput* Input) {
+			const auto Index = static_cast<int32>(InputIndex);
+			// Stale attribute selectors remain in storage for traversal but have no graph pin.
+			if (Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes && !Info.Type) return;
+			const auto Name = Info.Name.empty() ? Expression->GetInputName(Index) : Info.Name;
+			FMaterialGraphPinView Pin{.InputIndex = InputIndex,
+				.Name = !Name.empty() ? std::string(Name)
+					: Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value"};
+			if (Node.Opcode == EMaterialProgramOpcode::FunctionOutput) Pin.Name = Info.Name;
+			Pin.bActive = Info.bActive;
+			Pin.StoredIndex = Info.StoredIndex;
+			if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
+			else if (Info.Type) Pin.AcceptedTypes = {*Info.Type};
+			if (Info.bAllowImplicitCast) AppendMaterialValidCastSources(Pin.AcceptedTypes);
+			if (Node.Opcode && IsMaterialAdaptiveNumeric(*Node.Opcode)
+				&& !(Node.Opcode == EMaterialProgramOpcode::Lerp && InputIndex == 2))
 			{
-				const auto Binding = Call->FindInputBindingIndex(Port->Id);
-				View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = Port->Name,
-					.SourceType = Port->Type,
-					.AcceptedTypes = {Port->Type}, .PortId = Port->Id, .bRequired = Port->bRequired, .Default = Port->Default,
-					.Constraint = Port->Constraint,
-					.InlineDefault = Binding < 0 ? FMaterialInputDefault{} : DefaultView(Call->FunctionInputs[Binding].InputDefault),
-					.bAdvanced = Port->bAdvanced});
-				AppendMaterialValidCastSources(View.Inputs.back().AcceptedTypes);
+				// Keep the resolved width first for pin styling, while allowing reconnection.
+				const auto TypeHint = Info.Type.value_or(Node.ResultType);
+				Pin.AcceptedTypes = {TypeHint};
+				for (const auto Type : {EMaterialProgramValueType::Float, EMaterialProgramValueType::Float2,
+					EMaterialProgramValueType::Float3, EMaterialProgramValueType::Float4})
+					if (Type != TypeHint && !(Node.Opcode == EMaterialProgramOpcode::Normalize && Type == EMaterialProgramValueType::Float))
+						Pin.AcceptedTypes.push_back(Type);
 			}
+			if (const auto* Port = Info.FunctionPort)
+			{
+				Pin.PortId = Port->Id;
+				Pin.SourceType = Port->Type;
+				Pin.bRequired = Port->bRequired;
+				Pin.Default = Port->Default;
+				Pin.Constraint = Port->Constraint;
+				Pin.bAdvanced = Port->bAdvanced;
+				Pin.InlineDefault = DefaultView(Info.InlineDefault);
+			}
+			else if (const auto* Numeric = Input ? FindMaterialNumericInput(*Expression, *Input) : nullptr)
+			{
+				Pin.bUseConstant = Numeric->UseConstant;
+				Pin.bSupportsConstant = true;
+				Pin.RetainedConstant = DefaultView(Numeric->Constant);
+				if (Numeric->UseConstant)
+					Pin.InlineDefault = Pin.RetainedConstant;
+				else
+					Pin.InlineDefault = DefaultView(GraphEditInternals::GetExpressionInputFallback(*Expression, Index));
+			}
+			if (Input && !Input->IsConnected() && !Info.FunctionPort)
+			{
+				if (Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None) Pin.SourceType = Pin.InlineDefault.Type;
+				else if (!Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
+			}
+			View.Inputs.push_back(std::move(Pin));
+		};
+		if (Node.Opcode == EMaterialProgramOpcode::FunctionCall)
+		{
+			std::vector<FMaterialExpressionInputInfo> Inputs;
+			for (int32 Ordinal = 0; ; ++Ordinal)
+			{
+				const auto Info = Expression->GetInputInfo(Ordinal);
+				if (!Info.FunctionPort) break;
+				Inputs.push_back(Info);
+			}
+			std::ranges::stable_sort(Inputs, {}, [](const auto& Info) { return Info.FunctionPort->DisplayOrder; });
+			for (const auto& Info : Inputs) AppendInput(static_cast<uint32>(View.Inputs.size()), Info, nullptr);
 		}
+		else
+			VisitMaterialExpressionInputs(*Expression, [&](uint32 Index, FMaterialExpressionInput& Input) {
+				AppendInput(Index, Expression->GetInputInfo(static_cast<int32>(Index)), &Input);
+			});
 	}
 
 	auto DMaterialGraphNode::CreateOutputPins() -> void
 	{
 		auto* Expression = MaterialExpression.Get();
 		const auto& Node = View.Node;
-		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
+		const auto AppendOutput = [&](const GraphEditInternals::FExpressionOutputPin& Pin) {
+			const auto& Output = Pin.Output;
+			const auto OutputIndex = Output.PortId.IsValid() ? uint8{0} : static_cast<uint8>(Pin.SourceIndex);
+			View.Outputs.push_back({.SourceIndex = Pin.SourceIndex, .OutputIndex = OutputIndex, .PortId = Output.PortId,
+				.Name = Output.Name.empty() && Node.Opcode != EMaterialProgramOpcode::FunctionInput
+					? GetProgramTypeName(Output.Type) : std::string(Output.Name), .Type = Output.Type,
+				.Constraint = Output.FunctionPort ? Output.FunctionPort->Constraint : FMaterialFunctionValueConstraint{}});
+		};
+		std::vector<GraphEditInternals::FExpressionOutputPin> Ordered;
+		for (int32 Ordinal = 0; const auto Pin = GraphEditInternals::GetExpressionOutputPin(*Expression, Ordinal); ++Ordinal)
 		{
-			for (const auto* Port : OrderedPorts(Call->GetOutputPorts()))
-				View.Outputs.push_back({.SourceIndex = Call->FindOutputBindingIndex(Port->Id), .PortId = Port->Id,
-					.Name = Port->Name, .Type = Port->Type, .Constraint = Port->Constraint});
+			if (Pin->Output.FunctionPort) Ordered.push_back(*Pin);
+			else AppendOutput(*Pin);
 		}
-		else if (auto Output = Expression->GetOutput(0))
-		{
-			for (int32 Index = 0; Output; Output = Expression->GetOutput(++Index))
-			{
-				const int32 SourceIndex = Output->StoredIndex ? static_cast<int32>(*Output->StoredIndex) : Index;
-				const auto OutputIndex = Output->PortId.IsValid() ? uint8{0} : static_cast<uint8>(SourceIndex);
-				View.Outputs.push_back({.SourceIndex = SourceIndex, .OutputIndex = OutputIndex, .PortId = Output->PortId,
-					.Name = Output->Name.empty() && Node.Opcode != EMaterialProgramOpcode::FunctionInput
-						? GetProgramTypeName(Output->Type) : std::string(Output->Name), .Type = Output->Type});
-			}
-		}
-		else if (Node.Opcode != EMaterialProgramOpcode::GetMaterialAttributes
-			&& Node.Opcode != EMaterialProgramOpcode::FunctionOutput && !Cast<DMaterialExpressionCustomOutput>(Expression))
-			View.Outputs.push_back({.Name = GetProgramTypeName(Node.ResultType), .Type = Node.ResultType});
+		std::ranges::stable_sort(Ordered, {}, [](const auto& Pin) { return Pin.Output.FunctionPort->DisplayOrder; });
+		for (const auto& Pin : Ordered) AppendOutput(Pin);
 	}
 
 }

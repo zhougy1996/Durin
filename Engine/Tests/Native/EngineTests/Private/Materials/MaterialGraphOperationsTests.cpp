@@ -34,6 +34,36 @@
 #include "Graph/MaterialGraphEditInternals.h"
 #include "Materials/MaterialExpressionDescription.h"
 
+#if DURIN_MATERIAL_GRAPH_WATER_TESTS
+#include "MaterialExpressionGerstnerWaves.h"
+#include "Misc/MountPathTestSupport.h"
+#include "Misc/Paths.h"
+
+namespace
+{
+	class FMaterialGraphWaterMountEnvironment final : public ::testing::Environment
+	{
+		auto SetUp() -> void override
+		{
+			const auto Existing = FMountPaths::GetRegisteredMountPoints();
+			std::vector<FMountPoint> Definitions(Existing.begin(), Existing.end());
+			// The Water component's class default validates its asset paths during DObject startup.
+			Definitions.push_back({.VirtualRoot = "/Plugins/Water/", .Owner = EMountOwner::Extension,
+				.Root = std::filesystem::path(FPaths::RootDir()) / "Engine/Plugins/Water/Content"});
+			Mounts = std::make_unique<Testing::FScopedMountRegistryFixture>(Definitions);
+			ASSERT_TRUE(Mounts->IsValid()) << Mounts->GetError();
+		}
+
+		auto TearDown() -> void override { Mounts.reset(); }
+
+		std::unique_ptr<Testing::FScopedMountRegistryFixture> Mounts;
+	};
+
+	[[maybe_unused]] const auto* WaterMountEnvironment =
+		::testing::AddGlobalTestEnvironment(new FMaterialGraphWaterMountEnvironment);
+}
+#endif
+
 TEST(FMaterialGraphOperationsTests, ValidCastPermitsDirectEmissiveWire)
 {
 	InitializeDObjectSystem();
@@ -97,6 +127,22 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		EXPECT_EQ(Expression->GetInputValueType(Coordinate), CoordinateType);
 		EXPECT_NE(Expression->GetInput(Mip), nullptr);
 		EXPECT_FALSE(Node->Inputs[Mip].bActive);
+		if (bCube)
+		{
+			const auto Direction = Testing::ExpressionInput(Id, Coordinate);
+			EXPECT_FLOAT_EQ(Node->Inputs[Coordinate].InlineDefault.Literal.X, 1.f);
+			ASSERT_TRUE(Testing::WriteInputDefault(Material.Get(), Direction, Node->Inputs[Coordinate].InlineDefault, false));
+			const auto* Pin = Testing::InputView(*AuthoringGraph, Direction);
+			ASSERT_NE(Pin, nullptr);
+			EXPECT_TRUE(Pin->bUseConstant);
+			EXPECT_EQ(Pin->RetainedConstant.Type, CoordinateType);
+			EXPECT_FLOAT_EQ(Pin->RetainedConstant.Literal.X, 1.f);
+			ASSERT_TRUE(Testing::WriteInputDefault(Material.Get(), Direction, {}, false));
+			Pin = Testing::InputView(*AuthoringGraph, Direction);
+			ASSERT_NE(Pin, nullptr);
+			EXPECT_FALSE(Pin->bUseConstant);
+			EXPECT_FLOAT_EQ(Pin->InlineDefault.Literal.X, 1.f);
+		}
 		for (const auto ModeValue : {Mode::Implicit, Mode::Level, Mode::Bias, Mode::Grad})
 		{
 			*ReadMode = ModeValue;
@@ -139,6 +185,45 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	}
 }
+
+#if DURIN_MATERIAL_GRAPH_WATER_TESTS
+TEST(FMaterialGraphOperationsTests, GerstnerWavesSecondOutputUsesInstancePinForConnectionAndInference)
+{
+	InitializeDObjectSystem();
+	using Op = EMaterialProgramOpcode;
+	using Type = EMaterialProgramValueType;
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	const auto Waves = Testing::MakeGraphExpression<DMaterialExpressionGerstnerWaves>();
+	ASSERT_TRUE(Graph->CreateExpression(*Waves, 0, 0, false));
+	const auto Add = Testing::CreateGraphCatalogNode(*Graph, Op::Add, Type::Float);
+	ASSERT_TRUE(Add);
+	const auto Target = Testing::ExpressionInput(Add->front(), 0);
+	const FMaterialProgramLink TangentNormal{Waves->Id, 1};
+	const auto* Pin = Testing::ResolvePin(*Graph, TangentNormal);
+	ASSERT_NE(Pin, nullptr);
+	EXPECT_EQ(Pin->SourceIndex, 1);
+	const auto& Output = Pin->GetOwningNode()->GetView().Outputs[Pin->DisplayIndex];
+	EXPECT_EQ(Output.Name, "Tangent Normal");
+	EXPECT_EQ(Output.Type, Type::Float3);
+	EXPECT_FALSE(Output.PortId.IsValid());
+
+	ASSERT_TRUE(Testing::WriteConnection(Material.Get(), Target, TangentNormal, false, false));
+	const auto* Input = Testing::InputView(*Graph, Target);
+	ASSERT_NE(Input, nullptr);
+	EXPECT_EQ(Input->Link, TangentNormal);
+	EXPECT_EQ(Input->SourceType, Type::Float3);
+	const auto* Expression = Testing::FindExpression(Material.Get(), Add->front());
+	ASSERT_NE(Expression, nullptr);
+	EXPECT_EQ(Expression->GetOutputValueType(0), Type::Float3);
+	EXPECT_FALSE(Testing::WriteConnection(Material.Get(), Target, {Waves->Id, 2}, true, false));
+
+	const auto Normal = EMaterialProperty::MP_Normal;
+	ASSERT_TRUE(Testing::TryCreateConnection(*Graph, TangentNormal, Normal, false, false));
+	EXPECT_EQ(Material->GetExpressionInputForProperty(Normal)->OutputIndex, 1);
+}
+#endif
 
 TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
 {
@@ -3850,6 +3935,14 @@ TEST(FMaterialGraphOperationsTests, AttributeInputsSharePinAdmissionAndUndoStruc
 	EXPECT_EQ(Selected->PortId, PortId);
 	EXPECT_EQ(Selected->StoredIndex, Slot);
 	EXPECT_FALSE(GetExpression->GetOutput(1));
+	const auto* RootInput = Material->GetExpressionInputForProperty(Property);
+	ASSERT_TRUE(Testing::WriteConnection(Material.Get(), Property, {Get->Id, 0, PortId}, false, false));
+	EXPECT_EQ(RootInput->OutputIndex, Slot);
+	EXPECT_EQ(RootInput->GetOutputId(), PortId);
+	ASSERT_TRUE(Testing::WriteConnection(Material.Get(), Property, {}, true, false));
+	ASSERT_TRUE(Testing::WriteConnection(Material.Get(), Property, {Get->Id, Slot}, false, false));
+	EXPECT_EQ(RootInput->OutputIndex, Slot);
+	EXPECT_EQ(RootInput->GetOutputId(), PortId);
 	const auto Scalar = Testing::CreateGraphConstant(*AuthoringGraph, .25f);
 	ASSERT_TRUE(Scalar);
 	const auto OtherScalar = Testing::CreateGraphConstant(*AuthoringGraph, .75f);

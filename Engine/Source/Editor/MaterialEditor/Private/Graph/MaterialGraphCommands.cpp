@@ -13,20 +13,48 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		Expression.EditorLayout = {true, X, Y, std::move(Label)};
 	}
 
+	auto GetExpressionOutputPin(const DMaterialExpression& Expression, int32 Ordinal) -> std::optional<FExpressionOutputPin>
+	{
+		if (const auto Output = Expression.GetOutput(Ordinal))
+			return FExpressionOutputPin{*Output, Output->StoredIndex.value_or(Ordinal)};
+		return {};
+	}
+
+	auto FindExpressionOutputPin(const DMaterialExpression& Expression, int32 SourceIndex, FGuid PortId) -> std::optional<FExpressionOutputPin>
+	{
+		if (SourceIndex < 0 && !PortId.IsValid()) return {};
+		for (int32 Ordinal = 0; const auto Pin = GetExpressionOutputPin(Expression, Ordinal); ++Ordinal)
+			if (PortId.IsValid() ? Pin->Output.PortId == PortId : Pin->SourceIndex == SourceIndex) return Pin;
+		return {};
+	}
+
+	auto GetExpressionInputFallback(const DMaterialExpression& Expression, int32 Index) -> std::vector<float>
+	{
+		const auto Opcode = Expression.GetCreationInfo().Opcode;
+		if (!Opcode || Index < 0) return {};
+		const auto Type = IsMaterialSamplingNode(*Opcode)
+			? Expression.GetInputValueType(Index) : Expression.GetOutputValueType(0);
+		return GetMaterialNumericInputFallback(*Opcode, Type.value_or(EMaterialProgramValueType::Float), static_cast<uint32>(Index));
+	}
+
 	auto ResolveGraphOutput(DMaterialExpression* Source, int32 Index, FGuid Port, FProposedCallOutputs& CallOutputs) -> FMaterialExpressionInput
 	{
 		auto* Call = Cast<DMaterialExpressionFunctionCall>(Source);
-		if (!Call || !Port.IsValid()) return {Source, Index, Port};
+		if (!Call)
+		{
+			FMaterialExpressionInput Link{Source, Index, Port};
+			if (Source && !FindExpressionOutputPin(*Source, Link.OutputIndex)) Link.OutputIndex = -1;
+			return Link;
+		}
+		const auto Pin = FindExpressionOutputPin(*Call, Index, Port);
+		if (!Pin) return {Source, -1};
+		if (!Port.IsValid()) return {Source, Pin->SourceIndex};
 		auto Proposed = CallOutputs.find(Call);
 		const auto& Outputs = Proposed == CallOutputs.end() ? Call->FunctionOutputs : Proposed->second;
 		const auto Bound = std::ranges::find(Outputs, Port, &FMaterialFunctionOutputBinding::OutputId);
 		if (Bound != Outputs.end()) return {Source, static_cast<int32>(Bound - Outputs.begin())};
-		if (!Call->Function.IsValid()) return {Source, -1};
-		const auto& Ports = Call->Function->GetFunctionSignature().Outputs;
-		const auto Found = std::ranges::find(Ports, Port, &FMaterialFunctionPort::Id);
-		if (Found == Ports.end()) return {Source, -1};
 		auto& Candidate = CallOutputs.try_emplace(Call, Call->FunctionOutputs).first->second;
-		Candidate.push_back({Found->Id, Found->Type});
+		Candidate.push_back({Pin->Output.PortId, Pin->Output.Type});
 		return {Source, static_cast<int32>(Candidate.size() - 1)};
 	}
 

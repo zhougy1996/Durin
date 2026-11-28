@@ -393,6 +393,12 @@ durin_add_native_test(MaterialFunctionTests
 		"Exercises authored material-function recipes, expansion, dependencies, and interface contracts."
 )
 
+set(_material_graph_water_libraries)
+set(_material_graph_water_definitions DURIN_MATERIAL_GRAPH_WATER_TESTS=0)
+if(TARGET Water)
+	list(APPEND _material_graph_water_libraries Water)
+	set(_material_graph_water_definitions DURIN_MATERIAL_GRAPH_WATER_TESTS=1)
+endif()
 durin_add_native_test(MaterialGraphEditingTests
 	KIND feature
 	DOMAINS material material-editing material-graph-editing
@@ -428,6 +434,8 @@ durin_add_native_test(MaterialGraphEditingTests
 		StaticMeshEditor
 		TextureEditor
 		MeshBuilder
+		${_material_graph_water_libraries}
+	COMPILE_DEFINITIONS ${_material_graph_water_definitions}
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -435,6 +443,8 @@ durin_add_native_test(MaterialGraphEditingTests
 	HEAVY_RUNTIME_RATIONALE
 		"Exercises material and function graph commands, inference, and transaction replay."
 )
+unset(_material_graph_water_libraries)
+unset(_material_graph_water_definitions)
 
 durin_add_native_test(AssetEditorFamilyTests
 	KIND feature

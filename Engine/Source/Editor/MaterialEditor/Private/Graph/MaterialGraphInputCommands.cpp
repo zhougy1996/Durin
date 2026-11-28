@@ -2,7 +2,6 @@
 #include "Graph/MaterialEditingOperations.h"
 #include "MaterialExpressionParameters.h"
 #include "MaterialGraphValueTypes.h"
-#include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -69,21 +68,22 @@ namespace Durin::MaterialEditor
 			{
 				auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
 				if (!Call || !Call->Function.IsValid()) return {.Message = "The function input owner is unavailable."};
-				const auto& Ports = Call->Function->GetFunctionSignature().Inputs;
-				const auto Port = std::ranges::find(Ports, *PortId, &FMaterialFunctionPort::Id);
-				if (Port == Ports.end()) return {.Message = "The function input port is unavailable."};
+			const auto Info = Call->FindInputInfo(*PortId);
+			const auto* Port = Info.FunctionPort;
+			if (!Port) return {.Message = "The function input port is unavailable."};
 				if (Port->Type > EMaterialProgramValueType::Float4)
 				{
 					return {.Message = "The function input port is not numeric."};
 				}
 				auto& Bindings = DraftBindings ? *DraftBindings : Call->FunctionInputs;
-				auto Input = std::ranges::find(Bindings, *PortId, &FMaterialExpressionFunctionInputBinding::InputId);
-				if (Input == Bindings.end())
+			const auto Index = Info.StoredIndex.value_or(-1);
+			if (Index < 0)
 				{
 					if (!DraftBindings) return {.Message = "The function input has no binding."};
-					Input = Bindings.emplace(Bindings.end(), *PortId, Port->Type);
+				auto& Input = Bindings.emplace_back(*PortId, Port->Type);
+				return {&Input.Input, &Input.InputDefault};
 				}
-				return {&Input->Input, &Input->InputDefault};
+			return {&Bindings[Index].Input, &Bindings[Index].InputDefault};
 			}
 			const auto Index = std::get<uint32>(Key);
 			if (Cast<DMaterialExpressionFunctionCall>(Expression)) return {.Message = "A function input requires a port identity."};
@@ -92,20 +92,7 @@ namespace Durin::MaterialEditor
 			if (!Result.Source) return {.Message = "The expression input is unavailable."};
 			Result.Numeric = FindMaterialNumericInput(*Expression, *Result.Source);
 			Result.Default = Result.Numeric ? &Result.Numeric->Constant : nullptr;
-			if (Result.Numeric)
-			{
-				const auto Catalog = EnumerateCatalog();
-				const auto Shape = std::ranges::find(Catalog, Expression->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
-				if (Shape != Catalog.end())
-				{
-					auto Type = Shape->ResultType;
-					if (const auto* AuthoredType = Expression->GetAuthoredResultType()) Type = *AuthoredType;
-					else if (const auto InstanceType = IsMaterialSamplingNode(Shape->Opcode)
-						? Expression->GetInputValueType(static_cast<int32>(Index)) : Expression->GetOutputValueType(0))
-						Type = *InstanceType;
-					Result.Inherited = GetMaterialNumericInputFallback(Shape->Opcode, Type, Index);
-				}
-			}
+			if (Result.Numeric) Result.Inherited = GetExpressionInputFallback(*Expression, static_cast<int32>(Index));
 			return Result;
 		}
 

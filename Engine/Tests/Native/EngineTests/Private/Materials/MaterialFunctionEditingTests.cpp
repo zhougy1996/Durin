@@ -179,6 +179,77 @@ TEST(FMaterialFunctionEditingTests, CallInsertionBindsRequiredInputsAndAdmitsNew
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FMaterialFunctionEditingTests, UnboundCallPinsCreateBothBindingsInOneTransaction)
+{
+	using namespace Durin;
+	using namespace Durin::MaterialEditor;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialGraph> FunctionGraph(DMaterialGraph::Create(*Function));
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+
+	auto Input = FunctionPort(52, EMaterialProgramValueType::Float, "Amount");
+	Input.DisplayOrder = -1;
+	Input.bRequired = true;
+	auto Output = FunctionPort(53, EMaterialProgramValueType::Float, "Weight");
+	Output.DisplayOrder = -1;
+	const auto Terminal = FunctionGraph->AddPort(false, Input, {}, 0, 0, false).transform(Testing::GraphNodeId);
+	ASSERT_TRUE(Terminal);
+	ASSERT_TRUE(FunctionGraph->AddPort(true, Output, {Terminal.value()}, 0, 0, false));
+	const auto First = Function->GetFunctionSignature().Outputs.front();
+	auto Source = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>();
+	Source->Function = Function.Get();
+	Source->FunctionOutputs = {{First.Id, First.Type}};
+	ASSERT_TRUE(Graph->CreateExpression(*Source, 0, 0, false));
+	auto Target = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>();
+	Target->Function = Function.Get();
+	ASSERT_TRUE(Graph->CreateExpression(*Target, 300, 0, false));
+	const FMaterialProgramLink SourceLink{Source->Id, 0, Output.Id};
+	const auto InputKey = Testing::ExpressionInput(Target->Id, 0, Input.Id);
+	const auto CheckPins = [&](int32 OutputSlot, int32 InputSlot) {
+		const auto* OutPin = Testing::ResolvePin(*Graph, SourceLink);
+		const auto* InPin = Testing::ResolvePin(*Graph, InputKey);
+		ASSERT_NE(OutPin, nullptr);
+		ASSERT_NE(InPin, nullptr);
+		EXPECT_EQ(OutPin->DisplayIndex, 0);
+		EXPECT_EQ(InPin->DisplayIndex, 0);
+		EXPECT_EQ(OutPin->SourceIndex, OutputSlot);
+		EXPECT_EQ(InPin->SourceIndex, InputSlot);
+		const auto* LiveSource = Cast<DMaterialExpressionFunctionCall>(OutPin->GetOwningNode()->GetMaterialExpression());
+		ASSERT_NE(LiveSource, nullptr);
+		EXPECT_EQ(LiveSource->FunctionOutputs.size(), OutputSlot < 0 ? 1u : 2u);
+		EXPECT_EQ(LiveSource->FunctionOutputs[0].OutputId, First.Id);
+		const auto* LiveTarget = Cast<DMaterialExpressionFunctionCall>(InPin->GetOwningNode()->GetMaterialExpression());
+		ASSERT_NE(LiveTarget, nullptr);
+		EXPECT_EQ(LiveTarget->FindInputInfo(Input.Id).StoredIndex, InputSlot);
+		if (InputSlot < 0)
+		{
+			EXPECT_TRUE(LiveTarget->FunctionInputs.empty());
+			EXPECT_TRUE(InPin->LinkedTo.empty());
+		}
+		else
+		{
+			ASSERT_EQ(LiveTarget->FunctionInputs.size(), 1u);
+			EXPECT_EQ(LiveTarget->FunctionInputs[InputSlot].Input.GetOutputId(), Output.Id);
+			EXPECT_EQ(LiveTarget->FunctionInputs[InputSlot].Input.OutputIndex, OutputSlot);
+			ASSERT_EQ(InPin->LinkedTo.size(), 1u);
+			EXPECT_EQ(InPin->LinkedTo.front(), OutPin);
+		}
+	};
+
+	CheckPins(-1, -1);
+	Tests::FTestEditorTransactorOwner History;
+	ASSERT_TRUE(Testing::TryCreateConnection(*Graph, SourceLink, InputKey));
+	CheckPins(1, 0);
+	ASSERT_TRUE(History->Undo());
+	CheckPins(-1, -1);
+	EXPECT_FALSE(History->CanUndo());
+	ASSERT_TRUE(History->Redo());
+	CheckPins(1, 0);
+}
+
 TEST(FMaterialFunctionEditingTests, SharedDocumentsEditStableCallsAndInterfacesWithUndo)
 {
 	using namespace Durin;

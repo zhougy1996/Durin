@@ -621,6 +621,7 @@ TEST(FMaterialGraphPersistenceTests, SecondFunctionOutputRetainsItsIndexAcrossHi
 	Port.Id = FGuid::NewGuid();
 	Port.Name = "Weight";
 	Port.Type = EMaterialProgramValueType::Float;
+	Port.DisplayOrder = 1;
 	const auto Constant = Testing::CreateGraphConstant(*BodyAuthoringGraph, .25f);
 	ASSERT_TRUE(Constant);
 	const auto OutputTerminal = BodyAuthoringGraph->AddPort(true, Port, {Constant.value()}, 0, 0, false);
@@ -638,6 +639,7 @@ TEST(FMaterialGraphPersistenceTests, SecondFunctionOutputRetainsItsIndexAcrossHi
 		EXPECT_EQ(Upstream->Id, Call.value());
 		ASSERT_EQ(Upstream->FunctionOutputs.size(), 2u);
 		EXPECT_EQ(Input.OutputIndex, 1);
+		EXPECT_EQ(Input.GetOutputId(), Port.Id);
 		EXPECT_EQ(Upstream->FunctionOutputs[1].OutputId, Port.Id);
 		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(Owner));
 		const auto* RootNode = Graph->GetRootNode();
@@ -647,6 +649,8 @@ TEST(FMaterialGraphPersistenceTests, SecondFunctionOutputRetainsItsIndexAcrossHi
 		ASSERT_EQ(RootInput->LinkedTo.size(), 1u);
 		const auto* Output = RootInput->LinkedTo.front();
 		EXPECT_EQ(Output->SourceIndex, 1);
+		EXPECT_EQ(Output->DisplayIndex, 1);
+		EXPECT_EQ(Output->GetOwningNode()->GetView().Outputs[Output->DisplayIndex].PortId, Port.Id);
 		EXPECT_EQ(Output->GetOwningNode(), Graph->FindNode(Upstream->Id));
 		ASSERT_EQ(Output->LinkedTo.size(), 1u);
 		EXPECT_EQ(Output->LinkedTo.front(), &*RootInput);
