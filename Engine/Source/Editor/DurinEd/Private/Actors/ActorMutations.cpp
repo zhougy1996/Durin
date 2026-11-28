@@ -68,35 +68,22 @@ namespace Durin
 		std::string* OutError) -> AActor*
 	{
 		if (OutError) OutError->clear();
-		auto* History = Admit(Context, &Level, nullptr, false, OutError);
-		if (!History) return nullptr;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> AActor* {
+		return RunActorEdit(Context, &Level, nullptr, [&]() -> AActor* {
 			TStrongObjectPtr<AActor> Spawned;
 			{
-				const bool bOwnsRecording = !History->IsActive();
 				FScopedTransaction Scope("Actor", "Add actor", &Level);
 				if (!Scope.IsOutstanding())
 				{
 					if (OutError) *OutError = "Unable to start the actor transaction.";
 					return nullptr;
 				}
-				// Only the outermost Begin broadcasts TransactionStarted before construction.
-				if (bOwnsRecording && !Admit(Context, &Level, nullptr, true, OutError))
-				{
-					Scope.Cancel();
-					return nullptr;
-				}
 				Spawned = SpawnConfiguredActor(Level, Class, Name, Transform, Context, Configure, NameMode, Label, OutError);
-				if (!Spawned)
-				{
-					if (bOwnsRecording) Scope.Cancel();
-					return nullptr;
-				}
+				if (!Spawned) return nullptr;
 			}
 			if (IsValid(Spawned.Get()) && Level.ContainsActor(Spawned.Get())) return Spawned.Get();
 			if (OutError) *OutError = "Actor removed during publication.";
 			return nullptr;
-		});
+		}, OutError);
 	}
 
 	auto DEditorActorSubsystem::SpawnConfiguredActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
@@ -106,7 +93,7 @@ namespace Durin
 		auto Prepared = PrepareActor(Level, Class, Name, Transform, [&](AActor& Actor) -> std::expected<void, std::string> {
 			if (Configure) Configure(Actor);
 			std::string Reason;
-			if (!Admit(Context, &Level, nullptr, true, &Reason)) return std::unexpected(std::move(Reason));
+			if (!ValidateEditTarget(Context, &Level, nullptr, &Reason)) return std::unexpected(std::move(Reason));
 			return {};
 		}, NameMode, Label);
 		if (!Prepared)
@@ -130,10 +117,11 @@ namespace Durin
 	}
 	auto DEditorActorSubsystem::DestroyActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> bool
 	{
-		if (!Admit(Context, &Level)) return false;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
+		return RunActorEdit(Context, &Level, nullptr, [&]() -> bool
 		{
 			if (Actors.empty()) return false;
+			FScopedTransaction Scope("Actor", "Delete actors", &Level);
+			if (!Scope.IsOutstanding() || !CanEditActorLevel(&Level)) return false;
 			std::unordered_set<AActor*> Unique;
 			for (AActor* Actor : Actors)
 				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return false;
@@ -144,8 +132,6 @@ namespace Durin
 						&& Unique.contains(Actor.Get()) != Unique.contains(Child->GetAttachParent()->GetOwner()))
 						BoundaryChildren.push_back(Child);
 
-			FScopedTransaction Scope("Actor", "Delete actors", &Level);
-			if (!Scope.IsOutstanding()) return false;
 			Level.SetFlags(EObjectFlags::Transactional);
 			Level.Modify(false);
 			for (auto* Actor : Actors)
@@ -180,10 +166,11 @@ namespace Durin
 	}
 	auto DEditorActorSubsystem::DuplicateActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> std::vector<TObjectPtr<AActor>>
 	{
-		if (!Admit(Context, &Level)) return {};
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> std::vector<TObjectPtr<AActor>>
+		return RunActorEdit(Context, &Level, nullptr, [&]() -> std::vector<TObjectPtr<AActor>>
 		{
 			if (Actors.empty()) return {};
+			FScopedTransaction Scope("Actor", "Duplicate actors", &Level);
+			if (!Scope.IsOutstanding() || !CanEditActorLevel(&Level)) return {};
 			std::unordered_set<AActor*> Unique;
 			for (AActor* Actor : Actors)
 				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {};
@@ -254,10 +241,8 @@ namespace Durin
 			}
 			std::erase_if(Prepared, [](const auto& Actor) { return !IsValid(Actor.Get()); });
 			if (Prepared.empty()) return {};
-			if (auto Revalidated = Admit(Context, &Level, nullptr, true); !Revalidated)
+			if (auto Revalidated = ValidateEditTarget(Context, &Level, nullptr); !Revalidated)
 				return DiscardUnpublished();
-			FScopedTransaction Scope("Actor", "Duplicate actors", &Level);
-			if (!Scope.IsOutstanding()) return DiscardUnpublished();
 			Level.SetFlags(EObjectFlags::Transactional);
 			Level.Modify(false);
 			std::vector<TObjectPtr<AActor>> Published;
@@ -297,9 +282,7 @@ namespace Durin
 	auto DEditorActorSubsystem::SetActorLabel(DLevel& Level, AActor* Actor, const std::string& Label,
 		const FActorEditContext& Context, bool bMakeUnique) -> bool
 	{
-		auto* Transactions = Admit(Context, &Level);
-		if (!Transactions) return false;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
+		return RunActorEdit(Context, &Level, nullptr, [&]() -> bool
 		{
 			if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsTemplateObject() || Label.find('\0') != std::string::npos) return false;
 			const auto* Class = Actor->GetClass();
@@ -307,30 +290,23 @@ namespace Durin
 				? (Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName()) : Label;
 			if (bMakeUnique) Resolved = Level.MakeUniqueActorLabel(Resolved, Actor);
 			if (Actor->GetActorLabel() == Resolved) return true;
-			const bool bOwnsRecording = !Transactions->IsActive();
 			FScopedTransaction Recording("ActorLabel", "Set actor label", Actor);
-			if (!Recording.IsOutstanding()) return false;
+			if (!Recording.IsOutstanding() || !CanEditActorOwner(Actor) || Actor->GetOuter() != &Level) return false;
 			Actor->SetFlags(EObjectFlags::Transactional);
-			if (!Actor->SetActorLabel(Resolved))
-			{
-				if (bOwnsRecording) Recording.Cancel();
-				return false;
-			}
-			return true;
+			return Actor->SetActorLabel(Resolved);
 		});
 	}
 
 	auto DEditorActorSubsystem::RenameActor(DLevel& Level, AActor* Actor, FName Name, const FActorEditContext& Context, ESpawnActorNameMode NameMode) -> bool
 	{
-		if (!Admit(Context, &Level)) return false;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
+		return RunActorEdit(Context, &Level, nullptr, [&]() -> bool
 		{
 			if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsTemplateObject() || Name.IsNone()) return false;
 			Name = Level.ResolveActorName(Name, NameMode, Actor);
 			if (Name.IsNone()) return false;
 			if (Actor->GetFName() == Name) return true;
 			FScopedTransaction Recording("ActorRename", "Rename actor", Actor);
-			if (!Recording.IsOutstanding()) return false;
+			if (!Recording.IsOutstanding() || !CanEditActorOwner(Actor) || Actor->GetOuter() != &Level) return false;
 			Actor->SetFlags(EObjectFlags::Transactional);
 			(void)Actor->Modify();
 			return Level.RenameActor(Actor, Name, ESpawnActorNameMode::RequiredReturnNull, ERenameFlags::DoNotDirty);

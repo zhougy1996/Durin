@@ -93,9 +93,8 @@ namespace Durin
             return std::nullopt;
         if (!IsValid(Level))
             return std::nullopt;
-        // Native Admit validates membership/play state, and re-resolves this live policy
-        // after preparation callbacks. Never accept a script-supplied read-only bool.
-        return FActorEditContext{Call->ResolveEditAccess(*Level) == EEditorScriptTargetAccess::ReadOnly};
+        // The native edit resolves the active script's write access to this level.
+        return FActorEditContext{false};
     }
     auto DEditorActorSubsystem::ScriptSpawnActor(DLevel* Level, DClass* ActorClass, const FTransform& Transform, const std::string& Name,
         const std::string& Label, ESpawnActorNameMode NameMode) -> AActor*

@@ -44,6 +44,9 @@ namespace Durin
 		static auto SetEditorWorld(DEditorEngine& Editor, DWorld* World) -> void
 		{ Editor.EditorWorld = World; Editor.SetWorld(World); }
 
+		static auto SetTransactor(DEditorEngine& Editor, DTransactor* Transactor) -> void
+		{ Editor.Trans = Transactor; }
+
 		static auto SetState(DEditorEngine& Editor, EPlayState State) -> void
 		{ Editor.PlayState = State; }
 

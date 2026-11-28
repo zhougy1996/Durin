@@ -42,14 +42,14 @@ namespace Durin
 		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FStructuralTestLight)
 	public:
 		explicit FStructuralTestLight(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer)
-		{ SetRelativeLocation({3.0, 0.0, 0.0}); }
+		{ ++ConstructionCount; SetRelativeLocation({3.0, 0.0, 0.0}); }
 		auto OnComponentCreated() -> void override { Super::OnComponentCreated(); ++Created; CreatedLocation = GetWorldLocation(); if (CreationProbe) CreationProbe(*this); }
 		auto OnComponentDestroyed() -> void override { Super::OnComponentDestroyed(); ++Destroyed; }
 		auto OnRegister() -> void override { Super::OnRegister(); ++Registered; if (RegisterProbe) RegisterProbe(*this); }
 		auto OnUnregister() -> void override { Super::OnUnregister(); ++Unregistered; if (UnregisterProbe) UnregisterProbe(*this); }
 		auto InitializeComponent() -> void override { Super::InitializeComponent(); ++Initialized; }
 		auto UninitializeComponent() -> void override { Super::UninitializeComponent(); ++Uninitialized; }
-		auto PostLoad() -> void override { Super::PostLoad(); if (PostLoadProbe) PostLoadProbe(*this); }
+		auto PostLoad() -> void override { Super::PostLoad(); ++PostLoadCount; if (PostLoadProbe) PostLoadProbe(*this); }
 		auto Modify(bool bAlwaysMarkDirty = true) -> bool override
 		{
 			const bool bRecorded = Super::Modify(bAlwaysMarkDirty);
@@ -64,6 +64,8 @@ namespace Durin
 		}
 		std::function<void()> ObserveParentLoad;
 		std::function<void()> AfterModify;
+		inline static uint32 ConstructionCount = 0;
+		inline static uint32 PostLoadCount = 0;
 		inline static std::function<void(FStructuralTestLight&)> PostLoadProbe;
 		inline static std::function<void(FStructuralTestLight&)> CreationProbe;
 		inline static std::function<void(FStructuralTestLight&)> RegisterProbe;
@@ -724,6 +726,9 @@ TEST(FActorMutationTests, JoinedActorSpawnsRestoreCleanPackageOnUndo)
 	ASSERT_GE(Outer, 0);
 	const auto First = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "First", {}, {false});
 	ASSERT_TRUE(First);
+	EXPECT_FALSE(Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "First", {}, {false}, {},
+		ESpawnActorNameMode::RequiredReturnNull));
+	ASSERT_TRUE(F.Transactions->IsActive());
 	ASSERT_TRUE(Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Second", {}, {false}));
 	ASSERT_TRUE(F.Transactions->End());
 	EXPECT_TRUE(Package->IsDirty());
@@ -740,8 +745,21 @@ TEST(FActorMutationTests, BusyHistoryRejectsActorEditingBeforePreparation)
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
 	auto* Editor = F.Editor.GetActorEditor();
+	auto* Source = F.Actor->AddInstanceComponent(FStructuralTestLight::StaticClass(), "BusyProbe");
+	ASSERT_NE(Source, nullptr);
+	const auto Constructions = FStructuralTestLight::ConstructionCount;
+	const auto PostLoads = FStructuralTestLight::PostLoadCount;
+	AActor* Actors[] = {F.Actor};
 	const auto Count = Level->GetActors().size();
 	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions, true);
+	EXPECT_TRUE(Editor->CanEditActor(*F.Actor, {false}));
+	EXPECT_FALSE(Editor->CanEditActor(*F.Actor, {true}));
+	EXPECT_EQ(Editor->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false}), nullptr);
+	EXPECT_EQ(Editor->DuplicateComponent(*F.Actor, Source, {false}), nullptr);
+	EXPECT_TRUE(Editor->DuplicateActors(*Level, Actors, {false}).empty());
+	EXPECT_EQ(FStructuralTestLight::ConstructionCount, Constructions);
+	EXPECT_EQ(FStructuralTestLight::PostLoadCount, PostLoads);
+	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
 	bool bConfigured = false;
 	const auto Result = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Rejected", {},
 		{false}, [&](AActor&) { bConfigured = true; });
@@ -749,6 +767,9 @@ TEST(FActorMutationTests, BusyHistoryRejectsActorEditingBeforePreparation)
 	EXPECT_FALSE(bConfigured);
 	EXPECT_EQ(Level->GetActors().size(), Count);
 	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions.Get(), false);
+	ASSERT_EQ(Editor->DuplicateActors(*Level, Actors, {false}).size(), 1u);
+	EXPECT_GT(FStructuralTestLight::ConstructionCount, Constructions);
+	EXPECT_GT(FStructuralTestLight::PostLoadCount, PostLoads);
 }
 
 TEST(FComponentMutationTests, AdditionUndoRedoBalancesLifecycleAndSceneMembership)
@@ -1334,7 +1355,7 @@ TEST(FComponentMutationTests, StructuralEditsRestorePackageContentsAndDirtyState
 	MarkObjectHierarchyAsGarbage(Package);
 }
 
-TEST(FActorMutationTests, SpawnRechecksEditAccessAfterTransactionStartedBeforeConfiguration)
+TEST(FActorMutationTests, SpawnConfiguresOnceAndRejectsPublicationWhenTransactionStartMakesLevelReadOnly)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
@@ -1343,17 +1364,82 @@ TEST(FActorMutationTests, SpawnRechecksEditAccessAfterTransactionStartedBeforeCo
 		[&](const FTransactionContext&, ETransactionStateEventType Event) {
 			if (Event == ETransactionStateEventType::TransactionStarted) Context.bReadOnly = true;
 		});
-	bool bConfigured = false;
+	int ConfigureCalls = 0;
 	std::string Reason;
 	auto* Spawned = F.Editor.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), "ReadOnlyAtStart", {}, Context,
-		[&](AActor&) { bConfigured = true; }, ESpawnActorNameMode::Requested, {}, &Reason);
+		[&](AActor& Actor) {
+			++ConfigureCalls;
+			EXPECT_TRUE(Context.bReadOnly);
+			EXPECT_FALSE(Level->ContainsActor(&Actor));
+		}, ESpawnActorNameMode::Requested, {}, &Reason);
 	F.Transactions->OnTransactionStateChanged().Remove(Listener);
-	EXPECT_TRUE(Context.bReadOnly);
-	EXPECT_FALSE(bConfigured);
+	EXPECT_EQ(ConfigureCalls, 1);
 	EXPECT_EQ(Spawned, nullptr);
 	EXPECT_EQ(Reason, "The level is read-only.");
 	EXPECT_EQ(Level->FindActorByName("ReadOnlyAtStart"), nullptr);
 	EXPECT_FALSE(F.Transactions->IsActive());
+	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
+}
+
+TEST(FActorMutationTests, FailedSpawnPreservesUndoForConfigurationEditToExistingActor)
+{
+	FComponentFixture F;
+	auto* Level = F.World->GetCurrentLevel();
+	F.Actor->SetFlags(EObjectFlags::Transactional);
+	const auto OriginalLabel = F.Actor->GetActorLabel();
+	FActorEditContext Context{false};
+	auto* Spawned = F.Editor.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), "Unpublished", {}, Context,
+		[&](AActor&) {
+			EXPECT_TRUE(F.Actor->SetActorLabel("Edited during spawn"));
+			Context.bReadOnly = true;
+		});
+	ASSERT_EQ(Spawned, nullptr);
+	EXPECT_EQ(Level->FindActorByName("Unpublished"), nullptr);
+	EXPECT_EQ(F.Actor->GetActorLabel(), "Edited during spawn");
+	ASSERT_EQ(F.Transactions->GetQueueLength(), 1u);
+	ASSERT_TRUE(F.Transactions->Undo());
+	EXPECT_EQ(F.Actor->GetActorLabel(), OriginalLabel);
+	ASSERT_TRUE(F.Transactions->Redo());
+	EXPECT_EQ(F.Actor->GetActorLabel(), "Edited during spawn");
+	EXPECT_EQ(Level->FindActorByName("Unpublished"), nullptr);
+}
+
+TEST(FActorMutationTests, RenameUsesEntryPermissionWhenTransactionStartedChangesContext)
+{
+	FComponentFixture F;
+	auto* Editor = F.Editor.GetActorEditor();
+	auto* Level = F.World->GetCurrentLevel();
+	FActorEditContext Context{false};
+	const auto Listener = F.Transactions->OnTransactionStateChanged().AddLambda(
+		[&](const FTransactionContext&, ETransactionStateEventType Event) {
+			if (Event == ETransactionStateEventType::TransactionStarted) Context.bReadOnly = true;
+		});
+	const bool bRenamed = Editor->RenameActor(*Level, F.Actor, "Renamed", Context);
+	F.Transactions->OnTransactionStateChanged().Remove(Listener);
+	ASSERT_TRUE(Context.bReadOnly);
+	ASSERT_TRUE(bRenamed);
+	EXPECT_EQ(F.Actor->GetFName(), FName("Renamed"));
+	EXPECT_FALSE(Editor->RenameActor(*Level, F.Actor, "ReadOnly", Context));
+}
+
+TEST(FActorMutationTests, SpawnRejectsReplacedTargetLevelAfterConfiguration)
+{
+	FComponentFixture F;
+	TStrongObjectPtr<DLevel> Original(F.World->GetCurrentLevel());
+	auto* Replacement = NewObject<DLevel>(F.World, "Replacement");
+	AActor* Prepared = nullptr;
+	std::string Reason;
+	auto* Spawned = F.Editor.GetActorEditor()->SpawnActor(*Original, AActor::StaticClass(), "Unpublished", {}, {false},
+		[&](AActor& Actor) {
+			Prepared = &Actor;
+			ASSERT_TRUE(F.World->SetCurrentLevel(Replacement, false));
+		}, ESpawnActorNameMode::Requested, {}, &Reason);
+	ASSERT_NE(Prepared, nullptr);
+	EXPECT_FALSE(IsValid(Prepared));
+	EXPECT_EQ(Spawned, nullptr);
+	EXPECT_EQ(Reason, "The target is not the current editor level.");
+	EXPECT_EQ(Original->FindActorByName("Unpublished"), nullptr);
+	EXPECT_EQ(Replacement->FindActorByName("Unpublished"), nullptr);
 	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
 }
 
@@ -1368,6 +1454,8 @@ TEST(FActorMutationTests, PreparationRejectsRecursionAndCleansThrowingAndRejecte
 		EXPECT_TRUE(F.Transactions->IsActive());
 		const auto Recursive = Editor->SpawnActor(*Level, AActor::StaticClass(), "Recursive", {}, {false});
 		EXPECT_FALSE(Recursive);
+		EXPECT_FALSE(Editor->RenameActor(*Level, F.Actor, "NestedRename", {false}));
+		EXPECT_FALSE(Editor->CanEditActor(*F.Actor, {false}));
 		throw std::runtime_error("Preparation fixture");
 	});
 	EXPECT_FALSE(Failed);

@@ -20,12 +20,11 @@ namespace Durin
 		auto* Level = Info.PreferredLevel.Get();
 		if (!Level || !Asset.IsA(AssetClass)) return {};
 		if (OutError) OutError->clear();
-		if (!Editor.Admit(Info.EditContext, Level, nullptr, false, OutError)) return {};
-		auto* Actor = RunActorEdit(Editor.GetEditor(), Editor.bEditing, [&] {
+		auto* Actor = Editor.RunActorEdit(Info.EditContext, Level, nullptr, [&] {
 			return Editor.SpawnConfiguredActor(*Level, ActorClass, FName(Info.AssetToPlace.AssetPath.GetAssetName()),
 				Info.FinalizedTransform, Info.EditContext, [&](AActor& Created) { ConfigureActor(Asset, Created); },
 				ESpawnActorNameMode::Requested, {}, OutError);
-		});
+		}, OutError);
 		if (!Actor) return {};
 		return {Actor};
 	}

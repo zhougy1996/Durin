@@ -80,7 +80,10 @@ TEST(FAssetPlacementTests, ModuleFactoryIsUsedOnlyWhileRegistered)
 
 	auto* Asset = LoadObject<DMaterial>(Path);
 	ASSERT_TRUE(Asset);
+	TStrongObjectPtr<DTransBuffer> History(Editor.GetTransactions());
+	FEditorEngineTestAccess::SetTransactor(*Editor.GetEditor(), nullptr);
 	const auto Direct = Factory.PlaceAsset(*Editor.GetActorEditor(), Info, *Asset, nullptr);
+	FEditorEngineTestAccess::SetTransactor(*Editor.GetEditor(), History.Get());
 	ASSERT_EQ(Direct.size(), 1u);
 	EXPECT_TRUE(Info.PreferredLevel.Get()->ContainsActor(Direct.front().Get()));
 	EXPECT_EQ(Editor.GetTransactions()->GetQueueLength(), HistorySize);

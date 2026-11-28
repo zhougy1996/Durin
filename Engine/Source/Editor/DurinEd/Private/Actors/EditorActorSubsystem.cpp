@@ -1,13 +1,13 @@
 #include "Actors/EditorActorSubsystem.h"
 #include "Transactions/Transactor.h"
 #include "Actors/ActorEditingScope.h"
+#include "Actors/ActorEditingValidation.h"
 #include "Components/SceneComponent.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Threading/RunnableThread.h"
 #include "Tools/EditorScriptCall.h"
 
 namespace Durin
@@ -17,57 +17,53 @@ namespace Durin
 	auto DEditorActorSubsystem::CanEditActor(AActor& Actor, const FActorEditContext& Context) const -> std::expected<void, std::string>
 	{
 		std::string Error;
-		if (!Admit(Context, nullptr, &Actor, false, &Error)) return std::unexpected(std::move(Error));
+		if (const char* Reason = ActorEditBlockReason(bEditing)) return std::unexpected(Reason);
+		if (!ValidateEditTarget(Context, nullptr, &Actor, &Error)) return std::unexpected(std::move(Error));
 		return {};
 	}
 
-	auto DEditorActorSubsystem::Admit(const FActorEditContext& Context, DLevel* Level, AActor* Owner, bool bDuringEdit, std::string* OutError) const
-		-> DTransactor*
+	static auto RejectEdit(std::string* OutError, const char* Message) -> bool
 	{
+		if (OutError) *OutError = Message;
+		return false;
+	}
 
-		auto Reject = [&](const char* Message) -> DTransactor* {
-			if (OutError) *OutError = Message;
-			return nullptr;
-		};
-		if (!IsInGameThread()) return Reject("Actor edits require the game thread.");
-		if (!IsValid(this)) return Reject("The actor subsystem is unavailable.");
+	auto DEditorActorSubsystem::ValidateEditTarget(const FActorEditContext& Context, DLevel* Level, AActor* Owner, std::string* OutError) const -> bool
+	{
+		if (!IsValid(this)) return RejectEdit(OutError, "The actor subsystem is unavailable.");
 		if (Owner)
 		{
-			if (!IsValid(Owner)) return Reject("The actor is unavailable.");
+			if (!IsValid(Owner)) return RejectEdit(OutError, "The actor is unavailable.");
 			auto* OwnerLevel = Cast<DLevel>(Owner->GetOuter());
-			if (Level && Level != OwnerLevel) return Reject("The actor belongs to another level.");
+			if (Level && Level != OwnerLevel) return RejectEdit(OutError, "The actor belongs to another level.");
 			Level = OwnerLevel;
 		}
-		if (bEditing && !bDuringEdit) return Reject("Another actor edit is in progress.");
-		if (Context.bReadOnly) return Reject("The level is read-only.");
+		if (Context.bReadOnly) return RejectEdit(OutError, "The level is read-only.");
 		auto* Host = GetEditor();
 		if (!IsValid(Host) || Host != GEditor || Host->IsShutdownRequested()
 			|| Host->GetEditorSubsystem<DEditorActorSubsystem>() != this)
-			return Reject("The editor host is unavailable or shutting down.");
-		if (Host->IsPlaying()) return Reject("Actor editing is unavailable during play.");
-		if (!IsValid(Level) || !IsValid(Host->GetEditorWorld()) || Level->GetWorld() != Host->GetEditorWorld()
-			|| Host->GetEditorWorld()->GetCurrentLevel() != Level)
-			return Reject("The target is not the current editor level.");
-		auto* Transactions = Host->GetTransactor();
-		if (!IsValid(Level) || Level->IsTemplateObject()
-			|| (Owner && (!IsValid(Owner) || Owner->IsTemplateObject() || Owner->IsBeingDestroyed() || Owner->HasBegunPlay()
+			return RejectEdit(OutError, "The editor host is unavailable or shutting down.");
+		if (Host->IsPlaying()) return RejectEdit(OutError, "Actor editing is unavailable during play.");
+		auto* World = Host->GetEditorWorld();
+		if (!IsValid(Level) || !IsValid(World) || Level->GetWorld() != World || World->GetCurrentLevel() != Level)
+			return RejectEdit(OutError, "The target is not the current editor level.");
+		if (Level->IsTemplateObject()
+			|| (Owner && (Owner->IsTemplateObject() || Owner->IsBeingDestroyed() || Owner->HasBegunPlay()
 				|| Owner->GetOuter() != Level || !Level->ContainsActor(Owner))))
-			return Reject("The level or actor is unavailable for editing.");
-		if (auto* World = Level->GetWorld(); World && (!IsValid(World) || World->IsShutdownRequested()))
-			return Reject("The world is shutting down.");
-		if (auto* World = Level->GetWorld(); World && World->GetPlayState() != EWorldPlayState::Stopped)
-			return Reject("The world is playing.");
+			return RejectEdit(OutError, "The level or actor is unavailable for editing.");
+		if (World->IsShutdownRequested())
+			return RejectEdit(OutError, "The world is shutting down.");
+		if (World->GetPlayState() != EWorldPlayState::Stopped)
+			return RejectEdit(OutError, "The world is playing.");
 		if (auto* Script = FScopedEditorScriptCall::Current())
 		{
 			if (!Script->IsAdmitted() || Script->GetContext().Host != Host)
-				return Reject("The script is not admitted by this editor.");
+				return RejectEdit(OutError, "The script is not admitted by this editor.");
 			const auto Access = Script->ResolveEditAccess(*Level);
 			if (Access != EEditorScriptTargetAccess::Writable)
-				return Reject("The script cannot write to this level.");
+				return RejectEdit(OutError, "The script cannot write to this level.");
 		}
-		if (!IsValid(Transactions) || !Transactions->CanTransact())
-			return Reject("Editor history is unavailable for recording.");
-		return Transactions;
+		return true;
 	}
 
 	namespace
@@ -91,12 +87,10 @@ namespace Durin
 
 		template<class Edit>
 		auto SubmitAttachment(DLevel& Level, std::span<AActor* const> Actors,
-			const char* Description, Edit Apply) -> bool
+			Edit Apply) -> bool
 		{
 			// Notifications may retire a later actor before its turn.
 			std::vector<TObjectPtr<AActor>> Targets(Actors.begin(), Actors.end());
-			FScopedTransaction Scope("ActorAttachment", Description, nullptr);
-			if (!Scope.IsOutstanding()) return false;
 			bool Changed = false;
 			for (const auto& Target : Targets)
 			{
@@ -114,16 +108,17 @@ namespace Durin
 	auto DEditorActorSubsystem::AttachActors(DLevel& Level, std::span<AActor* const> Actors, AActor* Parent,
 		EAttachmentTransformRule Rule, const FActorEditContext& Context) -> bool
 	{
-		if (!Admit(Context, &Level)) return false;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
+		return RunActorEdit(Context, &Level, nullptr, [&]() -> bool
 		{
+			FScopedTransaction Scope("ActorAttachment", "Attach actors", nullptr);
+			if (!Scope.IsOutstanding() || !CanEditActorLevel(&Level)) return false;
 			if (!ValidateActors(Level, Actors) || !IsValid(Parent) || !ValidateActors(Level, {&Parent, 1}))
 				return false;
 			for (auto* Actor : Actors)
 				if (WouldCreateCycle(*Actor, *Parent)) return false;
 
 			TObjectPtr<AActor> Destination(Parent);
-			return SubmitAttachment(Level, Actors, "Attach actors", [&](DSceneComponent& Root) {
+			return SubmitAttachment(Level, Actors, [&](DSceneComponent& Root) {
 				auto* Target = Destination.Get();
 				if (!IsValid(Target) || Target->IsBeingDestroyed() || !Level.ContainsActor(Target)) return false;
 				auto* ParentRoot = Target->GetRootComponent();
@@ -145,11 +140,12 @@ namespace Durin
 	auto DEditorActorSubsystem::DetachActors(DLevel& Level, std::span<AActor* const> Actors,
 		EDetachmentTransformRule Rule, const FActorEditContext& Context) -> bool
 	{
-		if (!Admit(Context, &Level)) return false;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
+		return RunActorEdit(Context, &Level, nullptr, [&]() -> bool
 		{
+			FScopedTransaction Scope("ActorAttachment", "Detach actors", nullptr);
+			if (!Scope.IsOutstanding() || !CanEditActorLevel(&Level)) return false;
 			if (!ValidateActors(Level, Actors)) return false;
-			return SubmitAttachment(Level, Actors, "Detach actors", [&](DSceneComponent& Root) {
+			return SubmitAttachment(Level, Actors, [&](DSceneComponent& Root) {
 				if (!Root.GetAttachParent()) return false;
 				Root.SetFlags(EObjectFlags::Transactional);
 				(void)Root.Modify(false);

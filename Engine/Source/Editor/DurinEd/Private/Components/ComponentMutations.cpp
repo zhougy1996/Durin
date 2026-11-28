@@ -20,12 +20,10 @@ namespace Durin
 	namespace
 	{
 		auto PublishInstance(AActor& Owner, DActorComponent& Component, DSceneComponent* Parent,
-			const FTransform& Relative, bool bTransient, std::string_view Description) -> bool
+			const FTransform& Relative, bool bTransient) -> bool
 		{
 			TStrongObjectPtr<DActorComponent> Prepared(&Component);
 			Component.SetCreationMethod(EComponentCreationMethod::Instance);
-			FScopedTransaction Scope("Component", Description, &Owner);
-			if (!Scope.IsOutstanding()) return false;
 			Owner.SetFlags(EObjectFlags::Transactional);
 			Owner.Modify(false);
 			Component.SetFlags(EObjectFlags::Transactional);
@@ -58,9 +56,10 @@ namespace Durin
 	auto DEditorActorSubsystem::AddComponent(AActor& Owner, DClass* Class, DSceneComponent* Parent,
 		const FActorEditContext& Context) -> DActorComponent*
 	{
-		if (!Admit(Context, nullptr, &Owner)) return nullptr;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> DActorComponent*
+		return RunActorEdit(Context, nullptr, &Owner, [&]() -> DActorComponent*
 		{
+			FScopedTransaction Scope("Component", "Add component", &Owner);
+			if (!Scope.IsOutstanding() || !CanEditActorOwner(&Owner)) return nullptr;
 			if (!CanConstructObjectOfClass(Class, DActorComponent::StaticClass())
 				|| (Parent && (!IsValid(Parent) || Parent->IsBeingDestroyed() || Parent->HasBegunPlay()
 					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent->GetOwner() != &Owner || !Owner.OwnsComponent(Parent)))) return nullptr;
@@ -70,6 +69,12 @@ namespace Durin
 				EObjectFlags::Transactional | EObjectFlags::Transient);
 			if (!Component) return nullptr;
 			if (IsValid(&Owner) && IsValid(Component)) Owner.RemoveOwnedComponent(Component);
+			if (!IsValid(Component) || !ValidateEditTarget(Context, nullptr, &Owner)
+				|| (Parent && (!IsValid(Parent) || !Owner.OwnsComponent(Parent) || Parent->IsBeingDestroyed())))
+			{
+				if (IsValid(Component)) MarkObjectHierarchyAsGarbage(Component);
+				return nullptr;
+			}
 			auto* Scene = Cast<DSceneComponent>(Component);
 			DSceneComponent* Destination = Scene ? (Parent ? Parent : Owner.GetRootComponent()) : nullptr;
 			FTransform Relative = Scene && !Parent ? Scene->GetRelativeTransform() : FTransform{};
@@ -78,12 +83,7 @@ namespace Durin
 				Scene->UpdateComponentToWorld();
 				Relative = FTransform::MakeRelative(Scene->GetWorldTransform(), Destination->GetWorldTransform());
 			}
-			if (auto Revalidated = Admit(Context, nullptr, &Owner, true); !Revalidated)
-			{
-				if (IsValid(Component)) MarkObjectHierarchyAsGarbage(Component);
-				return nullptr;
-			}
-			if (!PublishInstance(Owner, *Component, Destination, Relative, false, "Add component"))
+			if (!PublishInstance(Owner, *Component, Destination, Relative, false))
 			{
 				if (IsValid(Component) && !Owner.OwnsComponent(Component)) MarkObjectHierarchyAsGarbage(Component);
 				return nullptr;
@@ -96,9 +96,10 @@ namespace Durin
 	auto DEditorActorSubsystem::DuplicateComponent(AActor& Owner, DActorComponent* Source,
 		const FActorEditContext& Context) -> DActorComponent*
 	{
-		if (!Admit(Context, nullptr, &Owner)) return nullptr;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> DActorComponent*
+		return RunActorEdit(Context, nullptr, &Owner, [&]() -> DActorComponent*
 		{
+			FScopedTransaction Scope("Component", "Duplicate component", &Owner);
+			if (!Scope.IsOutstanding() || !CanEditActorOwner(&Owner)) return nullptr;
 			if (!IsValid(Source) || !Owner.IsInstanceComponent(Source)
 				|| Owner.GetRootComponent() == Source) return nullptr;
 			auto Copy = StaticDuplicateObjectEx({.SourceObject = Source, .DestOuter = &Owner,
@@ -109,15 +110,15 @@ namespace Durin
 				Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
 			if (IsValid(&Owner) && IsValid(Component)) Owner.RemoveOwnedComponent(Component);
 			// Ordinary duplication runs PostLoad and remaps owned subobjects before publication.
-			auto* SourceScene = Cast<DSceneComponent>(Source);
-			if (auto Revalidated = Admit(Context, nullptr, &Owner, true); !Revalidated)
+			if (!IsValid(Component) || !ValidateEditTarget(Context, nullptr, &Owner) || !IsValid(Source)
+				|| !Owner.IsInstanceComponent(Source) || Owner.GetRootComponent() == Source)
 			{
 				if (IsValid(Component)) MarkObjectHierarchyAsGarbage(Component);
 				return nullptr;
 			}
+			auto* SourceScene = Cast<DSceneComponent>(Source);
 			if (!PublishInstance(Owner, *Component, SourceScene ? SourceScene->GetAttachParent() : nullptr,
-				SourceScene ? SourceScene->GetRelativeTransform() : FTransform{}, Source->HasAnyObjectFlags(EObjectFlags::Transient),
-				"Duplicate component"))
+				SourceScene ? SourceScene->GetRelativeTransform() : FTransform{}, Source->HasAnyObjectFlags(EObjectFlags::Transient)))
 			{
 				if (IsValid(Component) && !Owner.OwnsComponent(Component)) MarkObjectHierarchyAsGarbage(Component);
 				return nullptr;
@@ -130,16 +131,18 @@ namespace Durin
 	auto DEditorActorSubsystem::RenameComponent(AActor& Owner, DActorComponent* Component, FName RequestedName,
 		const FActorEditContext& Context) -> bool
 	{
-		if (!Admit(Context, nullptr, &Owner)) return false;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
+		return RunActorEdit(Context, nullptr, &Owner, [&]() -> bool
 		{
-			if (!IsValid(Component) || Component->IsTemplateObject()
-				|| Component->GetOwner() != &Owner || !Owner.OwnsComponent(Component) || RequestedName.IsNone()
-				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) return false;
+			const auto InvalidComponent = [&] {
+				return !IsValid(Component) || Component->IsTemplateObject()
+				|| Component->GetOwner() != &Owner || !Owner.OwnsComponent(Component)
+				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated;
+			};
+			if (RequestedName.IsNone() || InvalidComponent()) return false;
 			const FName Name = UniqueName(Owner, RequestedName, Component);
 			if (Name == Component->GetFName()) return true;
 			FScopedTransaction Recording("ComponentRename", "Rename component", Component);
-			if (!Recording.IsOutstanding()) return false;
+			if (!Recording.IsOutstanding() || !CanEditActorOwner(&Owner) || InvalidComponent()) return false;
 			Component->SetFlags(EObjectFlags::Transactional);
 			(void)Component->Modify();
 			return Component->Rename(Name, ERenameFlags::DoNotDirty);
@@ -150,18 +153,19 @@ namespace Durin
 	auto DEditorActorSubsystem::ReparentComponent(AActor& Owner, DSceneComponent* Component, DSceneComponent* Parent,
 		const FActorEditContext& Context) -> bool
 	{
-		if (!Admit(Context, nullptr, &Owner)) return false;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
+		return RunActorEdit(Context, nullptr, &Owner, [&]() -> bool
 		{
-			if (!IsValid(Component) || Component->IsBeingDestroyed() || Component->HasBegunPlay() || Component->GetOwner() != &Owner
+			const auto InvalidComponent = [&] {
+				return !IsValid(Component) || Component->IsBeingDestroyed() || Component->HasBegunPlay() || Component->GetOwner() != &Owner
 				|| !Owner.OwnsComponent(Component) || Owner.GetRootComponent() == Component
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated
 				|| (Parent && (!IsValid(Parent) || Parent->IsBeingDestroyed() || Parent->HasBegunPlay() || Parent->GetOwner() != &Owner || !Owner.OwnsComponent(Parent)
-					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent == Component || Parent->IsAttachedTo(Component))))
-				return false;
+					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent == Component || Parent->IsAttachedTo(Component)));
+			};
+			if (InvalidComponent()) return false;
 			if (Component->GetAttachParent() == Parent) return true;
 			FScopedTransaction Scope("ComponentAttachment", "Reparent component", Component);
-			if (!Scope.IsOutstanding()) return false;
+			if (!Scope.IsOutstanding() || !CanEditActorOwner(&Owner) || InvalidComponent()) return false;
 			Component->SetFlags(EObjectFlags::Transactional);
 			(void)Component->Modify();
 			return Parent ? Component->AttachToComponent(Parent, EAttachmentTransformRule::KeepWorld)
@@ -173,14 +177,15 @@ namespace Durin
 	auto DEditorActorSubsystem::DeleteComponent(AActor& Owner, DActorComponent* Component,
 		const FActorEditContext& Context) -> bool
 	{
-		if (!Admit(Context, nullptr, &Owner)) return false;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
+		return RunActorEdit(Context, nullptr, &Owner, [&]() -> bool
 		{
-			if (!IsValid(Component) || !Owner.IsInstanceComponent(Component)
-				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated)
-				return false;
+			const auto InvalidComponent = [&] {
+				return !IsValid(Component) || !Owner.IsInstanceComponent(Component)
+				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated;
+			};
+			if (InvalidComponent()) return false;
 			FScopedTransaction Scope("Component", "Delete component", &Owner);
-			if (!Scope.IsOutstanding()) return false;
+			if (!Scope.IsOutstanding() || !CanEditActorOwner(&Owner) || InvalidComponent()) return false;
 			Owner.SetFlags(EObjectFlags::Transactional);
 			Owner.Modify(false);
 			Component->SetFlags(EObjectFlags::Transactional);

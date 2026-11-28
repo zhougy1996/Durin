@@ -98,8 +98,10 @@ namespace Durin
 			const FActorEditContext& Context, const std::function<void(AActor&)>& Configure, ESpawnActorNameMode NameMode,
 			const std::string& Label, std::string* OutError) -> AActor*;
 		auto ScriptEditContext(DLevel* Level) const -> std::optional<FActorEditContext>;
-		auto Admit(const FActorEditContext& Context, DLevel* Level, AActor* Owner = nullptr,
-			bool bDuringEdit = false, std::string* OutError = nullptr) const -> DTransactor*;
+		auto ValidateEditTarget(const FActorEditContext& Context, DLevel* Level, AActor* Owner, std::string* OutError = nullptr) const -> bool;
+		template<typename F>
+		auto RunActorEdit(const FActorEditContext& Context, DLevel* Level, AActor* Owner, F Operation,
+			std::string* OutError = nullptr) -> std::invoke_result_t<F>;
 		bool bEditing = false;
 	};
 }

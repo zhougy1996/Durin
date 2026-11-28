@@ -1,21 +1,30 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Editor/EditorEngine.h"
+#include "Actors/EditorActorSubsystem.h"
+#include "Threading/RunnableThread.h"
+#include "Templates/GuardValue.h"
 
 namespace Durin
 {
-	// Reject recursive edits while preparation has not entered history.
-	template<typename F>
-	auto RunActorEdit(DEditorEngine* Host, bool& bEditing, F Operation) -> std::invoke_result_t<F>
+	inline auto ActorEditBlockReason(const bool& bEditing) -> const char*
 	{
-		struct FScope
+		if (!IsInGameThread()) return "Actor edits require the game thread.";
+		if (bEditing) return "Another actor edit is in progress.";
+		return nullptr;
+	}
+
+	template<typename F>
+	auto DEditorActorSubsystem::RunActorEdit(const FActorEditContext& Context, DLevel* Level, AActor* Owner,
+		F Operation, std::string* OutError) -> std::invoke_result_t<F>
+	{
+		if (const char* Reason = ActorEditBlockReason(bEditing))
 		{
-			bool& Flag;
-			explicit FScope(bool& InFlag) : Flag(InFlag) { Flag = true; }
-			~FScope() { Flag = false; }
-		} Scope(bEditing);
-		if (!Host || Host->IsShutdownRequested()) return {};
+			if (OutError) *OutError = Reason;
+			return {};
+		}
+		const TGuardValue EditScope(bEditing, true);
+		if (!ValidateEditTarget(Context, Level, Owner, OutError)) return {};
 		return Operation();
 	}
 }
