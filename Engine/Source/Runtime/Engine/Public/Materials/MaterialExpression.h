@@ -71,6 +71,8 @@ namespace Durin
 		std::optional<int32> StoredIndex{};
 		const FMaterialFunctionPort* FunctionPort = nullptr;
 		std::span<const float> InlineDefault{};
+		// Overrides the creation catalog label while retaining the instance name.
+		std::string_view CatalogAlias{};
 	};
 
 	struct FMaterialExpressionCreationInfo
@@ -80,7 +82,6 @@ namespace Durin
 		std::string_view Description;
 		std::string_view Category;
 		bool bRequiresAsset = false;
-		std::array<std::string_view, 4> InputNames{};
 		std::optional<EMaterialProgramValueType> PaletteDefault{};
 		bool bShowInPalette = true;
 		std::optional<EMaterialProgramValueType> FixedOutputType{};

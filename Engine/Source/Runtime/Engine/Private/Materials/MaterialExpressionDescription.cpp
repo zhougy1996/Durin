@@ -7,6 +7,12 @@ namespace Durin
 {
 	namespace
 	{
+		auto GetCatalogInputName(const FMaterialExpressionInputInfo& Input) -> std::string_view
+		{
+			if (!Input.CatalogAlias.empty()) return Input.CatalogAlias;
+			return Input.Name.empty() ? "Value" : Input.Name;
+		}
+
 		auto DescribeClass(DClass* Class, const DMaterialExpression& Default, const FMaterialExpressionCreationInfo& Info)
 			-> FMaterialExpressionDescription
 		{
@@ -27,9 +33,7 @@ namespace Durin
 				{
 					const auto Input = Default.GetInputInfo(static_cast<int32>(Index));
 					if (!Input.Type) return Result;
-					const auto Name = Index < Info.InputNames.size() && !Info.InputNames[Index].empty()
-						? Info.InputNames[Index] : Default.GetInputName(static_cast<int32>(Index));
-					Shape.InputNames.emplace_back(Name.empty() ? "Value" : Name);
+					Shape.InputNames.emplace_back(GetCatalogInputName(Input));
 					Shape.AcceptedInputTypes.push_back({*Input.Type});
 					if (Input.bAllowImplicitCast) AppendMaterialValidCastSources(Shape.AcceptedInputTypes.back());
 				}
@@ -46,9 +50,7 @@ namespace Durin
 				FMaterialExpressionAuthoringShape Shape{Type, {}, {}};
 				for (uint8 Index = 0; Index < Signature->InputCount; ++Index)
 				{
-					const auto Name = Index < Info.InputNames.size() && !Info.InputNames[Index].empty()
-						? Info.InputNames[Index] : Default.GetInputName(Index);
-					Shape.InputNames.emplace_back(Name.empty() ? "Value" : Name);
+					Shape.InputNames.emplace_back(GetCatalogInputName(Default.GetInputInfo(Index)));
 					Shape.AcceptedInputTypes.emplace_back(Signature->Inputs[Index].begin(), Signature->Inputs[Index].end());
 					if (!MaterialInputAllowsValidCast(Opcode, Index)) continue;
 					auto& Accepted = Shape.AcceptedInputTypes.back();
@@ -63,7 +65,7 @@ namespace Durin
 				{
 					const auto Input = Default.GetInputInfo(static_cast<int32>(Index));
 					if (!Input.Type) break;
-					Shape.InputNames.emplace_back(Input.Name);
+					Shape.InputNames.emplace_back(GetCatalogInputName(Input));
 					Shape.AcceptedInputTypes.push_back({*Input.Type});
 				}
 				Result.Shapes.push_back(std::move(Shape));

@@ -403,11 +403,10 @@ namespace Durin::MaterialEditor
 			const auto Index = static_cast<int32>(InputIndex);
 			// Stale attribute selectors remain in storage for traversal but have no graph pin.
 			if (Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes && !Info.Type) return;
-			const auto Name = Info.Name.empty() ? Expression->GetInputName(Index) : Info.Name;
+			const auto Name = Info.Name.empty() && Node.Opcode != EMaterialProgramOpcode::FunctionOutput
+				? std::string_view{"Value"} : Info.Name;
 			FMaterialGraphPinView Pin{.InputIndex = InputIndex,
-				.Name = !Name.empty() ? std::string(Name)
-					: Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value"};
-			if (Node.Opcode == EMaterialProgramOpcode::FunctionOutput) Pin.Name = Info.Name;
+				.Name = std::string(Name)};
 			Pin.bActive = Info.bActive;
 			Pin.StoredIndex = Info.StoredIndex;
 			if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];

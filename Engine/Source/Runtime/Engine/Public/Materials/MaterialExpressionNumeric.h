@@ -22,6 +22,8 @@ namespace Durin
 #endif
 
 	protected:
+		ENGINE_API auto GetNumericInputInfo(int32 Index, std::initializer_list<std::string_view> Names) const
+			-> FMaterialExpressionInputInfo;
 		ENGINE_API virtual auto GetNumericResultType(EMaterialProgramOpcode Opcode) const -> std::optional<EMaterialProgramValueType>;
 	};
 }

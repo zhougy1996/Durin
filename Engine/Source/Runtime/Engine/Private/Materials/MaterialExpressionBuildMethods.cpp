@@ -115,9 +115,15 @@ namespace Durin
 
 	auto DMaterialExpressionNumeric::GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo
 	{
+		return GetNumericInputInfo(Index, {});
+	}
+
+	auto DMaterialExpressionNumeric::GetNumericInputInfo(int32 Index, std::initializer_list<std::string_view> Names) const
+		-> FMaterialExpressionInputInfo
+	{
 		const auto Info = GetCreationInfo();
 		if (!Info.Opcode || Index < 0 || static_cast<uint32>(Index) >= GetAuthoredInputCount()) return {};
-		const auto Name = static_cast<size_t>(Index) < Info.InputNames.size() ? Info.InputNames[Index] : std::string_view{};
+		const auto Name = static_cast<size_t>(Index) < Names.size() ? Names.begin()[Index] : std::string_view{};
 		FMaterialExpressionInputInfo Input{.Name = Name.empty() ? "Value" : Name};
 		if (const auto Type = GetNumericResultType(*Info.Opcode))
 			if (const auto Signature = GetMaterialProgramNodeSignature(*Info.Opcode, *Type);

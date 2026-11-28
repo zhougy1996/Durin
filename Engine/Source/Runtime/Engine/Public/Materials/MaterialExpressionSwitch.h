@@ -45,7 +45,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::StaticSwitch, .Name = "Static Switch",
 				.Description = "Selects exactly one branch from a static bool before normalized MIR.",
-				.Category = "Static Selection", .InputNames = {"Condition", "False", "True"}};
+				.Category = "Static Selection"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"Condition", "False", "True"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
@@ -71,7 +75,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::QualitySwitch, .Name = "Quality Switch",
 				.Description = "Selects Low or High, using Default when that branch is unconnected.",
-				.Category = "Static Selection", .InputNames = {"Default", "Low", "High"}};
+				.Category = "Static Selection"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"Default", "Low", "High"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
@@ -103,7 +111,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::FeatureLevelSwitch, .Name = "Feature Level Switch",
 				.Description = "Selects the accepted RHI feature tier, using Default when unconnected.",
-				.Category = "Static Selection", .InputNames = {"Default", "ES3_1", "SM5", "SM6"}};
+				.Category = "Static Selection"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"Default", "ES3_1", "SM5", "SM6"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()

@@ -89,6 +89,7 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 	using Op = EMaterialProgramOpcode;
 	using Type = EMaterialProgramValueType;
 	using Mode = EMaterialTextureReadMode;
+	const auto SampleRows = SearchCatalog("texture sample");
 	for (const auto Opcode : {Op::TextureSample2D, Op::TextureSampleCube, Op::TextureSampleParameter2D, Op::TextureSampleParameterCube})
 	{
 		const bool bCube = Opcode == Op::TextureSampleCube || Opcode == Op::TextureSampleParameterCube;
@@ -114,6 +115,8 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		const auto View = Testing::CaptureGraphView(*AuthoringGraph);
 		const auto* Node = FindViewNode(View, Id);
 		ASSERT_NE(Node, nullptr);
+		const auto Row = std::ranges::find(SampleRows, Opcode, &FMaterialGraphCatalogEntry::Opcode);
+		ASSERT_NE(Row, SampleRows.end());
 		auto* Expression = AuthoringGraph->FindNode(Id)->GetMaterialExpression();
 		const auto Duplicated = DuplicateObject(Expression, nullptr, NAME_None);
 		ASSERT_TRUE(Duplicated);
@@ -124,6 +127,15 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		const int32 Mip = Coordinate + 1;
 		const auto CoordinateType = bCube ? Type::Float3 : Type::Float2;
 		ASSERT_EQ(Node->Inputs.size(), static_cast<size_t>(Mip + 3));
+		std::vector<std::string> ExpectedNames;
+		if (!bParameter) ExpectedNames.emplace_back("Texture");
+		ExpectedNames.insert(ExpectedNames.end(), {bCube ? "Direction" : "UV", "Mip Value", "DDX", "DDY"});
+		EXPECT_EQ(Row->InputNames, ExpectedNames);
+		for (int32 Index = 0; Index < static_cast<int32>(ExpectedNames.size()); ++Index)
+		{
+			EXPECT_EQ(Node->Inputs[Index].Name, ExpectedNames[Index]);
+			EXPECT_EQ(Expression->GetInputInfo(Index).Name, ExpectedNames[Index]);
+		}
 		EXPECT_EQ(Expression->GetInputName(Coordinate), bCube ? "Direction" : "UV");
 		EXPECT_EQ(Expression->GetInputValueType(Coordinate), CoordinateType);
 		EXPECT_EQ(Expression->IsInputConnectionRequired(0), !bParameter);
@@ -152,6 +164,8 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		for (const auto ModeValue : {Mode::Implicit, Mode::Level, Mode::Bias, Mode::Grad})
 		{
 			*ReadMode = ModeValue;
+			for (int32 Index = 0; Index < static_cast<int32>(ExpectedNames.size()); ++Index)
+				EXPECT_EQ(Draft->GetInputInfo(Index).Name, ExpectedNames[Index]);
 			EXPECT_TRUE(Draft->GetInputInfo(Coordinate).bActive);
 			EXPECT_EQ(Draft->GetInputInfo(Mip).bActive, ModeValue == Mode::Level || ModeValue == Mode::Bias);
 			for (int32 Index : {Mip + 1, Mip + 2})
@@ -4017,6 +4031,20 @@ TEST(FMaterialGraphOperationsTests, AttributeInputsSharePinAdmissionAndUndoStruc
 	ASSERT_NE(GetNode, nullptr);
 	const auto* GetExpression = GetNode->GetMaterialExpression();
 	ASSERT_NE(GetExpression, nullptr);
+	const auto* SetNode = AuthoringGraph->FindNode(Set->Id);
+	ASSERT_NE(SetNode, nullptr);
+	for (const auto* Node : {GetNode, SetNode})
+	{
+		const auto& View = Node->GetView();
+		ASSERT_TRUE(View.Node.Opcode);
+		const auto Rows = SearchCatalog(View.PrimaryLabel);
+		const auto Row = std::ranges::find(Rows, View.Node.Opcode, &FMaterialGraphCatalogEntry::Opcode);
+		ASSERT_NE(Row, Rows.end());
+		EXPECT_EQ(Row->InputNames, (std::vector<std::string>{"Attributes"}));
+		ASSERT_EQ(View.Inputs.size(), 1u);
+		EXPECT_EQ(View.Inputs[0].Name, "Material Attributes");
+		EXPECT_EQ(Node->GetMaterialExpression()->GetInputInfo(0).CatalogAlias, "Attributes");
+	}
 	const auto Selected = GetExpression->GetOutput(0);
 	ASSERT_TRUE(Selected);
 	EXPECT_EQ(Selected->Name, Definition->Name);

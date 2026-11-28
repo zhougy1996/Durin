@@ -49,7 +49,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Dot, .Name = "Dot Product",
 				.Description = "Returns the scalar dot product of equal-width vectors.",
-				.Category = "Math", .InputNames = {"A", "B"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		DPROPERTY()
 		FMaterialNumericInput A{2};
@@ -70,7 +74,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Cross, .Name = "Cross Product",
 				.Description = "Returns the cross product of two Float3 values.",
-				.Category = "Math", .InputNames = {"A", "B"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		DPROPERTY()
 		FMaterialNumericInput A{3};
@@ -110,7 +118,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Distance, .Name = "Distance",
 				.Description = "Returns the scalar distance between equal-width values.",
-				.Category = "Math", .InputNames = {"A", "B"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		DPROPERTY()
 		FMaterialNumericInput A{2};
@@ -132,7 +144,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::MakeFloat2, .Name = "Make Vector",
 				.Description = "Combines scalar inputs into a vector.",
-				.Category = "Channels", .InputNames = {"X", "Y"}, .bShowInPalette = false};
+				.Category = "Channels", .bShowInPalette = false};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"X", "Y"});
 		}
 
 		DPROPERTY()
@@ -159,7 +175,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::MakeFloat3, .Name = "Make Vector",
 				.Description = "Combines scalar inputs into a vector.",
-				.Category = "Channels", .InputNames = {"X", "Y", "Z"}, .bShowInPalette = false};
+				.Category = "Channels", .bShowInPalette = false};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"X", "Y", "Z"});
 		}
 
 		DPROPERTY()
@@ -189,7 +209,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::MakeFloat4, .Name = "Make Vector",
 				.Description = "Combines scalar inputs into a vector.",
-				.Category = "Channels", .InputNames = {"X", "Y", "Z", "W"}, .bShowInPalette = false};
+				.Category = "Channels", .bShowInPalette = false};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"X", "Y", "Z", "W"});
 		}
 
 		DPROPERTY()
@@ -294,7 +318,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::BlendNormalsRNM, .Name = "Blend Normals RNM",
 				.Description = "Blends two tangent-space normals with RNM.",
-				.Category = "Textures", .InputNames = {"Base", "Detail"}};
+				.Category = "Textures"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"Base", "Detail"});
 		}
 
 		DPROPERTY()
@@ -321,8 +349,12 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::AppendVector, .Name = "Append Vector",
 				.Description = "Concatenates A and B; output width follows the inputs (up to four components).",
-				.Category = "Channels", .InputNames = {"A", "B"}, .PaletteDefault = EMaterialProgramValueType::Float2,
+				.Category = "Channels", .PaletteDefault = EMaterialProgramValueType::Float2,
 				.bHasInstanceShape = true};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()

@@ -159,6 +159,10 @@ resolve declaration types, functions use live GUID ports, and attribute GUID sel
 bindings control instance pins. Instance-dependent output behavior must be read
 from authored state rather than inferred from palette availability.
 
+The catalog reads input names from the class default object's `GetInputInfo`.
+An input can supply a `CatalogAlias` to preserve distinct creation wording.
+Graph pins display the instance's input name.
+
 `MaterialExpressionInputs.h` owns reflected connection traversal and retained
 numeric-default lookup. Fixed members retain declaration order; function calls
 visit binding order. MIR and editor readers borrow the material's named numeric

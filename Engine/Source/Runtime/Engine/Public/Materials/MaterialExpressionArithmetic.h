@@ -22,7 +22,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Add, .Name = "Add",
 				.Description = "Adds two values component by component.",
-				.Category = "Math", .InputNames = {"A", "B"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
@@ -53,7 +57,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Subtract, .Name = "Subtract",
 				.Description = "Subtracts the second value from the first.",
-				.Category = "Math", .InputNames = {"A", "B"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
@@ -84,7 +92,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Multiply, .Name = "Multiply",
 				.Description = "Multiplies two values component by component.",
-				.Category = "Math", .InputNames = {"A", "B"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
@@ -115,7 +127,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Divide, .Name = "Divide",
 				.Description = "Divides the first value by the second.",
-				.Category = "Math", .InputNames = {"A", "B"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
@@ -146,7 +162,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Minimum, .Name = "Minimum",
 				.Description = "Returns the component-wise minimum.",
-				.Category = "Math", .InputNames = {"A", "B"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
@@ -177,7 +197,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Maximum, .Name = "Maximum",
 				.Description = "Returns the component-wise maximum.",
-				.Category = "Math", .InputNames = {"A", "B"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
@@ -375,7 +399,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Pow, .Name = "Power",
 				.Description = "Raises each base component to its exponent.",
-				.Category = "Math", .InputNames = {"Base", "Exponent"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"Base", "Exponent"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
@@ -553,7 +581,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Fmod, .Name = "Fmod",
 				.Description = "Returns the component-wise floating-point remainder.",
-				.Category = "Math", .InputNames = {"A", "B"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
@@ -577,7 +609,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Step, .Name = "Step",
 				.Description = "Returns zero below Edge and one otherwise.",
-				.Category = "Math", .InputNames = {"Edge", "Value"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"Edge", "Value"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
@@ -601,7 +637,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::SmoothStep, .Name = "Smooth Step",
 				.Description = "Returns smooth Hermite interpolation between Min and Max.",
-				.Category = "Math", .InputNames = {"Min", "Max", "Value"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"Min", "Max", "Value"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
@@ -649,7 +689,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Reflect, .Name = "Reflect",
 				.Description = "Reflects an incident vector around a normal of equal width.",
-				.Category = "Math", .InputNames = {"Incident", "Normal"}, .PaletteDefault = EMaterialProgramValueType::Float2};
+				.Category = "Math", .PaletteDefault = EMaterialProgramValueType::Float2};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"Incident", "Normal"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 		DPROPERTY()
@@ -674,7 +718,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Clamp, .Name = "Clamp",
 				.Description = "Constrains a value between minimum and maximum inputs.",
-				.Category = "Math", .InputNames = {"Value", "Min", "Max"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"Value", "Min", "Max"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 
@@ -708,7 +756,11 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::Lerp, .Name = "Lerp",
 				.Description = "Interpolates between two values.",
-				.Category = "Math", .InputNames = {"A", "B", "Alpha"}};
+				.Category = "Math"};
+		}
+		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
+		{
+			return GetNumericInputInfo(Index, {"A", "B", "Alpha"});
 		}
 		auto GetAuthoredResultType() const -> const EMaterialProgramValueType* override { return &ResultType; }
 

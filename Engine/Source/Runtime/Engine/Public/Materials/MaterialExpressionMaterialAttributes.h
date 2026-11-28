@@ -99,11 +99,13 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::GetMaterialAttributes, .Name = "Get Material Attributes",
 				.Description = "Reads selected typed material attributes.",
-				.Category = "Surface", .InputNames = {"Attributes"}, .bHasInstanceShape = true};
+				.Category = "Surface", .bHasInstanceShape = true};
 		}
 		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
 		{
-			if (Index == 0) return {"Material Attributes", EMaterialProgramValueType::MaterialAttributes};
+			if (Index == 0)
+				return {.Name = "Material Attributes", .Type = EMaterialProgramValueType::MaterialAttributes,
+					.CatalogAlias = "Attributes"};
 			return {};
 		}
 #if DURIN_WITH_EDITORONLY_DATA
@@ -173,12 +175,14 @@ namespace Durin
 		{
 			return {.Opcode = EMaterialProgramOpcode::SetMaterialAttributes, .Name = "Set Material Attributes",
 				.Description = "Overrides connected attributes on the incoming surface. An open surface input uses the material attribute defaults.",
-				.Category = "Surface", .InputNames = {"Attributes"},
+				.Category = "Surface",
 				.FixedOutputType = EMaterialProgramValueType::MaterialAttributes, .bHasInstanceShape = true};
 		}
 		auto GetInputInfo(int32 Index) const -> FMaterialExpressionInputInfo override
 		{
-			if (Index == 0) return {"Material Attributes", EMaterialProgramValueType::MaterialAttributes};
+			if (Index == 0)
+				return {.Name = "Material Attributes", .Type = EMaterialProgramValueType::MaterialAttributes,
+					.CatalogAlias = "Attributes"};
 			// Override inputs use their stored material property selector plus one.
 			if (Index < 0 || !std::in_range<uint8>(Index - 1)) return {};
 			const auto Property = static_cast<EMaterialProperty>(Index - 1);
