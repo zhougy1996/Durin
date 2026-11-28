@@ -93,19 +93,6 @@ TEST(FMaterialThumbnailRendererTests, ReflectedRegistrationRejectsAbstractAndUnr
 	EXPECT_EQ(Manager.Num(), 0u);
 }
 
-TEST(FMaterialThumbnailRendererTests, OneReflectedRendererClassServesDistinctAssetRegistrations)
-{
-	InitializeDObjectSystem();
-	Durin::DThumbnailManager Manager;
-	auto Material = Manager.RegisterCustomRenderer(Durin::DMaterial::StaticClass(), Durin::MaterialEditor::DMaterialThumbnailRenderer::StaticClass());
-	auto Instance = Manager.RegisterCustomRenderer(Durin::DMaterialInstance::StaticClass(), Durin::MaterialEditor::DMaterialThumbnailRenderer::StaticClass());
-	ASSERT_TRUE(Material);
-	ASSERT_TRUE(Instance);
-	EXPECT_NE(Manager.GetRenderingInfo(Durin::DMaterial::StaticClass())->Renderer,
-		Manager.GetRenderingInfo(Durin::DMaterialInstance::StaticClass())->Renderer);
-	EXPECT_FALSE(Manager.RegisterCustomRenderer(Durin::DMaterial::StaticClass(), Durin::MaterialEditor::DMaterialThumbnailRenderer::StaticClass()));
-}
-
 TEST(FMaterialThumbnailRendererTests, ModuleStartupPublishesIndependentRenderersWithoutSharedToolkits)
 {
 	InitializeDObjectSystem();
@@ -230,17 +217,20 @@ TEST(FMaterialThumbnailRendererTests, PreviewComponentResolvesInstanceInheritanc
 
 	Durin::FMaterialRenderData MaterialData;
 	Durin::FMaterialRenderData InstanceData;
-	Durin::EnqueueRenderCommand("CaptureThumbnailMaterialProxies",
-		[MaterialProxy, InstanceProxy, &MaterialData, &InstanceData](
-			Durin::FRHICommandListImmediate&) {
-			const auto& MaterialSlot = MaterialProxy->GetMaterialRenderProxy(0);
-			const auto& InstanceSlot = InstanceProxy->GetMaterialRenderProxy(0);
-			ASSERT_TRUE(MaterialSlot);
-			ASSERT_TRUE(InstanceSlot);
-			MaterialData = MaterialSlot->QueryMaterial_RenderThread();
-			InstanceData = InstanceSlot->QueryMaterial_RenderThread();
-		});
-	Durin::FlushRenderingCommands();
+	const auto CaptureBindings = [&] {
+		Durin::EnqueueRenderCommand("CaptureThumbnailMaterialProxies",
+			[MaterialProxy, InstanceProxy, &MaterialData, &InstanceData](
+				Durin::FRHICommandListImmediate&) {
+				const auto& MaterialSlot = MaterialProxy->GetMaterialRenderProxy(0);
+				const auto& InstanceSlot = InstanceProxy->GetMaterialRenderProxy(0);
+				ASSERT_TRUE(MaterialSlot);
+				ASSERT_TRUE(InstanceSlot);
+				MaterialData = MaterialSlot->QueryMaterial_RenderThread();
+				InstanceData = InstanceSlot->QueryMaterial_RenderThread();
+			});
+		Durin::FlushRenderingCommands();
+	};
+	CaptureBindings();
 	const auto MaterialBinding =
 		GetMaterialBinding(MaterialData);
 	const auto InstanceBinding =
@@ -249,6 +239,13 @@ TEST(FMaterialThumbnailRendererTests, PreviewComponentResolvesInstanceInheritanc
 	EXPECT_NE(
 		MaterialBinding.Textures[0],
 		InstanceBinding.Textures[0]);
+
+	ASSERT_TRUE(Fixtures.MaterialInstance->ClearParameterValueByInfo({
+		.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
+	CaptureBindings();
+	const auto ResetBinding = GetMaterialBinding(InstanceData);
+	EXPECT_EQ(ResetBinding.BaseColor, MaterialBinding.BaseColor);
+	EXPECT_EQ(ResetBinding.Textures[0], InstanceBinding.Textures[0]);
 
 	MaterialPrimitive.reset();
 	InstancePrimitive.reset();

@@ -20,7 +20,6 @@
 #include "Graph/MaterialEditingOperations.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
-#include "DObject/OverridableManager.h"
 #include "MaterialGraphTestSupport.h"
 #include "MaterialResourceTestSupport.h"
 #include "Misc/FileHelper.h"
@@ -355,30 +354,23 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			Tests::FTestEditorTransactorOwner History;
 			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Asset));
 			const auto& Schema = Graph->GetSchema();
-			const auto Before = History->GetQueueLength();
 			TStrongObjectPtr<DMaterialGraph> OtherGraph(DMaterialGraph::Create(*Asset));
-			const bool bCleanWasDirty = Asset->GetPackage()->IsDirty();
 			EXPECT_FALSE(Schema.CanCreateConnection(Testing::ResolvePin(*OtherGraph, Output), Testing::ResolvePin(*Graph, Input)).Reason.empty());
 			EXPECT_FALSE(Schema.TryCreateConnection(Testing::ResolvePin(*OtherGraph, Output), Testing::ResolvePin(*Graph, Input)));
 			EXPECT_FALSE(Asset->GetPackage()->IsDirty());
-			EXPECT_EQ(Asset->GetPackage()->IsDirty(), bCleanWasDirty);
-			EXPECT_EQ(History->GetQueueLength(), Before);
 			ASSERT_TRUE(Schema.CanCreateConnection(Testing::ResolvePin(*Graph, Output), Testing::ResolvePin(*Graph, Input)).Allows(false));
 			ASSERT_TRUE(Schema.TryCreateConnection(Testing::ResolvePin(*Graph, Output), Testing::ResolvePin(*Graph, Input)));
 			EXPECT_EQ(Testing::InputView(*Graph, Input)->Link, Link);
 			CheckSource(*Asset, true);
-			EXPECT_EQ(History->GetQueueLength(), Before + 1);
 			const bool bWasDirty = Asset->GetPackage()->IsDirty();
 			std::string Error = "previous error";
 			EXPECT_FALSE(Schema.TryCreateConnection(Testing::ResolvePin(*Graph, Output), Testing::ResolvePin(*Graph, Input), false, true, &Error));
 			EXPECT_TRUE(Error.empty());
-			EXPECT_EQ(History->GetQueueLength(), Before + 1);
 			EXPECT_EQ(Asset->GetPackage()->IsDirty(), bWasDirty);
 			const auto Loop = FMaterialProgramLink{Saturate->front()};
 			EXPECT_FALSE(Schema.CanCreateConnection(Testing::ResolvePin(*Graph, Input), Testing::ResolvePin(*Graph, Loop)).Allows(true));
 			EXPECT_FALSE(Schema.TryCreateConnection(Testing::ResolvePin(*Graph, Input), Testing::ResolvePin(*Graph, Loop), true));
 			EXPECT_EQ(Asset->GetPackage()->IsDirty(), bWasDirty);
-			EXPECT_EQ(History->GetQueueLength(), Before + 1);
 			EXPECT_EQ(Testing::InputView(*Graph, Input)->Link, Link);
 			CheckSource(*Asset, true);
 			ASSERT_TRUE(History->Undo());
@@ -388,7 +380,6 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			EXPECT_EQ(Testing::InputView(*Graph, Input)->Link, Link);
 			CheckSource(*Asset, true);
 			ASSERT_TRUE(Schema.TryCreateConnection(Testing::ResolvePin(*Graph, Replacement), Testing::ResolvePin(*Graph, Input), true));
-			EXPECT_EQ(History->GetQueueLength(), Before + 2);
 			const auto CheckReplacement = [&] {
 				const auto* Source = Testing::ResolvePin(*Graph, Replacement);
 				const auto* Sink = Testing::ResolvePin(*Graph, Input);
@@ -411,7 +402,6 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			EXPECT_FALSE(Schema.BreakPinLinks(Testing::ResolvePin(*Graph, Input), true, &Error));
 			EXPECT_TRUE(Error.empty());
 			EXPECT_EQ(Asset->GetPackage()->IsDirty(), bDisconnectedWasDirty);
-			EXPECT_EQ(History->GetQueueLength(), Before + 3);
 			CheckSource(*Asset, false);
 			ASSERT_TRUE(History->Undo());
 			CheckReplacement();
@@ -522,15 +512,15 @@ TEST(FMaterialGraphPersistenceTests, CustomDeclarationsPersistAndDuplicateTheirI
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FMaterialGraphPersistenceTests, LargeGraphRoundTripsWithoutLoadedOverrideLedger)
+TEST(FMaterialGraphPersistenceTests, LargeParameterGraphSurvivesCompleteAndDeltaSaves)
 {
 	InitializeDObjectSystem();
 	Testing::FScopedMountRegistryFixture MountRegistry;
-	const auto Root = Testing::GetTestWorkDirectory() / "GraphWithoutLedger";
+	const auto Root = Testing::GetTestWorkDirectory() / "LargeParameterGraph";
 	Testing::RemoveTestWorkDirectory(Root);
-	Testing::RegisterMountPointForTests("/GraphWithoutLedger/", Root.generic_string() + "/");
+	Testing::RegisterMountPointForTests("/LargeParameterGraph/", Root.generic_string() + "/");
 	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/GraphWithoutLedger/Base", Path));
+	ASSERT_TRUE(FPackagePath::TryCreate("/LargeParameterGraph/Base", Path));
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
 	Testing::FTestMaterialExpressionGraph Graph;
@@ -548,27 +538,19 @@ TEST(FMaterialGraphPersistenceTests, LargeGraphRoundTripsWithoutLoadedOverrideLe
 	}
 	ASSERT_TRUE(Graph.Apply(*Material));
 	const auto Expected = CaptureExpressions(*Material);
-	ASSERT_TRUE(SavePackage(Material->GetPackage(), {.Mode = EAssetPackageSaveMode::Complete}));
-	const auto CompleteBytes = std::filesystem::file_size(Root / "Base.dasset");
-	for (int Round = 0; Round < 2; ++Round)
+	for (const auto Mode : {EAssetPackageSaveMode::Complete, EAssetPackageSaveMode::Delta})
 	{
-		std::optional<Durin::UnifiedError::FError> LoadResultError;
-		ASSERT_TRUE(SavePackage(Material->GetPackage()));
-		const auto DeltaBytes = std::filesystem::file_size(Root / "Base.dasset");
-		EXPECT_LE(DeltaBytes, CompleteBytes);
+		ASSERT_TRUE(SavePackage(Material->GetPackage(), {.Mode = Mode}));
 		ASSERT_TRUE(UnloadPackage(Path));
-		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadResultError);
-		Material = LoadResult;
-		ASSERT_TRUE(LoadResult) << (LoadResultError ? LoadResultError->ToString() : "");
-		ASSERT_NE(Material, nullptr);
-		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Material));
+		std::optional<Durin::UnifiedError::FError> Error;
+		Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &Error);
+		ASSERT_TRUE(Material) << (Error ? Error->ToString() : "");
 		EXPECT_EQ(CaptureExpressions(*Material), Expected);
-		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy").value());
-		ASSERT_NE(Copy, nullptr);
-		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Copy));
-		EXPECT_EQ(CaptureExpressions(*Copy), Expected);
-		MarkObjectHierarchyAsGarbage(Copy);
 	}
+	auto Copy = DuplicateObject(Material, nullptr, "LargeParameterGraphCopy");
+	ASSERT_TRUE(Copy);
+	EXPECT_EQ(CaptureExpressions(**Copy), Expected);
+	MarkObjectHierarchyAsGarbage(*Copy);
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }

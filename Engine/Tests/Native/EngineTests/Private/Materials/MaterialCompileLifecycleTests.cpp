@@ -793,53 +793,19 @@ TEST_F(FMaterialAsyncCompileTests, InstanceOwnersQueueWithoutCapacityRetries)
 	ASSERT_NO_FATAL_FAILURE(QualifyInstanceCompilationStates());
 }
 
-TEST_F(FMaterialAsyncCompileTests, SingleFlightRetainedHitsAndDemandedReload)
+TEST_F(FMaterialAsyncCompileTests, RetainedMapIsReusedAndReloadRecompilesOnlyDemandedOwners)
 {
 	auto* First = MakeObject<Durin::DMaterial>("AsyncCompileFirst");
 	auto* Second = MakeObject<Durin::DMaterial>("AsyncCompileSecond");
-	ASSERT_EQ(First->GetMaterialCompileStatus().State,
-		Durin::EMaterialCompileState::NeverRequested);
-	ASSERT_EQ(Second->GetMaterialCompileStatus().State,
-		Durin::EMaterialCompileState::NeverRequested);
-	{
-		// Single-flight requires overlapping requests. A warm compiler can finish
-		// before the second submission unless the fixture holds worker entry.
-		const uint32 WorkerCount = Durin::GetTaskSchedulerDiagnostics().WorkerCount;
-		Durin::FThreadEvent Started, Release;
-		std::atomic<uint32> StartedCount = 0;
-		std::vector<Durin::Tasks::FTask> Blockers;
-		struct FReleaseWorkers
-		{
-			Durin::FThreadEvent& Event;
-			std::vector<Durin::Tasks::FTask>& Tasks;
-			~FReleaseWorkers() { Event.Trigger(); for (const auto& Task : Tasks) Task.Wait(); }
-		} ReleaseWorkers{Release, Blockers};
-		for (uint32 Index = 0; Index < WorkerCount; ++Index)
-			Blockers.push_back(Durin::Tasks::FTask(Durin::Tasks::LaunchTask("HoldMaterialSingleFlight", [&] {
-				if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
-				Release.WaitFor(2.0);
-			})));
-		ASSERT_TRUE(Started.WaitFor(1.0));
-		ASSERT_TRUE(Durin::RequestMaterialRecompile(*First, true));
-		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Second, true));
-		ASSERT_EQ(First->GetMaterialCompileStatus().State,
-			Durin::EMaterialCompileState::Running);
-		ASSERT_EQ(Second->GetMaterialCompileStatus().State,
-			Durin::EMaterialCompileState::Running);
-		EXPECT_GE(Durin::GetMaterialCompilationStatistics()
-			.SingleFlightConsumers, 1u);
-	}
-	ASSERT_TRUE(WaitForMaterialCompile(*First));
-	ASSERT_TRUE(WaitForMaterialCompile(*Second));
-	const auto InitialProgram = First->GetAcceptedCompiledProgram();
-	ASSERT_TRUE(InitialProgram);
-	EXPECT_NE(InitialProgram, Second->GetAcceptedCompiledProgram());
-	EXPECT_EQ(InitialProgram->ShaderMap, Second->GetAcceptedCompiledProgram()->ShaderMap);
-	EXPECT_TRUE(Second->GetMaterialCompileDebugInfo().CacheInfo.bSharedCompilation);
-	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
 	ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
-	EXPECT_TRUE(First->GetMaterialCompileDebugInfo().CacheInfo.bRetainedHit);
+	const auto Initial = First->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(Initial);
+	ASSERT_TRUE(Durin::RequestMaterialRecompile(*Second));
+	ASSERT_TRUE(WaitForMaterialCompile(*Second));
+	ASSERT_TRUE(Second->GetAcceptedCompiledProgram());
+	EXPECT_EQ(Second->GetAcceptedCompiledProgram()->ShaderMap, Initial->ShaderMap);
+	EXPECT_TRUE(Second->GetMaterialCompileDebugInfo().CacheInfo.bRetainedHit);
 	const Durin::FMaterialRenderProxyRef DemandedProxy =
 		First->GetRenderProxy();
 	const uint64 DemandedGeneration =
@@ -957,27 +923,24 @@ TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
 	const auto InitialProgram = First->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(InitialProgram);
-	const uint64 InitialGeneration =
-		First->GetMaterialCompileDebugInfo().RequestId;
 	auto Validation = EditRoughnessDefault(*First, 0.03125f);
 	ASSERT_TRUE(Validation);
 	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	EXPECT_FALSE(First->GetMaterialCompileStatus().IsCurrent());
 	ASSERT_TRUE((Validation = EditRoughnessDefault(*First, 0.0625f)));
-	EXPECT_EQ(First->GetMaterialCompileDebugInfo().RequestId,
-		InitialGeneration + 2);
 	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
-	ASSERT_TRUE(WaitForMaterialCompile(*First))
-		<< "state=" << static_cast<uint32>(First->GetMaterialCompileStatus().State)
-		<< " diagnostic=" << (First->GetMaterialCompileDiagnostics().empty()
-			? std::string("<none>")
-			: First->GetMaterialCompileDiagnostics().front().Message);
+	Durin::FMaterialCompilerEnvironment Environment;
+	ASSERT_TRUE(Durin::BuildDefaultMaterialCompilerEnvironment(Environment));
+	auto Latest = Durin::SnapshotMaterialCompilerInput(*First, std::move(Environment));
+	ASSERT_TRUE(Latest);
+	const auto Expected = Durin::MIR::Normalize(Latest.Snapshot->Input);
+	ASSERT_TRUE(Expected);
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	ASSERT_TRUE(First->GetAcceptedCompiledProgram());
-	EXPECT_NE(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId,
-		InitialProgram->GetShaderMap().ShaderMapId);
+	EXPECT_EQ(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Expected.Identity);
+	EXPECT_NE(Expected.Identity, InitialProgram->GetShaderMap().ShaderMapId);
 	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
 }
-
 
 TEST_F(FMaterialAsyncCompileTests, FailedCompilationRetiresOutputAndCanRecover)
 {

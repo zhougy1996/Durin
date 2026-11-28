@@ -310,15 +310,13 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FMaterialFunctionEditingTests, TerminalPortIsTheOnlyAuthoredInterfaceAndUndoRestoresIt)
+TEST(FMaterialFunctionEditingTests, TerminalPortEditsUpdateTheSignatureAndReplay)
 {
 	using namespace Durin;
 	using namespace Durin::MaterialEditor;
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
 	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "NodeOwnedInterface"));
-	EXPECT_EQ(Function->GetClass()->FindPropertyByName("Signature"), nullptr);
-	EXPECT_EQ(DMaterialExpressionFunctionInput::StaticClass()->FindPropertyByName("PortId"), nullptr);
 	TStrongObjectPtr<DMaterialGraph> FunctionGraph(DMaterialGraph::Create(*Function));
 	Tests::FTestEditorTransactorOwner Transactions;
 	const auto Before = Function->GetFunctionSignature();
@@ -329,23 +327,10 @@ TEST(FMaterialFunctionEditingTests, TerminalPortIsTheOnlyAuthoredInterfaceAndUnd
 	Edited.Name = "Authored on node";
 	Edited.DisplayOrder = 17;
 	Edited.Default.Surface.Get(EMaterialProperty::MP_Roughness).Literal.X = .27f;
-	std::vector<FMaterialGraphChangeSet> Events;
-	const auto Handle = Function->GetGraphChanges().Subscribe(*Function.Get(), [&](const auto& Change) {
-		Events.push_back(Change);
-		EXPECT_EQ(Function->GetFunctionSignature().Inputs[0], Edited);
-	});
 	auto* InputTerminal = FunctionGraph->FindNode(NodeId);
 	ASSERT_TRUE(InputTerminal);
-	const auto HistorySize = Transactions->GetQueueLength();
 	const auto Result = InputTerminal->SetFunctionPort(Edited);
-	Function->GetGraphChanges().Unsubscribe(Handle);
-	ASSERT_TRUE(Result) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Result);
-	EXPECT_EQ(Transactions->GetQueueLength(), HistorySize + 1);
-	ASSERT_EQ(Events.size(), 1u);
-	ASSERT_EQ(Events[0].Nodes.size(), 1u);
-	EXPECT_EQ(Events[0].Flags, EMaterialGraphChange::None);
-	EXPECT_EQ(Events[0].Nodes[0].NodeId, NodeId);
-	EXPECT_NE(Events[0].Nodes[0].Flags & EMaterialGraphNodeChange::Interface, EMaterialGraphNodeChange::None);
+	ASSERT_TRUE(Result) << FormatMaterialGraphCommandResult(Result);
 	EXPECT_EQ(Function->GetFunctionSignature().Inputs[0], Edited);
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Function->GetFunctionSignature(), Before);

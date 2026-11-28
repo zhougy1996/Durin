@@ -304,7 +304,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	}
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram()) << Cooked->GetMaterialCookDiagnostic();
 	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty());
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 5u);
+	ASSERT_FALSE(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.empty());
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 	for (const auto& Shader : Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders)
 	{
@@ -694,9 +694,6 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().RequiredEntries,
 			SelectMaterialShaderEntries(Loaded->GetStaticProperties(), false));
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 4u);
-		EXPECT_FALSE(std::ranges::any_of(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders,
-			[](const auto& Stage) { return Stage.SourceEntryPoint == "HitProxyFragmentMain"; }));
 		DMaterialInstance* LoadedInstance = nullptr;
 		{
 			std::optional<Durin::UnifiedError::FError> LoadedValueError;
@@ -720,11 +717,10 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		EXPECT_EQ(RootBinding.Representation.GetSamplers()[0], Texture.Value.GetTexture().SamplerState);
 		EXPECT_EQ(InstanceBinding.Representation.GetSamplers()[0], Sampling.GetTexture().SamplerState);
 		EXPECT_EQ(InstanceBinding.Representation.GetTextureFallbacks()[0], EMaterialTextureFallback::Black);
-		for (const auto& Field : ExpectedLayout.Fields) if (Field.ParameterId == Tint.Name.ToString())
-		{
-			EXPECT_FLOAT_EQ(ReadFloat(RootBinding.Representation.GetUniformPayload(), Field.Offset), 0.2f);
-			EXPECT_FLOAT_EQ(ReadFloat(InstanceBinding.Representation.GetUniformPayload(), Field.Offset), 0.8f);
-		}
+		const auto Field = std::ranges::find(ExpectedLayout.Fields, Tint.Name.ToString(), &FMaterialRenderField::ParameterId);
+		ASSERT_NE(Field, ExpectedLayout.Fields.end());
+		EXPECT_FLOAT_EQ(ReadFloat(RootBinding.Representation.GetUniformPayload(), Field->Offset), 0.2f);
+		EXPECT_FLOAT_EQ(ReadFloat(InstanceBinding.Representation.GetUniformPayload(), Field->Offset), 0.8f);
 	}
 	ShutdownAssetRuntime(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());

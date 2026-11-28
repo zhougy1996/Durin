@@ -143,11 +143,22 @@ namespace
 			ASSERT_TRUE(Open(*Object));
 			auto* EditorInstance = Durin::Testing::FindReflectedEditor(AssetEditorSubsystem, Object, EAssetOpenMethod::Edit);
 			ASSERT_NE(nullptr, EditorInstance);
-			EXPECT_TRUE(EditorInstance->GetToolkit()->CanSaveActiveDocument());
-			EXPECT_TRUE(EditorInstance->GetToolkit()->SaveActiveDocument());
+			const auto Opacity = AssetForge::Builtins::MaterialParameters::OpacityName();
+			auto* Instance = Cast<DMaterialInstance>(Object);
+			if (Instance) ASSERT_TRUE(Instance->SetScalarParameterValue(Opacity, 0.375f));
+			ASSERT_TRUE(EditorInstance->GetToolkit()->SaveActiveDocument());
+			if (Instance) ASSERT_TRUE(Instance->SetScalarParameterValue(Opacity, 0.75f));
 			Object->MarkPackageDirty();
 			ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardAsset(*Object)) << EditorInstance->GetToolkit()->GetLastOperationError();
 			Object = EditorInstance->GetEditingObjects().front();
+			if (Source == Fixtures.MaterialInstance)
+			{
+				auto* Reopened = Cast<DMaterialInstance>(Object);
+				ASSERT_TRUE(Reopened);
+				float Value = 0;
+				ASSERT_TRUE(Reopened->GetScalarParameterValue(Opacity, Value));
+				EXPECT_FLOAT_EQ(Value, 0.375f);
+			}
 			EXPECT_FALSE(Open(*Object, EAssetOpenMethod::View));
 			EXPECT_EQ(nullptr, AssetEditorSubsystem->OpenAssetEditor(EditorInstance->GetClass(), {
 				.OpenArgs = {.AssetEditors = AssetEditorSubsystem, .OpenMethod = EAssetOpenMethod::View, .InstanceRole = "BypassAttempt"}, .Assets = {Object}}));

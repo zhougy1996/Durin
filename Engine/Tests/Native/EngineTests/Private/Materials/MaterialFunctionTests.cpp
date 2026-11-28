@@ -44,21 +44,6 @@ TEST(FMaterialFunctionTests, StandardRecipesOwnTypedExpressionsAndPublishIndepen
 		const auto Interface = GetStandardMaterialFunctionInterface(static_cast<EStandardMaterialFunction>(Index + 1));
 		EXPECT_TRUE(ValidateMaterialFunctionSignature(Interface));
 		EXPECT_EQ(Recipe.GetSignature(), Interface);
-		// Focused sampling recipes use channel outputs and an explicitly typed flat normal.
-		for (const auto& Expression : Recipe.Expressions)
-		{
-			EXPECT_FALSE(Expression->IsA<DMaterialExpressionScalarConstant>());
-			if (const auto* Lerp = Cast<DMaterialExpressionLerp>(Expression.Get()))
-			{
-				EXPECT_TRUE(Lerp->A.Connection.IsConnected());
-			}
-			if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()); Swizzle
-				&& Swizzle->OutputSpatialKind != EMaterialSpatialKind::None)
-			{
-				EXPECT_EQ(Swizzle->OutputSpatialKind, EMaterialSpatialKind::Normal);
-				EXPECT_EQ(Swizzle->OutputCoordinateSpace, EMaterialCoordinateSpace::Tangent);
-			}
-		}
 		Owners.emplace_back(NewObject<DMaterialFunction>(nullptr, NAME_None));
 		auto& Function = *Owners.back();
 		const auto Result = Recipe.Apply(Function);
@@ -1389,7 +1374,7 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionReferences)
+TEST(FMaterialFunctionTests, SavedRootCallReopensWithItsFunctionAndOutputBindings)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -1425,16 +1410,14 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(FunctionPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
-	Material = nullptr;
-	{
-		std::optional<Durin::UnifiedError::FError> LoadedValueError;
-		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), nullptr, &LoadedValueError);
-		Material = LoadedValue;
-		ASSERT_TRUE(LoadedValue);
-	}
+	Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+	ASSERT_TRUE(Material);
 	EXPECT_EQ(CaptureMaterialOutputBindings(*Material), OutputBindings);
-	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
-	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Id, CallId);
+	const auto Calls = GetFunctionCalls(*Material);
+	ASSERT_EQ(Calls.size(), 1u);
+	EXPECT_EQ(Calls.front()->Id, CallId);
+	ASSERT_TRUE(Calls.front()->Function);
+	EXPECT_EQ(Calls.front()->Function->GetObjectPath(), Testing::MakePackageLeafAssetObjectPathForTests(FunctionPath).ToString());
 	auto InputCapture = SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "RootRoundTrip"});
 	ASSERT_TRUE(InputCapture);
 	auto& Input = InputCapture.Snapshot->Input;

@@ -1,7 +1,6 @@
 #include "MaterialGraph.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Materials/MaterialExpression.h"
-#include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
@@ -31,29 +30,30 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		const auto Revision = Function->GetFunctionRevision();
 		const auto Built = BuildMaterialFunctionPreview(*Function, Output.Id, *Preview);
 		ASSERT_TRUE(Built) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Built);
-		const auto& Expressions = Preview->GetExpressionCollection().Expressions;
-		ASSERT_FALSE(Expressions.empty());
-		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expressions.front().Get());
-		ASSERT_NE(Call, nullptr);
-		EXPECT_EQ(Call->FunctionOutputs[0].OutputId, Output.Id);
-		for (const auto& Expression : Expressions) EXPECT_EQ(Expression->GetOuter(), Preview);
+		const auto Roots = Preview->CaptureRootInputs();
+		if (Type == EMaterialProgramValueType::MaterialAttributes)
+		{
+			EXPECT_TRUE(Roots.bUseMaterialAttributes);
+			EXPECT_EQ(Roots.Attributes.GetOutputId(), Output.Id);
+		}
+		else
+		{
+			EXPECT_TRUE(Roots.Get(EMaterialProperty::MP_EmissiveColor).Connection.IsConnected());
+		}
 		ASSERT_TRUE(Preview->CompileEdits()) << "type " << Index << ": " << FormatMaterialProgramDiagnostics(Preview->GetMaterialCompileDiagnostics());
 		ASSERT_TRUE(Preview->GetAcceptedCompiledProgram());
 		EXPECT_EQ(Function->GetFunctionSignature(), Signature);
 		EXPECT_EQ(Function->GetExpressionCollection().Expressions, SourceExpressions);
 		EXPECT_EQ(Function->GetFunctionRevision(), Revision);
-		const auto Before = Preview->GetExpressionCollection().Expressions;
-		const auto BeforeOutputs = Preview->CaptureRootInputs();
-		const auto BeforeRevision = Preview->GetMaterialCompileDebugInfo().AuthoredRevision;
-		const auto MissingId = FGuid::NewGuid();
-		const auto Missing = BuildMaterialFunctionPreview(*Function, MissingId, *Preview);
-		ASSERT_FALSE(Missing);
-		EXPECT_EQ(Missing.Message.find("The preview output no longer exists."), 0u);
-		EXPECT_EQ(Preview->GetExpressionCollection().Expressions, Before);
-		EXPECT_EQ(Preview->CaptureRootInputs(), BeforeOutputs);
-		EXPECT_EQ(Preview->GetMaterialCompileDebugInfo().AuthoredRevision, BeforeRevision);
-		ASSERT_TRUE(BuildMaterialFunctionPreview(*Function, Output.Id, *Preview));
 	}
+	const auto BeforeOutputs = Preview->CaptureRootInputs();
+	const auto Accepted = Preview->GetAcceptedCompiledProgram();
+	const auto Missing = BuildMaterialFunctionPreview(*Function, FGuid::NewGuid(), *Preview);
+	ASSERT_FALSE(Missing);
+	EXPECT_FALSE(Missing.Message.empty());
+	EXPECT_EQ(Preview->CaptureRootInputs(), BeforeOutputs);
+	EXPECT_EQ(Preview->GetAcceptedCompiledProgram(), Accepted);
+	ASSERT_TRUE(BuildMaterialFunctionPreview(*Function, Function->GetFunctionSignature().Outputs.front().Id, *Preview));
 	MarkAsGarbage(Preview); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 

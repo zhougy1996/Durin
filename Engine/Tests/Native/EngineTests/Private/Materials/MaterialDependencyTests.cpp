@@ -1,3 +1,4 @@
+#include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
 #include "Materials/ObjectCacheContext.h"
 
@@ -12,30 +13,10 @@ namespace
 		std::ranges::sort(Result);
 		return Result;
 	}
-	auto HandleEquals(Durin::FObjectKey Left, Durin::FObjectKey Right) -> bool
-	{
-		return Left == Right;
-	}
 
-	auto ContainsHandle(
-		std::span<const Durin::FObjectKey> Handles,
-		Durin::FObjectKey Expected
-	) -> bool
-	{
-		return std::ranges::find_if(Handles, [Expected](Durin::FObjectKey Handle) {
-			return HandleEquals(Handle, Expected);
-		}) != Handles.end();
-	}
-
-	auto IsSortedByHandle(std::span<const Durin::FObjectKey> Handles) -> bool
-	{
-		return std::ranges::is_sorted(Handles, [](Durin::FObjectKey Left, Durin::FObjectKey Right) {
-			return Left < Right;
-		});
-	}
 }
 
-TEST(FMaterialDependencyTests, ScopedQueriesMatchLegacyAndBuildOnce)
+TEST(FMaterialDependencyTests, ScopedResultsSurviveLaterQueriesAndFilterRetiredMaterials)
 {
 	InitializeDObjectSystem();
 	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "CacheBase");
@@ -46,7 +27,6 @@ TEST(FMaterialDependencyTests, ScopedQueriesMatchLegacyAndBuildOnce)
 	const auto Expected = LegacyDependents(Base);
 	{
 		Durin::FObjectCacheContext Context;
-		EXPECT_EQ(Context.GetDiagnostics().SnapshotCount, 0u);
 		const auto First = Context.GetMaterialsAffectedByMaterial(Base);
 		std::vector<Durin::FObjectKey> Actual;
 		for (auto* Object : First) Actual.emplace_back(Object);
@@ -58,8 +38,6 @@ TEST(FMaterialDependencyTests, ScopedQueriesMatchLegacyAndBuildOnce)
 		Actual.clear();
 		for (auto* Object : Context.GetDirectMaterialChildren(Base)) Actual.emplace_back(Object);
 		EXPECT_EQ(Actual, Durin::GetLoadedDirectMaterialChildren(Base));
-		EXPECT_EQ(Context.GetDiagnostics().QueryCount, 3u);
-		EXPECT_EQ(Context.GetDiagnostics().SnapshotCount, 1u);
 		EXPECT_EQ(Context.GetDiagnostics().ParentTableBuildCount, 0u);
 		Actual.clear();
 		for (auto* Object : First) Actual.emplace_back(Object);
@@ -153,7 +131,7 @@ TEST(FMaterialDependencyTests, ScopedQueriesPreserveExcludedAncestorsAndCorruptC
 		std::vector<Durin::FObjectKey> Actual;
 		for (auto* Object : Context.GetMaterialsAffectedByMaterial(Base)) Actual.emplace_back(Object);
 		EXPECT_EQ(Actual, LegacyDependents(Base));
-		EXPECT_TRUE(ContainsHandle(Actual, Durin::FObjectKey(Leaf)));
+		EXPECT_TRUE(std::ranges::contains(Actual, Durin::FObjectKey(Leaf)));
 	}
 	auto* Parent = static_cast<Durin::FObjectProperty*>(Leaf->GetClass()->FindPropertyByName("Parent"));
 	Parent->SetObjectPropertyValue(Middle, Leaf);
@@ -166,22 +144,6 @@ TEST(FMaterialDependencyTests, ScopedQueriesPreserveExcludedAncestorsAndCorruptC
 	}
 	Durin::MarkAsGarbage(Leaf);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-}
-
-TEST(FMaterialDependencyTests, MultipleRootUpdateBaseline)
-{
-	InitializeDObjectSystem();
-	auto* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "BatchBaselineFirst");
-	auto* Second = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "BatchBaselineSecond");
-	Durin::ResetMaterialLoadedQueryDiagnostics();
-	First->PostEditChangeProperty({});
-	Second->PostEditChangeProperty({});
-	const auto Counts = Durin::GetMaterialLoadedQueryDiagnostics();
-	EXPECT_EQ(Counts.QueryCount, 2u);
-	EXPECT_EQ(Counts.SnapshotCount, 2u);
-	Durin::MarkAsGarbage(Second);
-	Durin::MarkAsGarbage(First);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -249,7 +211,6 @@ TEST(FMaterialDependencyTests, CorruptParentCycleTerminatesDependencyQueries)
 TEST(FMaterialDependencyTests, LoadedQueriesSeparateDirectChildrenFromTransitiveDependents)
 {
 	InitializeDObjectSystem();
-	Durin::ResetMaterialLoadedQueryDiagnostics();
 	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "LoadedQueryBase");
 	Durin::DMaterial* Unrelated = Durin::NewObject<Durin::DMaterial>(nullptr, "LoadedQueryUnrelated");
 	Durin::DMaterialInstance* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "LoadedQueryFirst");
@@ -258,35 +219,20 @@ TEST(FMaterialDependencyTests, LoadedQueriesSeparateDirectChildrenFromTransitive
 	ASSERT_TRUE(First->SetParent(Base));
 	ASSERT_TRUE(Second->SetParent(First));
 	ASSERT_TRUE(Other->SetParent(Unrelated));
-	Durin::ResetMaterialLoadedQueryDiagnostics();
 
 	const std::vector<Durin::FObjectKey> Direct = Durin::GetLoadedDirectMaterialChildren(Base);
-	const Durin::FMaterialLoadedQueryDiagnostics DirectDiagnostics =
-		Durin::GetMaterialLoadedQueryDiagnostics();
 	ASSERT_EQ(Direct.size(), 1);
-	EXPECT_EQ(DirectDiagnostics.LastOperation, Durin::EMaterialLoadedQueryOperation::DirectChildren);
-	EXPECT_EQ(DirectDiagnostics.QueryCount, 1);
-	EXPECT_EQ(DirectDiagnostics.SnapshotCount, 1);
-	EXPECT_EQ(DirectDiagnostics.ScannedObjectCount, 0u);
-	EXPECT_EQ(DirectDiagnostics.ScannedMaterialCount, 2u);
-	EXPECT_EQ(DirectDiagnostics.LastResultCount, Direct.size());
-	EXPECT_TRUE(HandleEquals(Direct.front(), Durin::FObjectKey(First)));
-	EXPECT_FALSE(ContainsHandle(Direct, Durin::FObjectKey(Base)));
-	EXPECT_FALSE(ContainsHandle(Direct, Durin::FObjectKey(Second)));
+	EXPECT_EQ(Direct.front(), Durin::FObjectKey(First));
+	EXPECT_FALSE(std::ranges::contains(Direct, Durin::FObjectKey(Base)));
+	EXPECT_FALSE(std::ranges::contains(Direct, Durin::FObjectKey(Second)));
 
 	const std::vector<Durin::FObjectKey> Dependents = Durin::GetLoadedMaterialDependents(Base);
-	const Durin::FMaterialLoadedQueryDiagnostics DependentDiagnostics =
-		Durin::GetMaterialLoadedQueryDiagnostics();
 	EXPECT_EQ(Dependents.size(), 3);
-	EXPECT_EQ(DependentDiagnostics.LastOperation, Durin::EMaterialLoadedQueryOperation::Dependents);
-	EXPECT_EQ(DependentDiagnostics.QueryCount, 2);
-	EXPECT_EQ(DependentDiagnostics.SnapshotCount, 2);
-	EXPECT_EQ(DependentDiagnostics.LastResultCount, Dependents.size());
-	EXPECT_TRUE(ContainsHandle(Dependents, Durin::FObjectKey(Base)));
-	EXPECT_TRUE(ContainsHandle(Dependents, Durin::FObjectKey(First)));
-	EXPECT_TRUE(ContainsHandle(Dependents, Durin::FObjectKey(Second)));
-	EXPECT_FALSE(ContainsHandle(Dependents, Durin::FObjectKey(Other)));
-	EXPECT_TRUE(IsSortedByHandle(Dependents));
+	EXPECT_TRUE(std::ranges::contains(Dependents, Durin::FObjectKey(Base)));
+	EXPECT_TRUE(std::ranges::contains(Dependents, Durin::FObjectKey(First)));
+	EXPECT_TRUE(std::ranges::contains(Dependents, Durin::FObjectKey(Second)));
+	EXPECT_FALSE(std::ranges::contains(Dependents, Durin::FObjectKey(Other)));
+	EXPECT_TRUE(std::ranges::is_sorted(Dependents));
 
 	EXPECT_TRUE(Durin::GetLoadedDirectMaterialChildren(nullptr).empty());
 	EXPECT_TRUE(Durin::GetLoadedMaterialDependents(nullptr).empty());
@@ -309,19 +255,14 @@ TEST(FMaterialDependencyTests, InstancePropertyEditPublishesDependentsOnce)
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Child->SetParent(Instance));
 
-	auto ExpectSingleNotification = [&](Durin::FProperty* Property, uint64 ExpectedQueries) {
+	auto ExpectSingleNotification = [&](Durin::FProperty* Property) {
 		const auto InstanceVersion = Instance->GetRenderChangeCount();
 		const auto ChildVersion = Child->GetRenderChangeCount();
 		const auto BaseVersion = Base->GetRenderChangeCount();
-		Durin::ResetMaterialLoadedQueryDiagnostics();
 		Instance->PostEditChangeProperty({.MemberProperty = Property});
 		EXPECT_EQ(Instance->GetRenderChangeCount(), InstanceVersion + 1);
 		EXPECT_EQ(Child->GetRenderChangeCount(), ChildVersion + 1);
 		EXPECT_EQ(Base->GetRenderChangeCount(), BaseVersion);
-		const auto Diagnostics = Durin::GetMaterialLoadedQueryDiagnostics();
-		EXPECT_EQ(Diagnostics.QueryCount, ExpectedQueries);
-		EXPECT_EQ(Diagnostics.SnapshotCount, 1u);
-		EXPECT_EQ(Diagnostics.ParentTableBuildCount, 0u);
 	};
 
 	auto* ParentProperty = Instance->GetClass()->FindPropertyByName("Parent");
@@ -332,20 +273,19 @@ TEST(FMaterialDependencyTests, InstancePropertyEditPublishesDependentsOnce)
 	ASSERT_NE(ScalarProperty, nullptr);
 	const auto Revision = Instance->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const auto ChildRevision = Child->GetMaterialCompileDebugInfo().AuthoredRevision;
-	// Static edits share one snapshot between compilation and publication queries.
-	ExpectSingleNotification(ParentProperty, 2);
+	ExpectSingleNotification(ParentProperty);
 	EXPECT_EQ(Instance->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 1);
 	EXPECT_EQ(Child->GetMaterialCompileDebugInfo().AuthoredRevision, ChildRevision + 1);
 	auto* Overrides = OverridesProperty->ContainerPtrToValuePtr<Durin::FMaterialPropertyOverrides>(Instance);
 	Overrides->bOverrideShadingModel = true;
 	Overrides->Values.ShadingModel = Durin::EMaterialShadingModel::Unlit;
-	ExpectSingleNotification(OverridesProperty, 2);
+	ExpectSingleNotification(OverridesProperty);
 	EXPECT_EQ(Instance->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 2);
 	EXPECT_EQ(Child->GetMaterialCompileDebugInfo().AuthoredRevision, ChildRevision + 2);
 	EXPECT_EQ(Child->GetStaticProperties().ShadingModel, Durin::EMaterialShadingModel::Unlit);
 	const auto DynamicRevision = Instance->GetMaterialCompileDebugInfo().AuthoredRevision;
-	ExpectSingleNotification(ScalarProperty, 1);
-	ExpectSingleNotification(nullptr, 1);
+	ExpectSingleNotification(ScalarProperty);
+	ExpectSingleNotification(nullptr);
 	EXPECT_EQ(Instance->GetMaterialCompileDebugInfo().AuthoredRevision, DynamicRevision);
 
 	Durin::MarkAsGarbage(Child);
@@ -359,6 +299,7 @@ TEST(FMaterialDependencyTests, ParameterNotificationsFollowCompleteDependentPubl
 	InitializeDObjectSystem();
 	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "NotificationOrderBase");
 	Base->SetEditCompileMode(Durin::EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Base));
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "NotificationOrderInstance");
 	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "NotificationOrderChild");
 	ASSERT_TRUE(Instance->SetParent(Base));
@@ -367,7 +308,11 @@ TEST(FMaterialDependencyTests, ParameterNotificationsFollowCompleteDependentPubl
 	const auto ChildVersion = Child->GetRenderChangeCount();
 	const auto BaseVersion = Base->GetRenderChangeCount();
 	uint32 InstanceNotifications = 0, ChildNotifications = 0, BaseNotifications = 0;
+	const auto Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName();
 	auto CheckPublished = [&] {
+		float Inherited = 0;
+		ASSERT_TRUE(Child->GetScalarParameterValue(Name, Inherited));
+		EXPECT_FLOAT_EQ(Inherited, 0.375f);
 		EXPECT_EQ(Instance->GetRenderChangeCount(), InstanceVersion + 1);
 		EXPECT_EQ(Child->GetRenderChangeCount(), ChildVersion + 1);
 		EXPECT_EQ(Base->GetRenderChangeCount(), BaseVersion);
@@ -381,13 +326,10 @@ TEST(FMaterialDependencyTests, ParameterNotificationsFollowCompleteDependentPubl
 		CheckPublished();
 	});
 	const auto BaseHandle = Base->GetParameterChanges().AddLambda([&] { ++BaseNotifications; });
-	Durin::ResetMaterialLoadedQueryDiagnostics();
-	Instance->PostEditChangeProperty({});
+	ASSERT_TRUE(Instance->SetScalarParameterValue(Name, 0.375f));
 	EXPECT_EQ(InstanceNotifications, 1u);
 	EXPECT_EQ(ChildNotifications, 1u);
 	EXPECT_EQ(BaseNotifications, 0u);
-	EXPECT_EQ(Durin::GetMaterialLoadedQueryDiagnostics().QueryCount, 1u);
-	EXPECT_EQ(Durin::GetMaterialLoadedQueryDiagnostics().SnapshotCount, 1u);
 	Instance->GetParameterChanges().Remove(InstanceHandle);
 	Child->GetParameterChanges().Remove(ChildHandle);
 	Base->GetParameterChanges().Remove(BaseHandle);
@@ -410,8 +352,8 @@ TEST(FMaterialDependencyTests, LoadedQueriesFilterGarbageAndReturnGenerationSafe
 
 	const std::vector<Durin::FObjectKey> Direct = Durin::GetLoadedDirectMaterialChildren(Base);
 	ASSERT_EQ(Direct.size(), 1);
-	EXPECT_TRUE(HandleEquals(Direct.front(), Durin::FObjectKey(Live)));
-	EXPECT_FALSE(ContainsHandle(Direct, GarbageHandle));
+	EXPECT_EQ(Direct.front(), Durin::FObjectKey(Live));
+	EXPECT_FALSE(std::ranges::contains(Direct, GarbageHandle));
 
 	Durin::AddToRoot(Base);
 	Durin::AddToRoot(Live);
@@ -453,11 +395,8 @@ TEST(FMaterialDependencyTests, ReentrantParentEditUsesFreshBatchAndCompletesSync
 		EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
 		EXPECT_TRUE(Durin::GDObjectArray.Contains(Leaf));
 	});
-	Durin::ResetMaterialLoadedQueryDiagnostics();
 	Instance->PostEditChangeProperty({});
 	EXPECT_EQ(LeafNotifications, 2u); // Nested publication, then the outer prepared notification.
-	EXPECT_EQ(Durin::GetMaterialLoadedQueryDiagnostics().SnapshotCount, 2u);
-	EXPECT_EQ(Durin::GetMaterialLoadedQueryDiagnostics().ParentTableBuildCount, 0u);
 	Instance->GetParameterChanges().Remove(Listener);
 	Instance->PostEditChangeProperty({});
 	EXPECT_EQ(LeafNotifications, 2u); // The next batch sees the new canonical parent.
@@ -495,26 +434,6 @@ TEST(FMaterialDependencyTests, NotificationMayRetireLaterRecipientWithoutDanglin
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::GDObjectArray.Resolve(LeafKey), nullptr);
 }
-TEST(FMaterialDependencyTests, ImmediateCompilationSharesDiscoveryAcrossOwners)
-{
-	InitializeDObjectSystem();
-	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "SharedCompileBase");
-	auto* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "SharedCompileFirst");
-	auto* Second = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "SharedCompileSecond");
-	ASSERT_TRUE(First->SetParent(Base));
-	ASSERT_TRUE(Second->SetParent(Base));
-	Durin::ResetMaterialLoadedQueryDiagnostics();
-	ASSERT_TRUE(Base->CompileEdits());
-	const auto Counts = Durin::GetMaterialLoadedQueryDiagnostics();
-	EXPECT_GE(Counts.QueryCount, 2u);
-	EXPECT_EQ(Counts.SnapshotCount, 1u);
-	EXPECT_EQ(Counts.ParentTableBuildCount, 0u);
-	Durin::MarkAsGarbage(Second);
-	Durin::MarkAsGarbage(First);
-	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-}
-
 TEST(FMaterialDependencyTests, DependencyCacheDoesNotApplyPropertyResolutionDepthLimit)
 {
 	InitializeDObjectSystem();

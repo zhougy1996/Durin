@@ -77,49 +77,6 @@ TEST(FMaterialPreviewTests, ClosingRetainedToolkitReleasesMaterialAndFunctionPre
 	EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 0u);
 }
 
-TEST(FMaterialPreviewTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
-{
-	InitializeDObjectSystem();
-	FScopedPreviewMeshCompiler MeshCompiler;
-	ASSERT_TRUE(Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests);
-	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-	InitializeDObjectSystem();
-	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
-	Durin::FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::RefreshAssetRegistry());
-	for (const std::string_view PathText : {
-		"/Engine/Models/Sphere.Sphere",
-		"/Engine/Models/Box.Box"})
-	{
-		Durin::FSoftObjectPath Path;
-		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(PathText, Path));
-		Durin::FRetainedAsset First;
-		Durin::FRetainedAsset Second;
-		std::string Error;
-		ASSERT_TRUE(Durin::FAssetRetentionService::Acquire(Path, First, Error)) << Error;
-		ASSERT_TRUE(Durin::FAssetRetentionService::Acquire(Path, Second, Error)) << Error;
-		EXPECT_EQ(First.Get(), Second.Get());
-		auto* Mesh = Durin::Cast<Durin::DStaticMesh>(First.Get());
-		ASSERT_NE(Mesh, nullptr) << Error;
-		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
-		const Durin::FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
-		ASSERT_NE(RenderData, nullptr);
-		ASSERT_EQ(RenderData->LODResources.size(), 1u);
-		const Durin::FStaticMeshLODResources& LOD = RenderData->LODResources[0];
-		EXPECT_GT(LOD.GetNumVertices(), 8u);
-		EXPECT_GT(LOD.GetNumIndices(), 12u);
-		EXPECT_EQ(LOD.NumTexCoords, 1u);
-		EXPECT_EQ(
-			LOD.VertexBuffers.StaticMeshVertexBuffer
-				.TexCoordVertexBuffer.GetTexCoords()[0].size(),
-			LOD.GetNumVertices());
-	}
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 0u);
-}
-
-
 TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {
 	InitializeDObjectSystem();

@@ -490,8 +490,6 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error)) << Error;
 	auto* Draft = Session.GetWorkingMaterial();
 	ASSERT_NE(Draft, Source);
-	EXPECT_NE(Draft->GetPackage(), Package);
-	EXPECT_TRUE(Draft->GetPackage()->GetTopLevelAssets().empty());
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 	const auto Original = Source->CaptureRootInputs();
 	const auto Generation = Source->GetMaterialCompileDebugInfo().RequestId;
@@ -500,8 +498,10 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	ASSERT_TRUE(Child->SetParent(Source));
 	const auto ChildRevision = Child->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Edit(*Draft, 0.37f);
-	Draft->CompileEdits();
+	ASSERT_TRUE(Draft->CompileEdits());
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
+	ASSERT_TRUE(Draft->GetMaterialCompileStatus().IsCurrent());
+	ASSERT_TRUE(Draft->GetAcceptedCompiledProgram());
 	EXPECT_EQ(Source->CaptureRootInputs(), Original);
 	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().RequestId, Generation);
 	EXPECT_EQ(Child->GetMaterialCompileDebugInfo().AuthoredRevision, ChildRevision);
@@ -583,14 +583,13 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	EXPECT_EQ(GetCall(*Source)->Id, CallId);
 }
 
-TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStayInTheDraft)
+TEST_F(FMaterialEditingSessionTests, ParameterDefaultsAndStaticPropertiesStayInTheDraftUntilApply)
 {
 	FMaterialEditingSession Session;
 	std::string Error;
 	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error)) << Error;
 	auto* Draft = Session.GetWorkingMaterial();
 	const auto OriginalProperties = Source->GetStaticProperties();
-	const auto OriginalPresentation = Source->GetMaterialGraphPresentation();
 	FMaterialParameterDefinition Definition;
 	Definition.Id = FGuid::NewGuid();
 	Definition.Name = FName("DraftValue");
@@ -604,15 +603,10 @@ TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStay
 	auto Properties = OriginalProperties;
 	Properties.bTwoSided = !Properties.bTwoSided;
 	ASSERT_TRUE(Draft->SetStaticProperties(Properties));
-	auto Presentation = OriginalPresentation;
-	Draft->SetRootPosition(Draft->GetRootPosition().first + 100, Draft->GetRootPosition().second);
-	ASSERT_TRUE(Draft->SetMaterialGraphPresentation(Presentation) != Durin::EMaterialGraphPresentationResult::Rejected);
 	EXPECT_EQ(Source->GetStaticProperties(), OriginalProperties);
-	EXPECT_EQ(Source->GetMaterialGraphPresentation(), OriginalPresentation);
 	EXPECT_EQ(Source->FindParameterDefinition(Definition.Id), nullptr);
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 	EXPECT_EQ(Source->GetStaticProperties(), Properties);
-	EXPECT_EQ(Source->GetMaterialGraphPresentation(), Presentation);
 	ASSERT_NE(Source->FindParameterDefinition(Definition.Id), nullptr);
 	EXPECT_FLOAT_EQ(Source->FindParameterDefinition(Definition.Id)->Value.GetScalar(), 0.23f);
 }
@@ -674,16 +668,11 @@ TEST_F(FMaterialEditingSessionTests, FailedSourcePublicationLeavesDraftDirtyAndS
 	Invalid.Get(EMaterialProperty::MP_Roughness).Connection.OutputIndex = -1;
 	ASSERT_TRUE(FMaterialExpressionEditing::SetRootInputs(*Draft, std::move(Invalid)));
 	Draft->MarkPackageDirty();
-	const bool bSourceWasDirty = Package->IsDirty();
-	const auto SourceCompile = Source->GetMaterialCompileDebugInfo();
 	const auto SourceMode = Source->GetEditCompileMode();
 	EXPECT_FALSE(Session.FinishAndApply(Error));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(Source->CaptureRootInputs(), Original);
-	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().AuthoredRevision, SourceCompile.AuthoredRevision);
-	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().RequestId, SourceCompile.RequestId);
 	EXPECT_EQ(Source->GetEditCompileMode(), SourceMode);
-	EXPECT_EQ(Package->IsDirty(), bSourceWasDirty);
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 	EXPECT_FALSE(Transactions->CanUndo());

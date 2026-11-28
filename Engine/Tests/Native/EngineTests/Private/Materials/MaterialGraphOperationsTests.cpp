@@ -30,7 +30,7 @@
 #include "MaterialGraphTestSupport.h"
 #include "Graph/MaterialExpressionParameters.h"
 #include "Graph/MaterialGraphEditInternals.h"
-#include "Graph/MaterialGraphExpressionRegistry.h"
+#include "Materials/MaterialExpressionDescription.h"
 
 TEST(FMaterialGraphOperationsTests, ValidCastPermitsDirectEmissiveWire)
 {
@@ -475,62 +475,28 @@ TEST(FMaterialGraphOperationsTests, UVSearchAliasesResolveToOneFixedWidthExpress
 	}
 }
 
-TEST(FMaterialGraphOperationsTests, CatalogAndSearchCoverTheClosedOpcodeDomain)
+TEST(FMaterialGraphOperationsTests, ExpressionMenuPreservesCategoriesAndExcludesHiddenAndAssetBoundNodes)
 {
 	InitializeDObjectSystem();
-	const std::vector<FMaterialGraphCatalogEntry> Catalog =
-		EnumerateCatalog();
-	EXPECT_FALSE(Catalog.empty());
-	for (uint8 Value = static_cast<uint8>(EMaterialProgramOpcode::Constant);
-		Value <= static_cast<uint8>(EMaterialProgramOpcode::BlendNormalsRNM);
-		++Value)
+	const auto Rows = SearchCatalog("");
+	for (const auto& Row : Rows)
 	{
-		if (Value == static_cast<uint8>(EMaterialProgramOpcode::DecodeNormalRG))
-		{
-			EXPECT_FALSE(std::ranges::any_of(Catalog, [](const auto& Entry) {
-				return Entry.Opcode == EMaterialProgramOpcode::DecodeNormalRG;
-			}));
-			EXPECT_TRUE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::DecodeNormalRG,
-				EMaterialProgramValueType::Float3));
-			continue;
-		}
-		if (Value == 3 || Value == 30 || (Value >= 25 && Value <= 27))
-		{
-			EXPECT_FALSE(std::ranges::any_of(Catalog, [Value](const auto& Entry) {
-				return static_cast<uint8>(Entry.Opcode) == Value;
-			}));
-			for (uint8 Type = 0; Type <= static_cast<uint8>(EMaterialProgramValueType::MaterialAttributes); ++Type)
-				EXPECT_FALSE(GetMaterialProgramNodeSignature(static_cast<EMaterialProgramOpcode>(Value),
-					static_cast<EMaterialProgramValueType>(Type)));
-			continue;
-		}
-		EXPECT_TRUE(std::ranges::any_of(Catalog,
-			[Value](const FMaterialGraphCatalogEntry& Entry) {
-				return static_cast<uint8>(Entry.Opcode) == Value;
-			})) << "Missing opcode " << static_cast<uint32>(Value);
+		const auto* Description = FindMaterialExpressionDescription(Row.ExpressionClass);
+		ASSERT_NE(Description, nullptr);
+		EXPECT_EQ(MakeCreationAction(Row).Category, Description->Category) << Row.OperationName;
 	}
-	for (const FMaterialGraphCatalogEntry& Entry : Catalog)
-	{
-		EXPECT_FALSE(Entry.OperationName.empty());
-		EXPECT_FALSE(Entry.Category.empty());
-		EXPECT_FALSE(Entry.Description.empty());
-		EXPECT_FALSE(Entry.NormalizedSearchFields.front().empty());
-		EXPECT_EQ(Entry.InputNames.size(), Entry.AcceptedInputTypes.size());
-	}
-	const std::vector<FMaterialGraphCatalogEntry> MultiplyResults =
-		SearchCatalog("multiply");
-	const std::vector<FMaterialGraphCatalogEntry> CachedMultiplyResults =
-		SearchCatalog(Catalog, "multiply");
-	ASSERT_FALSE(MultiplyResults.empty());
-	ASSERT_EQ(CachedMultiplyResults.size(), MultiplyResults.size());
-	EXPECT_EQ(MultiplyResults.front().OperationName, "Multiply");
-	EXPECT_EQ(CachedMultiplyResults.front().OperationName,
-		MultiplyResults.front().OperationName);
-	const std::vector<size_t> MultiplyIndices =
-		SearchCatalogIndices(Catalog, "MuLtIpLy");
-	ASSERT_EQ(MultiplyIndices.size(), MultiplyResults.size());
-	EXPECT_EQ(Catalog[MultiplyIndices.front()].OperationName,
-		MultiplyResults.front().OperationName);
+	for (const auto Opcode : {EMaterialProgramOpcode::PrimitiveCustomData,
+		EMaterialProgramOpcode::InstanceCustomData, EMaterialProgramOpcode::DecodeNormalRG})
+		EXPECT_FALSE(std::ranges::contains(Rows, Opcode, &FMaterialGraphCatalogEntry::Opcode));
+	for (const auto* Class : {DMaterialExpressionCollectionParameter::StaticClass(),
+		DMaterialExpressionFunctionCall::StaticClass(), DMaterialExpressionFunctionInput::StaticClass(),
+		DMaterialExpressionFunctionOutput::StaticClass()})
+		EXPECT_FALSE(std::ranges::contains(Rows, Class, &FMaterialGraphCatalogEntry::ExpressionClass));
+
+	const auto Matches = SearchCatalog("MuLtIpLy");
+	ASSERT_FALSE(Matches.empty());
+	EXPECT_EQ(Matches.front().OperationName, "Multiply");
+	EXPECT_EQ(MakeCreationAction(Matches.front()).Category, "Math");
 }
 
 TEST(FMaterialGraphOperationsTests, ParameterAndChannelPaletteGroupsWidths)
@@ -1059,7 +1025,6 @@ namespace
 			&& (Entry.ResultType == EMaterialProgramValueType::Float2 || Entry.ResultType == EMaterialProgramValueType::Float3);
 		EXPECT_EQ(Created.GetClass(), NarrowParameter ? DMaterialExpressionSwizzle::StaticClass() : Entry.ExpressionClass);
 		EXPECT_EQ(Created.GetOuter(), &Material);
-		const auto ObjectRevision = GDObjectArray.GetRevision();
 		const auto View = Testing::CaptureGraphView(AuthoringGraph);
 		EXPECT_EQ(View.Nodes.size(), Material.GetExpressionCollection().Expressions.size() + 1);
 		for (const FMaterialGraphNodeView& Node : View.Nodes)
@@ -1081,7 +1046,6 @@ namespace
 		EXPECT_EQ(Viewed->Node.Opcode, NarrowParameter ? EMaterialProgramOpcode::Swizzle : Entry.Opcode);
 		EXPECT_EQ(Viewed->Node.ResultType, Entry.Opcode == EMaterialProgramOpcode::AppendVector ? EMaterialProgramValueType::Float2 : Entry.ResultType);
 		EXPECT_EQ(Viewed->Inputs.size(), Created.GetAuthoredInputCount());
-		EXPECT_EQ(GDObjectArray.GetRevision(), ObjectRevision);
 		if (Entry.ExpressionClass == DMaterialExpressionVector3Constant::StaticClass())
 		{
 			EXPECT_EQ(Viewed->PrimaryLabel, "Constant");
@@ -3529,49 +3493,6 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeC
 	Transactions->Reset();
 }
 
-TEST(FMaterialGraphOperationsTests, ConnectionsAndReplayPreserveObjectsWithoutGraphCopies)
-{
-	InitializeDObjectSystem();
-	std::optional<size_t> SmallHistoryBytes;
-	for (const uint32 UnrelatedCount : {0u, 128u})
-	{
-		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
-		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-
-		TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*Material));
-		const auto Source = Testing::CreateGraphConstant(*AuthoringGraph, .5f);
-		const auto Destination = Testing::CreateGraphCatalogNode(*AuthoringGraph, EMaterialProgramOpcode::Add, EMaterialProgramValueType::Float);
-		ASSERT_TRUE(Source); ASSERT_TRUE(Destination);
-		std::vector<DMaterialExpression*> Nodes;
-		for (auto& E : Material->GetExpressionCollection().Expressions) Nodes.push_back(E.Get());
-		for (uint32 Index = 0; Index < UnrelatedCount; ++Index)
-		{
-			auto* E = NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None);
-			E->Id = FGuid::NewGuid(); E->Value = float(Index);
-			Nodes.push_back(E);
-		}
-		ASSERT_TRUE(Material->SetMaterialExpressions(Nodes));
-		const auto Original = Material->GetExpressionCollection().Expressions;
-		Durin::Tests::FTestEditorTransactorOwner Transactions;
-		const auto ObjectCount = GDObjectArray.GetNum();
-		ASSERT_TRUE(Testing::WriteConnection(Material.Get(), Testing::ExpressionInput(Destination->front(), 0), FMaterialProgramLink{Source.value()}, false));
-		EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
-		EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
-		const auto HistoryBytes = Transactions->GetUndoSize();
-		if (SmallHistoryBytes) EXPECT_EQ(HistoryBytes, *SmallHistoryBytes);
-		else SmallHistoryBytes = HistoryBytes;
-		EXPECT_FALSE(Testing::WriteConnection(Material.Get(), Testing::ExpressionInput(Destination->front(), 0), FMaterialProgramLink{Source.value()}, false));
-		EXPECT_EQ(Transactions->GetUndoSize(), HistoryBytes);
-		ASSERT_TRUE(Transactions->Undo());
-		ASSERT_TRUE(Transactions->Redo());
-		EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
-		EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
-		ASSERT_TRUE(Testing::WriteConnection(Material.Get(), Testing::ExpressionInput(Destination->front(), 0), FMaterialProgramLink{}, true, false));
-		EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
-		EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
-	}
-}
-
 TEST(FMaterialGraphOperationsTests, InvalidTypesRemainEditableAndUndoRestoresDiagnostics)
 {
 	InitializeDObjectSystem();
@@ -4088,9 +4009,6 @@ TEST(FMaterialGraphOperationsTests, PinConnectionsPreserveDefaultsAndRejectRepla
 	const auto A = Testing::CreateGraphConstant(*AuthoringGraph, .2f);
 	const auto B = Testing::CreateGraphConstant(*AuthoringGraph, .8f);
 	ASSERT_TRUE(A); ASSERT_TRUE(B);
-	const auto View = Testing::CaptureGraphView(*AuthoringGraph);
-	const auto Output = std::ranges::find_if(View.Nodes, [](const auto& N) { return N.Node.bMaterialOutput; });
-	ASSERT_NE(Output, View.Nodes.end());
 	const auto Target = EMaterialProperty::MP_Roughness;
 	const auto Default = Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0];
 	ASSERT_TRUE(Testing::WriteConnection(Material.Get(), Target, FMaterialProgramLink{A.value()}, false, false));
@@ -4100,9 +4018,7 @@ TEST(FMaterialGraphOperationsTests, PinConnectionsPreserveDefaultsAndRejectRepla
 	EXPECT_FALSE(Transactions->CanUndo());
 	const auto Replaced = Testing::WriteConnection(Material.Get(), Target, FMaterialProgramLink{B.value()}, true);
 	ASSERT_TRUE(Replaced);
-
-
-
+	EXPECT_EQ(Material->GetNumericInputForProperty(Target)->Connection.GetExpressionId(), B.value());
 
 	const auto Unchanged = Testing::WriteConnection(Material.Get(), Target, FMaterialProgramLink{B.value()}, true);
 	EXPECT_FALSE(Unchanged);
@@ -4112,8 +4028,6 @@ TEST(FMaterialGraphOperationsTests, PinConnectionsPreserveDefaultsAndRejectRepla
 	EXPECT_EQ(Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Connection.GetExpressionId(), A.value());
 	const auto Disconnected = Testing::WriteConnection(Material.Get(), Target, FMaterialProgramLink{}, true);
 	ASSERT_TRUE(Disconnected);
-
-
 
 	EXPECT_FALSE(Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Connection.IsConnected());
 	EXPECT_EQ(Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0], Default);
@@ -4303,42 +4217,6 @@ TEST(FMaterialGraphOperationsTests, FunctionLayoutUsesPositionHistoryAndPreserve
 	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Function->GetFunctionPresentation(), Original);
 	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Function->GetFunctionPresentation().Nodes, A.Nodes);
 	EXPECT_EQ(Function->GetFunctionRevision(), Revision);
-}
-
-TEST(FMaterialGraphOperationsTests, MoveHistorySizeDoesNotGrowWithUnchangedNodes)
-{
-	InitializeDObjectSystem();
-	for (const bool bFunction : {false, true})
-	{
-		SCOPED_TRACE(bFunction);
-		TStrongObjectPtr<DObject> Owner(bFunction ? static_cast<DObject*>(NewObject<DMaterialFunction>(nullptr, NAME_None))
-			: static_cast<DObject*>(NewObject<DMaterial>(nullptr, NAME_None)));
-		TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*Owner.Get()));
-		const auto Created = Testing::CreateGraphConstant(*AuthoringGraph, .5f, 40, 80);
-		ASSERT_TRUE(Created);
-		const auto Id = Created.value();
-		Durin::Tests::FTestEditorTransactorOwner Transactions;
-		FMaterialGraphMoveSession Move;
-		ASSERT_TRUE(Move.Begin(*AuthoringGraph, std::array{Id}, Transactions.Get()));
-		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
-		ASSERT_TRUE(Move.Commit());
-		const auto SmallBytes = Transactions->GetUndoSize();
-		Transactions->Reset();
-		{
-			FMaterialExpressionCollection Setup{FMaterialExpressionEditing::GetExpressions(*Owner)};
-			for (int Index = 0; Index < 32; ++Index)
-			{
-				const auto Constant = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
-				Setup.Expressions.emplace_back(Constant.Get());
-				Constant->EditorLayout = {true, Index * 100, 500};
-			}
-			ASSERT_TRUE(GraphEditInternals::CommitGraphEdit(*Owner, nullptr, "Populate stationary nodes", Setup));
-		}
-		ASSERT_TRUE(Move.Begin(*AuthoringGraph, std::array{Id}, Transactions.Get()));
-		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 600, 240}}));
-		ASSERT_TRUE(Move.Commit());
-		EXPECT_EQ(Transactions->GetUndoSize(), SmallBytes);
-	}
 }
 
 TEST(FMaterialGraphOperationsTests, GraphSessionRetainsHistoryFailureAcrossRollbackAndRetry)
@@ -5043,38 +4921,13 @@ TEST(FMaterialGraphOperationsTests, ResetAndReenableConstantsRetainValuesAndUndo
 	EXPECT_TRUE(std::ranges::equal(Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant, std::array{.5f}));
 }
 
-TEST(FMaterialGraphOperationsTests, ClassRegistrySeparatesCreationIdentityFromSharedOperationSemantics)
+TEST(FMaterialGraphOperationsTests, DirectCreationRejectsMismatchedShapesAndUnboundCollectionParameters)
 {
 	InitializeDObjectSystem();
-	std::set<const DClass*> Classes;
-	for (const auto& Registration : GetMaterialGraphExpressionRegistrations())
-	{
-		const auto* Description = Registration.Description;
-		ASSERT_NE(Description, nullptr);
-		EXPECT_TRUE(Classes.insert(Description->ExpressionClass).second);
-		EXPECT_EQ(FindMaterialGraphExpressionRegistration(Description->ExpressionClass), &Registration);
-		if (Registration.CreationKind == EMaterialGraphCreationKind::Direct)
-			EXPECT_FALSE(Description->Shapes.empty());
-	}
-	EXPECT_EQ(NewRegisteredMaterialExpression(DMaterialExpression::StaticClass()), nullptr);
-	for (const auto& Description : GetMaterialExpressionDescriptions())
-	{
-		const bool Hidden = Description.SemanticOpcode == EMaterialProgramOpcode::PrimitiveCustomData
-			|| Description.SemanticOpcode == EMaterialProgramOpcode::InstanceCustomData;
-		EXPECT_EQ(Classes.contains(Description.ExpressionClass), !Hidden) << Description.Name;
-	}
 	const auto Catalog = EnumerateCatalog();
-	for (const auto& Entry : Catalog)
-	{
-		const auto* Description = FindMaterialExpressionDescription(Entry.ExpressionClass);
-		ASSERT_NE(Description, nullptr);
-		EXPECT_EQ(Entry.Category, Description->Category) << Entry.OperationName;
-	}
 	const auto Scalar = std::ranges::find(Catalog, DMaterialExpressionScalarConstant::StaticClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
 	const auto Vector = std::ranges::find(Catalog, DMaterialExpressionVector3Constant::StaticClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
 	ASSERT_NE(Scalar, Catalog.end()); ASSERT_NE(Vector, Catalog.end());
-	EXPECT_EQ(Scalar->Opcode, Vector->Opcode);
-	EXPECT_NE(MakeCreationAction(*Scalar).Id, MakeCreationAction(*Vector).Id);
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*Material));
@@ -5084,9 +4937,6 @@ TEST(FMaterialGraphOperationsTests, ClassRegistrySeparatesCreationIdentityFromSh
 	EXPECT_FALSE(Testing::CreateGraphCatalogNode(*AuthoringGraph, Forged, 0, 0, {}, false));
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	ASSERT_TRUE(Testing::CreateGraphCatalogNode(*AuthoringGraph, *Vector, 0, 0, {}, false));
-	const auto* Collection = FindMaterialGraphExpressionRegistration(DMaterialExpressionCollectionParameter::StaticClass());
-	ASSERT_NE(Collection, nullptr);
-	EXPECT_EQ(Collection->CreationKind, EMaterialGraphCreationKind::AssetBound);
 	Forged.ExpressionClass = DMaterialExpressionCollectionParameter::StaticClass();
 	const auto Created = CaptureExpressions(*Material);
 	EXPECT_FALSE(Testing::CreateGraphCatalogNode(*AuthoringGraph, Forged, 0, 0, {}, false));

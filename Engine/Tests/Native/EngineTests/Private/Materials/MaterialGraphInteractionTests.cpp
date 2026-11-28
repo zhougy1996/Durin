@@ -747,15 +747,19 @@ TEST(FMaterialGraphInteractionTests, FunctionNodesCanBeCreatedFromSearchBeforeWi
 	EXPECT_TRUE(Errors.empty());
 	EXPECT_EQ(Function->GetFunctionSignature().Outputs.size(), Original.Outputs.size() + 1);
 	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
-	for (const auto& E : Function->GetExpressionCollection().Expressions)
-		if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(E.Get()); Output && Output->Port.Name == "Output 1")
-		{
-			EXPECT_FALSE(Output->Source.IsConnected());
-			const auto& Positions = Function->GetFunctionPresentation().Nodes;
-			const auto Position = std::ranges::find(Positions, E->Id, &FMaterialGraphNodePresentation::NodeId);
-			ASSERT_NE(Position, Positions.end());
-			EXPECT_EQ(Position->X, 321); EXPECT_EQ(Position->Y, 234);
-		}
+	const auto& Expressions = Function->GetExpressionCollection().Expressions;
+	const auto Found = std::ranges::find_if(Expressions, [](const auto& E) {
+		const auto* Output = Cast<DMaterialExpressionFunctionOutput>(E.Get());
+		return Output && Output->Port.Name == "Output 1";
+	});
+	ASSERT_NE(Found, Expressions.end());
+	const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Found->Get());
+	EXPECT_FALSE(Output->Source.IsConnected());
+	const auto& Positions = Function->GetFunctionPresentation().Nodes;
+	const auto Position = std::ranges::find(Positions, Output->Id, &FMaterialGraphNodePresentation::NodeId);
+	ASSERT_NE(Position, Positions.end());
+	EXPECT_EQ(Position->X, 321);
+	EXPECT_EQ(Position->Y, 234);
 	EXPECT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Function->GetFunctionSignature(), Original);
 	EXPECT_TRUE(Transactions->Redo());

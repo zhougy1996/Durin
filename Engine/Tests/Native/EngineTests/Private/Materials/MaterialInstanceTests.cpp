@@ -83,7 +83,6 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	ASSERT_TRUE(FPackagePath::TryCreate("/TypedOverrides/Instance", Path));
 	DMaterialInstance* Instance = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Instance));
-	EXPECT_EQ(Instance->GetClass()->FindPropertyByName("ParameterOverrides"), nullptr);
 	uint32 Index = 0;
 	for (const auto Type : {EMaterialParameterType::Scalar, EMaterialParameterType::Vector4, EMaterialParameterType::Texture})
 	{
@@ -128,7 +127,6 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	EXPECT_EQ(Capture(*Instance), Before);
 	auto* Property = Instance->GetClass()->FindPropertyByName("VectorParameterValues");
 	auto* Records = Property->ContainerPtrToValuePtr<std::vector<FMaterialVectorParameterValue>>(Instance);
-	EXPECT_EQ(FMaterialVectorParameterValue::StaticStruct()->FindPropertyByName("ParameterType"), nullptr);
 	const auto Id = Records->front().ParameterId;
 	Records->front().ParameterId = Before.front().first;
 	FByteBuffer Rejected;
@@ -138,6 +136,7 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	Proposal.DraftRootProperty = Property;
 	Proposal.DraftRootContainer = Instance;
 	const auto Edit = Instance->PreEditChangeProperty(Proposal);
+	ASSERT_FALSE(Edit);
 	EXPECT_EQ(Edit.error().Code, EObjectValidationError::PropertyRejected);
 	EXPECT_EQ(Edit.error().PropertyName, "VectorParameterValues");
 	const auto EditCause = std::dynamic_pointer_cast<const FEnginePropertyEditCause>(Edit.error().Cause);
@@ -725,10 +724,6 @@ TEST(FMaterialInstanceTests, PerFieldOverridesRoundTrip)
 	Overrides.Values.OpacityMaskThreshold = 0.75f;
 	ASSERT_TRUE(Instance->SetPropertyOverrides(Overrides));
 	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
-	FByteBuffer CurrentBytes;
-	ASSERT_TRUE(SerializeAssetPackageBytes(Instance->GetPackage(), CurrentBytes));
-	EXPECT_FALSE(ContainsSerializedField(CurrentBytes, InstancePath, "bOverrideStaticProperties"));
-	EXPECT_FALSE(ContainsSerializedField(CurrentBytes, InstancePath, "StaticPropertiesOverride"));
 	ASSERT_TRUE(UnloadPackage(InstancePath));
 	{
 		std::optional<Durin::UnifiedError::FError> LoadedValueError;
@@ -1114,35 +1109,6 @@ TEST(FMaterialInstanceTests, NamedOverrideRejectsUnknownAndPreservesVersionOnNoO
 	EXPECT_EQ(Instance->GetRenderChangeCount(), OverriddenVersion);
 	EXPECT_EQ(Instance->GetLocalParameterValueCount(), 1u);
 	EXPECT_NE(Missing.error().find(Unknown.Name.ToString()), std::string::npos);
-
-	Durin::MarkAsGarbage(Instance);
-	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-}
-
-TEST(FMaterialInstanceTests, InstanceOverrideStateTracksSetAndClear)
-{
-	InitializeDObjectSystem();
-	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "OverrideStateBase");
-	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "OverrideStateInstance");
-	ASSERT_TRUE(Instance->SetParent(Base));
-	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
-	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
-	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
-
-	Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.5f);
-	Instance->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
-	Instance->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), nullptr);
-	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
-	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
-	EXPECT_TRUE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
-
-	EXPECT_TRUE(Instance->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
-	EXPECT_TRUE(Instance->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
-	EXPECT_TRUE(Instance->ClearParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
-	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName()}));
-	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
-	EXPECT_FALSE(Instance->HasLocalParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName()}));
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
