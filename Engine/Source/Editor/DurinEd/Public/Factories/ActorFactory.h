@@ -8,7 +8,7 @@ namespace Durin
 {
 	class DClass;
 
-	// Spawns and configures one actor within the editor's structural transaction.
+	// Spawns and configures one actor using the caller's transaction, if active.
 	class DURINED_API FActorFactory : public IAssetFactoryInterface
 	{
 	public:

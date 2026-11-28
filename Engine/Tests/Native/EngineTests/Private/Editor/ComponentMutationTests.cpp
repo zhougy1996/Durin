@@ -50,6 +50,12 @@ namespace Durin
 		auto InitializeComponent() -> void override { Super::InitializeComponent(); ++Initialized; }
 		auto UninitializeComponent() -> void override { Super::UninitializeComponent(); ++Uninitialized; }
 		auto PostLoad() -> void override { Super::PostLoad(); if (PostLoadProbe) PostLoadProbe(*this); }
+		auto Modify(bool bAlwaysMarkDirty = true) -> bool override
+		{
+			const bool bRecorded = Super::Modify(bAlwaysMarkDirty);
+			if (AfterModify) AfterModify();
+			return bRecorded;
+		}
 		auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override
 		{
 			Super::PostEditChangeProperty(Event);
@@ -57,6 +63,7 @@ namespace Durin
 				&& Event.MemberProperty->NamePrivate == FName("AttachParent")) ObserveParentLoad();
 		}
 		std::function<void()> ObserveParentLoad;
+		std::function<void()> AfterModify;
 		inline static std::function<void(FStructuralTestLight&)> PostLoadProbe;
 		inline static std::function<void(FStructuralTestLight&)> CreationProbe;
 		inline static std::function<void(FStructuralTestLight&)> RegisterProbe;
@@ -67,6 +74,23 @@ namespace Durin
 		auto CreateSceneProxy(FLightSceneProxyDesc) const -> std::unique_ptr<FLightSceneProxy> override { return {}; }
 	};
 	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FStructuralTestLight)
+
+	class FSpawnTestLevel : public DLevel
+	{
+		static auto GetPrivateStaticClass() -> DClass*;
+		DECLARE_CLASS(FSpawnTestLevel, DLevel, FSpawnTestLevel::GetPrivateStaticClass)
+		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FSpawnTestLevel)
+	public:
+		explicit FSpawnTestLevel(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		auto Modify(bool bAlwaysMarkDirty) -> bool override
+		{
+			const bool bRecorded = Super::Modify(bAlwaysMarkDirty);
+			if (AfterModify) AfterModify();
+			return bRecorded;
+		}
+		std::function<void()> AfterModify;
+	};
+	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FSpawnTestLevel)
 }
 
 namespace
@@ -121,6 +145,88 @@ namespace
 		AActor* Actor = nullptr;
 		TStrongObjectPtr<DTransBuffer> Transactions;
 	};
+}
+
+TEST(FComponentMutationTests, MembershipEditsCompleteAfterOwnerRecordingIsCanceled)
+{
+	FComponentFixture F;
+	const auto Directory = Testing::CreateTestFixtureDirectory("CancelComponentMembership");
+	Testing::RegisterMountPointForTests("/CancelComponentMembership/", Directory.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CancelComponentMembership/Level", Path));
+	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, Path.GetPackageName()));
+	Package->InitializeAssetPackage(Path);
+	auto* Level = NewObject<DLevel>(Package.Get(), "Level");
+	ASSERT_TRUE(F.World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<AActor>("Owner");
+	ASSERT_TRUE(Actor);
+	auto* Root = Cast<FStructuralTestLight>(Actor->AddInstanceComponent(FStructuralTestLight::StaticClass(), "Root"));
+	ASSERT_TRUE(Root);
+	ASSERT_EQ(Actor->GetRootComponent(), Root);
+
+	auto* Editor = F.Editor.GetActorEditor();
+	const auto EditWithCancellation = [&](auto Edit) {
+		Package->ClearDirty();
+		bool bCanceled = false;
+		// Owner.Modify(false) also captures its root before changing component membership.
+		Root->AfterModify = [&] {
+			ASSERT_TRUE(F.Transactions->IsActive());
+			F.Transactions->Cancel();
+			bCanceled = true;
+		};
+		auto Result = Edit();
+		Root->AfterModify = {};
+		EXPECT_TRUE(bCanceled);
+		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_FALSE(F.Transactions->IsActive());
+		EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
+		return Result;
+	};
+
+	auto* Added = EditWithCancellation([&] { return Editor->AddComponent(*Actor, DSceneComponent::StaticClass(), Root, {false}); });
+	ASSERT_TRUE(Added);
+	EXPECT_TRUE(Actor->IsInstanceComponent(Added));
+	EXPECT_TRUE(Added->IsRegistered());
+	auto* Copy = EditWithCancellation([&] { return Editor->DuplicateComponent(*Actor, Added, {false}); });
+	ASSERT_TRUE(Copy);
+	ASSERT_NE(Copy, Added);
+	EXPECT_TRUE(Actor->IsInstanceComponent(Copy));
+	EXPECT_TRUE(Copy->IsRegistered());
+	EXPECT_TRUE(EditWithCancellation([&] { return Editor->DeleteComponent(*Actor, Copy, {false}); }));
+	EXPECT_FALSE(Actor->IsInstanceComponent(Copy));
+	EXPECT_FALSE(Actor->OwnsComponent(Copy));
+	EXPECT_TRUE(Actor->IsInstanceComponent(Added));
+}
+
+TEST(FActorMutationTests, CancellationAfterLevelCaptureStillPublishesSpawnedActor)
+{
+	FComponentFixture F;
+	const auto Directory = Testing::CreateTestFixtureDirectory("CancelDuringSpawn");
+	Testing::RegisterMountPointForTests("/CancelDuringSpawn/", Directory.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CancelDuringSpawn/Level", Path));
+	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, Path.GetPackageName()));
+	Package->InitializeAssetPackage(Path);
+	auto* Level = NewObject<FSpawnTestLevel>(Package.Get(), "Level");
+	ASSERT_TRUE(F.World->SetCurrentLevel(Level));
+	Package->ClearDirty();
+	ASSERT_FALSE(Package->IsDirty());
+
+	bool bCanceled = false;
+	Level->AfterModify = [&] {
+		ASSERT_TRUE(F.Transactions->IsActive());
+		EXPECT_EQ(Level->FindActorByName("Spawned"), nullptr);
+		F.Transactions->Cancel();
+		bCanceled = true;
+	};
+	auto* Actor = F.Editor.GetActorEditor()->SpawnActor(*Level, AStaticMeshActor::StaticClass(), "Spawned", {}, {false});
+	Level->AfterModify = {};
+	EXPECT_TRUE(bCanceled);
+	ASSERT_NE(Actor, nullptr);
+	EXPECT_EQ(Level->FindActorByName("Spawned"), Actor);
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(F.Transactions->IsActive());
+	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
 }
 
 TEST(FActorMutationTests, EveryConstructibleActorClassRetainsIdentityAcrossUndoRedoAndCollection)
@@ -342,6 +448,51 @@ TEST(FActorMutationTests, DuplicationKeepsInternalChildrenAndDetachesNonRootExte
 	Check();
 }
 
+TEST(FActorMutationTests, CancellationDuringFirstCopyPublicationStillPublishesAndAttachesRemainingCopy)
+{
+	FComponentFixture F;
+	const auto Directory = Testing::CreateTestFixtureDirectory("CancelDuringDuplication");
+	Testing::RegisterMountPointForTests("/CancelDuringDuplication/", Directory.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CancelDuringDuplication/Level", Path));
+	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, Path.GetPackageName()));
+	Package->InitializeAssetPackage(Path);
+	auto* Level = NewObject<DLevel>(Package.Get(), "Level");
+	ASSERT_TRUE(F.World->SetCurrentLevel(Level));
+	auto* Parent = Level->SpawnActor<AStaticMeshActor>("Parent");
+	auto* Child = Level->SpawnActor<AStaticMeshActor>("Child");
+	ASSERT_TRUE(Parent && Child);
+	ASSERT_TRUE(Child->AttachToActor(Parent, EAttachmentTransformRule::KeepWorld));
+	const auto OriginalCount = Level->GetActors().size();
+	Package->ClearDirty();
+	ASSERT_FALSE(Package->IsDirty());
+
+	AActor* FirstCopy = nullptr;
+	const auto Handle = FEditorSupportDelegates::ActorHierarchyChanged.AddLambda([&](DLevel& Changed) {
+		if (&Changed == Level && !FirstCopy && Level->GetActors().size() == OriginalCount + 1)
+		{
+			FirstCopy = Level->GetActors().back().Get();
+			EXPECT_TRUE(F.Transactions->IsActive());
+			F.Transactions->Cancel();
+		}
+	});
+	AActor* Sources[] = {Child, Parent};
+	const auto Copies = F.Editor.GetActorEditor()->DuplicateActors(*Level, Sources, {false});
+	FEditorSupportDelegates::ActorHierarchyChanged.Remove(Handle);
+
+	ASSERT_NE(FirstCopy, nullptr);
+	ASSERT_EQ(Copies.size(), 2u);
+	EXPECT_EQ(Copies[0].Get(), FirstCopy);
+	EXPECT_EQ(Level->GetActors().size(), OriginalCount + 2);
+	EXPECT_TRUE(Level->ContainsActor(Copies[0].Get()));
+	EXPECT_TRUE(Level->ContainsActor(Copies[1].Get()));
+	EXPECT_EQ(Copies[0]->GetAttachParentActor(), Copies[1].Get());
+	EXPECT_EQ(Child->GetAttachParentActor(), Parent);
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(F.Transactions->IsActive());
+	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
+}
+
 TEST(FActorMutationTests, SingleActorDuplicationRestoresItsExternalParentAndRootlessActorsAreAdmitted)
 {
 	FComponentFixture F;
@@ -384,28 +535,47 @@ TEST(FActorMutationTests, UnpublishedActorReservesItsNameThroughBatchUndo)
 	EXPECT_TRUE(Level->ContainsActor(Other));
 }
 
-TEST(FActorMutationTests, CancellationDuringFirstDetachLeavesSecondChildAndActorPublished)
+TEST(FActorMutationTests, CancellationDuringFirstDetachStillDetachesBothChildrenAndRemovesActor)
 {
 	FComponentFixture F;
-	auto* Level = F.World->GetCurrentLevel();
+	const auto Directory = Testing::CreateTestFixtureDirectory("CancelDuringActorRemoval");
+	Testing::RegisterMountPointForTests("/CancelDuringActorRemoval/", Directory.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CancelDuringActorRemoval/Level", Path));
+	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, Path.GetPackageName()));
+	Package->InitializeAssetPackage(Path);
+	auto* Level = NewObject<DLevel>(Package.Get(), "Level");
+	ASSERT_TRUE(F.World->SetCurrentLevel(Level));
+	AActor* Target = Level->SpawnActor<AStaticMeshActor>("Target");
 	auto* First = Level->SpawnActor<AStaticMeshActor>("FirstChild");
 	auto* Second = Level->SpawnActor<AStaticMeshActor>("SecondChild");
-	ASSERT_TRUE(First->AttachToActor(F.Actor, EAttachmentTransformRule::KeepWorld));
-	ASSERT_TRUE(Second->AttachToActor(F.Actor, EAttachmentTransformRule::KeepWorld));
+	ASSERT_TRUE(Target && First && Second);
+	ASSERT_TRUE(First->AttachToActor(Target, EAttachmentTransformRule::KeepWorld));
+	ASSERT_TRUE(Second->AttachToActor(Target, EAttachmentTransformRule::KeepWorld));
+	Package->ClearDirty();
+	ASSERT_FALSE(Package->IsDirty());
 	FScopedTransaction Outer("Cancel during removal");
-	int Calls = 0;
+	ASSERT_TRUE(Outer.IsOutstanding());
+	bool bCanceled = false;
 	auto Handle = FEditorSupportDelegates::ActorHierarchyChanged.AddLambda([&](DLevel& Changed) {
-		if (&Changed == Level && ++Calls == 1) Outer.Cancel();
+		if (&Changed == Level && !bCanceled)
+		{
+			EXPECT_EQ(First->GetAttachParentActor(), nullptr);
+			EXPECT_EQ(Second->GetAttachParentActor(), Target);
+			Outer.Cancel();
+			bCanceled = true;
+		}
 	});
-	AActor* Target = F.Actor;
 	const bool Removed = F.Editor.GetActorEditor()->DestroyActors(*Level, {&Target, 1}, {false});
 	FEditorSupportDelegates::ActorHierarchyChanged.Remove(Handle);
-	EXPECT_FALSE(Removed);
-	EXPECT_EQ(Calls, 1);
+	EXPECT_TRUE(bCanceled);
+	EXPECT_TRUE(Removed);
 	EXPECT_EQ(First->GetAttachParentActor(), nullptr);
-	EXPECT_EQ(Second->GetAttachParentActor(), Target);
-	EXPECT_TRUE(Level->ContainsActor(Target));
-	EXPECT_FALSE(F.Transactions->CanUndo());
+	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
+	EXPECT_FALSE(Level->ContainsActor(Target));
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(F.Transactions->IsActive());
+	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
 }
 
 TEST(FActorMutationTests, UndoRestoresActorDespiteConflictingExternalAttachment)
@@ -1164,6 +1334,29 @@ TEST(FComponentMutationTests, StructuralEditsRestorePackageContentsAndDirtyState
 	MarkObjectHierarchyAsGarbage(Package);
 }
 
+TEST(FActorMutationTests, SpawnRechecksEditAccessAfterTransactionStartedBeforeConfiguration)
+{
+	FComponentFixture F;
+	auto* Level = F.World->GetCurrentLevel();
+	FActorEditContext Context{false};
+	const auto Listener = F.Transactions->OnTransactionStateChanged().AddLambda(
+		[&](const FTransactionContext&, ETransactionStateEventType Event) {
+			if (Event == ETransactionStateEventType::TransactionStarted) Context.bReadOnly = true;
+		});
+	bool bConfigured = false;
+	std::string Reason;
+	auto* Spawned = F.Editor.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), "ReadOnlyAtStart", {}, Context,
+		[&](AActor&) { bConfigured = true; }, ESpawnActorNameMode::Requested, {}, &Reason);
+	F.Transactions->OnTransactionStateChanged().Remove(Listener);
+	EXPECT_TRUE(Context.bReadOnly);
+	EXPECT_FALSE(bConfigured);
+	EXPECT_EQ(Spawned, nullptr);
+	EXPECT_EQ(Reason, "The level is read-only.");
+	EXPECT_EQ(Level->FindActorByName("ReadOnlyAtStart"), nullptr);
+	EXPECT_FALSE(F.Transactions->IsActive());
+	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
+}
+
 TEST(FActorMutationTests, PreparationRejectsRecursionAndCleansThrowingAndRejectedObjects)
 {
 	FComponentFixture F;
@@ -1172,6 +1365,7 @@ TEST(FActorMutationTests, PreparationRejectsRecursionAndCleansThrowingAndRejecte
 	AActor* Prepared = nullptr;
 	const auto Failed = Editor->SpawnActor(*Level, AStaticMeshActor::StaticClass(), "Unpublished", {}, {false}, [&](AActor& Actor) {
 		Prepared = &Actor;
+		EXPECT_TRUE(F.Transactions->IsActive());
 		const auto Recursive = Editor->SpawnActor(*Level, AActor::StaticClass(), "Recursive", {}, {false});
 		EXPECT_FALSE(Recursive);
 		throw std::runtime_error("Preparation fixture");
@@ -1181,14 +1375,15 @@ TEST(FActorMutationTests, PreparationRejectsRecursionAndCleansThrowingAndRejecte
 	EXPECT_EQ(Level->FindActorByName("Unpublished"), nullptr);
 	EXPECT_FALSE(F.Transactions->CanUndo());
 	std::string Reason;
-	const auto Rejected = Editor->SpawnActor(*Level, AActor::StaticClass(), "Unpublished", {}, {false}, [&](AActor& Actor) {
+	FActorEditContext Context{false};
+	const auto Rejected = Editor->SpawnActor(*Level, AActor::StaticClass(), "Unpublished", {}, Context, [&](AActor& Actor) {
 		Prepared = &Actor;
-		FTransBufferTestAccess::SetHistoryBusy(*F.Transactions.Get(), true);
+		Context.bReadOnly = true;
 	}, ESpawnActorNameMode::Requested, {}, &Reason);
-	FTransBufferTestAccess::SetHistoryBusy(*F.Transactions.Get(), false);
 	EXPECT_FALSE(Rejected);
-	EXPECT_EQ(Reason, "Editor history is unavailable for recording.");
+	EXPECT_EQ(Reason, "The level is read-only.");
 	EXPECT_FALSE(IsValid(Prepared));
+	EXPECT_FALSE(F.Transactions->IsActive());
 	EXPECT_FALSE(F.Transactions->CanUndo());
 	const auto Succeeded = Editor->SpawnActor(*Level, AActor::StaticClass(), "Unpublished", {}, {false});
 	ASSERT_TRUE(Succeeded);

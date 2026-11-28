@@ -72,8 +72,8 @@ namespace Durin
 				return Reject("The placement target changed while loading the asset.");
 			auto* Actors = Host.GetEditorSubsystem<DEditorActorSubsystem>();
 			if (!Actors) return Reject("The actor editor subsystem is unavailable.");
-			if (!Transaction) Transaction.emplace("Place assets");
-			if (!Transaction->IsOutstanding() || !GUndo) return Reject("Editor history is unavailable for placement.");
+			if (!Transaction && !Transaction.emplace("Place assets").IsOutstanding())
+				return Reject("Editor history is unavailable for placement.");
 			return Factory->PlaceAsset(*Actors, Info, *Asset, OutError);
 		}
 	}
@@ -110,7 +110,7 @@ namespace Durin
 				if (!OutError->empty()) OutError->append("\n");
 				OutError->append(std::format("{}: {}", Info.AssetToPlace.AssetPath.ToString(), Error));
 			}
-			if (Host->IsShutdownRequested() || (Transaction && !GUndo)) break;
+			if (Host->IsShutdownRequested() || (Transaction && !Transaction->IsOutstanding())) break;
 		}
 		return Placed;
 	}

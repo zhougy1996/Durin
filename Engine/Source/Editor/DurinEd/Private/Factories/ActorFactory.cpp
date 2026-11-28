@@ -1,5 +1,6 @@
 #include "Factories/ActorFactory.h"
 #include "Actors/EditorActorSubsystem.h"
+#include "Actors/ActorEditingScope.h"
 #include "DObject/Class.h"
 
 namespace Durin
@@ -18,9 +19,13 @@ namespace Durin
 	{
 		auto* Level = Info.PreferredLevel.Get();
 		if (!Level || !Asset.IsA(AssetClass)) return {};
-		auto* Actor = Editor.SpawnActor(*Level, ActorClass, FName(Info.AssetToPlace.AssetPath.GetAssetName()),
-			Info.FinalizedTransform, Info.EditContext, [&](AActor& Created) { ConfigureActor(Asset, Created); },
-			ESpawnActorNameMode::Requested, {}, OutError);
+		if (OutError) OutError->clear();
+		if (!Editor.Admit(Info.EditContext, Level, nullptr, false, OutError)) return {};
+		auto* Actor = RunActorEdit(Editor.GetEditor(), Editor.bEditing, [&] {
+			return Editor.SpawnConfiguredActor(*Level, ActorClass, FName(Info.AssetToPlace.AssetPath.GetAssetName()),
+				Info.FinalizedTransform, Info.EditContext, [&](AActor& Created) { ConfigureActor(Asset, Created); },
+				ESpawnActorNameMode::Requested, {}, OutError);
+		});
 		if (!Actor) return {};
 		return {Actor};
 	}

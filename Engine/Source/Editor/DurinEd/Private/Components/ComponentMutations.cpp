@@ -20,7 +20,7 @@ namespace Durin
 	namespace
 	{
 		auto PublishInstance(AActor& Owner, DActorComponent& Component, DSceneComponent* Parent,
-			const FTransform& Relative, bool bTransient, DTransactor& Transactions, std::string_view Description) -> bool
+			const FTransform& Relative, bool bTransient, std::string_view Description) -> bool
 		{
 			TStrongObjectPtr<DActorComponent> Prepared(&Component);
 			Component.SetCreationMethod(EComponentCreationMethod::Instance);
@@ -28,10 +28,8 @@ namespace Durin
 			if (!Scope.IsOutstanding()) return false;
 			Owner.SetFlags(EObjectFlags::Transactional);
 			Owner.Modify(false);
-			if (!Transactions.IsActive()) return false;
 			Component.SetFlags(EObjectFlags::Transactional);
 			Component.Modify(false);
-			if (!Transactions.IsActive()) return false;
 			Component.SetTransient(bTransient);
 			auto* Scene = Cast<DSceneComponent>(&Component);
 			if (Scene)
@@ -60,11 +58,9 @@ namespace Durin
 	auto DEditorActorSubsystem::AddComponent(AActor& Owner, DClass* Class, DSceneComponent* Parent,
 		const FActorEditContext& Context) -> DActorComponent*
 	{
-		auto Admission = Admit(Context, nullptr, &Owner);
-		if (!Admission) return nullptr;
+		if (!Admit(Context, nullptr, &Owner)) return nullptr;
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> DActorComponent*
 		{
-			auto* Transactions = Admission;
 			if (!CanConstructObjectOfClass(Class, DActorComponent::StaticClass())
 				|| (Parent && (!IsValid(Parent) || Parent->IsBeingDestroyed() || Parent->HasBegunPlay()
 					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent->GetOwner() != &Owner || !Owner.OwnsComponent(Parent)))) return nullptr;
@@ -87,7 +83,7 @@ namespace Durin
 				if (IsValid(Component)) MarkObjectHierarchyAsGarbage(Component);
 				return nullptr;
 			}
-			if (!PublishInstance(Owner, *Component, Destination, Relative, false, *Transactions, "Add component"))
+			if (!PublishInstance(Owner, *Component, Destination, Relative, false, "Add component"))
 			{
 				if (IsValid(Component) && !Owner.OwnsComponent(Component)) MarkObjectHierarchyAsGarbage(Component);
 				return nullptr;
@@ -100,11 +96,9 @@ namespace Durin
 	auto DEditorActorSubsystem::DuplicateComponent(AActor& Owner, DActorComponent* Source,
 		const FActorEditContext& Context) -> DActorComponent*
 	{
-		auto Admission = Admit(Context, nullptr, &Owner);
-		if (!Admission) return nullptr;
+		if (!Admit(Context, nullptr, &Owner)) return nullptr;
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> DActorComponent*
 		{
-			auto* Transactions = Admission;
 			if (!IsValid(Source) || !Owner.IsInstanceComponent(Source)
 				|| Owner.GetRootComponent() == Source) return nullptr;
 			auto Copy = StaticDuplicateObjectEx({.SourceObject = Source, .DestOuter = &Owner,
@@ -123,7 +117,7 @@ namespace Durin
 			}
 			if (!PublishInstance(Owner, *Component, SourceScene ? SourceScene->GetAttachParent() : nullptr,
 				SourceScene ? SourceScene->GetRelativeTransform() : FTransform{}, Source->HasAnyObjectFlags(EObjectFlags::Transient),
-				*Transactions, "Duplicate component"))
+				"Duplicate component"))
 			{
 				if (IsValid(Component) && !Owner.OwnsComponent(Component)) MarkObjectHierarchyAsGarbage(Component);
 				return nullptr;
@@ -179,11 +173,9 @@ namespace Durin
 	auto DEditorActorSubsystem::DeleteComponent(AActor& Owner, DActorComponent* Component,
 		const FActorEditContext& Context) -> bool
 	{
-		auto Admission = Admit(Context, nullptr, &Owner);
-		if (!Admission) return false;
+		if (!Admit(Context, nullptr, &Owner)) return false;
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			auto* Transactions = Admission;
 			if (!IsValid(Component) || !Owner.IsInstanceComponent(Component)
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated)
 				return false;
@@ -196,7 +188,7 @@ namespace Durin
 			if (auto* Scene = Cast<DSceneComponent>(Component))
 				for (const auto& Child : Scene->GetAttachChildren())
 					if (Child) { Child->SetFlags(EObjectFlags::Transactional); Child->Modify(false); }
-			if (!Transactions->IsActive() || !Owner.SetInstanceComponentPresence(Component, false)) return false;
+			if (!Owner.SetInstanceComponentPresence(Component, false)) return false;
 			Component->SetTransient(true);
 			return CanEditActorOwner(&Owner) && !Owner.OwnsComponent(Component);
 

@@ -30,81 +30,109 @@ namespace Durin
 			GatherDuplicatePostLoad(Inner, Graph, Copies);
 	}
 
-	static auto SpawnConfiguredActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
-		DTransactor& Transactions, auto&& ConfigureAndValidate,
-		ESpawnActorNameMode NameMode, const std::string& Label) -> std::expected<AActor*, std::string>
+	static auto PrepareActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
+		auto&& ConfigureAndValidate,
+		ESpawnActorNameMode NameMode, const std::string& Label) -> std::expected<TStrongObjectPtr<AActor>, std::string>
 	{
-		if (!CanEditActorLevel(&Level) || !CanConstructObjectOfClass(Class, AActor::StaticClass()))
-			return std::unexpected(std::string("The actor class or target level is unavailable."));
+		if (!CanConstructObjectOfClass(Class, AActor::StaticClass()))
+			return std::unexpected(std::string("The actor class is unavailable."));
 		DObjectForceRegistration(Class);
 		if (Label.find('\0') != std::string::npos) return std::unexpected(std::string("Invalid actor label."));
 		const FName Requested = Name.IsNone()
 			? FName(Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName()) : Name;
 		Name = Level.ResolveActorName(Requested, Name.IsNone() ? ESpawnActorNameMode::Requested : NameMode);
 		if (Name.IsNone()) return std::unexpected(std::string("The requested actor name is occupied."));
-		AActor* Raw = nullptr;
-		TStrongObjectPtr<AActor> Prepared;
+		TStrongObjectPtr<AActor> Prepared(NewObject<AActor>(Class, &Level, Name, EObjectFlags::Transactional | EObjectFlags::Transient));
+		auto* Raw = Prepared.Get();
+		if (!Raw) return std::unexpected(std::string("Actor construction failed."));
+		auto Reject = [&](std::string Reason) {
+			if (IsValid(Raw)) MarkObjectHierarchyAsGarbage(Raw);
+			return std::unexpected(std::move(Reason));
+		};
+		Raw->SetInitialActorLabel(Level.MakeUniqueActorLabel(Label.empty() ? Requested.ToString() : Label));
+		if (!Raw->RerunConstructionScripts()) return Reject("Actor construction scripts failed.");
+		Raw->SetActorTransform(Transform);
+		try
 		{
-			Raw = NewObject<AActor>(Class, &Level, Name, EObjectFlags::Transactional | EObjectFlags::Transient);
-			Prepared = Raw;
-			auto Reject = [&](std::string Reason) {
-				if (IsValid(Raw)) MarkObjectHierarchyAsGarbage(Raw);
-				return std::unexpected(std::move(Reason));
-			};
-			if (!Raw) return Reject("Actor construction failed.");
-			Raw->SetInitialActorLabel(Level.MakeUniqueActorLabel(Label.empty() ? Requested.ToString() : Label));
-			if (!Raw->RerunConstructionScripts()) return Reject("Actor construction scripts failed.");
-			Raw->SetActorTransform(Transform);
-			try
-			{
-				auto Result = ConfigureAndValidate(*Raw);
-				if (!Result) return Reject(std::move(Result.error()));
-			}
-			catch (const std::exception& Error) { return Reject(Error.what()); }
-			catch (...) { return Reject("Actor configuration threw."); }
-			if (!IsValid(Raw)) return Reject("Actor retired during configuration.");
+			auto Result = ConfigureAndValidate(*Raw);
+			if (!Result) return Reject(std::move(Result.error()));
 		}
-		FScopedTransaction Scope("Actor", "Add actor", &Level);
-		if (Scope.IsOutstanding())
-		{
-			Level.SetFlags(EObjectFlags::Transactional);
-			Level.Modify(false);
-			if (IsValid(Raw)) Raw->SetTransient(false);
-			if (Transactions.IsActive() && Level.AddActor(Raw))
-			{
-				if (IsValid(Raw) && Level.ContainsActor(Raw)) return Raw;
-				return std::unexpected(std::string("Actor removed during publication."));
-			}
-		}
-		if (IsValid(Raw) && !Level.ContainsActor(Raw)) MarkObjectHierarchyAsGarbage(Raw);
-		return std::unexpected(std::string("Actor unavailable for publication."));
+		catch (const std::exception& Error) { return Reject(Error.what()); }
+		catch (...) { return Reject("Actor configuration threw."); }
+		if (!IsValid(Raw)) return Reject("Actor retired during configuration.");
+		return Prepared;
 	}
 
 	auto DEditorActorSubsystem::SpawnActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
-		const FActorEditContext& Context, std::function<void(AActor&)> Configure, ESpawnActorNameMode NameMode, const std::string& Label, std::string* OutError) -> AActor*
+		const FActorEditContext& Context, std::function<void(AActor&)> Configure, ESpawnActorNameMode NameMode, const std::string& Label,
+		std::string* OutError) -> AActor*
 	{
 		if (OutError) OutError->clear();
-		auto Admission = Admit(Context, &Level, nullptr, false, OutError);
-		if (!Admission) return nullptr;
-		return RunActorEdit(GetEditor(), bEditing, [&]() -> AActor*
-		{
-			auto Result = SpawnConfiguredActor(Level, Class, Name, Transform, *Admission, [&](AActor& Actor) -> std::expected<void, std::string> {
-				if (Configure) Configure(Actor);
-				std::string Reason;
-				if (!Admit(Context, &Level, nullptr, true, &Reason)) return std::unexpected(std::move(Reason));
-				return {};
-			}, NameMode, Label);
-			if (!Result && OutError) *OutError = Result.error();
-			return Result.value_or(nullptr);
+		auto* History = Admit(Context, &Level, nullptr, false, OutError);
+		if (!History) return nullptr;
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> AActor* {
+			TStrongObjectPtr<AActor> Spawned;
+			{
+				const bool bOwnsRecording = !History->IsActive();
+				FScopedTransaction Scope("Actor", "Add actor", &Level);
+				if (!Scope.IsOutstanding())
+				{
+					if (OutError) *OutError = "Unable to start the actor transaction.";
+					return nullptr;
+				}
+				// Only the outermost Begin broadcasts TransactionStarted before construction.
+				if (bOwnsRecording && !Admit(Context, &Level, nullptr, true, OutError))
+				{
+					Scope.Cancel();
+					return nullptr;
+				}
+				Spawned = SpawnConfiguredActor(Level, Class, Name, Transform, Context, Configure, NameMode, Label, OutError);
+				if (!Spawned)
+				{
+					if (bOwnsRecording) Scope.Cancel();
+					return nullptr;
+				}
+			}
+			if (IsValid(Spawned.Get()) && Level.ContainsActor(Spawned.Get())) return Spawned.Get();
+			if (OutError) *OutError = "Actor removed during publication.";
+			return nullptr;
 		});
+	}
+
+	auto DEditorActorSubsystem::SpawnConfiguredActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
+		const FActorEditContext& Context, const std::function<void(AActor&)>& Configure, ESpawnActorNameMode NameMode,
+		const std::string& Label, std::string* OutError) -> AActor*
+	{
+		auto Prepared = PrepareActor(Level, Class, Name, Transform, [&](AActor& Actor) -> std::expected<void, std::string> {
+			if (Configure) Configure(Actor);
+			std::string Reason;
+			if (!Admit(Context, &Level, nullptr, true, &Reason)) return std::unexpected(std::move(Reason));
+			return {};
+		}, NameMode, Label);
+		if (!Prepared)
+		{
+			if (OutError) *OutError = Prepared.error();
+			return nullptr;
+		}
+		auto* Actor = Prepared->Get();
+		Level.SetFlags(EObjectFlags::Transactional);
+		Level.Modify(false);
+		if (IsValid(Actor)) Actor->SetTransient(false);
+		if (Level.AddActor(Actor))
+		{
+			if (IsValid(Actor) && Level.ContainsActor(Actor)) return Actor;
+			if (OutError) *OutError = "Actor removed during publication.";
+			return nullptr;
+		}
+		if (IsValid(Actor) && !Level.ContainsActor(Actor)) MarkObjectHierarchyAsGarbage(Actor);
+		if (OutError) *OutError = "Actor unavailable for publication.";
+		return nullptr;
 	}
 	auto DEditorActorSubsystem::DestroyActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> bool
 	{
-		auto Admission = Admit(Context, &Level);
-		if (!Admission) return false;
+		if (!Admit(Context, &Level)) return false;
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
-			auto* Transactions = Admission;
 			if (Actors.empty()) return false;
 			std::unordered_set<AActor*> Unique;
 			for (AActor* Actor : Actors)
@@ -122,24 +150,24 @@ namespace Durin
 			Level.Modify(false);
 			for (auto* Actor : Actors)
 			{
-				if (!Transactions->IsActive() || !IsValid(Actor)) return false;
+				if (!IsValid(Actor)) return false;
 				Actor->SetFlags(EObjectFlags::Transactional);
 				Actor->DObject::Modify(false);
 			}
 			for (auto* Child : BoundaryChildren)
 			{
-				if (!Transactions->IsActive() || !IsValid(Child)) return false;
+				if (!IsValid(Child)) return false;
 				Child->SetFlags(EObjectFlags::Transactional);
 				Child->Modify(false);
 			}
 			for (auto* Child : BoundaryChildren)
 			{
-				if (!Transactions->IsActive() || !CanEditActorLevel(&Level) || !IsValid(Child)
+				if (!CanEditActorLevel(&Level) || !IsValid(Child)
 					|| !Child->DetachFromComponent(EDetachmentTransformRule::KeepWorld)) return false;
 			}
 			for (auto* Actor : Actors | std::views::reverse)
 			{
-				if (!Transactions->IsActive() || !CanEditActorLevel(&Level) || !IsValid(Actor)) return false;
+				if (!CanEditActorLevel(&Level) || !IsValid(Actor)) return false;
 				// Removal notifications may cancel history and collect after the Level releases its reference.
 				TStrongObjectPtr<AActor> Removing(Actor);
 				if (!Level.RemoveActor(Actor) || !IsValid(Actor) || Level.ContainsActor(Actor)) return false;
@@ -152,11 +180,9 @@ namespace Durin
 	}
 	auto DEditorActorSubsystem::DuplicateActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> std::vector<TObjectPtr<AActor>>
 	{
-		auto Admission = Admit(Context, &Level);
-		if (!Admission) return {};
+		if (!Admit(Context, &Level)) return {};
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> std::vector<TObjectPtr<AActor>>
 		{
-			auto* Transactions = Admission;
 			if (Actors.empty()) return {};
 			std::unordered_set<AActor*> Unique;
 			for (AActor* Actor : Actors)
@@ -238,7 +264,7 @@ namespace Durin
 			for (AActor* Actor : Prepared)
 			{
 				if (IsValid(Actor)) Actor->SetTransient(false);
-				if (Transactions->IsActive() && CanEditActorLevel(&Level) && Level.AddActor(Actor))
+				if (CanEditActorLevel(&Level) && Level.AddActor(Actor))
 					Published.emplace_back(Actor);
 				else if (IsValid(Actor) && !Level.ContainsActor(Actor))
 					MarkObjectHierarchyAsGarbage(Actor);
@@ -246,14 +272,14 @@ namespace Durin
 
 			for (AActor* Child : Published)
 			{
-				if (!Transactions->IsActive() || !CanEditActorLevel(&Level)) break;
+				if (!CanEditActorLevel(&Level)) break;
 				auto Link = ParentNames.find(Child);
 				if (Link == ParentNames.end() || !CanEditActorOwner(Child)) continue;
 				TObjectPtr<DSceneComponent> Root = Child->GetRootComponent();
 				if (!Root.IsValid()) continue;
 				Root->SetFlags(EObjectFlags::Transactional);
 				Root->Modify(false);
-				if (!Transactions->IsActive() || !CanEditActorLevel(&Level)) break;
+				if (!CanEditActorLevel(&Level)) break;
 				if (!CanEditActorOwner(Child) || !Root.IsValid() || Child->GetRootComponent() != Root.Get()) continue;
 				const auto It = CopiesBySourceName.find(Link->second);
 				auto* ParentActor = It != CopiesBySourceName.end() ? It->second.Get() : nullptr;

@@ -5,6 +5,8 @@
 #include "NativeAssetTestSupport.h"
 #include "AssetRegistry/Scan.h"
 #include "Components/StaticMeshComponent.h"
+#include "DObject/Package.h"
+#include "EditorSupportDelegates.h"
 #include "Factories/ActorFactory.h"
 #include "Materials/DefaultMaterialService.h"
 #include "Materials/Material.h"
@@ -75,6 +77,13 @@ TEST(FAssetPlacementTests, ModuleFactoryIsUsedOnlyWhileRegistered)
 	const auto HistorySize = Editor.GetTransactions()->GetQueueLength();
 	EXPECT_TRUE(Placement->PlaceAsset(Info).empty());
 	EXPECT_EQ(Editor.GetTransactions()->GetQueueLength(), HistorySize);
+
+	auto* Asset = LoadObject<DMaterial>(Path);
+	ASSERT_TRUE(Asset);
+	const auto Direct = Factory.PlaceAsset(*Editor.GetActorEditor(), Info, *Asset, nullptr);
+	ASSERT_EQ(Direct.size(), 1u);
+	EXPECT_TRUE(Info.PreferredLevel.Get()->ContainsActor(Direct.front().Get()));
+	EXPECT_EQ(Editor.GetTransactions()->GetQueueLength(), HistorySize);
 }
 
 TEST(FAssetPlacementTests, RegisteredMeshFactoryPlacesAtRequestedTransformAndSupportsUndo)
@@ -116,6 +125,77 @@ TEST(FAssetPlacementTests, RegisteredMeshFactoryPlacesAtRequestedTransformAndSup
 	EXPECT_FALSE(Info.PreferredLevel.Get()->ContainsActor(Actor));
 	ASSERT_TRUE(Editor.GetTransactions()->Redo());
 	EXPECT_TRUE(Info.PreferredLevel.Get()->ContainsActor(Actor));
+}
+
+TEST(FAssetPlacementTests, BatchRequiresInitialRecordingAndFinishesAfterFirstPlacementCancelsIt)
+{
+	using namespace Durin;
+	Tests::FActorEditorFixture Editor;
+	const auto Root = Testing::CreateTestFixtureDirectory("PlacementCancellation");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/PlacementCancellation/", .Owner = EMountOwner::Test,
+		.Root = Root, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	FPackagePath LevelPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/PlacementCancellation/Level", LevelPath));
+	TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, LevelPath.GetPackageName()));
+	Package->InitializeAssetPackage(LevelPath);
+	auto* Level = NewObject<DLevel>(Package.Get(), "Level");
+	ASSERT_TRUE(Editor.GetWorld()->SetCurrentLevel(Level));
+	std::vector<FAssetPlacementInfo> Infos;
+	for (const char* AssetPath : {"/PlacementCancellation/First", "/PlacementCancellation/Second"})
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(AssetPath, Path));
+		DStaticMesh* Mesh = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Mesh));
+		FAssetData Data{.AssetPath = Testing::MakePackageLeafAssetObjectPathForTests(Path).GetAssetPath(),
+			.AssetClassName = Mesh->GetClass()->GetQualifiedName().ToString()};
+		Infos.push_back({Data, Level, {false}});
+	}
+	const auto Registration = LevelEditor::RegisterStaticMeshActorFactory();
+	auto* Placement = Editor.GetEditor()->GetEditorSubsystem<DPlacementSubsystem>();
+	ASSERT_TRUE(Placement);
+	auto* History = Editor.GetTransactions();
+	Package->ClearDirty();
+	int Starts = 0;
+	const auto RejectStart = History->OnTransactionStateChanged().AddLambda(
+		[&](const FTransactionContext&, ETransactionStateEventType Event) {
+			if (Event == ETransactionStateEventType::TransactionStarted) { ++Starts; History->Cancel(); }
+		});
+	std::string Error;
+	const auto Rejected = Placement->PlaceAssets(Infos, &Error);
+	History->OnTransactionStateChanged().Remove(RejectStart);
+	EXPECT_EQ(Starts, 1);
+	EXPECT_TRUE(Rejected.empty());
+	EXPECT_FALSE(Error.empty());
+	EXPECT_TRUE(Level->GetActors().empty());
+	EXPECT_FALSE(Package->IsDirty());
+
+	bool bCanceled = false;
+	const auto OnPublished = FEditorSupportDelegates::ActorHierarchyChanged.AddLambda([&](DLevel& Changed) {
+		if (&Changed == Level && !bCanceled && Level->GetActors().size() == 1)
+		{
+			EXPECT_TRUE(History->IsActive());
+			bCanceled = true;
+			History->Cancel();
+		}
+	});
+	const auto Placed = Placement->PlaceAssets(Infos, &Error);
+	FEditorSupportDelegates::ActorHierarchyChanged.Remove(OnPublished);
+	ASSERT_TRUE(bCanceled);
+	ASSERT_EQ(Placed.size(), Infos.size()) << Error;
+	EXPECT_TRUE(Error.empty());
+	for (size_t Index = 0; Index < Placed.size(); ++Index)
+	{
+		auto* Actor = Cast<AStaticMeshActor>(Placed[Index].Get());
+		ASSERT_TRUE(Actor);
+		EXPECT_TRUE(Level->ContainsActor(Actor));
+		EXPECT_EQ(Actor->GetName(), Infos[Index].AssetToPlace.AssetPath.GetAssetName());
+	}
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(History->IsActive());
+	EXPECT_EQ(History->GetQueueLength(), 0u);
 }
 
 TEST(FAssetPlacementTests, RedirectorDispatchesWithDestinationMetadata)
