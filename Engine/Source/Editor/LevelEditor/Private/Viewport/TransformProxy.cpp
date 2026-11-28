@@ -159,7 +159,7 @@ namespace Durin::LevelEditor
 			if (Target && Target->IsValid())
 			{
 				const auto Initial = Target->GetTransform();
-				Snapshots.push_back({Target, Target->GetIdentity(), FObjectKey(Target->GetDataOwner()), Initial, Initial, Target->GetPackage()});
+				Snapshots.push_back({Target, Target->GetIdentity(), FObjectKey(Target->GetDataOwner()), Initial, Initial});
 				if (DPackage* Package = Target->GetPackage(); Package && !std::ranges::contains(Packages, Package, &TObjectPtr<DPackage>::Get))
 					Packages.emplace_back(Package);
 			}
@@ -168,12 +168,7 @@ namespace Durin::LevelEditor
 
 	auto FTransformProxy::UpdatePreview(const std::optional<FTransform>& Frame) -> bool
 	{
-		if (!CheckPreviewOwnership()) return false;
-		if (!Frame) return true;
-		const bool bApplied = ApplyFrame(*Frame);
-		// A failed group write may already have changed some targets.
-		const bool bCaptured = CapturePreviewValues();
-		return bApplied && bCaptured;
+		return !Frame || ApplyFrame(*Frame);
 	}
 
 	auto FTransformProxy::ApplyFrame(const FTransform& Frame) -> bool
@@ -191,7 +186,7 @@ namespace Durin::LevelEditor
 
 		for (const auto& Snapshot : Snapshots)
 		{
-			if (!Snapshot.Target->IsValid()) return false;
+			if (!Snapshot.Target->IsValid() || FObjectKey(Snapshot.Target->GetDataOwner()) != Snapshot.Owner) return false;
 			FTransform Transform = Snapshot.Initial;
 			if (bScale && !TryMakeTransformFromMatrix(Scale * Snapshot.Initial.ToMatrix(), Transform)) return false;
 			if (bRotate)
@@ -218,36 +213,18 @@ namespace Durin::LevelEditor
 	auto FTransformProxy::HasChanges() const -> bool
 	{
 		return std::ranges::any_of(Snapshots, [](const auto& Snapshot) {
-			return !SameTransform(Snapshot.Initial, Snapshot.Preview);
+			return !SameTransform(Snapshot.Initial, Snapshot.Final);
 		});
 	}
 
-	auto FTransformProxy::CheckPreviewOwnership() -> bool
+	auto FTransformProxy::CaptureFinalValues() -> bool
 	{
-		bool bOwned = true;
 		for (auto& Snapshot : Snapshots)
 		{
-			if (!Snapshot.bOwnsPreview || !Snapshot.Target || !Snapshot.Target->IsValid()
-				|| FObjectKey(Snapshot.Target->GetDataOwner()) != Snapshot.Owner
-				|| !SameTransform(Snapshot.Target->GetTransform(), Snapshot.Preview))
-			{
-				Snapshot.bOwnsPreview = false;
-				if (Snapshot.Package) Snapshot.Package->MarkDirty();
-				bOwned = false;
-			}
+			if (!Snapshot.Target->IsValid() || FObjectKey(Snapshot.Target->GetDataOwner()) != Snapshot.Owner) return false;
+			Snapshot.Final = Snapshot.Target->GetTransform();
 		}
-		return bOwned;
-	}
-
-	auto FTransformProxy::CapturePreviewValues() -> bool
-	{
-		bool bValid = true;
-		for (auto& Snapshot : Snapshots)
-		{
-			if (Snapshot.Target && Snapshot.Target->IsValid()) Snapshot.Preview = Snapshot.Target->GetTransform();
-			else bValid = false;
-		}
-		return bValid;
+		return true;
 	}
 
 	auto FTransformProxy::GetPackageEditRevisions() const -> std::vector<std::pair<TObjectPtr<DPackage>, uint64>>
@@ -260,13 +237,17 @@ namespace Durin::LevelEditor
 
 	auto FTransformProxy::Restore() -> bool
 	{
-		CheckPreviewOwnership();
 		bool bRestored = true;
-		for (auto& Snapshot : Snapshots)
-			if (Snapshot.bOwnsPreview && !TrySetTransform(*Snapshot.Target, Snapshot.Initial)) bRestored = false;
-		CapturePreviewValues();
 		for (const auto& Snapshot : Snapshots)
-			if (Snapshot.bOwnsPreview && (!Snapshot.Target->IsValid() || !SameTransform(Snapshot.Preview, Snapshot.Initial))) bRestored = false;
+		{
+			if (!Snapshot.Target->IsValid() || FObjectKey(Snapshot.Target->GetDataOwner()) != Snapshot.Owner) continue;
+			if (!TrySetTransform(*Snapshot.Target, Snapshot.Initial)) bRestored = false;
+		}
+		for (const auto& Snapshot : Snapshots)
+		{
+			if (Snapshot.Target->IsValid() && FObjectKey(Snapshot.Target->GetDataOwner()) == Snapshot.Owner
+				&& !SameTransform(Snapshot.Target->GetTransform(), Snapshot.Initial)) bRestored = false;
+		}
 		if (!bRestored)
 		{
 			for (const auto& Package : Packages)
@@ -281,7 +262,7 @@ namespace Durin::LevelEditor
 			: std::format("{} {} {}", Action, Snapshots.size(), CollectionLabel);
 	}
 
-	auto FTransformProxy::CreateChangeSources() const -> std::vector<FTransformProxyChangeSource>
+	auto FTransformProxy::CreateChangeSources(uint64 HistoryId, std::string_view Action) const -> std::vector<FTransformProxyChangeSource>
 	{
 		std::vector<FTransformProxyChangeSource> Sources;
 		std::unordered_map<FObjectKey, size_t> ByOwner;
@@ -289,25 +270,25 @@ namespace Durin::LevelEditor
 		{
 			const auto Owner = Snapshots[Index].Owner;
 			const auto [It, Added] = ByOwner.try_emplace(Owner, Sources.size());
-			if (Added) Sources.push_back(FTransformProxyChangeSource(*this, Owner));
+			if (Added) Sources.push_back(FTransformProxyChangeSource(*this, Owner, HistoryId, Action));
 			Sources[It->second].SnapshotIndices.push_back(Index);
 		}
 		return Sources;
 	}
 
-	auto FTransformProxyChangeSource::EndChange(uint64 HistoryId, std::string_view Action) const
+	auto FTransformProxyChangeSource::EndChange() const
 		-> std::unique_ptr<FCommandChange>
 	{
 		std::vector<FTransformProxyChange::FEntry> Entries;
 		for (const size_t Index : SnapshotIndices)
 		{
 			const auto& Snapshot = Proxy.Snapshots[Index];
-			if (SameTransform(Snapshot.Initial, Snapshot.Preview)) continue;
+			if (SameTransform(Snapshot.Initial, Snapshot.Final)) continue;
 			auto Target = Snapshot.Target->CreateHistoryTarget(HistoryId);
 			if (!Target) Target = Snapshot.Target;
 			if (Owner.IsNull() || FObjectKey(Target->GetDataOwner()) != Owner)
 				throw std::runtime_error("Transform history target lost its data owner.");
-			Entries.push_back({std::move(Target), Snapshot.Initial, Snapshot.Preview});
+			Entries.push_back({std::move(Target), Snapshot.Initial, Snapshot.Final});
 		}
 		if (Entries.empty()) return nullptr;
 		return std::make_unique<FTransformProxyChange>(Action, Proxy.CollectionLabel, std::move(Entries));

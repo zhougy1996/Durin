@@ -15,7 +15,8 @@ namespace Durin::LevelEditor
 		public:
 			auto Exit(FLevelEditorContext& Context, bool) -> void override
 			{
-				if (LastClient && !LastClient->GetTransformGizmo().CancelDrag())
+				if (LastClient) LastClient->GetTransformGizmo().CancelUpdate();
+				if (LastClient && LastClient->GetTransformGizmo().IsDragging())
 					throw std::runtime_error("Unable to restore the transform gesture.");
 				LastClient = nullptr;
 			}

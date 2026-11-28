@@ -215,7 +215,7 @@ namespace Durin::LevelEditor
 					if (Point.TangentMode == ESplineTangentMode::ManualAligned)
 						Point.ArriveTangent = Point.LeaveTangent = Tangent;
 				}
-				return Resolved->UpdateSplinePoint(Index, Point);
+				return Point == *Existing || Resolved->UpdateSplinePointWithoutRecording(Index, Point);
 			}
 			auto GetPackage() const -> DPackage* override { return Spline.Get() ? Spline.Get()->GetPackage() : nullptr; }
 			auto GetLabel() const -> std::string override { return Element.Kind == EEditorSubElementKind::Point ? "Spline Point" : "Spline Tangent"; }
@@ -354,7 +354,8 @@ namespace Durin::LevelEditor
 			}
 			auto Exit(FLevelEditorContext& Context, bool) -> void override
 			{
-				if (LastClient && !LastClient->GetTransformGizmo().CancelDrag())
+				if (LastClient) LastClient->GetTransformGizmo().CancelUpdate();
+				if (LastClient && LastClient->GetTransformGizmo().IsDragging())
 					throw std::runtime_error("Unable to restore the transform gesture.");
 				if (Context.GetSelectedComponent() == LastSpline.Get()) Context.ClearSubElementSelection();
 				LastClient = nullptr;

@@ -2,6 +2,7 @@
 
 #include "Components/SceneComponent.h"
 #include "Transactions/Transactor.h"
+#include "Templates/GuardValue.h"
 #include "Engine/Actor.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Math/Operations.h"
@@ -314,8 +315,7 @@ namespace Durin::LevelEditor
 			ClearDrag();
 			return false;
 		}
-		ChangeSources = Proxy->CreateChangeSources();
-		bRestorePending = false;
+		BeginUpdate();
 		return true;
 	}
 
@@ -375,75 +375,73 @@ namespace Durin::LevelEditor
 
 	auto FTransformGizmo::ClearDrag() -> void
 	{
+		RecordingOperationId = 0;
+		TransactionManager = nullptr;
 		ChangeSources.clear();
 		Proxy.reset();
 		ActiveHandle = ETransformGizmoHandle::None;
 		bRestorePending = false;
 	}
 
-	auto FTransformGizmo::CommitDrag(DTransactor& Transactions) -> bool
+	FTransformGizmo::~FTransformGizmo()
 	{
-		std::optional<FScopedTransaction> Recording;
-		try
-		{
-			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
-			const auto Description = Proxy->DescribeChange(Action);
-			if (GUndo || ResolveEditorTransactor(true).value_or(nullptr) != &Transactions) return false;
-			Recording.emplace("TransformGizmo", Description, nullptr);
-			if (!Recording->IsOutstanding()) return false;
+		if (IsDragging()) CancelUpdate();
+	}
 
-			if (!Proxy->CheckPreviewOwnership())
-			{
-				Recording->Cancel();
-				return false;
-			}
+	auto FTransformGizmo::OwnsRecording() const -> bool
+	{
+		return RecordingOperationId && GUndo && GUndo->GetContext().OperationId == RecordingOperationId;
+	}
+
+	auto FTransformGizmo::BeginUpdate() -> void
+	{
+		if (!TransactionManager) return;
+		const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
+		ChangeSources = Proxy->CreateChangeSources(TransactionManager->GetHistoryId(), Action);
+		const auto Description = Proxy->DescribeChange(Action);
+		if (GUndo || TransactionManager->Begin("TransformGizmo", Description) < 0)
+			throw std::runtime_error("Unable to begin the transform transaction.");
+		RecordingOperationId = GUndo->GetContext().OperationId;
+	}
+
+	auto FTransformGizmo::EndUpdate() -> void
+	{
+		if (!Proxy->CaptureFinalValues()) throw std::runtime_error("Transform target is unavailable.");
+		const bool bChanged = Proxy->HasChanges();
+		const auto PackageRevisions = Proxy->GetPackageEditRevisions();
+		if (TransactionManager)
+		{
+			if (!OwnsRecording()) throw std::runtime_error("Transform transaction is no longer active.");
 			for (const auto& Source : ChangeSources)
 			{
-				auto Change = Source.EndChange(Transactions.GetHistoryId(), Action);
-				if (Change && !Transactions.StoreUndo(Source.GetChangeTarget(), std::move(Change)))
-				{
-					Recording->Cancel();
-					return false;
-				}
+				auto Change = Source.EndChange();
+				if (bRestorePending || !OwnsRecording()) throw std::runtime_error("Transform update interrupted.");
+				if (Change && !TransactionManager->StoreUndo(Source.GetChangeTarget(), std::move(Change)))
+					throw std::runtime_error("Unable to record the transform change.");
 			}
-			if (Proxy->CheckPreviewOwnership()) return true;
+			if (bRestorePending || !OwnsRecording()) throw std::runtime_error("Transform update interrupted.");
+			TransactionManager->End();
 		}
-		catch (const std::exception& Error) { DURIN_WARN("Transform recording failed: {}", Error.what()); }
-		catch (...) { DURIN_WARN("Transform recording failed."); }
-		if (Recording) Recording->Cancel();
-		return false;
-	}
-
-	auto FTransformGizmo::FinishDrag(DTransactor* Transactions) -> bool
-	{
-		if (!Proxy->CheckPreviewOwnership()) { CancelDrag(); return false; }
-		if (!Proxy->HasChanges()) return CancelDrag();
-		const auto PackageRevisions = Proxy->GetPackageEditRevisions();
-		if (Transactions && !CommitDrag(*Transactions))
+		if (bChanged)
 		{
-			CancelDrag();
-			return false;
-		}
-		// A committed transaction marks its packages. A release without history still needs a dirty mark.
-		for (const auto& [Package, Revision] : PackageRevisions)
-			if (Package && Package->GetEditRevision() == Revision) Package->MarkDirty();
-		ClearDrag();
-		return true;
-	}
-
-	auto FTransformGizmo::CancelDrag() -> bool
-	{
-		if (IsDragging())
-		{
-			bRestorePending = true;
-			if (GUndo) return false;
-			const bool bRestored = Proxy->Restore();
-			DisplayPivot = Pivot;
-			DisplayBasis = Basis;
-			if (!bRestored) return false;
+			for (const auto& [Package, Revision] : PackageRevisions)
+				if (Package && Package->GetEditRevision() == Revision) Package->MarkDirty();
 		}
 		ClearDrag();
-		return true;
+	}
+
+	auto FTransformGizmo::CancelUpdate() -> void
+	{
+		if (!IsDragging()) return;
+		bRestorePending = true;
+		if (bUpdating) return;
+		const TGuardValue Guard(bUpdating, true);
+		if (OwnsRecording() && TransactionManager) TransactionManager->Cancel();
+		if (GUndo) return;
+		DisplayPivot = Pivot;
+		DisplayBasis = Basis;
+		if (Proxy && !Proxy->Restore()) return;
+		ClearDrag();
 	}
 
 	auto FTransformGizmo::Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
@@ -453,21 +451,29 @@ namespace Durin::LevelEditor
 		return bSucceeded;
 	}
 
-	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
+	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool try
 	{
-		if (GUndo || (Transactions && ResolveEditorTransactor(true).value_or(nullptr) != Transactions))
-		{
-			// Restore only after the foreign recorder/replay has released GUndo.
-			if (IsDragging()) bRestorePending = true;
-			HoveredHandle = ETransformGizmoHandle::None;
-			return true;
-		}
+		if (bUpdating) return true;
 		if (IsDragging())
 		{
-			if (bRestorePending) return CancelDrag();
-			if (Input.bCancel || !Proxy->MatchesSelection(Targets)) return CancelDrag();
-			if (!Input.bLeftMouseDown) return FinishDrag(Transactions);
-			if (!Proxy->UpdatePreview(ComputeDragFrame(View, Input))) { CancelDrag(); return false; }
+			const bool bRecordingInterrupted = (RecordingOperationId || GUndo) && !OwnsRecording();
+			if (bRestorePending || Input.bCancel || bRecordingInterrupted
+				|| TransactionManager.Get() != Transactions || !Proxy->MatchesSelection(Targets))
+			{
+				CancelUpdate();
+				return !IsDragging() || GUndo != nullptr;
+			}
+			{
+				const TGuardValue Guard(bUpdating, true);
+				if (!Input.bLeftMouseDown) EndUpdate();
+				else if (!Proxy->UpdatePreview(ComputeDragFrame(View, Input))) bRestorePending = true;
+			}
+			if (bRestorePending) { CancelUpdate(); return false; }
+			return true;
+		}
+		if (GUndo || (Transactions && ResolveEditorTransactor(true).value_or(nullptr) != Transactions))
+		{
+			HoveredHandle = ETransformGizmoHandle::None;
 			return true;
 		}
 		if (!RebuildState(Targets, View))
@@ -482,8 +488,14 @@ namespace Durin::LevelEditor
 			if (Input.bModeScale) Mode = ETransformGizmoMode::Scale;
 		}
 		HoveredHandle = Input.bHovered ? HitTest(View, Input.MousePosition) : ETransformGizmoHandle::None;
-		return !Input.bLeftMousePressed || HoveredHandle == ETransformGizmoHandle::None || BeginDrag(Targets, View, Input);
+		if (!Input.bLeftMousePressed || HoveredHandle == ETransformGizmoHandle::None) return true;
+		const TGuardValue Guard(bUpdating, true);
+		TransactionManager = Transactions;
+		return BeginDrag(Targets, View, Input);
 	}
+	catch (const std::exception& Error) { DURIN_WARN("Transform update failed: {}", Error.what()); CancelUpdate(); return false; }
+	catch (...) { DURIN_WARN("Transform update failed."); CancelUpdate(); return false; }
+
 	auto FTransformGizmo::AppendOverlayPrimitives(FSceneView& View) const -> void
 	{
 		if (WorldScale <= 0.0f) return;

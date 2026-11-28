@@ -404,6 +404,8 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndExpiresTheWh
 	ASSERT_TRUE(Gizmo.Update(Targets, View, Input, Transactions.Get()));
 	Input.bLeftMouseDown = false;
 	ASSERT_TRUE(Gizmo.Update(Targets, View, Input, Transactions.Get()));
+	ASSERT_NE(Transactions->GetTransaction(0), nullptr);
+	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 2u);
 	const FVector3 Dragged = Spline->GetSplinePoint(0)->Position;
 	ASSERT_GT(Math::Length(Dragged - Start), 1.e-3);
 	const FVector3 SecondDragged = Second->GetSplinePoint(0)->Position;

@@ -57,8 +57,9 @@ namespace Durin::LevelEditor
 		auto Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool;
 		auto Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool;
 		auto AppendOverlayPrimitives(FSceneView& View) const -> void;
-		// False retains an unfinished restore for retry and keeps saving blocked.
-		auto CancelDrag() -> bool;
+		// A failed restore keeps IsDragging() true so callers can retry.
+		auto CancelUpdate() -> void;
+		~FTransformGizmo();
 		auto IsDragging() const -> bool { return ActiveHandle != ETransformGizmoHandle::None; }
 		auto IsHovered() const -> bool { return HoveredHandle != ETransformGizmoHandle::None; }
 		auto GetMode() const -> ETransformGizmoMode { return Mode; }
@@ -75,8 +76,9 @@ namespace Durin::LevelEditor
 		auto HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle;
 		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
 		auto ComputeDragFrame(const FSceneView& View, const FLevelEditorViewportInput& Input) -> std::optional<FTransform>;
-		auto FinishDrag(DTransactor* Transactions) -> bool;
-		auto CommitDrag(DTransactor& Transactions) -> bool;
+		auto BeginUpdate() -> void;
+		auto EndUpdate() -> void;
+		auto OwnsRecording() const -> bool;
 		auto ClearDrag() -> void;
 
 		ETransformGizmoMode Mode = ETransformGizmoMode::Translate;
@@ -97,6 +99,9 @@ namespace Durin::LevelEditor
 		FVector3 DragStartPoint{0.0};
 		FVector3 DragStartVector{0.0};
 		float DragStartMouseY = 0.0f;
+		TObjectPtr<DTransactor> TransactionManager;
+		uint64 RecordingOperationId = 0;
+		bool bUpdating = false;
 		bool bRestorePending = false;
 	};
 }

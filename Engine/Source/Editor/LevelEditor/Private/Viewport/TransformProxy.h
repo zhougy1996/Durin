@@ -20,8 +20,8 @@ namespace Durin::LevelEditor
 		auto UpdatePreview(const std::optional<FTransform>& Frame) -> bool;
 		auto MatchesSelection(const FTransformGizmoTargetSet& Targets) const -> bool;
 		auto HasChanges() const -> bool;
-		auto CheckPreviewOwnership() -> bool;
-		auto CreateChangeSources() const -> std::vector<FTransformProxyChangeSource>;
+		auto CaptureFinalValues() -> bool;
+		auto CreateChangeSources(uint64 HistoryId, std::string_view Action) const -> std::vector<FTransformProxyChangeSource>;
 		auto Restore() -> bool;
 		auto GetPackageEditRevisions() const -> std::vector<std::pair<TObjectPtr<DPackage>, uint64>>;
 		auto DescribeChange(std::string_view Action) const -> std::string;
@@ -29,16 +29,13 @@ namespace Durin::LevelEditor
 	private:
 		friend class FTransformProxyChangeSource;
 		auto ApplyFrame(const FTransform& Frame) -> bool;
-		auto CapturePreviewValues() -> bool;
 		struct FTargetSnapshot
 		{
 			std::shared_ptr<ITransformGizmoTarget> Target;
 			const void* Identity = nullptr;
 			FObjectKey Owner;
 			FTransform Initial;
-			FTransform Preview;
-			TObjectPtr<DPackage> Package;
-			bool bOwnsPreview = true;
+			FTransform Final;
 		};
 		FTransform InitialFrame;
 		std::vector<FTargetSnapshot> Snapshots;
@@ -51,13 +48,16 @@ namespace Durin::LevelEditor
 	{
 	public:
 		auto GetChangeTarget() const -> DObject* { return Owner.ResolveObjectPtr(); }
-		auto EndChange(uint64 HistoryId, std::string_view Action) const -> std::unique_ptr<FCommandChange>;
+		auto EndChange() const -> std::unique_ptr<FCommandChange>;
 
 	private:
 		friend class FTransformProxy;
-		FTransformProxyChangeSource(const FTransformProxy& InProxy, FObjectKey InOwner) : Proxy(InProxy), Owner(InOwner) {}
+		FTransformProxyChangeSource(const FTransformProxy& InProxy, FObjectKey InOwner, uint64 InHistoryId, std::string_view InAction)
+			: Proxy(InProxy), Owner(InOwner), HistoryId(InHistoryId), Action(InAction) {}
 		const FTransformProxy& Proxy;
 		FObjectKey Owner;
+		uint64 HistoryId;
+		std::string Action;
 		std::vector<size_t> SnapshotIndices;
 	};
 }

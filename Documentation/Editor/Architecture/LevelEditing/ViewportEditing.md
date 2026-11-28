@@ -231,9 +231,9 @@ their packages, and the shared pivot and basis. The gizmo computes a frame from
 pointer input and snapping. The proxy applies it to each target from its initial
 world transform, including rotation and scale about the shared pivot.
 Targets apply preview and restoration transforms without marking packages dirty.
-At drag start the gizmo creates one `FTransformProxyChangeSource` per data owner,
-using the same element snapshots as the preview. On release the gizmo opens one
-transaction and asks each source for its completed change. Only sources with
+On press, `BeginUpdate()` opens the gesture transaction and creates one `FTransformProxyChangeSource` per data owner,
+using the same element snapshots as the preview. On release, `EndUpdate()`
+reads the actual final transforms, records each change and closes the transaction. Only sources with
 changed elements contribute a record through `StoreUndo(Owner, Change)`. Actor transforms belong to their root scene components. Spline
 points and tangent handles belong to their spline component. Each command
 retains its elements' initial and actual preview transforms. A rejected group
@@ -242,12 +242,12 @@ Later changes of selection or viewport lifetime do not redirect replay.
 The document controller owns save admission for both commands and direct calls:
 saving and save-producing rename require an idle transactor and no active gesture
 or unfinished restore.
-Cancel, target invalidation, mode exit and net-zero completion restore starting
-transforms without a history entry. Unrelated edits during the gesture retain their dirty state. Target capability masks prevent unsupported operations before mutation.
+Cancel, target invalidation and mode exit restore the original targets. Net-zero
+gestures contribute no transform records. Unrelated edits during the gesture retain their dirty state. Target capability masks prevent unsupported operations before mutation.
 
-Each target also retains its last preview value. An outside transform write
-ends ownership of that target; cancellation and release preserve its live value
-and restore the remaining targets. Failed preview writes restore the complete
+On Escape, `CancelUpdate()` discards the recording and restores all surviving
+original targets to their initial transforms, including targets edited by another
+writer during the drag. Failed preview writes also restore the complete
 selection, including a setter that partially mutates before failing. A failed
 restore stays active for retry and blocks saving and level changes. History
 replay checks target validity and topology expiry for the entire change. Undo sets

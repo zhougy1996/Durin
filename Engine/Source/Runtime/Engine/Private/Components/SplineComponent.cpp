@@ -80,12 +80,22 @@ namespace Durin
 
 	auto DSplineComponent::UpdateSplinePoint(uint32 PointIndex, FSplinePoint Point, bool bUpdateSpline) -> bool
 	{
+		return UpdateSplinePointImpl(PointIndex, Point, bUpdateSpline, true);
+	}
+
+	auto DSplineComponent::UpdateSplinePointWithoutRecording(uint32 PointIndex, FSplinePoint Point) -> bool
+	{
+		return UpdateSplinePointImpl(PointIndex, Point, true, false);
+	}
+
+	auto DSplineComponent::UpdateSplinePointImpl(uint32 PointIndex, FSplinePoint Point, bool bUpdateSpline, bool bRecordUndo) -> bool
+	{
 		const auto* Previous = GetSplinePoint(PointIndex);
 		if (!Previous) return false;
 		if (Point.InputKey == FSplinePoint::AutoInputKey) Point.InputKey = Previous->InputKey;
 		if (!SplineCurve.IsValidPointKey(PointIndex, Point.InputKey)) return false;
 		if (*Previous == Point || bPublishingMutation) return false;
-		(void)Modify(false);
+		if (bRecordUndo) (void)Modify(false);
 		if (!SplineCurve.UpdatePoint(PointIndex, Point)) return false;
 		if (bUpdateSpline) UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		return true;

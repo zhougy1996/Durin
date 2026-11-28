@@ -180,7 +180,8 @@ namespace Durin::LevelEditor
 		catch (const std::exception& Error) { Context.SetError(Error.what()); return false; }
 		if (ViewportClient)
 		{
-			if (!ViewportClient->GetTransformGizmo().CancelDrag())
+			ViewportClient->GetTransformGizmo().CancelUpdate();
+			if (ViewportClient->GetTransformGizmo().IsDragging())
 			{
 				Context.SetError("Unable to restore the transform gesture before changing levels.");
 				return false;
