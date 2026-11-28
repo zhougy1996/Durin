@@ -14,7 +14,7 @@ namespace Durin
 	public:
 		virtual ~ITransaction() = default;
 		virtual auto SaveObject(DObject* Object) -> void = 0;
-		virtual auto ContainsObject(const DObject* Object) const -> bool = 0;
+		virtual auto ContainsObject(const DObject* Object, bool bWholeObjectOnly = false) const -> bool = 0;
 		virtual auto GetContext() const -> FTransactionContext = 0;
 		virtual auto SetPrimaryObject(DObject* Object) -> void = 0;
 		virtual auto BeginOperation() -> FTransactionCaptureResult = 0;

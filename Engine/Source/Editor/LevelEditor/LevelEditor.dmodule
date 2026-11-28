@@ -9,7 +9,8 @@
     "ReflectHeaders": [
         "Public/LevelEditorSubsystem.h",
         "Private/LevelAssetEditor.h",
-        "Private/Viewport/TransformGizmoStateTarget.h"
+        "Private/Viewport/TransformGizmoStateTarget.h",
+        "Private/Viewport/TransformProxy.h"
     ],
     "PrivateDependencies": [
         "AssetTools",

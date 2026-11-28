@@ -316,7 +316,9 @@ TEST(FSplineViewportAuthoringTests, TopologyClearsIndexSelectionAndDeleteRemains
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.bDelete = true;
-	const auto HistoryTarget = Targets.Targets[0]->CreateHistoryTarget(Transactions->GetHistoryId());
+	const auto ReadRevision = Targets.Targets[0]->GetTopologyRevisionReader();
+	ASSERT_NE(ReadRevision, nullptr);
+	const auto BeforeRevision = ReadRevision(*Spline, Transactions->GetHistoryId());
 	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, Transactions.Get()));
 	EXPECT_EQ(Spline->GetNumSplinePoints(), 1u);
 	ASSERT_TRUE(Transactions->Undo());
@@ -324,7 +326,7 @@ TEST(FSplineViewportAuthoringTests, TopologyClearsIndexSelectionAndDeleteRemains
 	EXPECT_EQ(Spline->GetSplinePoints(), OrderedPoints);
 	EXPECT_TRUE(Context.GetSelectedSubElements().empty());
 	EXPECT_FALSE(Targets.Targets[0]->IsValid());
-	EXPECT_TRUE(HistoryTarget->IsValid());
+	EXPECT_EQ(ReadRevision(*Spline, Transactions->GetHistoryId()), BeforeRevision);
 
 	Context.SelectSubElement(Spline, PointElement(0));
 	Input = {};
@@ -375,6 +377,22 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndExpiresTheWh
 	FScopedSelectModeRegistration SelectRegistration;
 	FEditorModeTools Manager;
 	ASSERT_TRUE(Manager.Activate("Spline", Context));
+	auto InitialPoint = *Spline->GetSplinePoint(0);
+	InitialPoint.TangentMode = ESplineTangentMode::ManualAligned;
+	InitialPoint.ArriveTangent = FVectorConstants::Right;
+	InitialPoint.LeaveTangent = FVectorConstants::Right * 2.0;
+	ASSERT_TRUE(Spline->UpdateSplinePoint(0, InitialPoint));
+	Context.SelectSubElement(Spline, {EEditorSubElementKind::LeaveTangent, 0, Spline->GetSplineTopologyRevision()});
+	const auto Handles = Manager.GetActiveMode()->GetGizmoTargets(Context);
+	ASSERT_EQ(Handles.Targets.size(), 1u);
+	const auto InitialHandle = Handles.Targets.front()->GetTransform();
+	auto MovedHandle = InitialHandle;
+	MovedHandle.Translation += FVectorConstants::Right;
+	ASSERT_TRUE(Handles.Targets.front()->SetTransform(MovedHandle));
+	ASSERT_TRUE(Handles.Targets.front()->SetTransform(InitialHandle));
+	EXPECT_EQ(*Spline->GetSplinePoint(0), InitialPoint);
+
+	Context.SelectSubElement(Spline, {EEditorSubElementKind::Point, 0, Spline->GetSplineTopologyRevision()});
 	auto Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
 	Context.SelectSubElement(Second, {EEditorSubElementKind::Point, 0, Second->GetSplineTopologyRevision()});
 	const auto SecondTargets = Manager.GetActiveMode()->GetGizmoTargets(Context);
@@ -405,7 +423,9 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndExpiresTheWh
 	Input.bLeftMouseDown = false;
 	ASSERT_TRUE(Gizmo.Update(Targets, View, Input, Transactions.Get()));
 	ASSERT_NE(Transactions->GetTransaction(0), nullptr);
-	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 2u);
+	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 3u);
+	EXPECT_TRUE(Transactions->GetTransaction(0)->ContainsObject(Spline));
+	EXPECT_TRUE(Transactions->GetTransaction(0)->ContainsObject(Second));
 	const FVector3 Dragged = Spline->GetSplinePoint(0)->Position;
 	ASSERT_GT(Math::Length(Dragged - Start), 1.e-3);
 	const FVector3 SecondDragged = Second->GetSplinePoint(0)->Position;

@@ -34,26 +34,34 @@ namespace
 	{
 	public:
 		auto IsValid() const -> bool override { return bValid; }
-		auto GetIdentity() const -> const void* override { return this; }
+		auto GetIdentity() const -> Durin::LevelEditor::FTransformGizmoTargetIdentity override { return {this}; }
 		auto GetDataOwner() const -> Durin::DObject* override { return Owner.Get(); }
-		Durin::TStrongObjectPtr<Durin::DObject> Owner{Durin::NewObject<Durin::DObject>(nullptr, Durin::NAME_None)};
-		auto GetTransform() const -> Durin::FTransform override { return Transform; }
+		Durin::TStrongObjectPtr<Durin::DSceneComponent> Owner{
+			Durin::NewObject<Durin::DSceneComponent>(nullptr, Durin::NAME_None, Durin::EObjectFlags::Transactional)};
+		mutable size_t TransformReads = 0;
+		FTopologyRevisionReader RevisionReader = nullptr;
+		auto GetTopologyRevisionReader() const -> FTopologyRevisionReader override
+		{
+			if (bFailRecording) throw std::runtime_error("Injected gizmo metadata failure");
+			return RevisionReader;
+		}
+		auto GetTransform() const -> Durin::FTransform override { ++TransformReads; return Owner->GetRelativeTransform(); }
 		auto SetTransform(const Durin::FTransform& Value) -> bool override
 		{
 			if (Setter) return Setter(Value);
-			Transform = Value;
+			Owner->SetRelativeTransform(Value);
 			return bValid;
 		}
-		auto GetPackage() const -> Durin::DPackage* override
+		auto GetPackage() const -> Durin::DPackage* override { return Owner->GetPackage(); }
+		void BindPackage(Durin::DPackage* Package)
 		{
-			if (bFailRecording && Durin::GUndo) throw std::runtime_error("Injected gizmo metadata failure");
-			return Package.Get();
+			const auto Initial = GetTransform();
+			Owner = Durin::NewObject<Durin::DSceneComponent>(Package, "ProbeComponent", Durin::EObjectFlags::Transactional);
+			Owner->SetRelativeTransform(Initial);
 		}
 		bool bFailRecording = false;
 		auto GetLabel() const -> std::string override { return "Probe"; }
 		auto GetCapabilities() const -> Durin::LevelEditor::ETransformGizmoCapability override { return Capabilities; }
-		Durin::FTransform Transform;
-		Durin::TObjectPtr<Durin::DPackage> Package;
 		std::function<bool(const Durin::FTransform&)> Setter;
 		Durin::LevelEditor::ETransformGizmoCapability Capabilities = Durin::LevelEditor::ETransformGizmoCapability::All;
 		bool bValid = true;
@@ -132,19 +140,21 @@ TEST(FTransformProxyTests, SharedFrameRotatesAndScalesAboutTheInitialPivot)
 	const FVector3 Pivot(5.0, 6.0, 7.0);
 	const FQuat Basis = Math::MakeQuaternionFromAxisAngleRadians(Math::HalfPi<FReal>(), FVectorConstants::Up);
 	const FVector3 Axis = Basis * FVectorConstants::Forward;
-	First->Transform.Translation = Pivot + Axis;
-	Second->Transform.Translation = Pivot - Axis;
-	FTransformProxy Proxy({{First, Second}, "Probes"}, Pivot, Basis);
-	auto Frame = Proxy.GetInitialTransform();
+	First->Owner->SetRelativeLocation(Pivot + Axis);
+	Second->Owner->SetRelativeLocation(Pivot - Axis);
+	TStrongObjectPtr<DTransformProxy> Proxy(NewObject<DTransformProxy>(nullptr, NAME_None));
+	Proxy->Initialize({{First, Second}, "Probes"}, Pivot, Basis);
+	Proxy->BeginTransformEditSequence({{First, Second}, "Probes"});
+	auto Frame = Proxy->GetInitialTransform();
 	Frame.Rotation = Basis * Frame.Rotation;
-	ASSERT_TRUE(Proxy.UpdatePreview(Frame));
-	ExpectVectorNear(First->Transform.Translation, Pivot + Basis * Axis);
-	ExpectVectorNear(Second->Transform.Translation, Pivot - Basis * Axis);
-	Frame = Proxy.GetInitialTransform();
+	ASSERT_TRUE(Proxy->SetTransform(Frame));
+	ExpectVectorNear(First->GetTransform().Translation, Pivot + Basis * Axis);
+	ExpectVectorNear(Second->GetTransform().Translation, Pivot - Basis * Axis);
+	Frame = Proxy->GetInitialTransform();
 	Frame.Scale3D.x = 2.0;
-	ASSERT_TRUE(Proxy.UpdatePreview(Frame));
-	ExpectVectorNear(First->Transform.Translation, Pivot + 2.0 * Axis);
-	ExpectVectorNear(Second->Transform.Translation, Pivot - 2.0 * Axis);
+	ASSERT_TRUE(Proxy->SetTransform(Frame));
+	ExpectVectorNear(First->GetTransform().Translation, Pivot + 2.0 * Axis);
+	ExpectVectorNear(Second->GetTransform().Translation, Pivot - 2.0 * Axis);
 }
 
 TEST(FTransformProxyTests, RestoreResetsAllTargetsAfterAnOutsideWrite)
@@ -154,16 +164,17 @@ TEST(FTransformProxyTests, RestoreResetsAllTargetsAfterAnOutsideWrite)
 	InitializeDObjectSystem();
 	auto First = std::make_shared<FProbeTransformTarget>();
 	auto Second = std::make_shared<FProbeTransformTarget>();
-	const auto Initial = First->Transform;
-	FTransformProxy Proxy({{First, Second}, "Probes"}, Initial.Translation, Initial.Rotation);
-	auto Frame = Proxy.GetInitialTransform();
+	const auto Initial = First->GetTransform();
+	TStrongObjectPtr<DTransformProxy> Proxy(NewObject<DTransformProxy>(nullptr, NAME_None));
+	Proxy->Initialize({{First, Second}, "Probes"}, Initial.Translation, Initial.Rotation);
+	Proxy->BeginTransformEditSequence({{First, Second}, "Probes"});
+	auto Frame = Proxy->GetInitialTransform();
 	Frame.Translation.x += 5.0;
-	ASSERT_TRUE(Proxy.UpdatePreview(Frame));
-	Second->Transform.Translation.x += 2.0;
-	EXPECT_TRUE(Proxy.UpdatePreview(std::nullopt));
-	ASSERT_TRUE(Proxy.Restore());
-	ExpectVectorNear(First->Transform.Translation, Initial.Translation);
-	ExpectVectorNear(Second->Transform.Translation, Initial.Translation);
+	ASSERT_TRUE(Proxy->SetTransform(Frame));
+	Second->Owner->SetRelativeLocation(Second->Owner->GetRelativeLocation() + FVector3(2.0, 0.0, 0.0));
+	ASSERT_TRUE(Proxy->Restore());
+	ExpectVectorNear(First->GetTransform().Translation, Initial.Translation);
+	ExpectVectorNear(Second->GetTransform().Translation, Initial.Translation);
 }
 
 TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowledge)
@@ -173,7 +184,7 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, View));
 	auto Target = std::make_shared<FProbeTransformTarget>();
-	Target->Transform.Translation = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
+	Target->Owner->SetRelativeLocation(Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
 	Durin::LevelEditor::FTransformGizmoTargetSet Targets{{Target}, "Probes"};
 	Durin::LevelEditor::FTransformGizmo Gizmo;
 	Durin::LevelEditor::FLevelEditorViewportInput Input;
@@ -182,7 +193,7 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	Durin::FSceneView OverlayView = View;
 	Gizmo.AppendOverlayPrimitives(OverlayView);
 	ASSERT_FALSE(OverlayView.OverlayPrimitives.empty());
-	const Durin::FVector3 InitialLocation = Target->Transform.Translation;
+	const Durin::FVector3 InitialLocation = Target->GetTransform().Translation;
 	const Durin::FVector3 HandlePoint = Durin::FVector3(OverlayView.OverlayPrimitives.front().LocalToWorld * Durin::FVector4(0.65, 0.0, 0.0, 1.0));
 	Durin::FVector2f CenterScreen;
 	Durin::FVector2f HandleScreen;
@@ -199,18 +210,18 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	Input.bLeftMousePressed = false;
 	Input.MousePosition += Durin::Math::Normalize(HandleScreen - CenterScreen) * 30.0f;
 	Gizmo.Update(Targets, View, Input, Transactions.Get());
-	EXPECT_GT(Durin::Math::Length(Target->Transform.Translation - InitialLocation), 0.001);
+	EXPECT_GT(Durin::Math::Length(Target->GetTransform().Translation - InitialLocation), 0.001);
 	Input.bLeftMouseDown = false;
 	Gizmo.Update(Targets, View, Input, Transactions.Get());
 	ASSERT_TRUE(Transactions->CanUndo());
 	EXPECT_EQ(Transactions->GetUndoContext(false).Description, "Translate 'Probe'");
-	const auto BeforeRejectedUndo = Target->Transform;
+	const auto BeforeRejectedUndo = Target->GetTransform();
 	ASSERT_TRUE(Transactions->Undo());
-	ExpectVectorNear(Target->Transform.Translation, InitialLocation);
+	ExpectVectorNear(Target->GetTransform().Translation, InitialLocation);
 	ASSERT_TRUE(Transactions->Redo());
 	Target->bValid = false;
 	EXPECT_FALSE(Transactions->Undo());
-	ExpectVectorNear(Target->Transform.Translation, BeforeRejectedUndo.Translation);
+	ExpectVectorNear(Target->GetTransform().Translation, BeforeRejectedUndo.Translation);
 	EXPECT_EQ(Transactions->GetUndoCount(), 1u);
 	Target->bValid = true;
 	Target->Capabilities = Durin::LevelEditor::ETransformGizmoCapability::Translate;
@@ -403,6 +414,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	FScopedSelectModeRegistration SelectRegistration;
 	Durin::DPackage* Package = MakeRevisionTestPackage("GizmoPackage");
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(Package, "GizmoWorld");
+	ASSERT_TRUE(World->SetWorldType(Durin::EWorldType::Editor));
 	EXPECT_NO_THROW(World->InitializeSubsystems());
 	ASSERT_EQ(Package->FindTopLevelAsset(World->GetFName()), World);
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "GizmoLevel");
@@ -449,13 +461,12 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Durin::FSceneView DraggedView;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, DraggedView));
 	ExpectVectorNear(Durin::FVector3(DraggedView.OverlayPrimitives.front().LocalToWorld[3]), Actor->GetActorTransform().Translation);
-	EXPECT_FALSE(Package->IsDirty()); // Preview is not a committed package write.
-	Package->MarkDirty(); // An unrelated write arrives while the gesture is active.
+	EXPECT_TRUE(Package->IsDirty());
 	Modes.DeactivateAllModes();
 	EXPECT_EQ(Modes.GetActiveMode(), nullptr);
 	EXPECT_FALSE(Client.GetTransformGizmo().IsDragging());
 	ExpectVectorNear(Actor->GetActorTransform().Translation, InitialLocation);
-	EXPECT_TRUE(Package->IsDirty()); // Cancel must not clear that outside write.
+	EXPECT_TRUE(Package->IsDirty());
 	Package->ClearDirty();
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_FALSE(TransformTransactions->CanUndo());
@@ -470,7 +481,10 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	DragInput.bLeftMouseDown = false;
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	EXPECT_FALSE(Package->IsDirty());
-	EXPECT_FALSE(TransformTransactions->CanUndo());
+	ASSERT_TRUE(TransformTransactions->CanUndo());
+	ASSERT_EQ(TransformTransactions->GetTransaction(0)->GetRecordCount(), 1u);
+	ASSERT_TRUE(TransformTransactions->Undo());
+	EXPECT_FALSE(Package->IsDirty());
 
 	auto* Peer = Level->SpawnActor<Durin::ACameraActor>("Peer");
 	ASSERT_NE(Peer, nullptr);
@@ -495,7 +509,17 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	EXPECT_EQ(TransformTransactions->GetUndoContext().Description, "Translate 2 Actors");
 	const auto* Edit = TransformTransactions->GetTransaction(0);
 	ASSERT_NE(Edit, nullptr);
-	EXPECT_EQ(Edit->GetRecordCount(), 2u);
+	EXPECT_EQ(Edit->GetRecordCount(), 3u);
+	Durin::DTransformProxy* RecordedProxy = nullptr;
+	for (auto* Object : Edit->GetTransactionObjects())
+	{
+		if (auto* Proxy = Durin::Cast<Durin::DTransformProxy>(Object))
+		{
+			EXPECT_EQ(RecordedProxy, nullptr);
+			RecordedProxy = Proxy;
+		}
+	}
+	ASSERT_NE(RecordedProxy, nullptr);
 	EXPECT_FALSE(Edit->ContainsObject(Actor));
 	EXPECT_FALSE(Edit->ContainsObject(Peer));
 	EXPECT_TRUE(Edit->ContainsObject(Actor->GetRootComponent()));
@@ -503,18 +527,18 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	const auto Dragged = Actor->GetActorTransform().Translation;
 	EXPECT_GT(Durin::Math::Length(Dragged - InitialLocation), 0.001);
 	ExpectVectorNear(Peer->GetActorTransform().Translation, Dragged);
-	const auto Details = Edit->GetDetails();
-	EXPECT_NE(Details.find("'Selected'"), std::string::npos);
-	EXPECT_NE(Details.find("Location"), std::string::npos);
-	EXPECT_NE(Details.find("Delta"), std::string::npos);
+	EXPECT_TRUE(Edit->GetDetails().empty());
 	Context.SelectActor(Third);
 	ASSERT_TRUE(Client.GetTransformGizmo().Update(Context, TranslateView, Input, TransformTransactions.Get()));
+	const auto FinalFrame = RecordedProxy->GetTransform();
 	ASSERT_TRUE(TransformTransactions->Undo());
 	EXPECT_FALSE(Package->IsDirty());
+	ExpectVectorNear(RecordedProxy->GetTransform().Translation, InitialLocation);
 	ExpectVectorNear(Actor->GetActorTransform().Translation, InitialLocation);
 	ExpectVectorNear(Peer->GetActorTransform().Translation, InitialLocation);
 	ExpectVectorNear(Third->GetActorTransform().Translation, ThirdLocation);
 	ASSERT_TRUE(TransformTransactions->Redo());
+	ExpectVectorNear(RecordedProxy->GetTransform().Translation, FinalFrame.Translation);
 	ExpectVectorNear(Actor->GetActorTransform().Translation, Dragged);
 	ExpectVectorNear(Peer->GetActorTransform().Translation, Dragged);
 	ExpectVectorNear(Third->GetActorTransform().Translation, ThirdLocation);
@@ -557,6 +581,11 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	ExpectVectorNear(
 		Durin::Math::Normalize(Durin::FVector3(ParentView.OverlayPrimitives.front().LocalToWorld[0])),
 		Durin::FVectorConstants::Right);
+	auto* Replacement = Durin::Cast<Durin::DSceneComponent>(Actor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "ReplacementRoot"));
+	ASSERT_NE(Replacement, nullptr);
+	ASSERT_TRUE(Actor->SetRootComponent(Replacement));
+	EXPECT_FALSE(TransformTransactions->Undo());
+	ExpectVectorNear(Peer->GetActorTransform().Translation, Dragged);
 }
 
 TEST(FLevelEditorViewportClientTests, BuildsComponentOrientedSelectionBounds)
@@ -775,9 +804,13 @@ namespace
 			for (size_t Index = 0; Index < Count; ++Index)
 			{
 				auto Target = std::make_shared<FProbeTransformTarget>();
-				Target->Transform.Translation = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
+				Target->Owner->SetRelativeLocation(Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
 				Objects.push_back(Target); Targets.Targets.push_back(Target);
 			}
+			return AimAtHandle();
+		}
+		bool AimAtHandle()
+		{
 			Gizmo.Update(Targets, View, {}, nullptr);
 			auto Overlay = View; Gizmo.AppendOverlayPrimitives(Overlay);
 			if (Overlay.OverlayPrimitives.empty()) return false;
@@ -798,7 +831,7 @@ namespace
 	};
 }
 
-TEST(FTransformGizmoTests, ReleaseGroupsElementsByDataOwnerInOneUndoStep)
+TEST(FTransformGizmoTests, ReleaseRecordsOneProxyChangeForTheSelection)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -806,14 +839,14 @@ TEST(FTransformGizmoTests, ReleaseGroupsElementsByDataOwnerInOneUndoStep)
 	ASSERT_TRUE(Probe.Initialize(3));
 	Probe.Objects[2]->Owner = Probe.Objects[0]->Owner;
 	Tests::FTestEditorTransactorOwner Buffer;
-	const auto Before = Probe.Objects.front()->Transform;
+	const auto Before = Probe.Objects.front()->GetTransform();
 	Probe.Begin(Buffer.Get());
 	ASSERT_TRUE(Buffer->IsActive());
 	const auto Id = GUndo->GetContext().TransactionId;
 	Probe.Move(Buffer.Get());
 	EXPECT_TRUE(Buffer->IsActive());
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-	const auto After = Probe.Objects.front()->Transform;
+	const auto After = Probe.Objects.front()->GetTransform();
 	ASSERT_NE(After.Translation, Before.Translation);
 	Probe.Release(Buffer.Get());
 	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
@@ -821,41 +854,214 @@ TEST(FTransformGizmoTests, ReleaseGroupsElementsByDataOwnerInOneUndoStep)
 	ASSERT_NE(Entry, nullptr);
 	EXPECT_EQ(Entry->GetId(), Id);
 	EXPECT_FALSE(Buffer->IsActive());
-	EXPECT_EQ(Entry->GetRecordCount(), 2u);
-	EXPECT_TRUE(Entry->ContainsObject(Probe.Objects[0]->Owner.Get()));
-	EXPECT_TRUE(Entry->ContainsObject(Probe.Objects[1]->Owner.Get()));
+	ASSERT_EQ(Entry->GetRecordCount(), 3u);
+	EXPECT_TRUE(Entry->ContainsObject(Probe.Objects[0]->Owner.Get(), true));
+	EXPECT_TRUE(Entry->ContainsObject(Probe.Objects[1]->Owner.Get(), true));
+	CollectGarbage(EObjectFlags::Standalone);
 	ASSERT_TRUE(Buffer->Undo());
-	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->Transform.Translation, Before.Translation);
+	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->GetTransform().Translation, Before.Translation);
 	ASSERT_TRUE(Buffer->Redo());
-	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->Transform.Translation, After.Translation);
+	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->GetTransform().Translation, After.Translation);
 	Probe.Objects[0]->bValid = false;
 	EXPECT_FALSE(Buffer->Undo());
-	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->Transform.Translation, After.Translation);
+	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->GetTransform().Translation, After.Translation);
 }
 
-TEST(FTransformGizmoTests, RejectedSecondOwnerDiscardsTheFirstRecordAndRestoresPreview)
+TEST(FTransformGizmoTests, ConsecutiveDragsUseTheRestoredSelectionFrame)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
 	FGizmoGestureProbe Probe;
 	ASSERT_TRUE(Probe.Initialize(2));
 	Tests::FTestEditorTransactorOwner Buffer;
-	const auto Before = Probe.Objects.front()->Transform;
+	auto* Proxy = Probe.Gizmo.GetActiveTarget();
+	ASSERT_NE(Proxy, nullptr);
+	// Keep one element fixed so the shared pivot differs from the live centroid.
+	Probe.Objects[1]->Setter = [](const FTransform&) { return true; };
 	Probe.Begin(Buffer.Get());
 	Probe.Move(Buffer.Get());
+	Probe.Release(Buffer.Get());
+	const auto FirstFrame = Proxy->GetTransform();
+	const auto FirstPosition = Probe.Objects[0]->GetTransform().Translation;
+	ASSERT_TRUE(Probe.AimAtHandle());
+	Probe.Begin(Buffer.Get());
+	ASSERT_EQ(Probe.Gizmo.GetActiveTarget(), Proxy);
+	Probe.Move(Buffer.Get());
+	Probe.Release(Buffer.Get());
+	ASSERT_EQ(Buffer->GetQueueLength(), 2u);
+	ASSERT_TRUE(Buffer->Undo());
+	ExpectVectorNear(Proxy->GetTransform().Translation, FirstFrame.Translation);
+	ExpectVectorNear(Probe.Objects[0]->GetTransform().Translation, FirstPosition);
+	auto Overlay = Probe.View;
+	Probe.Gizmo.AppendOverlayPrimitives(Overlay);
+	ASSERT_FALSE(Overlay.OverlayPrimitives.empty());
+	ExpectVectorNear(FVector3(Overlay.OverlayPrimitives.front().LocalToWorld[3]), FirstFrame.Translation);
+
+	ASSERT_TRUE(Probe.AimAtHandle());
+	Probe.Begin(Buffer.Get());
+	ASSERT_TRUE(Probe.Gizmo.IsDragging());
+	ExpectVectorNear(Proxy->GetInitialTransform().Translation, FirstFrame.Translation);
+	Probe.Move(Buffer.Get());
+	Probe.Gizmo.CancelUpdate();
+	ExpectVectorNear(Proxy->GetTransform().Translation, FirstFrame.Translation);
+	ExpectVectorNear(Probe.Objects[0]->GetTransform().Translation, FirstPosition);
+}
+
+TEST(FTransformGizmoTests, SuccessiveScaleSequencesApplyOnlyTheNewScaleRatio)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(1));
+	auto* Proxy = Probe.Gizmo.GetActiveTarget();
+	for (double Scale : {2.0, 3.0})
+	{
+		Proxy->BeginTransformEditSequence(Probe.Targets);
+		auto Frame = Proxy->GetTransform();
+		Frame.Scale3D = FVector3(Scale);
+		ASSERT_TRUE(Proxy->SetTransform(Frame));
+		Proxy->EndTransformEditSequence();
+		ExpectVectorNear(Probe.Objects.front()->GetTransform().Scale3D, Frame.Scale3D);
+	}
+}
+
+TEST(FTransformGizmoTests, UndoAfterSelectionChangeOnlyRestoresTheOriginalProxy)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(1));
+	Tests::FTestEditorTransactorOwner Buffer;
+	auto* Original = Probe.Gizmo.GetActiveTarget();
+	const auto Before = Original->GetTransform();
+	Probe.Begin(Buffer.Get());
+	Probe.Move(Buffer.Get());
+	Probe.Release(Buffer.Get());
+	ASSERT_NE(Original->GetTransform().Translation, Before.Translation);
+	const auto PreviousTargets = Probe.Targets;
+	auto Other = std::make_shared<FProbeTransformTarget>();
+	Other->Owner->SetRelativeLocation(Before.Translation + FVectorConstants::Right);
+	Probe.Targets.Targets = {Other};
+	ASSERT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, {}, Buffer.Get()));
+	auto* Current = Probe.Gizmo.GetActiveTarget();
+	ASSERT_NE(Current, Original);
+	ASSERT_TRUE(Buffer->Undo());
+	ExpectVectorNear(Original->GetTransform().Translation, Before.Translation);
+	EXPECT_EQ(Probe.Gizmo.GetActiveTarget(), Current);
+	auto Overlay = Probe.View;
+	Probe.Gizmo.AppendOverlayPrimitives(Overlay);
+	ASSERT_FALSE(Overlay.OverlayPrimitives.empty());
+	ExpectVectorNear(FVector3(Overlay.OverlayPrimitives.front().LocalToWorld[3]), Other->GetTransform().Translation);
+	ASSERT_TRUE(Probe.Gizmo.Update(PreviousTargets, Probe.View, {}, Buffer.Get()));
+	EXPECT_NE(Probe.Gizmo.GetActiveTarget(), Original);
+}
+
+TEST(FTransformGizmoTests, RegistersSharedTopologyOnFirstWriteAndOnlyReadsFrameAtRelease)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(2));
+	static size_t RevisionReads;
+	static uint64 Revision;
+	RevisionReads = 0;
+	Revision = 1;
+	Probe.Objects[1]->Owner = Probe.Objects[0]->Owner;
+	for (auto& Element : Probe.Objects)
+		Element->RevisionReader = [](const DObject&, uint64) { ++RevisionReads; return Revision; };
+
+	TStrongObjectPtr<DTransformProxy> Proxy(NewObject<DTransformProxy>(nullptr, NAME_None));
+	Proxy->Initialize(Probe.Targets, {}, FQuatConstants::Identity);
+	Proxy->BeginTransformEditSequence(Probe.Targets);
+	Tests::FTestEditorTransactorOwner Buffer;
+	ASSERT_GE(Buffer->Begin("TransformGizmo", "Move two elements"), 0);
+	FTransformProxyChangeSource Source(*Proxy.Get(), Buffer->GetHistoryId(), "Translate");
+	auto Frame = Proxy->GetTransform();
+	Frame.Translation += FVectorConstants::Right;
+	ASSERT_TRUE(Proxy->SetTransform(Frame));
+	EXPECT_EQ(RevisionReads, 1u);
+	ASSERT_TRUE(Proxy->SetTransform(Frame));
+	for (auto& Element : Probe.Objects) Element->TransformReads = 0;
+	++Revision; // A change before release must invalidate the original topology.
+	auto Change = Source.EndChange();
+	for (const auto& Element : Probe.Objects) EXPECT_EQ(Element->TransformReads, 0u);
+	EXPECT_EQ(RevisionReads, 1u);
+	ASSERT_TRUE(Buffer->StoreUndo(Proxy.Get(), std::move(Change)));
+	Buffer->End();
+
+	RevisionReads = 0;
+	EXPECT_FALSE(Buffer->Undo());
+	EXPECT_EQ(RevisionReads, 1u);
+}
+
+TEST(FTransformGizmoTests, AdmissionFailureAfterFirstWriteRestoresSelectionAndDiscardsHistory)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(2));
+	auto& First = *Probe.Objects[0];
+	auto& Second = *Probe.Objects[1];
+	const auto BeforeFirst = First.GetTransform();
+	const auto BeforeSecond = Second.GetTransform();
+	Second.Owner->ClearFlags(EObjectFlags::Transactional);
+	bool bFirstMovedWithSnapshot = false;
+	bool bSecondWriteAttempted = false;
+	First.Setter = [&](const FTransform& Value) {
+		if (GUndo && Value.Translation != BeforeFirst.Translation)
+			bFirstMovedWithSnapshot = GUndo->ContainsObject(First.Owner.Get(), true);
+		First.Owner->SetRelativeTransform(Value);
+		return true;
+	};
+	Second.Setter = [&](const FTransform& Value) {
+		if (GUndo || Value.Translation != BeforeSecond.Translation) bSecondWriteAttempted = true;
+		Second.Owner->SetRelativeTransform(Value);
+		return true;
+	};
+	Tests::FTestEditorTransactorOwner Buffer;
+	Probe.Begin(Buffer.Get());
+	Probe.Move(Buffer.Get());
+	EXPECT_TRUE(bFirstMovedWithSnapshot);
+	EXPECT_FALSE(bSecondWriteAttempted);
+	EXPECT_FALSE(Probe.Gizmo.IsDragging());
+	EXPECT_FALSE(Buffer->IsActive());
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+	ExpectVectorNear(First.GetTransform().Translation, BeforeFirst.Translation);
+	ExpectVectorNear(Second.GetTransform().Translation, BeforeSecond.Translation);
+
+	// The same selection remains editable in a history-free preview.
+	Probe.Input.bLeftMousePressed = true;
+	Probe.Input.MousePosition -= Probe.Motion;
+	Probe.Begin(nullptr);
+	Probe.Move(nullptr);
+	EXPECT_NE(Second.GetTransform().Translation, BeforeSecond.Translation);
+	Probe.Gizmo.CancelUpdate();
+	ExpectVectorNear(First.GetTransform().Translation, BeforeFirst.Translation);
+	ExpectVectorNear(Second.GetTransform().Translation, BeforeSecond.Translation);
+}
+
+TEST(FTransformGizmoTests, FailedDependencyRegistrationRestoresAllPreviews)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(2));
+	Tests::FTestEditorTransactorOwner Buffer;
+	const auto Before = Probe.Objects.front()->GetTransform();
+	Probe.Begin(Buffer.Get());
 	Probe.Objects[1]->bFailRecording = true;
 	size_t CanceledRecords = 0;
 	const auto Listener = Buffer->OnTransactionStateChanged().AddLambda(
 		[&](const FTransactionContext&, ETransactionStateEventType Event) {
 			if (Event == ETransactionStateEventType::TransactionCanceled) CanceledRecords = static_cast<FTransaction*>(GUndo)->GetRecordCount();
 		});
-	Probe.Release(Buffer.Get());
+	Probe.Move(Buffer.Get());
 	Buffer->OnTransactionStateChanged().Remove(Listener);
-	EXPECT_EQ(CanceledRecords, 1u);
+	EXPECT_EQ(CanceledRecords, 2u);
 	EXPECT_FALSE(Buffer->IsActive());
 	EXPECT_FALSE(Probe.Gizmo.IsDragging());
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->Transform.Translation, Before.Translation);
+	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->GetTransform().Translation, Before.Translation);
 }
 
 TEST(FTransformGizmoTests, DestroyingAnActiveGizmoCancelsItsRecording)
@@ -869,16 +1075,16 @@ TEST(FTransformGizmoTests, DestroyingAnActiveGizmoCancelsItsRecording)
 		FGizmoGestureProbe Probe;
 		ASSERT_TRUE(Probe.Initialize(1));
 		Target = Probe.Objects.front();
-		Initial = Target->Transform;
+		Initial = Target->GetTransform();
 		Probe.Begin(Buffer.Get());
 		ASSERT_TRUE(Buffer->IsActive());
 		CollectGarbage(EObjectFlags::Standalone);
 		Probe.Move(Buffer.Get());
-		ASSERT_NE(Target->Transform.Translation, Initial.Translation);
+		ASSERT_NE(Target->GetTransform().Translation, Initial.Translation);
 	}
 	EXPECT_FALSE(Buffer->IsActive());
 	EXPECT_FALSE(Buffer->CanUndo());
-	ExpectVectorNear(Target->Transform.Translation, Initial.Translation);
+	ExpectVectorNear(Target->GetTransform().Translation, Initial.Translation);
 }
 
 TEST(FTransformGizmoTests, FailedCancelRetainsRetryStateAndNeverClearsDirty)
@@ -889,8 +1095,8 @@ TEST(FTransformGizmoTests, FailedCancelRetainsRetryStateAndNeverClearsDirty)
 	Durin::Testing::FScopedMountRegistryFixture Mounts;
 	Durin::Testing::RegisterMountPointForTests("/GestureTests/", Durin::Testing::GetTestWorkDirectory().generic_string() + "/");
 	Durin::FPackagePath Path; ASSERT_TRUE(Durin::FPackagePath::TryCreate("/GestureTests/FailedCancel", Path)); Package->InitializeAssetPackage(Path);
-	Probe.Objects[0]->Package = Package.Get(); Package->ClearDirty();
-	const auto Initial = Probe.Objects[0]->Transform;
+	Probe.Objects[0]->BindPackage(Package.Get()); Package->ClearDirty();
+	const auto Initial = Probe.Objects[0]->GetTransform();
 	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get());
 	Probe.Objects[0]->Setter = [](const Durin::FTransform&) { return false; };
 	Probe.Gizmo.CancelUpdate();
@@ -899,20 +1105,20 @@ TEST(FTransformGizmoTests, FailedCancelRetainsRetryStateAndNeverClearsDirty)
 	Probe.Gizmo.CancelUpdate(); EXPECT_TRUE(Probe.Gizmo.IsDragging()); EXPECT_TRUE(Package->IsDirty());
 	Probe.Objects[0]->Setter = {};
 	Probe.Gizmo.CancelUpdate(); EXPECT_FALSE(Probe.Gizmo.IsDragging());
-	ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Initial.Translation);
+	ExpectVectorNear(Probe.Objects[0]->GetTransform().Translation, Initial.Translation);
 }
 
 TEST(FTransformGizmoTests, FailedPreviewRollsBackAllTargetsWithoutHistory)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(2));
 	Durin::Tests::FTestEditorTransactorOwner Buffer;
-	const auto Initial = Probe.Objects[0]->Transform;
+	const auto Initial = Probe.Objects[0]->GetTransform();
 	Probe.Begin(Buffer.Get());
 	bool bFail = true; auto Target = Probe.Objects[1];
-	Target->Setter = [Target, &bFail](const Durin::FTransform& Value) { Target->Transform = Value; return !std::exchange(bFail, false); };
+	Target->Setter = [Target, &bFail](const Durin::FTransform& Value) { Target->Owner->SetRelativeTransform(Value); return !std::exchange(bFail, false); };
 	Probe.Move(Buffer.Get());
 	EXPECT_FALSE(Probe.Gizmo.IsDragging());
-	for (const auto& Object : Probe.Objects) ExpectVectorNear(Object->Transform.Translation, Initial.Translation);
+	for (const auto& Object : Probe.Objects) ExpectVectorNear(Object->GetTransform().Translation, Initial.Translation);
 	EXPECT_FALSE(Buffer->CanUndo());
 	Target->Setter = {};
 }
@@ -920,70 +1126,116 @@ TEST(FTransformGizmoTests, FailedPreviewRollsBackAllTargetsWithoutHistory)
 TEST(FTransformGizmoTests, EscapeRestoresTheEntireSelectionIncludingOutsideWrites)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(2));
-	Durin::Tests::FTestEditorTransactorOwner Buffer; const auto Initial = Probe.Objects[1]->Transform;
+	Durin::Tests::FTestEditorTransactorOwner Buffer; const auto Initial = Probe.Objects[1]->GetTransform();
 	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get());
-	Probe.Objects[0]->Transform.Translation += Durin::FVector3(100, 200, 300);
+	Probe.Objects[0]->Owner->SetRelativeLocation(Probe.Objects[0]->Owner->GetRelativeLocation() + Durin::FVector3(100, 200, 300));
 	Probe.Input.bCancel = true;
 	ASSERT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
 	EXPECT_FALSE(Buffer->IsActive());
-	ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Initial.Translation);
-	ExpectVectorNear(Probe.Objects[1]->Transform.Translation, Initial.Translation);
+	ExpectVectorNear(Probe.Objects[0]->GetTransform().Translation, Initial.Translation);
+	ExpectVectorNear(Probe.Objects[1]->GetTransform().Translation, Initial.Translation);
 	EXPECT_FALSE(Buffer->CanUndo());
 }
 
-TEST(FTransformGizmoTests, ReplayWriteFaultTerminatesUndo)
-{
-	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(2));
-	Durin::Tests::FTestEditorTransactorOwner Buffer;
-	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); Probe.Release(Buffer.Get()); ASSERT_TRUE(Buffer->CanUndo());
-	bool bFail = true; auto Target = Probe.Objects[1];
-	Target->Setter = [Target, &bFail](const Durin::FTransform& Value) { Target->Transform = Value; return !std::exchange(bFail, false); };
-	EXPECT_DEATH((void)Buffer->Undo(), "during Undo");
-	Target->Setter = {};
-}
-
-TEST(FTransformGizmoTests, ThrowingReplaySetterReportsOriginalDiagnostic)
-{
-	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(2));
-	Durin::Tests::FTestEditorTransactorOwner Buffer;
-	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); Probe.Release(Buffer.Get()); ASSERT_TRUE(Buffer->CanUndo());
-	auto Target = Probe.Objects[1];
-	Target->Setter = [](const Durin::FTransform&) -> bool { throw std::runtime_error("Injected replay setter exception"); };
-	EXPECT_DEATH((void)Buffer->Undo(), "Injected replay setter exception");
-	Target->Setter = {};
-}
-
-TEST(FTransformGizmoTests, ClampedPreviewCreatesNoSpuriousHistory)
-{
-	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1));
-	Durin::Tests::FTestEditorTransactorOwner Buffer;
-	Probe.Objects[0]->Setter = [](const Durin::FTransform&) { return true; };
-	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); Probe.Release(Buffer.Get());
-	EXPECT_FALSE(Buffer->CanUndo()); EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-}
-
-TEST(FTransformGizmoTests, CommitPreservesOutsideDirtyAndReturnsOwnedEditsToCheckpoint)
+TEST(FTransformGizmoTests, UndoAndRedoRestoreSnapshotsWithoutInvokingTargetSetters)
 {
 	InitializeDObjectSystem();
-	Durin::Testing::FScopedMountRegistryFixture Mounts;
-	Durin::Testing::RegisterMountPointForTests("/GestureCheckpoint/", Durin::Testing::GetTestWorkDirectory().generic_string() + "/");
-	for (bool bOutsideWrite : {false, true})
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(2));
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
+	const auto Before = Probe.Objects.front()->GetTransform();
+	Probe.Begin(Buffer.Get());
+	Probe.Move(Buffer.Get());
+	const auto After = Probe.Objects.front()->GetTransform();
+	Probe.Release(Buffer.Get());
+	for (auto& Target : Probe.Objects)
+		Target->Setter = [](const Durin::FTransform&) { ADD_FAILURE() << "Preview setter called during replay"; return false; };
+	ASSERT_TRUE(Buffer->Undo());
+	for (auto& Target : Probe.Objects) ExpectVectorNear(Target->GetTransform().Translation, Before.Translation);
+	ASSERT_TRUE(Buffer->Redo());
+	for (auto& Target : Probe.Objects) ExpectVectorNear(Target->GetTransform().Translation, After.Translation);
+}
+
+TEST(FTransformGizmoTests, ClampedWriteDirtiesPackageAndRecordsFrame)
+{
+	InitializeDObjectSystem();
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(1));
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
+	auto* Package = MakeRevisionTestPackage("ClampedGizmoEdit");
+	Probe.Objects[0]->BindPackage(Package);
+	Package->ClearDirty();
+	Probe.Objects[0]->Setter = [Package](const Durin::FTransform&) { EXPECT_TRUE(Package->IsDirty()); return true; };
+	Probe.Begin(Buffer.Get());
+	EXPECT_FALSE(Package->IsDirty());
+	auto* Proxy = Probe.Gizmo.GetActiveTarget();
+	const auto Before = Proxy->GetTransform();
+	Probe.Move(Buffer.Get());
+	const auto After = Proxy->GetTransform();
+	ASSERT_NE(Before.Translation, After.Translation);
+	Probe.Release(Buffer.Get());
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
+	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(Buffer->Undo());
+	ExpectVectorNear(Proxy->GetTransform().Translation, Before.Translation);
+	EXPECT_FALSE(Package->IsDirty());
+	ASSERT_TRUE(Buffer->Redo());
+	ExpectVectorNear(Proxy->GetTransform().Translation, After.Translation);
+	EXPECT_TRUE(Package->IsDirty());
+}
+
+TEST(FTransformGizmoTests, UndoRestoresPackageCheckpointFromFirstWrite)
+{
+	InitializeDObjectSystem();
+	for (const bool bInitiallyDirty : {false, true})
 	{
-		FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1));
+		FGizmoGestureProbe Probe;
+		ASSERT_TRUE(Probe.Initialize(1));
 		Durin::Tests::FTestEditorTransactorOwner Buffer;
-		Durin::TStrongObjectPtr<Durin::DPackage> Package(Durin::NewObject<Durin::DPackage>(nullptr, bOutsideWrite ? "OutsideGesture" : "OwnedGesture"));
-		Durin::FPackagePath Path; ASSERT_TRUE(Durin::FPackagePath::TryCreate(bOutsideWrite ? "/GestureCheckpoint/Outside" : "/GestureCheckpoint/Owned", Path));
-		Package->InitializeAssetPackage(Path); Probe.Objects[0]->Package = Package.Get();
-		Package->ClearDirty(); const auto Initial = Probe.Objects[0]->Transform;
-		Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get());
+		auto* Package = MakeRevisionTestPackage("GizmoCheckpoint");
+		Probe.Objects[0]->BindPackage(Package);
+		Package->ClearDirty();
+		if (bInitiallyDirty) Package->MarkDirty();
+		const auto Initial = Probe.Objects[0]->GetTransform();
+		Probe.Begin(Buffer.Get());
+		Probe.Move(Buffer.Get());
+		EXPECT_TRUE(Package->IsDirty());
+		Package->MarkDirty(); // A later write does not replace the first capture.
+		Probe.Release(Buffer.Get());
+		ASSERT_TRUE(Buffer->Undo());
+		ExpectVectorNear(Probe.Objects[0]->GetTransform().Translation, Initial.Translation);
+		EXPECT_EQ(Package->IsDirty(), bInitiallyDirty);
+		ASSERT_TRUE(Buffer->Redo());
+		EXPECT_TRUE(Package->IsDirty());
+	}
+}
+
+TEST(FTransformGizmoTests, HistoryFreePreviewMarksSharedOwnerOnce)
+{
+	InitializeDObjectSystem();
+	for (const bool bCancel : {false, true})
+	{
+		FGizmoGestureProbe Probe;
+		ASSERT_TRUE(Probe.Initialize(2));
+		auto* Package = MakeRevisionTestPackage("UnrecordedGizmoEdit");
+		Probe.Objects[0]->BindPackage(Package);
+		Probe.Objects[1]->Owner = Probe.Objects[0]->Owner;
+		const auto Initial = Probe.Objects[0]->GetTransform();
+		Package->ClearDirty();
+		const auto Revision = Package->GetEditRevision();
+		Probe.Begin(nullptr);
 		EXPECT_FALSE(Package->IsDirty());
-		if (bOutsideWrite) Package->MarkDirty();
-		const auto RevisionBeforeRelease = Package->GetEditRevision();
-		Probe.Release(Buffer.Get()); ASSERT_TRUE(Buffer->CanUndo()); EXPECT_TRUE(Package->IsDirty());
-		EXPECT_EQ(Package->GetEditRevision(), RevisionBeforeRelease + 1);
-		ASSERT_TRUE(Buffer->Undo()); ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Initial.Translation);
-		EXPECT_EQ(Package->IsDirty(), bOutsideWrite);
-		ASSERT_TRUE(Buffer->Redo()); EXPECT_TRUE(Package->IsDirty());
+		Probe.Move(nullptr);
+		EXPECT_TRUE(Package->IsDirty());
+		Probe.Move(nullptr);
+		const auto Preview = Probe.Objects[0]->GetTransform();
+		ASSERT_NE(Preview.Translation, Initial.Translation);
+		if (bCancel) Probe.Gizmo.CancelUpdate();
+		else Probe.Release(nullptr);
+		EXPECT_FALSE(Probe.Gizmo.IsDragging());
+		ExpectVectorNear(Probe.Objects[0]->GetTransform().Translation, bCancel ? Initial.Translation : Preview.Translation);
+		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_EQ(Package->GetEditRevision(), Revision + 1);
 	}
 }
 
@@ -995,20 +1247,22 @@ TEST(FTransformGizmoTests, DiscardedHistoryLeavesReleasedTransformAppliedAndDirt
 	Durin::Tests::FTestEditorTransactorOwner Buffer;
 	auto* Package = MakeRevisionTestPackage("DiscardedGizmoEdit");
 	Package->SetPlayInEditor(true);
-	Probe.Objects.front()->Package = Package;
+	Probe.Objects.front()->BindPackage(Package);
 	Package->ClearDirty();
-	const auto Initial = Probe.Objects.front()->Transform;
+	const auto Initial = Probe.Objects.front()->GetTransform();
 	Probe.Begin(Buffer.Get());
 	Probe.Move(Buffer.Get());
-	const auto Preview = Probe.Objects.front()->Transform;
+	const auto Preview = Probe.Objects.front()->GetTransform();
 	ASSERT_NE(Initial.Translation, Preview.Translation);
-	ASSERT_FALSE(Package->IsDirty());
+	ASSERT_TRUE(Package->IsDirty());
+	const auto DirtyRevision = Package->GetEditRevision();
 	Probe.Input.bLeftMouseDown = false;
 	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
 	EXPECT_FALSE(Probe.Gizmo.IsDragging());
 	EXPECT_FALSE(Buffer->CanUndo());
 	EXPECT_TRUE(Package->IsDirty());
-	ExpectVectorNear(Probe.Objects.front()->Transform.Translation, Preview.Translation);
+	EXPECT_EQ(Package->GetEditRevision(), DirtyRevision);
+	ExpectVectorNear(Probe.Objects.front()->GetTransform().Translation, Preview.Translation);
 }
 
 TEST(FTransformGizmoTests, ReleaseRecordsTheActualFinalTransform)
@@ -1017,52 +1271,52 @@ TEST(FTransformGizmoTests, ReleaseRecordsTheActualFinalTransform)
 	FGizmoGestureProbe Probe;
 	ASSERT_TRUE(Probe.Initialize(1));
 	Durin::Tests::FTestEditorTransactorOwner Buffer;
-	const auto Before = Probe.Objects[0]->Transform;
+	const auto Before = Probe.Objects[0]->GetTransform();
 	Probe.Begin(Buffer.Get());
 	Probe.Move(Buffer.Get());
-	Probe.Objects[0]->Transform.Translation += Durin::FVector3(100, 200, 300);
-	const auto Outside = Probe.Objects[0]->Transform;
+	Probe.Objects[0]->Owner->SetRelativeLocation(Probe.Objects[0]->Owner->GetRelativeLocation() + Durin::FVector3(100, 200, 300));
+	const auto Outside = Probe.Objects[0]->GetTransform();
 	Probe.Release(Buffer.Get());
 	EXPECT_FALSE(Probe.Gizmo.IsDragging());
 	ASSERT_TRUE(Buffer->Undo());
-	ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Before.Translation);
+	ExpectVectorNear(Probe.Objects[0]->GetTransform().Translation, Before.Translation);
 	ASSERT_TRUE(Buffer->Redo());
-	ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Outside.Translation);
+	ExpectVectorNear(Probe.Objects[0]->GetTransform().Translation, Outside.Translation);
 }
 
-TEST(FTransformGizmoTests, ReplayRestoresRecordedEndpointsAfterOutsideWrites)
+TEST(FTransformGizmoTests, RedoUsesOwnerSnapshotCapturedAtUndo)
 {
+	using namespace Durin;
 	InitializeDObjectSystem();
 	FGizmoGestureProbe Probe;
 	ASSERT_TRUE(Probe.Initialize(1));
-	Durin::Tests::FTestEditorTransactorOwner Buffer;
-	auto& Transform = Probe.Objects[0]->Transform;
-	const auto Before = Transform;
+	Tests::FTestEditorTransactorOwner Buffer;
+	auto& Owner = *Probe.Objects.front()->Owner;
+	const auto Before = Owner.GetRelativeLocation();
 	Probe.Begin(Buffer.Get());
 	Probe.Move(Buffer.Get());
 	Probe.Release(Buffer.Get());
-	const auto After = Transform;
-	Transform.Translation += Durin::FVector3(100, 200, 300);
+	const auto Outside = Owner.GetRelativeLocation() + FVector3(100, 200, 300);
+	Owner.SetRelativeLocation(Outside);
 	ASSERT_TRUE(Buffer->Undo());
-	ExpectVectorNear(Transform.Translation, Before.Translation);
-	Transform.Translation -= Durin::FVector3(300, 200, 100);
+	ExpectVectorNear(Owner.GetRelativeLocation(), Before);
 	ASSERT_TRUE(Buffer->Redo());
-	ExpectVectorNear(Transform.Translation, After.Translation);
+	ExpectVectorNear(Owner.GetRelativeLocation(), Outside);
 }
 
 TEST(FTransformGizmoTests, ForeignRecordingDefersRestoreWithoutJoiningItsHistory)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1));
-	Durin::Tests::FTestEditorTransactorOwner Buffer; const auto Initial = Probe.Objects[0]->Transform;
-	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); const auto Preview = Probe.Objects[0]->Transform;
+	Durin::Tests::FTestEditorTransactorOwner Buffer; const auto Initial = Probe.Objects[0]->GetTransform();
+	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); const auto Preview = Probe.Objects[0]->GetTransform();
 	Buffer->Cancel();
 	ASSERT_EQ(Buffer->Begin("ForeignEdit", "Foreign edit"), 0);
 	Probe.Input.bCancel = true;
 	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
-	EXPECT_TRUE(Probe.Gizmo.IsDragging()); ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Preview.Translation);
+	EXPECT_TRUE(Probe.Gizmo.IsDragging()); ExpectVectorNear(Probe.Objects[0]->GetTransform().Translation, Preview.Translation);
 	Buffer->End();
 	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
-	EXPECT_FALSE(Probe.Gizmo.IsDragging()); ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Initial.Translation);
+	EXPECT_FALSE(Probe.Gizmo.IsDragging()); ExpectVectorNear(Probe.Objects[0]->GetTransform().Translation, Initial.Translation);
 	EXPECT_FALSE(Buffer->CanUndo());
 }
 

@@ -246,10 +246,9 @@ receive one pre- and post-undo hook per replay in either direction.
 
 Open the owning scope before a synchronous domain edit. `StoreUndo` appends to
 the active recording, including a nested recording, and rejects idle or foreign
-buffers. The scope owner controls finalization. Viewport transform drags and
-interactive material parameter edits preserve the authored package’s dirty state during live
-preview and open or join a scope when the user commits. This leaves the global
-recorder available to other edits between input events.
+buffers. The scope owner controls finalization. Viewport transform drags open a recording on press and
+call `Modify()` on each component before its first preview write. Interactive material parameter edits
+open or join a scope when the user commits their preview.
 
 During admission, command package enumeration excludes reentrant
 recording changes. A metadata exception returns a failed submission and leaves

@@ -47,8 +47,6 @@ namespace Durin
 		ENGINE_API auto InsertSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool;
 		ENGINE_API auto DuplicateSplinePoint(uint32 PointIndex) -> std::optional<uint32>;
 		// Supports live previews. The authoring operation marks the package on commit.
-		// Used when the caller supplies the undo record for this point edit.
-		ENGINE_API auto UpdateSplinePointWithoutRecording(uint32 PointIndex, FSplinePoint Point) -> bool;
 		ENGINE_API auto UpdateSplinePoint(uint32 PointIndex, FSplinePoint Point, bool bUpdateSpline = true) -> bool;
 		ENGINE_API auto RemoveSplinePoint(uint32 PointIndex) -> bool;
 		ENGINE_API auto MoveSplinePoint(uint32 FromIndex, uint32 ToIndex) -> bool;
@@ -112,7 +110,6 @@ namespace Durin
 		auto UpdateSplineForHistory(ESplineChangeFlags Flags, uint64 HistoryId) -> void;
 		auto GetRecordingHistoryId() const -> uint64;
 		auto BeginPointEdit() -> bool;
-		auto UpdateSplinePointImpl(uint32 PointIndex, FSplinePoint Point, bool bUpdateSpline, bool bRecordUndo) -> bool;
 		auto TransformSampleToWorld(const FSplineSample& LocalSample) const -> FSplineSample;
 
 		DPROPERTY(Category = "Spline", Edit)

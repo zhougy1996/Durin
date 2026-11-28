@@ -2144,6 +2144,9 @@ TEST(FTransBufferTests, ExplicitParticipantsSuppressSnapshotsAndCollectorOnlyDep
 		EXPECT_EQ(Second->SerializationSaves, 0);
 		ASSERT_TRUE(Dependency->Modify());
 		EXPECT_EQ(Dependency->SerializationSaves, 1);
+		EXPECT_FALSE(GUndo->ContainsObject(First, true));
+		EXPECT_FALSE(GUndo->ContainsObject(Second, true));
+		EXPECT_TRUE(GUndo->ContainsObject(Dependency, true));
 		Dependency->Value = 9;
 	}
 	ASSERT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 3u);

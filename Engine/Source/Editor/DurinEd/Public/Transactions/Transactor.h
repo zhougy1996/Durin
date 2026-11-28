@@ -159,7 +159,7 @@ namespace Durin
 		auto GetRecordCount() const -> size_t { return Records.size(); }
 		DURINED_API auto RemoveNoOpRecords() -> void;
 		DURINED_API auto SaveObject(DObject* Object) -> void override;
-		DURINED_API auto ContainsObject(const DObject* Object) const -> bool override;
+		DURINED_API auto ContainsObject(const DObject* Object, bool bWholeObjectOnly = false) const -> bool override;
 		DURINED_API auto Finalize() -> void override;
 		auto IsBusy() const -> bool { return bBusy; }
 		DURINED_API auto HasExpired() const noexcept -> bool;
@@ -199,8 +199,8 @@ namespace Durin
 		std::optional<std::string> FailureReason;
 		friend struct FTransBufferTestAccess;
 		DURINED_API auto AddRecord(DObject& Target, std::unique_ptr<FCommandChange> Change) -> uint64;
-		// Participants without a whole-object snapshot have position zero.
-		using FObjectIndex = std::unordered_set<FPersistentObjectRef>;
+		// The value distinguishes participants with a whole-object baseline from command-only targets.
+		using FObjectIndex = std::unordered_map<FPersistentObjectRef, bool>;
 		static auto IndexRecord(FObjectIndex& Index, const FObjectRecord& Record) -> void;
 		auto SavePackage(DPackage* Package) -> void;
 		auto PreparePackageRecords() -> void;

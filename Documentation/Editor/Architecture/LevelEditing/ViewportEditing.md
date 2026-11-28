@@ -226,42 +226,52 @@ Actor storage. A target supplies stable identity, validity, transform,
 parent-relative rotation, affected package, label, and capability mask. A
 target set supplies the current collection and transaction label.
 
-At drag start the gizmo creates an `FTransformProxy` for the valid targets,
-their packages, and the shared pivot and basis. The gizmo computes a frame from
+The gizmo binds a `DTransformProxy` to the active selection. Successive drags
+share its frame. Changing the selection creates a new binding. On press,
+`BeginTransformEditSequence()` samples current element transforms. Release or
+successful cancellation ends the sequence and releases its baselines. Undo and
+Redo update the recorded proxy. The handles and the next drag read that frame
+while its selection is active. The gizmo computes a frame from
 pointer input and snapping. The proxy applies it to each target from its initial
 world transform, including rotation and scale about the shared pivot.
-Targets apply preview and restoration transforms without marking packages dirty.
 The gizmo delegates transaction and restoration to a `DTransformGizmoStateTarget`.
-On press, its `BeginUpdate()` opens the gesture transaction and creates one `FTransformProxyChangeSource` per data owner,
-using the same element snapshots as the preview. On release, `EndUpdate()`
-reads the actual final transforms, records each change and closes the transaction. Only sources with
-changed elements contribute a record through `StoreUndo(Owner, Change)`. Actor transforms belong to their root scene components. Spline
-points and tangent handles belong to their spline component. Each command
-retains its elements' initial and actual preview transforms. A rejected group
-cancels the recording before the gizmo restores its previews.
+On press, `BeginUpdate()` opens the transaction and binds one
+`FTransformProxyChangeSource` to the proxy. Before the first write to each data owner, the proxy calls
+`Modify()` to mark its package dirty. During recording the proxy also verifies
+that the transaction contains the owner's whole-object snapshot before invoking
+the setter. A failed admission cancels the entire gesture.
+Actor transforms belong to their root component and all points on a spline share
+one component snapshot. Before the first admitted write, the command captures
+the Actor's original root binding or the spline component's history-specific
+topology revision. Selected points on one spline share that revision.
+Previews without a transaction can edit either target directly.
+On normal release, `EndChange()` reads the shared frame and `EndUpdate()`
+stores one proxy command and closes the transaction. Component snapshots replay
+the actual data, while the command restores the shared frame.
 Later changes of selection or viewport lifetime do not redirect replay.
 The document controller owns save admission for both commands and direct calls:
 saving and save-producing rename require an idle transactor and no active gesture
 or unfinished restore.
-Cancel, target invalidation and mode exit restore the original targets. Net-zero
-gestures contribute no transform records. Unrelated edits during the gesture retain their dirty state. Target capability masks prevent unsupported operations before mutation.
+Cancel, target invalidation and mode exit restore the original targets.
+An empty drag records one proxy command and leaves the scene package's dirty flag unchanged.
+A fully clamped write still marks its package dirty. Cancel restores transforms
+and leaves the current dirty flags in place. History-free previews and discarded
+PIE recordings also mark the asset package on the first write. Target capability masks prevent unsupported operations before mutation.
 
 On Escape, `CancelUpdate()` discards the recording and restores all surviving
 original targets to their initial transforms, including targets edited by another
 writer during the drag. Failed preview writes also restore the complete
 selection, including a setter that partially mutates before failing. A failed
 restore stays active for retry and blocks saving and level changes. History
-replay checks target validity and topology expiry for the entire change. Undo sets
-the recorded initial transforms and Redo sets the recorded final transforms, including
-after an outside transform write. Setter and read-back failures during replay are terminal.
+replay validates the original Actor root binding and each recorded spline topology
+before applying any component snapshot.
 Restoration verifies the actual values and defers while another recorder owns
 `GUndo`, so it cannot publish a false clean state or join another transaction.
 
 The Actor adapter preserves translation, rotation, scale, shared-pivot,
 hierarchy filtering, local/world axes, snapping, Undo/Redo, and dirty-state
 behavior. Spline adapters convert between component-local and world coordinates
-and resolve live edits by index in the current topology. A committed transform
-replays by index in transaction order. A tangent selection exposes one
+and resolve live edits by index in the current topology. An external topology edit expires the whole gesture before replay. A tangent selection exposes one
 translation target. A point multi-selection exposes one translation, rotation,
 and scale target per selected point. The selected-point overlay samples the
 runtime transform on incident segments and draws Up and Right lines outside the

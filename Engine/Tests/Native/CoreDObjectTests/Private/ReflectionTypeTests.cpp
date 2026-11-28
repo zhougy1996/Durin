@@ -6902,7 +6902,7 @@ TEST(FObjectModifyTests, RuntimeNeutralBridgeRequiresTransactionalParticipation)
 	{
 		explicit FRecorder(int& InCaptures) : Captures(InCaptures) {}
 		auto SaveObject(DObject* Target) -> void override { ++Captures; Saved = Target; }
-		auto ContainsObject(const DObject* Target) const -> bool override { return Saved == Target; }
+		auto ContainsObject(const DObject* Target, bool) const -> bool override { return Saved == Target; }
 		auto GetContext() const -> FTransactionContext override { return {}; }
 		auto SetPrimaryObject(DObject*) -> void override {}
 		auto BeginOperation() -> FTransactionCaptureResult override { return std::unexpected("Capture-only test recorder."); }

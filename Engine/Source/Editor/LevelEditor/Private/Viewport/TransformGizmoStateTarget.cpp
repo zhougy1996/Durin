@@ -1,13 +1,12 @@
 #include "Viewport/TransformGizmoStateTarget.h"
 
-#include "DObject/Package.h"
 #include "Transactions/Transactor.h"
 
 namespace Durin
 {
-	void DTransformGizmoStateTarget::Initialize(std::shared_ptr<LevelEditor::FTransformProxy> InProxy, DTransactor* Transactions, std::string_view InAction)
+	void DTransformGizmoStateTarget::Initialize(DTransformProxy* InProxy, DTransactor* Transactions, std::string_view InAction)
 	{
-		Proxy = std::move(InProxy);
+		Proxy = InProxy;
 		TransactionManager = Transactions;
 		Action = InAction;
 	}
@@ -27,36 +26,23 @@ namespace Durin
 	{
 		auto* Transactions = TransactionManager.Get();
 		if (!Transactions) return;
-		ChangeSources = Proxy->CreateChangeSources(Transactions->GetHistoryId(), Action);
 		const auto Description = Proxy->DescribeChange(Action);
 		if (GUndo || Transactions->Begin("TransformGizmo", Description) < 0)
 			throw std::runtime_error("Unable to begin the transform transaction.");
 		RecordingOperationId = GUndo->GetContext().OperationId;
+		ChangeSource.emplace(*Proxy.Get(), Transactions->GetHistoryId(), Description);
 	}
 
 	auto DTransformGizmoStateTarget::EndUpdate() -> void
 	{
-		const auto Changed = Proxy->CaptureFinalValues();
-		if (!Changed) throw std::runtime_error("Transform target is unavailable.");
-		const auto PackageRevisions = Proxy->GetPackageEditRevisions();
-		if (auto* Transactions = TransactionManager.Get())
+		auto* Transactions = TransactionManager.Get();
+		if (Transactions && !OwnsRecording()) throw std::runtime_error("Transform transaction is no longer active.");
+		if (Transactions)
 		{
-			if (!OwnsRecording()) throw std::runtime_error("Transform transaction is no longer active.");
-			for (const auto& Source : ChangeSources)
-			{
-				auto Change = Source.EndChange();
-				if (bCancelPending || !OwnsRecording()) throw std::runtime_error("Transform update interrupted.");
-				if (Change && !Transactions->StoreUndo(Source.GetChangeTarget(), std::move(Change)))
-					throw std::runtime_error("Unable to record the transform change.");
-			}
+			if (bCancelPending || !Transactions->StoreUndo(Proxy.Get(), ChangeSource->EndChange()))
+				throw std::runtime_error("Unable to record the transform change.");
 			if (bCancelPending || !OwnsRecording()) throw std::runtime_error("Transform update interrupted.");
 			Transactions->End();
-		}
-		// A committed transaction marks its packages. A release without history still needs a dirty mark.
-		if (*Changed)
-		{
-			for (const auto& [Package, Revision] : PackageRevisions)
-				if (Package && Package->GetEditRevision() == Revision) Package->MarkDirty();
 		}
 		ReleaseGesture();
 	}
@@ -72,8 +58,9 @@ namespace Durin
 
 	void DTransformGizmoStateTarget::ReleaseGesture()
 	{
-		ChangeSources.clear();
-		Proxy.reset();
+		ChangeSource.reset();
+		if (Proxy) Proxy->EndTransformEditSequence();
+		Proxy.Reset();
 		TransactionManager.Reset();
 		RecordingOperationId = 0;
 		bCancelPending = false;

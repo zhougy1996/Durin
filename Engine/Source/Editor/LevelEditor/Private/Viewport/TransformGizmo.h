@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Viewport/TransformProxy.h"
+#include "Viewport/TransformGizmoTypes.h"
 
 #include "CoreMinimal.h"
 
@@ -12,6 +12,7 @@ namespace Durin
 {
 	class DTransactor;
 	class DTransformGizmoStateTarget;
+	class DTransformProxy;
 }
 
 namespace Durin
@@ -64,6 +65,7 @@ namespace Durin::LevelEditor
 		// A failed restore keeps IsDragging() true so callers can retry.
 		auto CancelUpdate() -> void;
 		~FTransformGizmo();
+		auto GetActiveTarget() const -> DTransformProxy*;
 		auto IsDragging() const -> bool { return ActiveHandle != ETransformGizmoHandle::None; }
 		auto IsHovered() const -> bool { return HoveredHandle != ETransformGizmoHandle::None; }
 		auto GetMode() const -> ETransformGizmoMode { return Mode; }
@@ -81,6 +83,7 @@ namespace Durin::LevelEditor
 		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool;
 		auto ComputeDragFrame(const FSceneView& View, const FLevelEditorViewportInput& Input) -> std::optional<FTransform>;
 		auto ClearDrag() -> void;
+		void SetActiveTarget(DTransformProxy* Target);
 
 		ETransformGizmoMode Mode = ETransformGizmoMode::Translate;
 		ETransformGizmoSpace Space = ETransformGizmoSpace::World;
@@ -88,11 +91,9 @@ namespace Durin::LevelEditor
 		ETransformGizmoHandle ActiveHandle = ETransformGizmoHandle::None;
 		FTransformGizmoSnapSettings SnapSettings;
 		FVector3 Pivot{0.0};
-		FVector3 DisplayPivot{0.0};
 		FQuat Basis{1.0, 0.0, 0.0, 0.0};
-		FQuat DisplayBasis{1.0, 0.0, 0.0, 0.0};
 		float WorldScale = 1.0f;
-		std::shared_ptr<FTransformProxy> Proxy;
+		TStrongObjectPtr<DTransformProxy> Proxy;
 		TStrongObjectPtr<DTransformGizmoStateTarget> StateTarget;
 		ETransformGizmoCapability ActiveCapabilities = ETransformGizmoCapability::None;
 		FVector3 DragAxis{0.0};

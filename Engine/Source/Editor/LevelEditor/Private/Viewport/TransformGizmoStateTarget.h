@@ -2,6 +2,7 @@
 
 #include "DObject/Object.h"
 #include "DObject/WeakObjectPtr.h"
+#include "DObject/StrongObjectPtr.h"
 #include "LevelEditorAPI.h"
 #include "Viewport/TransformProxy.h"
 #include "TransformGizmoStateTarget.gen.h"
@@ -17,7 +18,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DTransformGizmoStateTarget(const FObjectInitializer& Initializer) : Super(Initializer) {}
-		LEVELEDITOR_API void Initialize(std::shared_ptr<LevelEditor::FTransformProxy> InProxy, DTransactor* Transactions, std::string_view InAction);
+		LEVELEDITOR_API void Initialize(DTransformProxy* InProxy, DTransactor* Transactions, std::string_view InAction);
 		LEVELEDITOR_API void BeginUpdate();
 		LEVELEDITOR_API void EndUpdate();
 		LEVELEDITOR_API void CancelUpdate();
@@ -28,8 +29,8 @@ namespace Durin
 	private:
 		bool OwnsRecording() const;
 		void ReleaseGesture();
-		std::shared_ptr<LevelEditor::FTransformProxy> Proxy;
-		std::vector<LevelEditor::FTransformProxyChangeSource> ChangeSources;
+		TStrongObjectPtr<DTransformProxy> Proxy;
+		std::optional<FTransformProxyChangeSource> ChangeSource;
 		TWeakObjectPtr<DTransactor> TransactionManager;
 		std::string Action;
 		uint64 RecordingOperationId = 0;

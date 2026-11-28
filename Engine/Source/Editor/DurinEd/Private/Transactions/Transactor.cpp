@@ -343,7 +343,8 @@ namespace Durin
 
 	auto FTransaction::IndexRecord(FObjectIndex& Index, const FTransaction::FObjectRecord& Record) -> void
 	{
-		Index.insert(Record.GetTarget());
+		auto& bHasSnapshot = Index[Record.GetTarget()];
+		bHasSnapshot |= std::holds_alternative<FWholeObjectData>(Record.Data);
 	}
 
 	auto FTransaction::GetCaptureIndex() -> FObjectIndex&
@@ -382,16 +383,17 @@ namespace Durin
 		return AppendRecord(FTransaction::FObjectRecord(Target, std::move(Change)));
 	}
 
-	auto FTransaction::ContainsObject(const DObject* Object) const -> bool
+	auto FTransaction::ContainsObject(const DObject* Object, bool bWholeObjectOnly) const -> bool
 	{
 		if (!IsValid(Object)) return false;
 		if (CaptureIndex)
 		{
-			if (CaptureIndex->contains(FPersistentObjectRef::FromKey(FObjectKey(Object)))) return true;
+			const auto Direct = CaptureIndex->find(FPersistentObjectRef::FromKey(FObjectKey(Object)));
+			if (Direct != CaptureIndex->end() && (!bWholeObjectOnly || Direct->second)) return true;
 			const auto It = CaptureIndex->find(FPersistentObjectRef(const_cast<DObject*>(Object)));
-			return It != CaptureIndex->end() && It->Resolve() == Object;
+			return It != CaptureIndex->end() && (!bWholeObjectOnly || It->second) && It->first.Resolve() == Object;
 		}
-		return std::ranges::any_of(Records, [&](const auto& Record) { return Record.GetTarget().Get() == Object; });
+		return std::ranges::any_of(Records, [&](const auto& Record) { return Record.GetTarget().Get() == Object && (!bWholeObjectOnly || std::holds_alternative<FWholeObjectData>(Record.Data)); });
 	}
 
 	auto FTransaction::SaveObject(DObject* Object) -> void

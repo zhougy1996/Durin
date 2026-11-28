@@ -113,10 +113,13 @@ namespace Durin::LevelEditor
 		public:
 			explicit FActorTransformGizmoTarget(AActor* InActor) : Actor(InActor) {}
 			auto IsValid() const -> bool override { return Actor && !Actor->IsHidden() && Actor->GetRootComponent(); }
-			auto GetIdentity() const -> const void* override { return Actor.Get(); }
+			auto GetIdentity() const -> FTransformGizmoTargetIdentity override { return {Actor.Get()}; }
 			auto GetDataOwner() const -> DObject* override { return Actor ? Actor->GetRootComponent() : nullptr; }
 			auto GetTransform() const -> FTransform override { return Actor ? Actor->GetActorTransform() : FTransform{}; }
-			auto SetTransform(const FTransform& Transform) -> bool override { return Actor && Actor->SetActorTransform(Transform); }
+			auto SetTransform(const FTransform& Transform) -> bool override
+			{
+				return Actor && Actor->SetActorTransform(Transform);
+			}
 			auto GetParentRotation() const -> FQuat override
 			{
 				if (Actor && Actor->GetRootComponent())
@@ -167,22 +170,29 @@ namespace Durin::LevelEditor
 				++Count;
 			}
 		}
-		if (Count == 0)
+		if (Count == 0 || Count != Targets.Targets.size())
 		{
+			SetActiveTarget(nullptr);
 			WorldScale = 0.0f;
 			return false;
 		}
-		Pivot = Sum / static_cast<double>(Count);
+		const auto Center = Sum / static_cast<double>(Count);
+		const auto& Primary = Targets.Targets.front();
+		const auto Rotation = Primary->GetTransform().Rotation;
+		if (!Proxy || !Proxy->MatchesSelection(Targets))
+		{
+			auto* Target = NewObject<DTransformProxy>(nullptr, NAME_None);
+			Target->Initialize(Targets, Center, Rotation);
+			SetActiveTarget(Target);
+		}
+		Proxy->SyncSelectionFrame(Center, Rotation);
+		Pivot = Proxy->GetTransform().Translation;
 		Basis = FQuatConstants::Identity;
 		const ETransformGizmoSpace EffectiveSpace = GetEffectiveSpace();
-		if (!Targets.Targets.empty() && Targets.Targets.front() && Targets.Targets.front()->IsValid())
-		{
-			const std::shared_ptr<ITransformGizmoTarget>& Primary = Targets.Targets.front();
-			if (EffectiveSpace == ETransformGizmoSpace::Local)
-				Basis = Primary->GetTransform().Rotation;
-			else if (EffectiveSpace == ETransformGizmoSpace::Parent)
-				Basis = Primary->GetParentRotation();
-		}
+		if (EffectiveSpace == ETransformGizmoSpace::Local)
+			Basis = Proxy->GetTransform().Rotation;
+		else if (EffectiveSpace == ETransformGizmoSpace::Parent)
+			Basis = Primary->GetParentRotation();
 		const ETransformGizmoCapability Required = Mode == ETransformGizmoMode::Translate ? ETransformGizmoCapability::Translate
 			: Mode == ETransformGizmoMode::Rotate ? ETransformGizmoCapability::Rotate : ETransformGizmoCapability::Scale;
 		if (!HasCapability(ActiveCapabilities, Required))
@@ -190,8 +200,6 @@ namespace Durin::LevelEditor
 			WorldScale = 0.0f;
 			return false;
 		}
-		DisplayPivot = Pivot;
-		DisplayBasis = Basis;
 		const double Distance = std::max(0.05, Math::Length(Pivot - View.ViewLocation));
 		WorldScale = static_cast<float>(Distance * 2.0 * std::tan(Math::DegreesToRadians(60.0) * 0.5) * GizmoPixels / std::max(1u, View.ViewportHeight));
 		return std::isfinite(WorldScale) && WorldScale > 0.0f;
@@ -311,12 +319,7 @@ namespace Durin::LevelEditor
 		if (Math::LengthSquared(DragStartVector) > Epsilon) DragStartVector = Math::Normalize(DragStartVector);
 		DragStartMouseY = Input.MousePosition.y;
 		StateTarget = NewObject<DTransformGizmoStateTarget>(nullptr, NAME_None);
-		Proxy = std::make_shared<FTransformProxy>(Targets, Pivot, Basis);
-		if (!Proxy->MatchesSelection(Targets))
-		{
-			ClearDrag();
-			return false;
-		}
+		Proxy->BeginTransformEditSequence(Targets);
 		const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
 		StateTarget->Initialize(Proxy, Transactions, Action);
 		StateTarget->BeginUpdate();
@@ -342,7 +345,6 @@ namespace Durin::LevelEditor
 			}
 			auto Frame = Proxy->GetInitialTransform();
 			Frame.Translation += Delta;
-			DisplayPivot = Frame.Translation;
 			return Frame;
 		}
 		else if (Mode == ETransformGizmoMode::Rotate)
@@ -353,8 +355,7 @@ namespace Durin::LevelEditor
 			double Angle = std::atan2(Math::Dot(DragAxis, Math::Cross(DragStartVector, Vector)), Math::Dot(DragStartVector, Vector));
 			if (bSnap) Angle = Math::DegreesToRadians(Snap(Math::RadiansToDegrees(Angle), SnapSettings.RotationDegrees));
 			auto Frame = Proxy->GetInitialTransform();
-			Frame.Rotation = Math::Normalize(Math::MakeQuaternionFromAxisAngleRadians(Angle, DragAxis) * Basis);
-			if (GetEffectiveSpace() == ETransformGizmoSpace::Local) DisplayBasis = Frame.Rotation;
+			Frame.Rotation = Math::Normalize(Math::MakeQuaternionFromAxisAngleRadians(Angle, DragAxis) * Frame.Rotation);
 			return Frame;
 		}
 		else
@@ -372,15 +373,21 @@ namespace Durin::LevelEditor
 			else if (ActiveHandle == ETransformGizmoHandle::Z)
 				Factors.z = Factor;
 			auto Frame = Proxy->GetInitialTransform();
-			Frame.Scale3D = Factors;
+			Frame.Scale3D *= Factors;
 			return Frame;
 		}
+	}
+
+	DTransformProxy* FTransformGizmo::GetActiveTarget() const { return Proxy.Get(); }
+
+	void FTransformGizmo::SetActiveTarget(DTransformProxy* Target)
+	{
+		Proxy = Target;
 	}
 
 	auto FTransformGizmo::ClearDrag() -> void
 	{
 		StateTarget.Reset();
-		Proxy.reset();
 		ActiveHandle = ETransformGizmoHandle::None;
 	}
 
@@ -400,8 +407,6 @@ namespace Durin::LevelEditor
 			StateTarget->CancelUpdate();
 			if (StateTarget->IsCancelPending()) return;
 		}
-		DisplayPivot = Pivot;
-		DisplayBasis = Basis;
 		ClearDrag();
 	}
 
@@ -420,12 +425,19 @@ namespace Durin::LevelEditor
 			if (Input.bCancel || !StateTarget->CanContinueWith(Transactions) || !Proxy->MatchesSelection(Targets))
 			{
 				CancelUpdate();
+				if (!IsDragging()) RebuildState(Targets, View);
 				return !IsDragging() || GUndo != nullptr;
 			}
 			{
 				const TGuardValue Guard(bUpdating, true);
-				if (!Input.bLeftMouseDown) { StateTarget->EndUpdate(); ClearDrag(); }
-				else if (!Proxy->UpdatePreview(ComputeDragFrame(View, Input))) StateTarget->RequestCancel();
+				if (!Input.bLeftMouseDown)
+				{
+					StateTarget->EndUpdate();
+					ClearDrag();
+					RebuildState(Targets, View);
+				}
+				else if (const auto Frame = ComputeDragFrame(View, Input); Frame && !Proxy->SetTransform(*Frame))
+					StateTarget->RequestCancel();
 			}
 			if (StateTarget && StateTarget->IsCancelPending()) { CancelUpdate(); return false; }
 			return true;
@@ -435,16 +447,16 @@ namespace Durin::LevelEditor
 			HoveredHandle = ETransformGizmoHandle::None;
 			return true;
 		}
-		if (!RebuildState(Targets, View))
-		{
-			HoveredHandle = ETransformGizmoHandle::None;
-			return true;
-		}
 		if (Input.bFocused && Input.bHovered && !Input.bWantTextInput)
 		{
 			if (Input.bModeTranslate) Mode = ETransformGizmoMode::Translate;
 			if (Input.bModeRotate) Mode = ETransformGizmoMode::Rotate;
 			if (Input.bModeScale) Mode = ETransformGizmoMode::Scale;
+		}
+		if (!RebuildState(Targets, View))
+		{
+			HoveredHandle = ETransformGizmoHandle::None;
+			return true;
 		}
 		HoveredHandle = Input.bHovered ? HitTest(View, Input.MousePosition) : ETransformGizmoHandle::None;
 		if (!Input.bLeftMousePressed || HoveredHandle == ETransformGizmoHandle::None) return true;
@@ -456,7 +468,9 @@ namespace Durin::LevelEditor
 
 	auto FTransformGizmo::AppendOverlayPrimitives(FSceneView& View) const -> void
 	{
-		if (WorldScale <= 0.0f) return;
+		if (!Proxy || WorldScale <= 0.0f) return;
+		const auto& DisplayPivot = Proxy->GetTransform().Translation;
+		const auto& DisplayBasis = GetEffectiveSpace() == ETransformGizmoSpace::Local ? Proxy->GetTransform().Rotation : Basis;
 		const std::array<FVector3, 3> Axes = {DisplayBasis * FVectorConstants::Forward, DisplayBasis * FVectorConstants::Right, DisplayBasis * FVectorConstants::Up};
 		const std::array<ETransformGizmoHandle, 3> Handles = {ETransformGizmoHandle::X, ETransformGizmoHandle::Y, ETransformGizmoHandle::Z};
 		auto Add = [&](EViewOverlayShape Shape, const FMatrix& Matrix, ETransformGizmoHandle Handle, float Alpha = 1.0f) {
