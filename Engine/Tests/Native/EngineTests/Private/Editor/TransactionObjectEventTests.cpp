@@ -13,7 +13,7 @@ TEST(FTransactionObjectEventTests, MixedCommandAndSnapshotShareParticipantNotifi
 	Target->TransactionObserver = [&](const auto& Event) { Events.push_back(Event.Type); };
 	ASSERT_EQ(Buffer->Begin("test", "Domain and ordinary fields"), 0);
 	ASSERT_TRUE(Target->Modify(false));
-	ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), DomainValue, 0, 1)));
+	ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(DomainValue, 0, 1)));
 	const auto Saves = Target->SerializationSaves;
 	ASSERT_TRUE(Target->Modify(false)); EXPECT_EQ(Target->SerializationSaves, Saves);
 	Target->Value = 9;
@@ -37,7 +37,7 @@ TEST(FTransactionObjectEventTests, ExternalReferenceReplayFaultIsTerminal)
 	auto* Control = Change.get();
 	Control->bFailUndo = true;
 	ASSERT_EQ(Buffer->Begin("test", "Failed replay history"), 0);
-	ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+	ASSERT_TRUE(Buffer->StoreUndo(NewObject<DObject>(nullptr, NAME_None), std::move(Change)));
 	ASSERT_TRUE(Target->Modify(false));
 	Target->Value = 9;
 	EXPECT_EQ(Buffer->End(), 1);
@@ -55,7 +55,7 @@ TEST(FTransactionObjectEventTests, ChangedTransactionRetainsAnUnchangedObjectBas
 	int DomainValue = 1;
 	ASSERT_EQ(Buffer->Begin("test", "Keep complete transaction"), 0);
 	ASSERT_TRUE(Target->Modify());
-	ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), DomainValue, 0, 1)));
+	ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(DomainValue, 0, 1)));
 	EXPECT_EQ(Buffer->End(), 1);
 	ASSERT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 2u);
 	Target->Value = 7;
@@ -85,7 +85,7 @@ TEST(FTransactionObjectEventTests, SynchronousEventsKeepContextAndRejectRecordin
 			Buffer->Cancel(); EXPECT_EQ(GUndo, Recording);
 			const auto Saves = Target->SerializationSaves; (void)Target->Modify(); EXPECT_EQ(Target->SerializationSaves, Saves);
 			EXPECT_FALSE(Recording->EndOperation());
-			EXPECT_FALSE(Recording->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), Target->Value, 0, 99)));
+			EXPECT_FALSE(Recording->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 0, 99)));
 			EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 		}
 	};
@@ -159,7 +159,7 @@ TEST(FTransactionObjectEventTests, CancelNoOpAndCustomOnlyDoNotInventObjectEvent
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Cancel"}); ASSERT_TRUE(Target->Modify()); Target->Value = 1; Scope.Cancel(); }
 	EXPECT_EQ(Events, 0u);
 	ASSERT_EQ(Buffer->Begin("test", "Custom observation"), 0);
-	Target->Value = 2; ASSERT_TRUE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), Target->Value, 1, 2)));
+	Target->Value = 2; ASSERT_TRUE(Buffer->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 1, 2)));
 	EXPECT_EQ(Events, 0u); EXPECT_EQ(Buffer->End(), 1);
 	ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Events, 0u); EXPECT_EQ(Target->UndoCompletions, 2);
 }

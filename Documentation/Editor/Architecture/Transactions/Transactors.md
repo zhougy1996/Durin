@@ -226,11 +226,11 @@ During capture and object-event dispatch, Begin, End, Cancel, capture, record ch
 and operation closure cannot invalidate the in-flight records. Modify still reports
 existing membership and may mark a package dirty; it is not an edit veto.
 
-Domains call `StoreUndo(Change)` after applying the edit. The command owns the targets
-used by `Apply()`, `Revert()` and `HasExpired()`. Recording freezes the objects
-declared by `GetModifiedObjects()` for membership, notification and package tracking.
+Domains call `StoreUndo(Target, Change)` after applying the edit. The record
+retains the explicit target for membership, notification and package tracking,
+and passes the resolved target to `Apply`, `Revert` and `HasExpired`.
 
-A command recorded first claims capture for every object it explicitly declares.
+A command recorded first claims capture for its target.
 A later `Modify()` on that participant adds no baseline, so the command must cover
 the edits that need replay. Collector-only dependencies remain eligible for capture.
 To combine a whole-object baseline with a command, call `Modify()` before the first
@@ -251,7 +251,7 @@ interactive material parameter edits preserve the authored package’s dirty sta
 preview and open or join a scope when the user commits. This leaves the global
 recorder available to other edits between input events.
 
-During admission, command package and participant enumeration exclude reentrant
+During admission, command package enumeration excludes reentrant
 recording changes. A metadata exception returns a failed submission and leaves
 the owner's recording and retained history intact. The caller owns any write
 performed before admission.

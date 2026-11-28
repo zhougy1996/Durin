@@ -144,11 +144,10 @@ namespace
 		~FReinstancedValueCommand() override { if (DestructionObserver) DestructionObserver(Target.Resolve()); }
 		FReinstancedValueCommand(DTransactionRecordParticipant* Object, int32 InBefore, int32 InAfter, bool InSupport = true)
 			: Target(Durin::FPersistentObjectRef::FromKey(Durin::FObjectKey(Object))), Before(InBefore), After(InAfter), bSupport(InSupport), Packages{Object->GetPackage()} {}
-		auto HasExpired() const noexcept -> bool override { return !Target.Resolve(); }
-		auto Apply() -> void override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = After; }
-		auto Revert() -> void override { static_cast<DTransactionRecordParticipant*>(Target.Resolve())->Value = Before; }
+		auto HasExpired(const Durin::DObject*) const noexcept -> bool override { return !Target.Resolve(); }
+		auto Apply(Durin::DObject* Owner) -> void override { static_cast<DTransactionRecordParticipant*>(Owner)->Value = After; }
+		auto Revert(Durin::DObject* Owner) -> void override { static_cast<DTransactionRecordParticipant*>(Owner)->Value = Before; }
 		auto GetDescription() const -> std::string_view override { return "Reinstanced native value"; }
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { return {Target.Resolve()}; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{
@@ -230,7 +229,7 @@ TEST(FTransactionTemplateTests, OpaqueCustomParticipantsExpireBeforeRecreatedDef
 	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "OpaqueTemplateHistory"));
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Native default command", Default});
-		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FReinstancedValueCommand>(Default, Original, 8, false)));
+		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, *Default, std::make_unique<FReinstancedValueCommand>(Default, Original, 8, false)));
 	}
 	Private::ReleaseClassDefaultObjectForTests(Class);
 	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
@@ -361,7 +360,7 @@ TEST_F(FTransactionReinstancingTests, ExplicitMapRebindsWeakSlotsAndCommandsWith
 		ASSERT_TRUE(Observer->Modify());
 		Observer->Weak = nullptr;
 		Old->Value = 12;
-		ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Old, 0, 12)));
+		ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 12)));
 	}
 	const auto Id = Buffer->GetUndoContext().TransactionId;
 	const auto Saves = Peer->SerializationSaves;
@@ -395,7 +394,7 @@ TEST_F(FTransactionReinstancingTests, ExplicitReplacementRetiresFailedEntriesOnc
 		const int32 Before = Old->Value;
 		Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Opaque command", Old});
 		Old->Value = Value;
-		ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Old, Before, Value, false)));
+		ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, Before, Value, false)));
 	};
 	RecordOpaque(7);
 	const auto FailedUndo = Buffer->GetUndoContext().TransactionId;
@@ -540,7 +539,7 @@ TEST_F(FTransactionReinstancingTests, WritableCommandKeepsItsInstanceAndRebindsP
 	using namespace Durin;
 	ASSERT_EQ(Buffer->Begin("test", "Native command"), 0);
 	Old->Value = 12;
-	ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Old, 0, 12)));
+	ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 12)));
 	ASSERT_EQ(Buffer->End(), 1);
 	int Destructions = 0;
 	FReinstancedValueCommand::DestructionObserver = [&](DObject*) { ++Destructions; };
@@ -564,7 +563,7 @@ TEST_F(FTransactionReinstancingTests, UnsupportedCommandRetiresItsGenericPeerAsO
 	ASSERT_EQ(Buffer->Begin("test", "Mixed native command"), 0);
 	ASSERT_TRUE(Peer->Modify()); Peer->Value = 9;
 	Old->Value = 12;
-	ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Old, 0, 12, false)));
+	ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 12, false)));
 	ASSERT_EQ(Buffer->End(), 1);
 	ASSERT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 2u);
 	ASSERT_TRUE(Prepare());
@@ -696,7 +695,7 @@ TEST_F(FTransactionReinstancingTests, RetiredCommandDestructionWaitsForRetiremen
 {
 	using namespace Durin;
 	ASSERT_EQ(Buffer->Begin("test", "Retired destructor"), 0);
-	ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Old, 0, 12, false)));
+	ASSERT_TRUE(GUndo->StoreUndo(Old, std::make_unique<FReinstancedValueCommand>(Old, 0, 12, false)));
 	Old->Value = 12; ASSERT_EQ(Buffer->End(), 1);
 	int32 Destructions = 0;
 	bool bSawLiveOld = false;
@@ -717,7 +716,7 @@ TEST_F(FTransactionReinstancingTests, UnaffectedNativeCommandMovesWithoutRequiri
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Mixed affected and unaffected", Old});
 		ASSERT_TRUE(Old->Modify()); Old->Value = 12;
 		Peer->Value = 9;
-		ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FReinstancedValueCommand>(Peer.Get(), 0, 9, false)));
+		ASSERT_TRUE(GUndo->StoreUndo(Peer.Get(), std::make_unique<FReinstancedValueCommand>(Peer.Get(), 0, 9, false)));
 	}
 	New->Value = 77;
 	ASSERT_TRUE(Prepare()); ASSERT_TRUE(Operation.TryCommit());

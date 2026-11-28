@@ -30,14 +30,11 @@ namespace Durin
 	{
 	public:
 		virtual ~FCommandChange() = default;
-		virtual auto Apply() -> void = 0;
-		virtual auto Revert() -> void = 0;
-		// The command checks the lifetime of its own replay targets.
-		virtual auto HasExpired() const noexcept -> bool { return false; }
+		virtual auto Apply(DObject* Target) -> void = 0;
+		virtual auto Revert(DObject* Target) -> void = 0;
+		// A missing target is passed as nullptr so tools can expire the entire entry.
+		virtual auto HasExpired(const DObject* Target) const noexcept -> bool { return false; }
 		virtual auto GetDescription() const -> std::string_view = 0;
-		// Enumerate edited objects explicitly; GC dependencies do not imply edits.
-		// Recording freezes exact participant identities independently of GC traversal.
-		virtual auto GetModifiedObjects() const -> std::vector<DObject*> = 0;
 		virtual auto GetDetails() const -> std::string { return {}; }
 		virtual auto GetAffectedPackages() const -> std::span<DPackage* const> { return {}; }
 		virtual auto AddReferencedObjects(FReferenceCollector&) -> void {}

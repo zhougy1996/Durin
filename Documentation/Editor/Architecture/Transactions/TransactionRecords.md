@@ -26,9 +26,9 @@ the buffer reports a command error or exception as a terminal fault. A domain
 error's recovery flag does not change the buffer's behavior.
 See [replay outcomes](Transactors.md#replay-outcomes).
 
-Custom changes own their replay targets and declare modified objects through
-`FCommandChange::GetModifiedObjects()`. Records freeze and deduplicate exact
-identities for summaries, replay hooks, GC retention and package effects. Commands must
+Each custom record retains one explicit target by exact identity and passes it to
+the command during replay. Summaries, replay hooks and package effects use that
+target. A transaction can contain several records for different owners. Commands must
 report hard dependencies, modified packages, native owned allocations, and the
 module whose executable code/deleter they retain. Collector-only dependencies
 receive no object completion hooks. See
@@ -85,9 +85,9 @@ retains only hard identities actually serialized by that transaction archive.
 Whole-object recording captures virtual Serialize, metadata and
 supplemental annotation before an edit. During recording, a membership set tracks captured objects by
 persistent identity.
-Nested scopes share this index. Custom commands index each
-declared participant by exact generation for `ContainsObject()` and suppress later
-whole-object capture for those participants. An earlier baseline retains its position.
+Nested scopes share this index. Custom commands index their
+explicit target by exact generation for `ContainsObject()` and suppress later
+whole-object capture for that target. An earlier baseline retains its position.
 The outermost End captures final state, including the pending-kill bit, and releases the index. Retained
 history uses the ordered records for replay, reference collection, membership
 queries and controlled replacement. Recorded property edits use virtual Modify. Interactive drafts remain property-editor values;

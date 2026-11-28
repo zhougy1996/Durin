@@ -56,8 +56,6 @@ namespace
 	class FAppliedPackageEdit final : public Durin::FCommandChange
 	{
 	public:
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
-		{ return {}; }
 
 		explicit FAppliedPackageEdit(Durin::DPackage& InPackage)
 			: Package{&InPackage}
@@ -69,9 +67,9 @@ namespace
 		{
 			return Package;
 		}
-		auto Revert() -> void override
+		auto Revert(Durin::DObject*) -> void override
 		{}
-		auto Apply() -> void override
+		auto Apply(Durin::DObject*) -> void override
 		{}
 
 	private:
@@ -154,7 +152,7 @@ TEST(FAssetEditorSessionTests, UndoToActivatedRevisionClearsDirtyState)
 		Durin::FScopedTransaction Recording("Edit Asset");
 		ASSERT_TRUE(Asset->Modify(false));
 		Package->MarkDirty();
-		ASSERT_TRUE(Transactions.StoreUndo(
+		ASSERT_TRUE(Transactions.StoreUndo(Asset,
 			std::make_unique<FAppliedPackageEdit>(*Package)));
 	}
 	EXPECT_TRUE(Package->IsDirty());

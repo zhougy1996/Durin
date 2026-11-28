@@ -5111,6 +5111,29 @@ TEST(FMaterialGraphOperationsTests, CommandAdmissionRequiresEditorOrExplicitUnre
 	EXPECT_EQ(CaptureExpressions(*Material), BeforeJoined);
 }
 
+TEST(FMaterialGraphOperationsTests, CancelingRecordingOnStartLeavesThePreparedGraphEditUnpublished)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "CanceledGraphEdit"));
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	auto Expression = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
+	const auto Before = CaptureExpressions(*Material);
+	Tests::FTestEditorTransactorOwner History;
+	const auto Listener = History->OnTransactionStateChanged().AddLambda(
+		[&](const FTransactionContext&, ETransactionStateEventType Event) {
+			if (Event == ETransactionStateEventType::TransactionStarted) History->Cancel();
+		});
+	const auto Canceled = Graph->CreateExpression(*Expression);
+	History->OnTransactionStateChanged().Remove(Listener);
+	EXPECT_FALSE(Canceled);
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	EXPECT_FALSE(History->IsActive());
+	EXPECT_EQ(History->GetQueueLength(), 0u);
+	ASSERT_TRUE(Graph->CreateExpression(*Expression));
+	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+}
+
 
 TEST(FMaterialGraphOperationsTests, TextureSamplingModeUsesSharedUndoAndRetainsInactivePins)
 {

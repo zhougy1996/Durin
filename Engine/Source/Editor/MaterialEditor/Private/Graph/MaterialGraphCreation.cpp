@@ -75,77 +75,77 @@ namespace Durin::MaterialEditor
 			std::vector<DMaterialGraphNode*>* AuxiliaryNodes) const -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
 		if (AuxiliaryNodes) AuxiliaryNodes->clear();
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
-		if (!Graph.GetMaterialOrFunction()) return std::unexpected(RejectCommand("The graph owner is unavailable.", {}, EMaterialGraphCommandStatus::StaleOwner));
-		FMaterialProgramLink Source;
-		std::optional<EMaterialProgramValueType> SourceType;
-		if (Pin)
-		{
-			const auto* Node = Pin->GetOwningNode();
-			if (Pin->Direction != EMaterialGraphPinDirection::Output || Graph.FindNode(Node->GetView().Node.Id) != Node
-				|| Node->GetOutputPin(Pin->DisplayIndex) != Pin)
-				return std::unexpected(RejectCommand("The source output no longer exists."));
-			const auto& Output = Node->GetView().Outputs[Pin->DisplayIndex];
-			SourceType = Output.Type;
-			Source = {Node->GetView().Node.Id, Output.OutputIndex, Output.PortId};
-		}
-		if (!Graph.GetSchema().AllowsCreation(*this, SourceType))
-			return std::unexpected(RejectCommand("This action is not compatible with the graph or source output."));
-		if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Payload))
-			return Graph.CreateCatalogNode(*Entry, X, Y, Pin, *Admission, AuxiliaryNodes);
-		if (const auto* Spec = std::get_if<FMaterialGraphPortCreation>(&Payload))
-		{
-			const auto* Function = Cast<DMaterialFunction>(Graph.GetMaterialOrFunction());
-			if (!Function) return std::unexpected(RejectCommand("Only function graphs have ports."));
-			const auto& Signature = Function->GetFunctionSignature();
-			const auto& Ports = Spec->bOutput ? Signature.Outputs : Signature.Inputs;
-			FMaterialFunctionPort Port;
-			Port.Type = Spec->Type;
-			for (uint32 Index = 1;; ++Index)
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> TMaterialGraphResult<DMaterialGraphNode*> {
+			if (!Graph.GetMaterialOrFunction()) return std::unexpected(RejectCommand("The graph owner is unavailable.", {}, EMaterialGraphCommandStatus::StaleOwner));
+			FMaterialProgramLink Source;
+			std::optional<EMaterialProgramValueType> SourceType;
+			if (Pin)
 			{
-				Port.Name = std::format("{} {}", Spec->bOutput ? "Output" : "Input", Index);
-				if (std::ranges::none_of(Ports, [&](const auto& Existing) { return Existing.Name == Port.Name; })) break;
+				const auto* Node = Pin->GetOwningNode();
+				if (Pin->Direction != EMaterialGraphPinDirection::Output || Graph.FindNode(Node->GetView().Node.Id) != Node
+					|| Node->GetOutputPin(Pin->DisplayIndex) != Pin)
+					return std::unexpected(RejectCommand("The source output no longer exists."));
+				const auto& Output = Node->GetView().Outputs[Pin->DisplayIndex];
+				SourceType = Output.Type;
+				Source = {Node->GetView().Node.Id, Output.OutputIndex, Output.PortId};
 			}
-			if (!Spec->bOutput)
-				Port.Default.Kind = Port.Type == EMaterialProgramValueType::MaterialAttributes ? EMaterialFunctionDefaultKind::MaterialAttributes
-					: Port.Type == EMaterialProgramValueType::Texture2D ? EMaterialFunctionDefaultKind::Texture
-					: EMaterialFunctionDefaultKind::Numeric;
-			return Graph.AddPort(Spec->bOutput, Port, Source, X, Y, bShouldTransact);
-		}
-		if (const auto* Spec = std::get_if<
-			FMaterialGraphCollectionParameterCreation>(&Payload))
-		{
-			FTopLevelAssetPath Path;
-			if (!FTopLevelAssetPath::TryCreateWithDiagnostic(
-				Spec->CollectionPath, Path))
-				return std::unexpected(RejectCommand("The collection asset path is invalid."));
-			auto Loaded = LoadObject<DMaterialParameterCollection>(Path);
-			if (!Loaded) return std::unexpected(RejectCommand(
-				"The collection asset could not be loaded."));
-			if (!Loaded->FindDeclaration(Spec->ParameterId))
-				return std::unexpected(RejectCommand("The selected collection declaration no longer exists."));
-			TStrongObjectPtr<DMaterialExpressionCollectionParameter> Expression(
-				NewObject<DMaterialExpressionCollectionParameter>(nullptr, NAME_None));
-			Expression->Id = FGuid::NewGuid();
-			Expression->Collection = Loaded;
-			Expression->ParameterId = Spec->ParameterId;
-			return Graph.CreateExpression(*Expression, X, Y, bShouldTransact);
-		}
-		auto Loaded = LoadCreationFunction(std::get<std::string>(Payload));
-		if (!Loaded)
-		{
-			return std::unexpected(RejectCommand(std::move(Loaded.Message)));
-		}
-		auto* Function = Loaded.Function;
-		std::vector<FMaterialFunctionInputBinding> Inputs;
-		if (SourceType)
-		{
-			for (const auto& Port : Function->GetFunctionSignature().Inputs)
-				if (FMaterialGraphSchema::AcceptsPort(Port.Type, *SourceType)) { Inputs.push_back({Port.Id, Port.Type, Source}); break; }
-			if (Inputs.empty()) return std::unexpected(RejectCommand("This function has no compatible input."));
-		}
-		return Graph.InsertFunctionCall(*Function, X, Y, Inputs, bShouldTransact);
+			if (!Graph.GetSchema().AllowsCreation(*this, SourceType))
+				return std::unexpected(RejectCommand("This action is not compatible with the graph or source output."));
+			if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Payload))
+				return Graph.CreateCatalogNode(*Entry, X, Y, Pin, Transactions, AuxiliaryNodes);
+			if (const auto* Spec = std::get_if<FMaterialGraphPortCreation>(&Payload))
+			{
+				const auto* Function = Cast<DMaterialFunction>(Graph.GetMaterialOrFunction());
+				if (!Function) return std::unexpected(RejectCommand("Only function graphs have ports."));
+				const auto& Signature = Function->GetFunctionSignature();
+				const auto& Ports = Spec->bOutput ? Signature.Outputs : Signature.Inputs;
+				FMaterialFunctionPort Port;
+				Port.Type = Spec->Type;
+				for (uint32 Index = 1;; ++Index)
+				{
+					Port.Name = std::format("{} {}", Spec->bOutput ? "Output" : "Input", Index);
+					if (std::ranges::none_of(Ports, [&](const auto& Existing) { return Existing.Name == Port.Name; })) break;
+				}
+				if (!Spec->bOutput)
+					Port.Default.Kind = Port.Type == EMaterialProgramValueType::MaterialAttributes ? EMaterialFunctionDefaultKind::MaterialAttributes
+						: Port.Type == EMaterialProgramValueType::Texture2D ? EMaterialFunctionDefaultKind::Texture
+						: EMaterialFunctionDefaultKind::Numeric;
+				return Graph.AddPort(Spec->bOutput, Port, Source, X, Y, bShouldTransact);
+			}
+			if (const auto* Spec = std::get_if<
+				FMaterialGraphCollectionParameterCreation>(&Payload))
+			{
+				FTopLevelAssetPath Path;
+				if (!FTopLevelAssetPath::TryCreateWithDiagnostic(
+					Spec->CollectionPath, Path))
+					return std::unexpected(RejectCommand("The collection asset path is invalid."));
+				auto Loaded = LoadObject<DMaterialParameterCollection>(Path);
+				if (!Loaded) return std::unexpected(RejectCommand(
+					"The collection asset could not be loaded."));
+				if (!Loaded->FindDeclaration(Spec->ParameterId))
+					return std::unexpected(RejectCommand("The selected collection declaration no longer exists."));
+				TStrongObjectPtr<DMaterialExpressionCollectionParameter> Expression(
+					NewObject<DMaterialExpressionCollectionParameter>(nullptr, NAME_None));
+				Expression->Id = FGuid::NewGuid();
+				Expression->Collection = Loaded;
+				Expression->ParameterId = Spec->ParameterId;
+				return Graph.CreateExpression(*Expression, X, Y, bShouldTransact);
+			}
+			auto Loaded = LoadCreationFunction(std::get<std::string>(Payload));
+			if (!Loaded)
+			{
+				return std::unexpected(RejectCommand(std::move(Loaded.Message)));
+			}
+			auto* Function = Loaded.Function;
+			std::vector<FMaterialFunctionInputBinding> Inputs;
+			if (SourceType)
+			{
+				for (const auto& Port : Function->GetFunctionSignature().Inputs)
+					if (FMaterialGraphSchema::AcceptsPort(Port.Type, *SourceType)) { Inputs.push_back({Port.Id, Port.Type, Source}); break; }
+				if (Inputs.empty()) return std::unexpected(RejectCommand("This function has no compatible input."));
+			}
+			return Graph.InsertFunctionCall(*Function, X, Y, Inputs, bShouldTransact);
+		});
 	}
 	auto DMaterialGraph::GetCreatedNode(const FGuid& Id) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
@@ -175,60 +175,58 @@ namespace Durin::MaterialEditor
 	auto DMaterialGraph::AddPort(bool bOutput, FMaterialFunctionPort Port,
 		FMaterialProgramLink Source, int32 X, int32 Y, bool bShouldTransact) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
-		auto* Transactions = *Admission;
-		if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
-		auto* Function = Cast<DMaterialFunction>(Owner.Get());
-		if (!Function) return std::unexpected(RejectCommand("Only function documents have an interface."));
-		auto Candidate = Function->GetExpressionCollection();
-		FProposedCallOutputs Outputs;
-		if (!Port.Id.IsValid()) Port.Id = FGuid::NewGuid();
-		const auto NodeId = FGuid::NewGuid();
-		if (bOutput)
-		{
-			auto* Terminal = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
-			Terminal->Id = NodeId; Terminal->Port = std::move(Port);
-			auto* Upstream = FindMaterialExpression(Candidate.Expressions, Source.SourceNodeId);
-			if (Source.SourceNodeId.IsValid() && !Upstream) return std::unexpected(RejectCommand("The source expression no longer exists."));
-			Terminal->Source = ResolveGraphOutput(Upstream, Source.SourceOutputIndex, Source.SourceOutputId, Outputs);
-			SetNodeLayout(*Terminal, X, Y);
-			Candidate.Expressions.emplace_back(Terminal);
-		}
-		else
-		{
-			auto* Terminal = NewObject<DMaterialExpressionFunctionInput>(nullptr, NAME_None);
-			Terminal->Id = NodeId; Terminal->Port = std::move(Port);
-			SetNodeLayout(*Terminal, X, Y);
-			Candidate.Expressions.emplace_back(Terminal);
-		}
-		auto Result = CommitGraphEdit(*Function, Transactions,
-			bOutput ? "Add Function Output" : "Add Function Input", Candidate, nullptr, {}, std::move(Outputs));
-		if (!Result) return std::unexpected(std::move(Result));
-		return GetCreatedNode(NodeId);
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> TMaterialGraphResult<DMaterialGraphNode*> {
+			if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
+			auto* Function = Cast<DMaterialFunction>(Owner.Get());
+			if (!Function) return std::unexpected(RejectCommand("Only function documents have an interface."));
+			auto Candidate = Function->GetExpressionCollection();
+			FProposedCallOutputs Outputs;
+			if (!Port.Id.IsValid()) Port.Id = FGuid::NewGuid();
+			const auto NodeId = FGuid::NewGuid();
+			if (bOutput)
+			{
+				auto* Terminal = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
+				Terminal->Id = NodeId; Terminal->Port = std::move(Port);
+				auto* Upstream = FindMaterialExpression(Candidate.Expressions, Source.SourceNodeId);
+				if (Source.SourceNodeId.IsValid() && !Upstream) return std::unexpected(RejectCommand("The source expression no longer exists."));
+				Terminal->Source = ResolveGraphOutput(Upstream, Source.SourceOutputIndex, Source.SourceOutputId, Outputs);
+				SetNodeLayout(*Terminal, X, Y);
+				Candidate.Expressions.emplace_back(Terminal);
+			}
+			else
+			{
+				auto* Terminal = NewObject<DMaterialExpressionFunctionInput>(nullptr, NAME_None);
+				Terminal->Id = NodeId; Terminal->Port = std::move(Port);
+				SetNodeLayout(*Terminal, X, Y);
+				Candidate.Expressions.emplace_back(Terminal);
+			}
+			auto Result = CommitGraphEdit(*Function, Transactions,
+				bOutput ? "Add Function Output" : "Add Function Input", Candidate, nullptr, {}, std::move(Outputs));
+			if (!Result) return std::unexpected(std::move(Result));
+			return GetCreatedNode(NodeId);
+		});
 	}
 
 	auto DMaterialGraph::RemovePort(bool bOutput, const FGuid& PortId,
 		bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Transactions = *Admission;
-		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		auto* Function = Cast<DMaterialFunction>(Owner.Get());
-		if (!Function) return RejectCommand("Only function documents have an interface.");
-		auto Candidate = Function->GetExpressionCollection();
-		const auto Removed = std::erase_if(Candidate.Expressions, [&](const auto& Expression) {
-			if (bOutput)
-			{
-				const auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression.Get());
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+			auto* Function = Cast<DMaterialFunction>(Owner.Get());
+			if (!Function) return RejectCommand("Only function documents have an interface.");
+			auto Candidate = Function->GetExpressionCollection();
+			const auto Removed = std::erase_if(Candidate.Expressions, [&](const auto& Expression) {
+				if (bOutput)
+				{
+					const auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression.Get());
+					return Terminal && Terminal->Port.Id == PortId;
+				}
+				const auto* Terminal = Cast<DMaterialExpressionFunctionInput>(Expression.Get());
 				return Terminal && Terminal->Port.Id == PortId;
-			}
-			const auto* Terminal = Cast<DMaterialExpressionFunctionInput>(Expression.Get());
-			return Terminal && Terminal->Port.Id == PortId;
+			});
+			if (!Removed) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			return CommitGraphEdit(*Function, Transactions, "Remove Function Port", Candidate);
 		});
-		if (!Removed) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		return CommitGraphEdit(*Function, Transactions, "Remove Function Port", Candidate);
 	}
 
 	auto DMaterialGraph::CreateCatalogNode(const FMaterialGraphCatalogEntry& Entry, int32 X, int32 Y,
@@ -354,42 +352,40 @@ namespace Durin::MaterialEditor
 	auto DMaterialGraph::CreateExpression(const DMaterialExpression& Expression, int32 X, int32 Y,
 		bool bShouldTransact) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
-		auto* Transactions = *Admission;
-		if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
-		if (!GetSchema().CanCreateExpression(Expression)) return std::unexpected(RejectCommand("This expression is not supported by the graph."));
-		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner.Get())};
-		if (std::ranges::any_of(Candidate.Expressions, [&](const auto& Value) { return Value->Id == Expression.Id; }))
-			return std::unexpected(RejectCommand("The expression GUID already exists."));
-		const auto Duplicated = DuplicateObject(&Expression, nullptr, NAME_None);
-		if (!Duplicated) return std::unexpected(RejectCommand(ToString(Duplicated.error())));
-		auto* Copy = *Duplicated;
-		Candidate.Expressions.emplace_back(Copy);
-		if (!Copy->Id.IsValid()) Copy->Id = FGuid::NewGuid();
-		const auto Id = Copy->Id;
-		if (auto* Parameter = Cast<DMaterialExpressionParameter>(Copy))
-		{
-			if (const auto Error = ResolveParameterExpression(*Owner.Get(), Candidate.Expressions, *Parameter); !Error) return std::unexpected(Error);
-		}
-		SetNodeLayout(*Copy, X, Y);
-		auto Result = CommitGraphEdit(*Owner.Get(), Transactions, "Create Graph Expression", Candidate);
-		if (!Result) return std::unexpected(std::move(Result));
-		return GetCreatedNode(Id);
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> TMaterialGraphResult<DMaterialGraphNode*> {
+			if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
+			if (!GetSchema().CanCreateExpression(Expression)) return std::unexpected(RejectCommand("This expression is not supported by the graph."));
+			FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner.Get())};
+			if (std::ranges::any_of(Candidate.Expressions, [&](const auto& Value) { return Value->Id == Expression.Id; }))
+				return std::unexpected(RejectCommand("The expression GUID already exists."));
+			const auto Duplicated = DuplicateObject(&Expression, nullptr, NAME_None);
+			if (!Duplicated) return std::unexpected(RejectCommand(ToString(Duplicated.error())));
+			auto* Copy = *Duplicated;
+			Candidate.Expressions.emplace_back(Copy);
+			if (!Copy->Id.IsValid()) Copy->Id = FGuid::NewGuid();
+			const auto Id = Copy->Id;
+			if (auto* Parameter = Cast<DMaterialExpressionParameter>(Copy))
+			{
+				if (const auto Error = ResolveParameterExpression(*Owner.Get(), Candidate.Expressions, *Parameter); !Error) return std::unexpected(Error);
+			}
+			SetNodeLayout(*Copy, X, Y);
+			auto Result = CommitGraphEdit(*Owner.Get(), Transactions, "Create Graph Expression", Candidate);
+			if (!Result) return std::unexpected(std::move(Result));
+			return GetCreatedNode(Id);
+		});
 	}
 
 	auto DMaterialGraph::ReplaceExpression(const DMaterialExpression& Expression,
 		bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Transactions = *Admission;
-		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		if (!GetSchema().CanCreateExpression(Expression)) return RejectCommand("This expression is not supported by the graph.");
-		const auto Duplicated = DuplicateObject(&Expression, nullptr, NAME_None);
-		if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
-		TStrongObjectPtr<DMaterialExpression> Replacement(Duplicated.value());
-		return CommitExpressionReplacement(*Owner.Get(), *Replacement, Transactions);
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+			if (!GetSchema().CanCreateExpression(Expression)) return RejectCommand("This expression is not supported by the graph.");
+			const auto Duplicated = DuplicateObject(&Expression, nullptr, NAME_None);
+			if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
+			TStrongObjectPtr<DMaterialExpression> Replacement(Duplicated.value());
+			return CommitExpressionReplacement(*Owner.Get(), *Replacement, Transactions);
+		});
 	}
 
 	auto DMaterialGraph::InsertFunctionCall(DMaterialFunctionInterface& Function,
@@ -402,48 +398,47 @@ namespace Durin::MaterialEditor
 		int32 X, int32 Y, std::span<const FMaterialFunctionInputBinding> Inputs,
 		bool bShouldTransact) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
-		auto* Transactions = *Admission;
-		if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
-		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner.Get())};
-		std::vector<FMaterialFunctionOwnerStamp> Closure;
-		const std::array<DMaterialFunctionInterface*, 1> Roots{&Function};
-		auto Validation = ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing);
-		if (!Validation) return std::unexpected(RejectCommand("The selected function dependency is invalid.", std::move(Validation.Diagnostics)));
-		if (std::ranges::any_of(Closure, [&](const auto& Dependency) { return Dependency.AssetPath == Owner.Get()->GetObjectPath(); }))
-			return std::unexpected(RejectCommand("This call would introduce recursive function dependencies."));
-		const FGuid Id = FGuid::NewGuid();
-		TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
-		Call->Id = Id;
-		if (!Call->SetMaterialFunction(&Function)) return std::unexpected(RejectCommand("The selected function is unavailable."));
-		std::unordered_set<FGuid> BoundInputs;
-		FProposedCallOutputs Outputs;
-		for (const auto& Input : Inputs)
-		{
-			auto* Source = FindMaterialExpression(FMaterialExpressionEditing::GetExpressions(*Owner.Get()), Input.Source.SourceNodeId);
-			if (Input.Source.SourceNodeId.IsValid() && !Source) return std::unexpected(RejectCommand("The source expression no longer exists."));
-			FMaterialExpressionFunctionInputBinding Binding{Input.InputId, Input.ExpectedType,
-				ResolveGraphOutput(Source, Input.Source.SourceOutputIndex, Input.Source.SourceOutputId, Outputs)};
-			if (Input.Default.Kind != EMaterialInputDefaultKind::None)
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> TMaterialGraphResult<DMaterialGraphNode*> {
+			if (!Owner.IsValid()) return std::unexpected(RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner));
+			FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner.Get())};
+			std::vector<FMaterialFunctionOwnerStamp> Closure;
+			const std::array<DMaterialFunctionInterface*, 1> Roots{&Function};
+			auto Validation = ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing);
+			if (!Validation) return std::unexpected(RejectCommand("The selected function dependency is invalid.", std::move(Validation.Diagnostics)));
+			if (std::ranges::any_of(Closure, [&](const auto& Dependency) { return Dependency.AssetPath == Owner.Get()->GetObjectPath(); }))
+				return std::unexpected(RejectCommand("This call would introduce recursive function dependencies."));
+			const FGuid Id = FGuid::NewGuid();
+			TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+			Call->Id = Id;
+			if (!Call->SetMaterialFunction(&Function)) return std::unexpected(RejectCommand("The selected function is unavailable."));
+			std::unordered_set<FGuid> BoundInputs;
+			FProposedCallOutputs Outputs;
+			for (const auto& Input : Inputs)
 			{
-				const auto Count = static_cast<size_t>(Input.Default.Type) + 1;
-				const std::array Values{Input.Default.Literal.X, Input.Default.Literal.Y, Input.Default.Literal.Z, Input.Default.Literal.W};
-				if (Count > Values.size()) return std::unexpected(RejectCommand("The function input default has an invalid numeric width."));
-				Binding.InputDefault.assign(Values.begin(), Values.begin() + Count);
+				auto* Source = FindMaterialExpression(FMaterialExpressionEditing::GetExpressions(*Owner.Get()), Input.Source.SourceNodeId);
+				if (Input.Source.SourceNodeId.IsValid() && !Source) return std::unexpected(RejectCommand("The source expression no longer exists."));
+				FMaterialExpressionFunctionInputBinding Binding{Input.InputId, Input.ExpectedType,
+					ResolveGraphOutput(Source, Input.Source.SourceOutputIndex, Input.Source.SourceOutputId, Outputs)};
+				if (Input.Default.Kind != EMaterialInputDefaultKind::None)
+				{
+					const auto Count = static_cast<size_t>(Input.Default.Type) + 1;
+					const std::array Values{Input.Default.Literal.X, Input.Default.Literal.Y, Input.Default.Literal.Z, Input.Default.Literal.W};
+					if (Count > Values.size()) return std::unexpected(RejectCommand("The function input default has an invalid numeric width."));
+					Binding.InputDefault.assign(Values.begin(), Values.begin() + Count);
+				}
+				const auto Slot = std::ranges::find(Call->FunctionInputs, Input.InputId, &FMaterialExpressionFunctionInputBinding::InputId);
+				if (Slot == Call->FunctionInputs.end() || !BoundInputs.insert(Input.InputId).second)
+					return std::unexpected(RejectCommand("The function input is missing or bound more than once."));
+				*Slot = std::move(Binding);
 			}
-			const auto Slot = std::ranges::find(Call->FunctionInputs, Input.InputId, &FMaterialExpressionFunctionInputBinding::InputId);
-			if (Slot == Call->FunctionInputs.end() || !BoundInputs.insert(Input.InputId).second)
-				return std::unexpected(RejectCommand("The function input is missing or bound more than once."));
-			*Slot = std::move(Binding);
-		}
-		Validation = ValidateMaterialFunctionCallSignature(*Call.Get(), Function.GetFunctionSignature(), EMaterialFunctionValidationMode::Editing);
-		if (!Validation) return std::unexpected(RejectCommand("The function call bindings are invalid.", std::move(Validation.Diagnostics)));
-		Candidate.Expressions.emplace_back(Call.Get());
-		SetNodeLayout(*Call, X, Y);
-		auto Result = CommitGraphEdit(*Owner.Get(), Transactions, "Insert Function Call", Candidate, nullptr, {}, std::move(Outputs));
-		if (!Result) return std::unexpected(std::move(Result));
-		return GetCreatedNode(Id);
+			Validation = ValidateMaterialFunctionCallSignature(*Call.Get(), Function.GetFunctionSignature(), EMaterialFunctionValidationMode::Editing);
+			if (!Validation) return std::unexpected(RejectCommand("The function call bindings are invalid.", std::move(Validation.Diagnostics)));
+			Candidate.Expressions.emplace_back(Call.Get());
+			SetNodeLayout(*Call, X, Y);
+			auto Result = CommitGraphEdit(*Owner.Get(), Transactions, "Insert Function Call", Candidate, nullptr, {}, std::move(Outputs));
+			if (!Result) return std::unexpected(std::move(Result));
+			return GetCreatedNode(Id);
+		});
 	}
 
 }

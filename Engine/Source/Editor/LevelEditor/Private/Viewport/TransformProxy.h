@@ -1,9 +1,10 @@
 #pragma once
 
 #include "DObject/ObjectPtr.h"
+#include "DObject/ObjectKey.h"
 #include "Viewport/TransformGizmoTypes.h"
 
-namespace Durin { class FCommandChange; }
+namespace Durin { class DTransactor; }
 
 namespace Durin::LevelEditor
 {
@@ -20,13 +21,14 @@ namespace Durin::LevelEditor
 		auto CapturePreviewValues() -> bool;
 		auto Restore() -> bool;
 		auto MarkPackagesDirty() const -> void;
-		auto CreateChange(std::string_view Action, uint64 HistoryId) const -> std::unique_ptr<FCommandChange>;
+		auto RecordChanges(DTransactor& Transactions, std::string_view Action) -> bool;
 
 	private:
 		struct FTargetSnapshot
 		{
 			std::shared_ptr<ITransformGizmoTarget> Target;
 			const void* Identity = nullptr;
+			FObjectKey Owner;
 			FTransform Initial;
 			FTransform Preview;
 			TObjectPtr<DPackage> Package;

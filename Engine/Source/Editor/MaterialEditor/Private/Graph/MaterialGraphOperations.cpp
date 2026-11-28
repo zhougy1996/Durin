@@ -142,179 +142,174 @@ namespace Durin::MaterialEditor
 	auto MaterialEditing::CreateParameter(DMaterial& Material, FMaterialParameterDefinition Definition, bool bShouldTransact)
 		-> TMaterialGraphResult<DMaterialExpression*>
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
-		auto* Transactions = *Admission;
-		if (!Definition.Id.IsValid()) Definition.Id = FGuid::NewGuid();
-		auto Candidate = Material.GetExpressionCollection();
-		auto Created = MakeParameterExpression(Definition);
-		if (!Created) return std::unexpected(RejectCommand(std::move(Created.Message)));
-		auto Parameter = std::move(Created.Expression);
-		if (const auto Error = ResolveParameterExpression(Material, Candidate.Expressions, *Parameter); !Error) return std::unexpected(Error);
-		SetNodeLayout(*Parameter, 0, 0);
-		Candidate.Expressions.emplace_back(Parameter.Get());
-		auto Result = CommitGraphEdit(Material, Transactions, "Create Parameter", Candidate);
-		if (!Result) return std::unexpected(std::move(Result));
-		return Parameter.Get();
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> TMaterialGraphResult<DMaterialExpression*> {
+			if (!Definition.Id.IsValid()) Definition.Id = FGuid::NewGuid();
+			auto Candidate = Material.GetExpressionCollection();
+			auto Created = MakeParameterExpression(Definition);
+			if (!Created) return std::unexpected(RejectCommand(std::move(Created.Message)));
+			auto Parameter = std::move(Created.Expression);
+			if (const auto Error = ResolveParameterExpression(Material, Candidate.Expressions, *Parameter); !Error) return std::unexpected(Error);
+			SetNodeLayout(*Parameter, 0, 0);
+			Candidate.Expressions.emplace_back(Parameter.Get());
+			auto Result = CommitGraphEdit(Material, Transactions, "Create Parameter", Candidate);
+			if (!Result) return std::unexpected(std::move(Result));
+			return Parameter.Get();
+		});
 	}
 
 	auto MaterialEditing::RenameParameter(DMaterial& Material, const FGuid& ParameterId, FName Name, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Transactions = *Admission;
-		auto Candidate = Material.GetExpressionCollection();
-		DMaterialExpressionParameter* Parameter = nullptr;
-		for (const auto& Expression : Candidate.Expressions)
-			if (auto* E = Cast<DMaterialExpressionParameter>(Expression.Get()); E && E->Metadata.Id == ParameterId) { Parameter = E; break; }
-		if (!Parameter) return RejectCommand("Parameter owner is unavailable.");
-		if (Parameter->Metadata.Name == Name && Parameter->Metadata.DisplayName == Name.ToString())
-			return {.Status = EMaterialGraphCommandStatus::NoChange};
-		auto Definition = Parameter->GetParameterDefinition();
-		Definition.Name = Name;
-		Definition.DisplayName = Name.ToString();
-		if (auto Valid = ValidateProposedGraph(Material, Candidate, {}, nullptr, &Definition); !Valid) return Valid;
-		std::vector<DMaterialExpression*> Peers;
-		for (const auto& Expression : Candidate.Expressions)
-			if (auto* Peer = Cast<DMaterialExpressionParameter>(Expression.Get()); Peer && Peer->Metadata.Id == ParameterId)
-				Peers.push_back(Peer);
-		return EditExpressions(Material, Transactions, "Rename Parameter", Peers, [&] {
-			for (auto* Peer : Peers)
-			{
-				auto& Metadata = Cast<DMaterialExpressionParameter>(Peer)->Metadata;
-				Metadata.Name = Definition.Name;
-				Metadata.DisplayName = Definition.DisplayName;
-			}
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			auto Candidate = Material.GetExpressionCollection();
+			DMaterialExpressionParameter* Parameter = nullptr;
+			for (const auto& Expression : Candidate.Expressions)
+				if (auto* E = Cast<DMaterialExpressionParameter>(Expression.Get()); E && E->Metadata.Id == ParameterId) { Parameter = E; break; }
+			if (!Parameter) return RejectCommand("Parameter owner is unavailable.");
+			if (Parameter->Metadata.Name == Name && Parameter->Metadata.DisplayName == Name.ToString())
+				return {.Status = EMaterialGraphCommandStatus::NoChange};
+			auto Definition = Parameter->GetParameterDefinition();
+			Definition.Name = Name;
+			Definition.DisplayName = Name.ToString();
+			if (auto Valid = ValidateProposedGraph(Material, Candidate, {}, nullptr, &Definition); !Valid) return Valid;
+			std::vector<DMaterialExpression*> Peers;
+			for (const auto& Expression : Candidate.Expressions)
+				if (auto* Peer = Cast<DMaterialExpressionParameter>(Expression.Get()); Peer && Peer->Metadata.Id == ParameterId)
+					Peers.push_back(Peer);
+			return EditExpressions(Material, Transactions, "Rename Parameter", Peers, [&] {
+				for (auto* Peer : Peers)
+				{
+					auto& Metadata = Cast<DMaterialExpressionParameter>(Peer)->Metadata;
+					Metadata.Name = Definition.Name;
+					Metadata.DisplayName = Definition.DisplayName;
+				}
+			});
 		});
 	}
 
 	auto MaterialEditing::DeleteParameter(DMaterial& Material, const FGuid& ParameterId, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		std::vector<FGuid> Nodes;
-		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
-			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == ParameterId)
-				Nodes.push_back(Parameter->Id);
-		if (Nodes.empty()) return RejectCommand("Parameter owner is unavailable.");
-		return GraphEditInternals::RemoveGraphNodes(&Material, Nodes, bShouldTransact);
+		return WithGraphRecording(bShouldTransact, [&](DTransactor*) -> FMaterialGraphCommandResult {
+			std::vector<FGuid> Nodes;
+			for (const auto& Expression : Material.GetExpressionCollection().Expressions)
+				if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == ParameterId)
+					Nodes.push_back(Parameter->Id);
+			if (Nodes.empty()) return RejectCommand("Parameter owner is unavailable.");
+			return GraphEditInternals::RemoveGraphNodes(&Material, Nodes, bShouldTransact);
+		});
 	}
 
 	auto MaterialEditing::PromoteConstantToParameter(DMaterial& Material, const FGuid& NodeId, FName Name, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Transactions = *Admission;
-		auto Candidate = Material.GetExpressionCollection();
-		const auto It = std::ranges::find(Candidate.Expressions, NodeId, [](const auto& E) { return E->Id; });
-		if (It == Candidate.Expressions.end()) return RejectCommand("Only a numeric constant can be promoted to a parameter.");
-		FMaterialParameterDefinition Definition;
-		Definition.Id = FGuid::NewGuid(); Definition.Name = Name; Definition.DisplayName = Name.ToString();
-		if (const auto* E = Cast<DMaterialExpressionScalarConstant>(It->Get())) Definition.Value = FMaterialParameterValue::MakeScalar(E->Value);
-		else if (const auto* E = Cast<DMaterialExpressionVector2Constant>(It->Get())) Definition.Value = FMaterialParameterValue::MakeVector2(E->Value);
-		else if (const auto* E = Cast<DMaterialExpressionVector3Constant>(It->Get())) Definition.Value = FMaterialParameterValue::MakeVector(E->Value);
-		else if (const auto* E = Cast<DMaterialExpressionVector4Constant>(It->Get())) Definition.Value = FMaterialParameterValue::MakeVector4(E->Value);
-		else return RejectCommand("Only a numeric constant can be promoted to a parameter.");
-		Definition.Type = Definition.Value.GetType();
-		auto Created = MakeParameterExpression(Definition);
-		if (!Created) return RejectCommand(std::move(Created.Message));
-		auto Parameter = std::move(Created.Expression);
-		const auto Width = GetProgramType(Definition.Type);
-		const bool bMask = Width == EMaterialProgramValueType::Float2 || Width == EMaterialProgramValueType::Float3;
-		if (!bMask) Parameter->Id = NodeId;
-		if (const auto Error = ResolveParameterExpression(Material, Candidate.Expressions, *Parameter); !Error) return Error;
-		Definition = Parameter->GetParameterDefinition();
-		auto Root = Material.CaptureRootInputs();
-		FProposedLinks Links;
-		TStrongObjectPtr<DMaterialExpression> Mask;
-		auto* Previous = It->Get();
-		auto* Replacement = static_cast<DMaterialExpression*>(Parameter.Get());
-		if (bMask)
-		{
-			Mask = MakeParameterMask(*Parameter.Get(), Width, NodeId);
-			Replacement = Mask.Get();
-		}
-		PrepareExpressionReplacement(Candidate, &Root, Links, *Previous, *Replacement);
-		const auto Layout = Replacement->EditorLayout;
-		SetNodeLayout(*Replacement, Layout.X, Layout.Y, Definition.DisplayName);
-		if (bMask)
-		{
-			SetNodeLayout(*Parameter, Layout.X - 260, Layout.Y);
-			Candidate.Expressions.emplace_back(Parameter.Get());
-		}
-		return CommitGraphEdit(Material, Transactions, "Promote Constant Parameter", Candidate, &Root, std::move(Links));
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			auto Candidate = Material.GetExpressionCollection();
+			const auto It = std::ranges::find(Candidate.Expressions, NodeId, [](const auto& E) { return E->Id; });
+			if (It == Candidate.Expressions.end()) return RejectCommand("Only a numeric constant can be promoted to a parameter.");
+			FMaterialParameterDefinition Definition;
+			Definition.Id = FGuid::NewGuid(); Definition.Name = Name; Definition.DisplayName = Name.ToString();
+			if (const auto* E = Cast<DMaterialExpressionScalarConstant>(It->Get())) Definition.Value = FMaterialParameterValue::MakeScalar(E->Value);
+			else if (const auto* E = Cast<DMaterialExpressionVector2Constant>(It->Get())) Definition.Value = FMaterialParameterValue::MakeVector2(E->Value);
+			else if (const auto* E = Cast<DMaterialExpressionVector3Constant>(It->Get())) Definition.Value = FMaterialParameterValue::MakeVector(E->Value);
+			else if (const auto* E = Cast<DMaterialExpressionVector4Constant>(It->Get())) Definition.Value = FMaterialParameterValue::MakeVector4(E->Value);
+			else return RejectCommand("Only a numeric constant can be promoted to a parameter.");
+			Definition.Type = Definition.Value.GetType();
+			auto Created = MakeParameterExpression(Definition);
+			if (!Created) return RejectCommand(std::move(Created.Message));
+			auto Parameter = std::move(Created.Expression);
+			const auto Width = GetProgramType(Definition.Type);
+			const bool bMask = Width == EMaterialProgramValueType::Float2 || Width == EMaterialProgramValueType::Float3;
+			if (!bMask) Parameter->Id = NodeId;
+			if (const auto Error = ResolveParameterExpression(Material, Candidate.Expressions, *Parameter); !Error) return Error;
+			Definition = Parameter->GetParameterDefinition();
+			auto Root = Material.CaptureRootInputs();
+			FProposedLinks Links;
+			TStrongObjectPtr<DMaterialExpression> Mask;
+			auto* Previous = It->Get();
+			auto* Replacement = static_cast<DMaterialExpression*>(Parameter.Get());
+			if (bMask)
+			{
+				Mask = MakeParameterMask(*Parameter.Get(), Width, NodeId);
+				Replacement = Mask.Get();
+			}
+			PrepareExpressionReplacement(Candidate, &Root, Links, *Previous, *Replacement);
+			const auto Layout = Replacement->EditorLayout;
+			SetNodeLayout(*Replacement, Layout.X, Layout.Y, Definition.DisplayName);
+			if (bMask)
+			{
+				SetNodeLayout(*Parameter, Layout.X - 260, Layout.Y);
+				Candidate.Expressions.emplace_back(Parameter.Get());
+			}
+			return CommitGraphEdit(Material, Transactions, "Promote Constant Parameter", Candidate, &Root, std::move(Links));
+		});
 	}
 
 	auto MaterialEditing::PromoteSurfaceOutputToParameter(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, bool bShouldTransact)
 		-> TMaterialGraphResult<DMaterialExpression*>
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
-		auto* Transactions = *Admission;
-		auto Candidate = Material.GetExpressionCollection();
-		if (!CanPromoteSurfaceOutput(Material, Request.Output))
-			return std::unexpected(RejectCommand("This root input cannot be promoted to a numeric parameter."));
-		auto Root = Material.CaptureRootInputs();
-		auto* Link = Root.GetExpressionInputForProperty(Request.Output);
-		FMaterialParameterDefinition Definition;
-		Definition.Id = FGuid::NewGuid(); Definition.Name = "SurfaceParameter";
-		for (uint32 Suffix = 1; Material.FindParameterDefinition(Definition.Name); ++Suffix)
-			Definition.Name = FName(std::format("SurfaceParameter{}", Suffix));
-		Definition.DisplayName = Definition.Name.ToString();
-		const auto Type = GetMaterialSurfaceOutputType(Request.Output);
-		Definition.Type = *GetParameterType(Type);
-		const auto Components = ReadMaterialNumericDefault(*Material.GetNumericInputForProperty(Request.Output), Request.Output);
-		const FMaterialProgramLiteral Literal{Components[0], Components.size() > 1 ? Components[1] : 0.f,
-			Components.size() > 2 ? Components[2] : 0.f};
-		Definition.Value = MakeParameterValue(Type, Literal);
-		auto Created = MakeParameterExpression(Definition);
-		if (!Created) return std::unexpected(RejectCommand(std::move(Created.Message)));
-		auto Parameter = std::move(Created.Expression);
-		*Link = {Parameter.Get()};
-		SetNodeLayout(*Parameter, Request.X, Request.Y);
-		Candidate.Expressions.emplace_back(Parameter.Get());
-		if (Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3)
-		{
-			auto Mask = MakeParameterMask(*Parameter.Get(), Type);
-			*Link = {Mask.Get()};
-			SetNodeLayout(*Mask, Request.X + 260, Request.Y);
-			Candidate.Expressions.emplace_back(Mask.Get());
-		}
-		auto Result = CommitGraphEdit(Material, Transactions, "Promote Surface Parameter", Candidate, &Root);
-		if (!Result) return std::unexpected(std::move(Result));
-		return Parameter.Get();
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> TMaterialGraphResult<DMaterialExpression*> {
+			auto Candidate = Material.GetExpressionCollection();
+			if (!CanPromoteSurfaceOutput(Material, Request.Output))
+				return std::unexpected(RejectCommand("This root input cannot be promoted to a numeric parameter."));
+			auto Root = Material.CaptureRootInputs();
+			auto* Link = Root.GetExpressionInputForProperty(Request.Output);
+			FMaterialParameterDefinition Definition;
+			Definition.Id = FGuid::NewGuid(); Definition.Name = "SurfaceParameter";
+			for (uint32 Suffix = 1; Material.FindParameterDefinition(Definition.Name); ++Suffix)
+				Definition.Name = FName(std::format("SurfaceParameter{}", Suffix));
+			Definition.DisplayName = Definition.Name.ToString();
+			const auto Type = GetMaterialSurfaceOutputType(Request.Output);
+			Definition.Type = *GetParameterType(Type);
+			const auto Components = ReadMaterialNumericDefault(*Material.GetNumericInputForProperty(Request.Output), Request.Output);
+			const FMaterialProgramLiteral Literal{Components[0], Components.size() > 1 ? Components[1] : 0.f,
+				Components.size() > 2 ? Components[2] : 0.f};
+			Definition.Value = MakeParameterValue(Type, Literal);
+			auto Created = MakeParameterExpression(Definition);
+			if (!Created) return std::unexpected(RejectCommand(std::move(Created.Message)));
+			auto Parameter = std::move(Created.Expression);
+			*Link = {Parameter.Get()};
+			SetNodeLayout(*Parameter, Request.X, Request.Y);
+			Candidate.Expressions.emplace_back(Parameter.Get());
+			if (Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3)
+			{
+				auto Mask = MakeParameterMask(*Parameter.Get(), Type);
+				*Link = {Mask.Get()};
+				SetNodeLayout(*Mask, Request.X + 260, Request.Y);
+				Candidate.Expressions.emplace_back(Mask.Get());
+			}
+			auto Result = CommitGraphEdit(Material, Transactions, "Promote Surface Parameter", Candidate, &Root);
+			if (!Result) return std::unexpected(std::move(Result));
+			return Parameter.Get();
+		});
 	}
 
 	auto MaterialEditing::AddTextureToSurfaceOutput(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, bool bShouldTransact)
 		-> TMaterialGraphResult<DMaterialExpression*>
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
-		auto* Transactions = *Admission;
-		auto Candidate = Material.GetExpressionCollection();
-		const auto Channel = SurfaceTextureOutput(Material, Request.Output);
-		if (!Channel) return std::unexpected(RejectCommand("This root input cannot use a compact texture sample."));
-		auto Root = Material.CaptureRootInputs();
-		auto* Link = Root.GetExpressionInputForProperty(Request.Output);
-		TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Texture(NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
-		Texture->Id = FGuid::NewGuid();
-		Texture->Metadata.Id = FGuid::NewGuid(); Texture->Metadata.Name = "TextureParameter";
-		for (uint32 Suffix = 1; Material.FindParameterDefinition(Texture->Metadata.Name); ++Suffix)
-			Texture->Metadata.Name = FName(std::format("TextureParameter{}", Suffix));
-		Texture->Metadata.DisplayName = Texture->Metadata.Name.ToString();
-		if (Request.Output == EMaterialProperty::MP_Normal)
-		{
-			Texture->TextureUsage = ETextureUsage::Normal;
-			Texture->DefaultValue.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
-		}
-		*Link = {Texture.Get(), static_cast<int32>(*Channel)};
-		SetNodeLayout(*Texture, Request.X, Request.Y, Texture->Metadata.DisplayName);
-		Candidate.Expressions.emplace_back(Texture.Get());
-		auto Result = CommitGraphEdit(Material, Transactions, "Add Material Surface Texture", Candidate, &Root);
-		if (!Result) return std::unexpected(std::move(Result));
-		return Texture.Get();
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> TMaterialGraphResult<DMaterialExpression*> {
+			auto Candidate = Material.GetExpressionCollection();
+			const auto Channel = SurfaceTextureOutput(Material, Request.Output);
+			if (!Channel) return std::unexpected(RejectCommand("This root input cannot use a compact texture sample."));
+			auto Root = Material.CaptureRootInputs();
+			auto* Link = Root.GetExpressionInputForProperty(Request.Output);
+			TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Texture(NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
+			Texture->Id = FGuid::NewGuid();
+			Texture->Metadata.Id = FGuid::NewGuid(); Texture->Metadata.Name = "TextureParameter";
+			for (uint32 Suffix = 1; Material.FindParameterDefinition(Texture->Metadata.Name); ++Suffix)
+				Texture->Metadata.Name = FName(std::format("TextureParameter{}", Suffix));
+			Texture->Metadata.DisplayName = Texture->Metadata.Name.ToString();
+			if (Request.Output == EMaterialProperty::MP_Normal)
+			{
+				Texture->TextureUsage = ETextureUsage::Normal;
+				Texture->DefaultValue.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
+			}
+			*Link = {Texture.Get(), static_cast<int32>(*Channel)};
+			SetNodeLayout(*Texture, Request.X, Request.Y, Texture->Metadata.DisplayName);
+			Candidate.Expressions.emplace_back(Texture.Get());
+			auto Result = CommitGraphEdit(Material, Transactions, "Add Material Surface Texture", Candidate, &Root);
+			if (!Result) return std::unexpected(std::move(Result));
+			return Texture.Get();
+		});
 	}
 }

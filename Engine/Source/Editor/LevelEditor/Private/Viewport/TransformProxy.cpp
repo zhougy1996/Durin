@@ -5,7 +5,7 @@
 #include "DObject/Package.h"
 #include "Math/Operations.h"
 #include "Math/TransformDecomposition.h"
-#include "Misc/Transaction.h"
+#include "Transactions/Transactor.h"
 
 namespace Durin::LevelEditor
 {
@@ -24,7 +24,7 @@ namespace Durin::LevelEditor
 			try { return Target.SetTransform(Value); }
 			catch (...) { return false; }
 		}
-		// Restores before/after transforms for every target changed by one gizmo drag.
+		// Restores before/after transforms for the changed elements of one data owner.
 		class FTransformProxyChange final : public FCommandChange
 		{
 		public:
@@ -49,22 +49,11 @@ namespace Durin::LevelEditor
 					Description = std::format("{} {} {}", Action, Entries.size(), CollectionLabel);
 			}
 			auto GetDescription() const -> std::string_view override { return Description; }
-			auto GetModifiedObjects() const -> std::vector<DObject*> override
-			{
-				std::vector<DObject*> Objects;
-				for (const auto& Entry : Entries)
-					if (Entry.Target)
-					{
-						auto Participants = Entry.Target->GetModifiedObjects();
-						Objects.insert(Objects.end(), Participants.begin(), Participants.end());
-					}
-				return Objects;
-			}
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Apply() -> void override { SetTransforms(true); }
-			auto Revert() -> void override { SetTransforms(false); }
+			auto Apply(DObject* Owner) -> void override { SetTransforms(Owner, true); }
+			auto Revert(DObject* Owner) -> void override { SetTransforms(Owner, false); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) -> void override
 			{
 				for (const FEntry& Entry : Entries)
@@ -126,19 +115,19 @@ namespace Durin::LevelEditor
 				return Result;
 			}
 
-			auto HasExpired() const noexcept -> bool override
+			auto HasExpired(const DObject* Owner) const noexcept -> bool override
 			{
-				return std::ranges::any_of(Entries, [](const auto& Entry) {
-					return !Entry.Target || Entry.Target->IsHistoryInvalidated() || !Entry.Target->IsValid();
+				return !Owner || std::ranges::any_of(Entries, [&](const auto& Entry) {
+					return !Entry.Target || Entry.Target->GetDataOwner() != Owner || Entry.Target->IsHistoryInvalidated() || !Entry.Target->IsValid();
 				});
 			}
 
-			auto SetTransforms(bool bAfter) -> void
+			auto SetTransforms(DObject* Owner, bool bAfter) -> void
 			{
 				for (size_t Index = 0; Index < Entries.size(); ++Index)
 				{
 					const auto& Target = Entries[Index].Target;
-					if (!Target || Target->IsHistoryInvalidated() || !Target->IsValid())
+					if (!Target || Target->GetDataOwner() != Owner || Target->IsHistoryInvalidated() || !Target->IsValid())
 						throw std::runtime_error(FormatActorChangeError({.Code = EActorChangeError::TargetUnavailable, .MemberIndex = Index}));
 				}
 				size_t FailedIndex = Entries.size();
@@ -170,7 +159,7 @@ namespace Durin::LevelEditor
 			if (Target && Target->IsValid())
 			{
 				const auto Initial = Target->GetTransform();
-				Snapshots.push_back({Target, Target->GetIdentity(), Initial, Initial, Target->GetPackage()});
+				Snapshots.push_back({Target, Target->GetIdentity(), FObjectKey(Target->GetDataOwner()), Initial, Initial, Target->GetPackage()});
 				if (DPackage* Package = Target->GetPackage(); Package && !std::ranges::contains(Packages, Package, &TObjectPtr<DPackage>::Get))
 					Packages.emplace_back(Package);
 			}
@@ -229,6 +218,7 @@ namespace Durin::LevelEditor
 		for (auto& Snapshot : Snapshots)
 		{
 			if (!Snapshot.bOwnsPreview || !Snapshot.Target || !Snapshot.Target->IsValid()
+				|| FObjectKey(Snapshot.Target->GetDataOwner()) != Snapshot.Owner
 				|| !SameTransform(Snapshot.Target->GetTransform(), Snapshot.Preview))
 			{
 				Snapshot.bOwnsPreview = false;
@@ -269,14 +259,56 @@ namespace Durin::LevelEditor
 	}
 
 
-	auto FTransformProxy::CreateChange(std::string_view Action, uint64 HistoryId) const -> std::unique_ptr<FCommandChange>
+	auto FTransformProxy::RecordChanges(DTransactor& Transactions, std::string_view Action) -> bool try
 	{
-		std::vector<FTransformProxyChange::FEntry> Entries;
+		struct FOwnerChange
+		{
+			TStrongObjectPtr<DObject> Owner;
+			std::vector<FTransformProxyChange::FEntry> Entries;
+		};
+		std::vector<FOwnerChange> Groups;
+		std::unordered_map<DObject*, size_t> OwnerIndices;
 		for (const auto& Snapshot : Snapshots)
 		{
-			auto Target = Snapshot.Target->CreateHistoryTarget(HistoryId);
-			Entries.push_back({Target ? std::move(Target) : Snapshot.Target, Snapshot.Initial, Snapshot.Preview});
+			if (SameTransform(Snapshot.Initial, Snapshot.Preview)) continue;
+			auto Target = Snapshot.Target->CreateHistoryTarget(Transactions.GetHistoryId());
+			if (!Target) Target = Snapshot.Target;
+			auto* Owner = Target->GetDataOwner();
+			if (!IsValid(Owner) || FObjectKey(Owner) != Snapshot.Owner) return false;
+			const auto [It, Added] = OwnerIndices.try_emplace(Owner, Groups.size());
+			if (Added) Groups.push_back({TStrongObjectPtr<DObject>(Owner), {}});
+			Groups[It->second].Entries.push_back({std::move(Target), Snapshot.Initial, Snapshot.Preview});
 		}
-		return std::make_unique<FTransformProxyChange>(Action, CollectionLabel, std::move(Entries));
+		if (Groups.empty()) return false;
+		const auto Description = Snapshots.size() == 1 ? std::format("{} '{}'", Action, Snapshots.front().Target->GetLabel())
+			: std::format("{} {} {}", Action, Snapshots.size(), CollectionLabel);
+		if (GUndo || ResolveEditorTransactor(true).value_or(nullptr) != &Transactions || !CheckPreviewOwnership()) return false;
+		FScopedTransaction Recording("TransformGizmo", Description, nullptr);
+		if (!Recording.IsOutstanding()) return false;
+		try
+		{
+			if (CheckPreviewOwnership())
+			{
+				for (auto& Group : Groups)
+				{
+					auto Change = std::make_unique<FTransformProxyChange>(Action, CollectionLabel, std::move(Group.Entries));
+					if (!IsValid(Group.Owner.Get()) || !Transactions.StoreUndo(Group.Owner.Get(), std::move(Change)))
+					{
+						Recording.Cancel();
+						return false;
+					}
+				}
+				return true;
+			}
+		}
+		catch (...)
+		{
+			Recording.Cancel();
+			throw;
+		}
+		Recording.Cancel();
+		return false;
 	}
+	catch (const std::exception& Error) { DURIN_WARN("Transform recording failed: {}", Error.what()); return false; }
+	catch (...) { DURIN_WARN("Transform recording failed."); return false; }
 }

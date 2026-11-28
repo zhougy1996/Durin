@@ -16,14 +16,16 @@ The editor owns the active recorder and application history, as described in
 [Transactors](../../Editor/Architecture/Transactions/Transactors.md).
 
 `Misc/Transaction.h` owns `FCommandChange`,
-transaction context and operation identity allocation. The public `ITransaction::Apply()` runs a complete replay and returns void. Undo calls `Revert()` and Redo calls `Apply()`. Both return void and use targets held by the command. An execution fault terminates replay with the transaction and record diagnostic.
+transaction context and operation identity allocation. The public `ITransaction::Apply()` runs a complete replay and returns void. Undo calls `Revert(Target)` and Redo calls `Apply(Target)` with the target resolved by the record. An execution fault terminates replay with the transaction and record diagnostic.
 Object listeners receive `ETransactionObjectEventType::UndoRedo` for both directions.
 A custom change implements HasExpired when its target or dependencies can
 become unavailable. A command reporting expiry makes the entire history entry ineligible for that replay.
-A custom change declares modified objects separately through
-`GetModifiedObjects()`. Its collector traversal describes retained dependencies;
-that traversal alone never means a dependency was edited. A command may declare
-no modified objects when it edits non-object native domain state.
+Both recording interfaces require a live `DObject* Target` and reject null
+before appending a command. `Apply` and `Revert` receive a validated pointer.
+`HasExpired` can receive null when the recorded generation is unavailable.
+Each custom record binds one explicit data owner. Collector traversal declares
+additional lifetime dependencies. An edit spanning several owners can append
+one command per owner within the same transaction.
 
 `FTransactionContext` owns context/description strings. Its primary-object pointer
 is borrowed and must not outlive the retaining transaction or be dereferenced
@@ -206,21 +208,18 @@ root or attachment. This refresh never mutates the original snapshot.
 
 ## Participant Ownership
 
-Editor recording freezes each command's explicit modified participants as exact
-references, deduplicates them and retains them through GC. ContainsObject,
-object summaries, replay hooks and affected-package enumeration use those
-participants. Additional collector dependencies remain lifetime dependencies;
-they receive no completion hooks merely because the command retains them.
-Expired participants fail validation before replay mutates any other participant.
+Editor recording retains each command's explicit target by exact generation.
+Membership, object summaries, replay hooks and the package checkpoint use this target.
+Additional collector dependencies receive no completion hooks merely because the
+command retains them. An unavailable target fails validation before writes.
 Logical default-graph resolution does not grant an opaque native command access
 to a recreated participant. Such commands require explicit checked replacement;
 otherwise their frozen participant expires before native replay.
 
-Commands and whole-object snapshots retain their recording order. Every declared
-command participant is visible to `ContainsObject()`. A command recorded first suppresses later `Modify()` capture for its declared
-participants. To capture a baseline as well, call `Modify()` before the first write.
+Commands and whole-object snapshots retain their recording order. Each explicit
+command target is visible to `ContainsObject()`. A command recorded first suppresses later `Modify()` capture for that target. To capture a baseline as well, call `Modify()` before the first write.
 Collector-only dependencies remain eligible for ordinary capture. Domains register an already-applied command
-through `StoreUndo(Change)` and own the restoration of canceled previews.
+through `StoreUndo(Target, Change)` and own the restoration of canceled previews.
 
 `CoreTransactionContractTests` links only Core/CoreDObject and is registered in
 both editor and non-editor variants. It covers the runtime boundary independently

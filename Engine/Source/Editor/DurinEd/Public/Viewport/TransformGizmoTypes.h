@@ -42,8 +42,8 @@ namespace Durin::LevelEditor
 		virtual auto IsHistoryInvalidated() const -> bool { return false; }
 		virtual auto IsValid() const -> bool = 0;
 		virtual auto GetIdentity() const -> const void* = 0;
-		// Explicit edited objects; native-only targets may declare an empty list.
-		virtual auto GetModifiedObjects() const -> std::vector<DObject*> = 0;
+		// The object that owns the transformed data. Recorded edits require a live owner.
+		virtual auto GetDataOwner() const -> DObject* = 0;
 		virtual auto GetTransform() const -> FTransform = 0;
 		// Apply a live preview or restoration. The gizmo owns package dirtying on commit.
 		virtual auto SetTransform(const FTransform& Transform) -> bool = 0;

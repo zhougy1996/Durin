@@ -448,34 +448,33 @@ namespace Durin::MaterialEditor
 	auto GraphEditInternals::RemoveGraphNodes(DObject* Owner, std::span<const FGuid> NodeIds,
 		bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Transactions = *Admission;
-		if (NodeIds.size() > MaterialProgramMaxNodeCount) return RejectCommand("The removal selection exceeds the graph bound.");
-		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
-		const std::unordered_set<FGuid> Selection(NodeIds.begin(), NodeIds.end());
-		std::unordered_set<DMaterialExpression*> Removed;
-		std::erase_if(Candidate.Expressions, [&](const auto& Expression) {
-			if (!Selection.contains(Expression->Id)) return false;
-			Removed.insert(Expression.Get());
-			return true;
-		});
-		if (Removed.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		std::optional<FMaterialRootInputs> Root;
-		if (const auto* Material = Cast<DMaterial>(Owner))
-		{
-			Root = Material->CaptureRootInputs();
-			const auto Clear = [&](FMaterialExpressionInput& Input) { if (Removed.contains(Input.Expression.Get())) Input = {}; };
-			Clear(Root->Attributes);
-			for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions()) Clear(Root->Get(Field.Property).Connection);
-		}
-		FProposedLinks Links;
-		for (const auto& Expression : Candidate.Expressions)
-			VisitStoredMaterialInputs(*Expression, [&](const FMaterialExpressionInput& Input) {
-				if (Removed.contains(Input.Expression.Get())) Links.emplace(&Input, FMaterialExpressionInput{});
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			if (NodeIds.size() > MaterialProgramMaxNodeCount) return RejectCommand("The removal selection exceeds the graph bound.");
+			if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+			FMaterialExpressionCollection Candidate{FMaterialExpressionEditing::GetExpressions(*Owner)};
+			const std::unordered_set<FGuid> Selection(NodeIds.begin(), NodeIds.end());
+			std::unordered_set<DMaterialExpression*> Removed;
+			std::erase_if(Candidate.Expressions, [&](const auto& Expression) {
+				if (!Selection.contains(Expression->Id)) return false;
+				Removed.insert(Expression.Get());
+				return true;
 			});
-		return CommitGraphEdit(*Owner, Transactions, "Remove Graph Nodes", Candidate, Root ? &*Root : nullptr, std::move(Links));
+			if (Removed.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			std::optional<FMaterialRootInputs> Root;
+			if (const auto* Material = Cast<DMaterial>(Owner))
+			{
+				Root = Material->CaptureRootInputs();
+				const auto Clear = [&](FMaterialExpressionInput& Input) { if (Removed.contains(Input.Expression.Get())) Input = {}; };
+				Clear(Root->Attributes);
+				for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions()) Clear(Root->Get(Field.Property).Connection);
+			}
+			FProposedLinks Links;
+			for (const auto& Expression : Candidate.Expressions)
+				VisitStoredMaterialInputs(*Expression, [&](const FMaterialExpressionInput& Input) {
+					if (Removed.contains(Input.Expression.Get())) Links.emplace(&Input, FMaterialExpressionInput{});
+				});
+			return CommitGraphEdit(*Owner, Transactions, "Remove Graph Nodes", Candidate, Root ? &*Root : nullptr, std::move(Links));
+		});
 	}
 
 	auto DMaterialGraph::HasExpressionConsumer(const DMaterialExpression& Source) const -> bool
@@ -597,26 +596,26 @@ namespace Durin::MaterialEditor
 		if (const auto* Input = FindInputPin(static_cast<uint32>(Property) + 1))
 			return Graph->GetSchema().TryCreateConnection(&Output, Input, true, bShouldTransact, OutError);
 
-		auto Transactions = ResolveEditorTransactor(bShouldTransact);
-		if (!Transactions) return FailWithError(OutError, Transactions.error());
-		auto* Target = Cast<DMaterialExpressionSetMaterialAttributes>(GetMaterialExpression());
-		auto* Source = Output.GetOwningNode();
-		const auto& Pin = Source->GetView().Outputs[Output.DisplayIndex];
-		auto& Owner = *Target->GetOuter();
-		FProposedCallOutputs Outputs;
-		const auto Link = ResolveGraphOutput(Source->GetMaterialExpression(), Pin.OutputIndex, Pin.PortId, Outputs);
-		if (Link.OutputIndex < 0) return FailWithError(OutError, "The source output is unavailable.");
-		auto Bindings = Target->Attributes;
-		Bindings.emplace_back(Property, Link);
-		const FMaterialExpressionCollection Collection{FMaterialExpressionEditing::GetExpressions(Owner)};
-		if (auto Valid = ValidateStructuralEdit(Owner, Collection, nullptr, {}); !Valid)
-			return ConnectionCommitChanged(Valid, OutError);
-		std::vector<DObject*> Objects{Target};
-		CollectCallOutputEdits(Outputs, Objects);
-		return ConnectionCommitChanged(RecordGraphEdit(Owner, *Transactions, "Set Material Attribute Input", Objects, [&] {
-			WriteCallOutputs(Outputs);
-			Target->Attributes.swap(Bindings);
-		}), OutError);
+		return WithGraphRecording(bShouldTransact, OutError, [&](DTransactor* Transactions) -> bool {
+			auto* Target = Cast<DMaterialExpressionSetMaterialAttributes>(GetMaterialExpression());
+			auto* Source = Output.GetOwningNode();
+			const auto& Pin = Source->GetView().Outputs[Output.DisplayIndex];
+			auto& Owner = *Target->GetOuter();
+			FProposedCallOutputs Outputs;
+			const auto Link = ResolveGraphOutput(Source->GetMaterialExpression(), Pin.OutputIndex, Pin.PortId, Outputs);
+			if (Link.OutputIndex < 0) return FailWithError(OutError, "The source output is unavailable.");
+			auto Bindings = Target->Attributes;
+			Bindings.emplace_back(Property, Link);
+			const FMaterialExpressionCollection Collection{FMaterialExpressionEditing::GetExpressions(Owner)};
+			if (auto Valid = ValidateStructuralEdit(Owner, Collection, nullptr, {}); !Valid)
+				return ConnectionCommitChanged(Valid, OutError);
+			std::vector<DObject*> Objects{Target};
+			CollectCallOutputEdits(Outputs, Objects);
+			return ConnectionCommitChanged(RecordGraphEdit(Owner, Transactions, "Set Material Attribute Input", Objects, [&] {
+				WriteCallOutputs(Outputs);
+				Target->Attributes.swap(Bindings);
+			}), OutError);
+		});
 	}
 
 	auto DMaterialGraphNode::ClearAttributeInput(EMaterialProperty Property, bool bShouldTransact) -> FMaterialGraphCommandResult
@@ -626,12 +625,12 @@ namespace Durin::MaterialEditor
 		if (!Target || !FMaterialAttributeDefinitionMap::Find(Property)) return RejectCommand("The attribute input is unavailable.");
 		const auto It = std::ranges::find(Target->Attributes, Property, &FMaterialExpressionAttributeBinding::GetProperty);
 		if (It == Target->Attributes.end()) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		auto Transactions = ResolveEditorTransactor(bShouldTransact);
-		if (!Transactions) return RejectCommand(Transactions.error());
-		auto& Owner = *Target->GetOuter();
-		if (auto Valid = ValidateGraphEdit(Owner, {{&It->Input, {}}}); !Valid) return Valid;
-		return EditExpressions(Owner, *Transactions, "Clear Material Attribute Input",
-			std::array<DMaterialExpression*, 1>{Target}, [&] { Target->Attributes.erase(It); });
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			auto& Owner = *Target->GetOuter();
+			if (auto Valid = ValidateGraphEdit(Owner, {{&It->Input, {}}}); !Valid) return Valid;
+			return EditExpressions(Owner, Transactions, "Clear Material Attribute Input",
+				std::array<DMaterialExpression*, 1>{Target}, [&] { Target->Attributes.erase(It); });
+		});
 	}
 
 	auto DMaterialGraph::BreakOutputLinks(const FMaterialGraphPin& Output, bool bShouldTransact, std::string* OutError) -> bool
@@ -639,63 +638,63 @@ namespace Durin::MaterialEditor
 		if (OutError) OutError->clear();
 		using namespace GraphEditInternals;
 		auto* Owner = GetMaterialOrFunction();
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return GraphEditInternals::FailWithError(OutError, Admission.error());
-		auto* Upstream = Output.GetOwningNode()->GetMaterialExpression();
-		struct FConsumer
-		{
-			DMaterialExpression* Expression;
-			FMaterialExpressionInput* Input;
-		};
-		std::vector<FConsumer> Consumers;
-		std::unordered_set<FMaterialExpressionInput*> Seen;
-		const auto Add = [&](DMaterialExpression& Target, FMaterialExpressionInput& Input) {
-			if (Input.Expression.Get() != Upstream || Input.OutputIndex != Output.SourceIndex || !Seen.insert(&Input).second) return;
-			Consumers.push_back({&Target, &Input});
-		};
-		for (const auto* Pin : Output.LinkedTo)
-		{
-			auto* Target = Pin->GetOwningNode()->GetMaterialExpression();
-			if (!Target || Pin->SourceIndex < 0) continue;
-			VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
-				if (Index != static_cast<uint32>(Pin->SourceIndex)) return;
-				Add(*Target, Input);
-			});
-		}
-		// Switching root modes hides retained inputs. Breaking an output also clears those consumers.
-		if (auto* Material = Cast<DMaterial>(Owner))
-		{
-			auto Root = Material->CaptureRootInputs();
-			bool RootChanged = false;
-			const auto Clear = [&](EMaterialProperty Property) {
-				auto* Link = Root.GetExpressionInputForProperty(Property);
-				if (Link->Expression.Get() == Upstream && Link->OutputIndex == Output.SourceIndex)
-				{
-					*Link = {};
-					RootChanged = true;
-				}
-			};
-			Clear(EMaterialProperty::MP_MaterialAttributes);
-			for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions()) Clear(Field.Property);
-			if (RootChanged)
+		return WithGraphRecording(bShouldTransact, OutError, [&](DTransactor* Transactions) -> bool {
+			auto* Upstream = Output.GetOwningNode()->GetMaterialExpression();
+			struct FConsumer
 			{
-				FProposedLinks Links;
-				for (const auto& Consumer : Consumers) Links.emplace(Consumer.Input, FMaterialExpressionInput{});
-				auto Candidate = Material->GetExpressionCollection();
-				return ConnectionCommitChanged(CommitGraphEdit(*Material, *Admission, "Break Output Pin Links", Candidate, &Root, std::move(Links)), OutError);
+				DMaterialExpression* Expression;
+				FMaterialExpressionInput* Input;
+			};
+			std::vector<FConsumer> Consumers;
+			std::unordered_set<FMaterialExpressionInput*> Seen;
+			const auto Add = [&](DMaterialExpression& Target, FMaterialExpressionInput& Input) {
+				if (Input.Expression.Get() != Upstream || Input.OutputIndex != Output.SourceIndex || !Seen.insert(&Input).second) return;
+				Consumers.push_back({&Target, &Input});
+			};
+			for (const auto* Pin : Output.LinkedTo)
+			{
+				auto* Target = Pin->GetOwningNode()->GetMaterialExpression();
+				if (!Target || Pin->SourceIndex < 0) continue;
+				VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
+					if (Index != static_cast<uint32>(Pin->SourceIndex)) return;
+					Add(*Target, Input);
+				});
 			}
-		}
-		if (Consumers.empty()) return false;
-		std::vector<DMaterialExpression*> Objects;
-		FProposedLinks Links;
-		for (const auto& Consumer : Consumers)
-		{
-			if (!std::ranges::contains(Objects, Consumer.Expression)) Objects.push_back(Consumer.Expression);
-			Links.emplace(Consumer.Input, FMaterialExpressionInput{});
-		}
-		const auto Result = EditExpressionInputs(*Owner, *Admission, "Break Output Pin Links", std::move(Objects),
-			[&] { for (const auto& Consumer : Consumers) *Consumer.Input = {}; }, Links);
-		return ConnectionCommitChanged(Result, OutError);
+			// Switching root modes hides retained inputs. Breaking an output also clears those consumers.
+			if (auto* Material = Cast<DMaterial>(Owner))
+			{
+				auto Root = Material->CaptureRootInputs();
+				bool RootChanged = false;
+				const auto Clear = [&](EMaterialProperty Property) {
+					auto* Link = Root.GetExpressionInputForProperty(Property);
+					if (Link->Expression.Get() == Upstream && Link->OutputIndex == Output.SourceIndex)
+					{
+						*Link = {};
+						RootChanged = true;
+					}
+				};
+				Clear(EMaterialProperty::MP_MaterialAttributes);
+				for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions()) Clear(Field.Property);
+				if (RootChanged)
+				{
+					FProposedLinks Links;
+					for (const auto& Consumer : Consumers) Links.emplace(Consumer.Input, FMaterialExpressionInput{});
+					auto Candidate = Material->GetExpressionCollection();
+					return ConnectionCommitChanged(CommitGraphEdit(*Material, Transactions, "Break Output Pin Links", Candidate, &Root, std::move(Links)), OutError);
+				}
+			}
+			if (Consumers.empty()) return false;
+			std::vector<DMaterialExpression*> Objects;
+			FProposedLinks Links;
+			for (const auto& Consumer : Consumers)
+			{
+				if (!std::ranges::contains(Objects, Consumer.Expression)) Objects.push_back(Consumer.Expression);
+				Links.emplace(Consumer.Input, FMaterialExpressionInput{});
+			}
+			const auto Result = EditExpressionInputs(*Owner, Transactions, "Break Output Pin Links", std::move(Objects),
+				[&] { for (const auto& Consumer : Consumers) *Consumer.Input = {}; }, Links);
+			return ConnectionCommitChanged(Result, OutError);
+		});
 	}
 
 	auto DMaterialGraphNode::GetMaterialExpression() const -> DMaterialExpression*
@@ -793,106 +792,105 @@ namespace Durin::MaterialEditor
 		auto WriteRootInput(DMaterial* Material, EMaterialProperty Property, DMaterialExpression* Source, int32 Index, FGuid Port,
 			bool Replace, bool bShouldTransact, std::string* Error) -> bool
 		{
-			auto Admission = ResolveEditorTransactor(bShouldTransact);
-			if (!Admission) return FailWithError(Error, Admission.error());
-			if (!Material) return FailWithError(Error, "Invalid material root address.");
-			auto Root = Material->CaptureRootInputs();
-			auto* Input = Root.GetExpressionInputForProperty(Property);
-			if (!Input) return FailWithError(Error, "The material attribute pin is invalid.");
-			FProposedCallOutputs Outputs;
-			const auto Next = ResolveGraphOutput(Source, Port.IsValid() ? 0 : Index, Port, Outputs);
-			if (Next.OutputIndex < 0) return FailWithError(Error, "The source output no longer exists.");
-			if (!FMaterialGraphSchema::CanReplaceConnection(*Input, Next, Replace)) return FailWithError(Error, "The graph input is already connected.");
-			const bool bRootChanged = *Input != Next;
-			*Input = Next;
-			if (auto Valid = ValidateProposedGraph(*Material, Material->GetExpressionCollection(), {}, &Root, nullptr); !Valid)
-				return ConnectionCommitChanged(Valid, Error);
-			std::vector<DObject*> Objects;
-			if (bRootChanged) Objects.push_back(Material);
-			CollectCallOutputEdits(Outputs, Objects);
-			if (Objects.empty()) return ConnectionCommitChanged({.Status = EMaterialGraphCommandStatus::NoChange}, Error);
-			return ConnectionCommitChanged(RecordGraphEdit(*Material, *Admission, "Connect Material Input", Objects, [&] {
-				WriteCallOutputs(Outputs);
-				if (bRootChanged) require(FMaterialExpressionEditing::SetRootInputs(*Material, std::move(Root)));
-			}), Error);
+			return WithGraphRecording(bShouldTransact, Error, [&](DTransactor* Transactions) -> bool {
+				if (!Material) return FailWithError(Error, "Invalid material root address.");
+				auto Root = Material->CaptureRootInputs();
+				auto* Input = Root.GetExpressionInputForProperty(Property);
+				if (!Input) return FailWithError(Error, "The material attribute pin is invalid.");
+				FProposedCallOutputs Outputs;
+				const auto Next = ResolveGraphOutput(Source, Port.IsValid() ? 0 : Index, Port, Outputs);
+				if (Next.OutputIndex < 0) return FailWithError(Error, "The source output no longer exists.");
+				if (!FMaterialGraphSchema::CanReplaceConnection(*Input, Next, Replace)) return FailWithError(Error, "The graph input is already connected.");
+				const bool bRootChanged = *Input != Next;
+				*Input = Next;
+				if (auto Valid = ValidateProposedGraph(*Material, Material->GetExpressionCollection(), {}, &Root, nullptr); !Valid)
+					return ConnectionCommitChanged(Valid, Error);
+				std::vector<DObject*> Objects;
+				if (bRootChanged) Objects.push_back(Material);
+				CollectCallOutputEdits(Outputs, Objects);
+				if (Objects.empty()) return ConnectionCommitChanged({.Status = EMaterialGraphCommandStatus::NoChange}, Error);
+				return ConnectionCommitChanged(RecordGraphEdit(*Material, Transactions, "Connect Material Input", Objects, [&] {
+					WriteCallOutputs(Outputs);
+					if (bRootChanged) require(FMaterialExpressionEditing::SetRootInputs(*Material, std::move(Root)));
+				}), Error);
+			});
 		}
 
 		auto WriteInput(DObject* Owner, DMaterialExpression& Node, FExpressionInputKey Key,
 			DMaterialExpression* Upstream, int32 SourceIndex, FGuid UnboundPort, bool bReplaceExisting, bool bShouldTransact, std::string* OutError) -> bool
 		{
 			if (OutError) OutError->clear();
-			auto Admission = ResolveEditorTransactor(bShouldTransact);
-			if (!Admission) return GraphEditInternals::FailWithError(OutError, Admission.error());
-			auto* Transactions = *Admission;
-			if (!Owner) return GraphEditInternals::FailWithError(OutError, "The material graph owner is no longer available.");
-			FMaterialExpressionInput* Target = nullptr;
-			auto* Call = Cast<DMaterialExpressionFunctionCall>(&Node);
-			const FMaterialFunctionPort* Port = nullptr;
-			if (const auto* PortId = std::get_if<FGuid>(&Key))
-			{
-				if (!Call || !PortId->IsValid()) return GraphEditInternals::FailWithError(OutError, "The function call is unavailable.");
-				if (IsValid(Call->Function.Get()))
+			return WithGraphRecording(bShouldTransact, OutError, [&](DTransactor* Transactions) -> bool {
+				if (!Owner) return GraphEditInternals::FailWithError(OutError, "The material graph owner is no longer available.");
+				FMaterialExpressionInput* Target = nullptr;
+				auto* Call = Cast<DMaterialExpressionFunctionCall>(&Node);
+				const FMaterialFunctionPort* Port = nullptr;
+				if (const auto* PortId = std::get_if<FGuid>(&Key))
 				{
-					const auto& Ports = Call->Function->GetFunctionSignature().Inputs;
-					const auto Found = std::ranges::find(Ports, *PortId, &FMaterialFunctionPort::Id);
-					if (Found != Ports.end()) Port = &*Found;
+					if (!Call || !PortId->IsValid()) return GraphEditInternals::FailWithError(OutError, "The function call is unavailable.");
+					if (IsValid(Call->Function.Get()))
+					{
+						const auto& Ports = Call->Function->GetFunctionSignature().Inputs;
+						const auto Found = std::ranges::find(Ports, *PortId, &FMaterialFunctionPort::Id);
+						if (Found != Ports.end()) Port = &*Found;
+					}
+					if (!Port) return GraphEditInternals::FailWithError(OutError, "The function input port no longer exists.");
+					const auto Binding = std::ranges::find(Call->FunctionInputs, *PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+					if (Binding != Call->FunctionInputs.end())
+					{
+						Target = &Binding->Input;
+					}
 				}
-				if (!Port) return GraphEditInternals::FailWithError(OutError, "The function input port no longer exists.");
-				const auto Binding = std::ranges::find(Call->FunctionInputs, *PortId, &FMaterialExpressionFunctionInputBinding::InputId);
-				if (Binding != Call->FunctionInputs.end())
+				else
 				{
-					Target = &Binding->Input;
+					if (Call) return GraphEditInternals::FailWithError(OutError, "The input pin key is invalid.");
+					const uint32 Index = std::get<uint32>(Key);
+					VisitMaterialExpressionInputs(Node, [&](uint32 Slot, FMaterialExpressionInput& Input) { if (Slot == Index) Target = &Input; });
+					if (!Target) return GraphEditInternals::FailWithError(OutError, "The graph input no longer exists.");
 				}
-			}
-			else
-			{
-				if (Call) return GraphEditInternals::FailWithError(OutError, "The input pin key is invalid.");
-				const uint32 Index = std::get<uint32>(Key);
-				VisitMaterialExpressionInputs(Node, [&](uint32 Slot, FMaterialExpressionInput& Input) { if (Slot == Index) Target = &Input; });
-				if (!Target) return GraphEditInternals::FailWithError(OutError, "The graph input no longer exists.");
-			}
-			DMaterialExpressionFunctionCall* SourceCall = nullptr;
-			FMaterialFunctionOutputBinding NewOutput;
-			if (UnboundPort.IsValid())
-			{
-				SourceCall = Cast<DMaterialExpressionFunctionCall>(Upstream);
-				if (!SourceCall || !SourceCall->Function.IsValid()) return GraphEditInternals::FailWithError(OutError, "The function output is unavailable.");
-				const auto& Ports = SourceCall->Function->GetFunctionSignature().Outputs;
-				const auto Found = std::ranges::find(Ports, UnboundPort, &FMaterialFunctionPort::Id);
-				if (Found == Ports.end()) return GraphEditInternals::FailWithError(OutError, "The function output no longer exists.");
-				if (std::ranges::contains(SourceCall->FunctionOutputs, UnboundPort, &FMaterialFunctionOutputBinding::OutputId))
-					return GraphEditInternals::FailWithError(OutError, "The source output binding has changed.");
-				NewOutput = {Found->Id, Found->Type};
-				SourceIndex = static_cast<int32>(SourceCall->FunctionOutputs.size());
-			}
-			FMaterialExpressionInput Connection;
-			Connection.Connect(SourceIndex, Upstream);
-			const auto Previous = Target ? *Target : FMaterialExpressionInput{};
-			if (!FMaterialGraphSchema::CanReplaceConnection(Previous, Connection, bReplaceExisting))
-				return GraphEditInternals::FailWithError(OutError, "The graph input is already connected.");
-			if (Previous == Connection) return false;
-			FProposedCallOutputs Outputs;
-			if (SourceCall)
-			{
-				auto& Proposed = Outputs.emplace(SourceCall, SourceCall->FunctionOutputs).first->second;
-				Proposed.push_back(NewOutput);
-			}
-			if (Target)
-				return ConnectionCommitChanged(EditExpressionInputs(*Owner, Transactions, "Connect Graph Input", {&Node},
-					[&] { *Target = Connection; }, {{Target, Connection}}, {}, {}, nullptr, std::move(Outputs)), OutError);
+				DMaterialExpressionFunctionCall* SourceCall = nullptr;
+				FMaterialFunctionOutputBinding NewOutput;
+				if (UnboundPort.IsValid())
+				{
+					SourceCall = Cast<DMaterialExpressionFunctionCall>(Upstream);
+					if (!SourceCall || !SourceCall->Function.IsValid()) return GraphEditInternals::FailWithError(OutError, "The function output is unavailable.");
+					const auto& Ports = SourceCall->Function->GetFunctionSignature().Outputs;
+					const auto Found = std::ranges::find(Ports, UnboundPort, &FMaterialFunctionPort::Id);
+					if (Found == Ports.end()) return GraphEditInternals::FailWithError(OutError, "The function output no longer exists.");
+					if (std::ranges::contains(SourceCall->FunctionOutputs, UnboundPort, &FMaterialFunctionOutputBinding::OutputId))
+						return GraphEditInternals::FailWithError(OutError, "The source output binding has changed.");
+					NewOutput = {Found->Id, Found->Type};
+					SourceIndex = static_cast<int32>(SourceCall->FunctionOutputs.size());
+				}
+				FMaterialExpressionInput Connection;
+				Connection.Connect(SourceIndex, Upstream);
+				const auto Previous = Target ? *Target : FMaterialExpressionInput{};
+				if (!FMaterialGraphSchema::CanReplaceConnection(Previous, Connection, bReplaceExisting))
+					return GraphEditInternals::FailWithError(OutError, "The graph input is already connected.");
+				if (Previous == Connection) return false;
+				FProposedCallOutputs Outputs;
+				if (SourceCall)
+				{
+					auto& Proposed = Outputs.emplace(SourceCall, SourceCall->FunctionOutputs).first->second;
+					Proposed.push_back(NewOutput);
+				}
+				if (Target)
+					return ConnectionCommitChanged(EditExpressionInputs(*Owner, Transactions, "Connect Graph Input", {&Node},
+						[&] { *Target = Connection; }, {{Target, Connection}}, {}, {}, nullptr, std::move(Outputs)), OutError);
 
-			const auto& Members = FMaterialExpressionEditing::GetExpressions(*Owner);
-			if (Upstream && !std::ranges::contains(Members, Upstream, [](const auto& Member) { return Member.Get(); }))
-				return FailWithError(OutError, "The source expression is unavailable.");
-			if (auto Valid = ValidateGraphEdit(*Owner); !Valid) return ConnectionCommitChanged(Valid, OutError);
-			auto Bindings = Call->FunctionInputs;
-			Bindings.push_back({Port->Id, Port->Type, Connection});
-			std::vector<DObject*> Objects{Call};
-			CollectCallOutputEdits(Outputs, Objects);
-			return ConnectionCommitChanged(RecordGraphEdit(*Owner, Transactions, "Connect Graph Input", Objects, [&] {
-				WriteCallOutputs(Outputs);
-				Call->FunctionInputs.swap(Bindings);
-			}), OutError);
+				const auto& Members = FMaterialExpressionEditing::GetExpressions(*Owner);
+				if (Upstream && !std::ranges::contains(Members, Upstream, [](const auto& Member) { return Member.Get(); }))
+					return FailWithError(OutError, "The source expression is unavailable.");
+				if (auto Valid = ValidateGraphEdit(*Owner); !Valid) return ConnectionCommitChanged(Valid, OutError);
+				auto Bindings = Call->FunctionInputs;
+				Bindings.push_back({Port->Id, Port->Type, Connection});
+				std::vector<DObject*> Objects{Call};
+				CollectCallOutputEdits(Outputs, Objects);
+				return ConnectionCommitChanged(RecordGraphEdit(*Owner, Transactions, "Connect Graph Input", Objects, [&] {
+					WriteCallOutputs(Outputs);
+					Call->FunctionInputs.swap(Bindings);
+				}), OutError);
+			});
 		}
 
 	}

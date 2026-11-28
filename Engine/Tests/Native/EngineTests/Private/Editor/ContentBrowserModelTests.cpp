@@ -227,13 +227,11 @@ namespace
 	class FNoOpEditorTransaction final : public Durin::FCommandChange
 	{
 	public:
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
-		{ return {}; }
 
 		auto GetDescription() const -> std::string_view override { return "No-op"; }
-		auto Revert() -> void override
+		auto Revert(Durin::DObject*) -> void override
 		{}
-		auto Apply() -> void override
+		auto Apply(Durin::DObject*) -> void override
 		{}
 	};
 

@@ -1047,15 +1047,14 @@ def read():
         class FFailingHistoryChange final : public FCommandChange
         {
         public:
-            auto Apply() -> void override {}
-            auto Revert() -> void override {}
+            auto Apply(Durin::DObject*) -> void override {}
+            auto Revert(Durin::DObject*) -> void override {}
             auto GetDescription() const -> std::string_view override { return "Fail final details"; }
-            auto GetModifiedObjects() const -> std::vector<DObject*> override { return {}; }
             auto GetDetails() const -> std::string override { throw std::runtime_error("Injected final details failure"); }
         };
         auto Run = [&] {
             Register(FToolSchema(EToolValueType::Object), true, [&](const auto& Request, const auto&) {
-                EXPECT_TRUE(Host->GetTransactor()->StoreUndo(std::make_unique<FFailingHistoryChange>()));
+                EXPECT_TRUE(Host->GetTransactor()->StoreUndo(NewObject<DObject>(nullptr, NAME_None), std::make_unique<FFailingHistoryChange>()));
                 return FToolResult{EToolStatus::Succeeded, Request.Arguments};
             });
             auto Job = Submit(R"PY(

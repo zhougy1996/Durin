@@ -413,15 +413,6 @@ namespace Durin::Tests::ObjectState
 	class FTestCustomChange final : public Durin::FCommandChange
 	{
 	public:
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
-		{
-			if (auto* Object = Participant.Resolve()) return {Object};
-			return {};
-		}
-
-		FTestCustomChange(Durin::DObject* InParticipant, int& InValue, int InBefore, int InAfter)
-			: FTestCustomChange(InValue, InBefore, InAfter)
-		{ Participant = Durin::FPersistentObjectRef::FromKey(Durin::FObjectKey(InParticipant)); }
 
 		FTestCustomChange(int& InValue, int InBefore, int InAfter,
 			Durin::DObject* InReference = nullptr,
@@ -436,14 +427,14 @@ namespace Durin::Tests::ObjectState
 		{
 			return Details;
 		}
-		auto Revert() -> void override
+		auto Revert(Durin::DObject*) -> void override
 		{
 			if (ReplayProbe) ReplayProbe();
 			if (bFailUndo) { throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation})); }
 			Value = Before;
 			bOverflowed = false;
 		}
-		auto Apply() -> void override
+		auto Apply(Durin::DObject*) -> void override
 		{
 			if (ReplayProbe) ReplayProbe();
 			if (bFailRedo)
@@ -459,7 +450,6 @@ namespace Durin::Tests::ObjectState
 		}
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{
-			Participant.AddReferencedObjects(Collector);
 			Durin::DObject* Object = Reference.Get();
 			if (Object) Collector.AddReferencedObject(Object);
 			if (Object != Reference.Get()) Reference = Object;
@@ -470,7 +460,6 @@ namespace Durin::Tests::ObjectState
 		}
 		auto GetOwningModule() const -> std::string_view override { return Module; }
 
-		Durin::FPersistentObjectRef Participant;
 		int& Value;
 		int Before = 0;
 		int After = 0;
@@ -486,46 +475,34 @@ namespace Durin::Tests::ObjectState
 		std::function<void()> ReplayProbe;
 	};
 
-	// Qualifies expression-style deletion: history owns the detached child, not a garbage object.
-	class FDeclaredParticipantChange final : public Durin::FCommandChange
+	class FParticipantDelta final : public Durin::FCommandChange
 	{
 	public:
-		FDeclaredParticipantChange(DTransactionRecordParticipant* InFirst,
-			DTransactionRecordParticipant* InSecond, Durin::DObject* InDependency)
-			: First(InFirst), Second(InSecond), Dependency(InDependency) {}
-		auto HasExpired() const noexcept -> bool override { return !Durin::IsValid(First) || !Durin::IsValid(Second); }
-		auto GetDescription() const -> std::string_view override { return "Declared composite participants"; }
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
-		{ return {First, Second, First, nullptr}; }
-		auto Apply() -> void override
-		{ First->Value += 3; Second->Value += 5; }
-		auto Revert() -> void override
-		{ First->Value -= 3; Second->Value -= 5; }
-		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
-		{ Dependency.AddReferencedObjects(Collector); }
+		FParticipantDelta(int InDelta, Durin::DObject* InDependency) : Delta(InDelta), Dependency(InDependency) {}
+		auto GetDescription() const -> std::string_view override { return "Edit participant"; }
+		auto Apply(Durin::DObject* Target) -> void override { static_cast<DTransactionRecordParticipant*>(Target)->Value += Delta; }
+		auto Revert(Durin::DObject* Target) -> void override { static_cast<DTransactionRecordParticipant*>(Target)->Value -= Delta; }
+		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override { Dependency.AddReferencedObjects(Collector); }
 	private:
-		DTransactionRecordParticipant* First;
-		DTransactionRecordParticipant* Second;
+		int Delta;
 		Durin::FPersistentObjectRef Dependency;
 	};
 
 	class FDetachedChildChange final : public Durin::FCommandChange
 	{
 	public:
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
-		{ return {Owner, Child}; }
 
 		FDetachedChildChange(DTransactionRecordParticipant* InOwner, Durin::DObject* InChild,
 			Durin::DObject* InHistoryOuter)
 			: Owner(InOwner), Child(InChild), HistoryOuter(InHistoryOuter) {}
 
 		auto GetDescription() const -> std::string_view override { return "Detach owned child"; }
-		auto Revert() -> void override
+		auto Revert(Durin::DObject*) -> void override
 		{
 			Child->SetOuterPrivate(Owner);
 			Owner->Hard = Child;
 		}
-		auto Apply() -> void override
+		auto Apply(Durin::DObject*) -> void override
 		{
 			Owner->Hard = nullptr;
 			Child->SetOuterPrivate(HistoryOuter);

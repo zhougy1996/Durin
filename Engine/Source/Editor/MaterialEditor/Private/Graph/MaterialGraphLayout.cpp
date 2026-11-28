@@ -74,10 +74,9 @@ namespace Durin::MaterialEditor
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		bool bShouldTransact, std::string* OutError) const -> bool
 	{
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return FailWithError(OutError, Admission.error());
-		auto* Transactions = *Admission;
-		return MoveNodesInternal(Positions, Transactions, OutError);
+		return WithGraphRecording(bShouldTransact, OutError, [&](DTransactor* Transactions) {
+			return MoveNodesInternal(Positions, Transactions, OutError);
+		});
 	}
 
 	auto DMaterialGraph::MoveNodesInternal(
@@ -123,36 +122,23 @@ namespace Durin::MaterialEditor
 				Changes.emplace_back(Expression, &Position);
 		}
 		if (!RootPosition && Changes.empty()) return true;
-		if (Transactions && ResolveEditorTransactor(true).value_or(nullptr) != Transactions)
-			return FailWithError(OutError, "The editor transactor is busy.");
-
-		FScopedMaterialGraphChange Batch(Asset);
-		const bool bNested = Transactions && Transactions->IsActive();
-		FScopedTransaction Recording("MaterialGraph", Description, &Asset, Transactions && !bNested);
-		if (Transactions)
-		{
-			if (!bNested && !Recording.IsOutstanding()) return FailWithError(OutError, "Unable to start the layout transaction.");
-			auto Record = [](DObject& Object) {
-				Object.SetFlags(EObjectFlags::Transactional);
-				return Object.Modify(false);
-			};
-			if ((RootPosition && !Record(*Material))
-				|| !std::ranges::all_of(Changes, [&](const auto& Change) { return Record(*Change.first); }))
+		std::vector<DObject*> Objects;
+		if (RootPosition) Objects.push_back(Material);
+		for (const auto& Change : Changes) Objects.push_back(Change.first);
+		const auto Result = RecordGraphObjects(Asset, Transactions, Description, Objects, /*bBatchGraphChanges=*/true, [&]() -> FMaterialGraphCommandResult {
+			for (const auto& [Expression, Position] : Changes)
 			{
-				if (!bNested) Recording.Cancel();
-				return FailWithError(OutError, "Unable to record the graph layout.");
+				auto& Layout = Expression->EditorLayout;
+				Layout.bAuthored = true;
+				Layout.X = Position->X;
+				Layout.Y = Position->Y;
 			}
-		}
-		for (const auto& [Expression, Position] : Changes)
-		{
-			auto& Layout = Expression->EditorLayout;
-			Layout.bAuthored = true;
-			Layout.X = Position->X;
-			Layout.Y = Position->Y;
-		}
-		if (RootPosition) Material->SetRootPosition(RootPosition->X, RootPosition->Y);
-		else Asset.MarkPackageDirty();
-		GetMaterialGraphChangeSource(Asset).PublishPresentation(Asset);
+			if (RootPosition) Material->SetRootPosition(RootPosition->X, RootPosition->Y);
+			else Asset.MarkPackageDirty();
+			GetMaterialGraphChangeSource(Asset).PublishPresentation(Asset);
+			return {};
+		});
+		if (!Result) return FailWithError(OutError, Result.Message);
 		return true;
 	}
 
@@ -347,13 +333,12 @@ namespace Durin::MaterialEditor
 		bool bShouldTransact, std::string* OutError) const -> bool
 	{
 		if (OutError) OutError->clear();
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return FailWithError(OutError, Admission.error());
-		auto* Transactions = *Admission;
-		if (!Owner.IsValid()) return FailWithError(OutError, "The material graph owner is no longer available.");
-		auto Presentation = ReadGraphPresentation(*Owner.Get());
-		std::vector<FMaterialGraphNodePresentation> Positions;
-		if (!CalculateLayoutPositions(NodeIds, Presentation, Positions, OutError)) return false;
-		return CommitPositions(Positions, Transactions, true, "Layout Graph Nodes", OutError);
+		return WithGraphRecording(bShouldTransact, OutError, [&](DTransactor* Transactions) {
+			if (!Owner.IsValid()) return FailWithError(OutError, "The material graph owner is no longer available.");
+			auto Presentation = ReadGraphPresentation(*Owner.Get());
+			std::vector<FMaterialGraphNodePresentation> Positions;
+			if (!CalculateLayoutPositions(NodeIds, Presentation, Positions, OutError)) return false;
+			return CommitPositions(Positions, Transactions, true, "Layout Graph Nodes", OutError);
+		});
 	}
 }

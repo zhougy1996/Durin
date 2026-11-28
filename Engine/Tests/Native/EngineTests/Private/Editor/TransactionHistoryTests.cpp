@@ -16,13 +16,11 @@ namespace
 	{
 	public:
 		~FManagementProbeChange() override { if (OnDestroy) OnDestroy(); }
-		auto Apply() -> void override {}
-		auto Revert() -> void override {}
+		auto Apply(Durin::DObject*) -> void override {}
+		auto Revert(Durin::DObject*) -> void override {}
 		auto GetDescription() const -> std::string_view override { return "Management probe"; }
 		auto GetDetails() const -> std::string override { if (OnDetails) OnDetails(); return "Management probe details"; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { if (OnPackages) OnPackages(); return {}; }
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { return Participants; }
-		std::vector<Durin::DObject*> Participants;
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{
 			if (OnInspect) OnInspect();
@@ -38,6 +36,15 @@ namespace
 		std::function<void()> OnMeasure;
 		std::function<void()> OnDetails, OnPackages;
 	};
+
+	auto RecordPair(Durin::DTransactor& Buffer, DTransactionRecordParticipant& First,
+		DTransactionRecordParticipant& Second, Durin::DObject* Dependency) -> bool
+	{
+		Durin::Tests::FBufferRecording Scope(&Buffer, {.Description = "Edit two owners"});
+		return Scope.IsOutstanding()
+			&& Durin::Tests::RecordTestEdit(Buffer, First, std::make_unique<FParticipantDelta>(3, Dependency))
+			&& Durin::Tests::RecordTestEdit(Buffer, Second, std::make_unique<FParticipantDelta>(5, Dependency));
+	}
 }
 
 TEST(FTransBufferTests, CancelTerminatesAfterFailedWholeObjectCapture)
@@ -130,7 +137,7 @@ TEST(FTransBufferTests, AdmissionFailurePreservesHistoryAndOwningScope)
 			throw std::runtime_error("Admission failed");
 		};
 		std::string Message;
-		ASSERT_FALSE(Buffer->StoreUndo(std::move(Change), &Message));
+		ASSERT_FALSE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change), &Message));
 		if (bJoined)
 		{
 			EXPECT_EQ(Message, "Admission failed");
@@ -162,7 +169,7 @@ TEST(FTransBufferTests, ReplayDetailsFailurePreservesModelAndCursor)
 	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
 	auto Change = std::make_unique<FManagementProbeChange>();
 	auto* Probe = Change.get();
-	ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+	ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change)));
 	ASSERT_TRUE(Scope.End());
 	const auto Id = Buffer->GetUndoContext().TransactionId;
 	int Queries = 0;
@@ -310,7 +317,7 @@ TEST(FTransBufferTests, EffectiveEndPublishesOneChangeAndReleasesRetiredReferenc
 		auto New = std::make_unique<FManagementProbeChange>();
 		New->AllocatedBytes = 8192;
 		auto* Probe = New.get();
-		ASSERT_TRUE(Buffer->StoreUndo(std::move(New)));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(New)));
 		Probe->OnMeasure = [] { ADD_FAILURE() << "Pending command measured as committed history"; };
 		EXPECT_EQ(Buffer->GetUndoSize(), CommittedBytes);
 		EXPECT_EQ(Changes, 0);
@@ -493,7 +500,7 @@ TEST(FTransBufferTests, InspectionFaultIsReportedBeforeAnyDirtyNotification)
 		Target->Value = 4;
 		auto Change = std::make_unique<FManagementProbeChange>();
 		Change->OnInspect = [] { throw std::runtime_error("Inspection failed"); };
-		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change)));
 		Package->ClearDirty();
 		const auto Handle = OnAssetPackagesChanged().AddLambda([] { throw std::runtime_error("Cleanup callback failed"); });
 		Buffer->End();
@@ -566,7 +573,7 @@ TEST(FTransBufferTests, ResetPurgesActiveScopesWithoutReentryOrChangingReason)
 	Durin::Tests::FBufferRecording Inner(&Transactor, {.Description = "Pending inner"});
 	ASSERT_TRUE(Target->Modify()); Target->Value = 37;
 	auto PendingChange = std::make_unique<FManagementProbeChange>(); auto* PendingProbe = PendingChange.get();
-	ASSERT_TRUE(Transactor.StoreUndo(std::move(PendingChange))); Recording = GUndo;
+	ASSERT_TRUE(Transactor.StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(PendingChange))); Recording = GUndo;
 	HistoryProbe->OnDestroy = OnDestroy(false); PendingProbe->OnDestroy = OnDestroy(true);
 	Transactor.Reset(Reason); EXPECT_EQ(Destroyed, 2);
 	EXPECT_EQ(Transactor.GetQueueLength(), 0u); EXPECT_EQ(Transactor.GetUndoSize(), 0u);
@@ -609,8 +616,8 @@ TEST(FTransBufferTests, RetainedPieReferenceRejectsReplayAndPreservesBothHeads)
 	Package->InitializeAssetPackage(Path);
 	auto Change = std::make_unique<FManagementProbeChange>();
 	Change->Reference = NewObject<DObject>(Package.Get(), "Dependency");
-	Change->Participants.push_back(Change->Reference.Get());
-	ASSERT_TRUE(Tests::RecordTestEdit(*Buffer, std::move(Change)));
+	auto* Target = Change->Reference.Get();
+	ASSERT_TRUE(Tests::RecordTestEdit(*Buffer, *Target, std::move(Change)));
 	int Value = 0;
 	ASSERT_TRUE(Tests::RecordTestEdit(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
 	ASSERT_TRUE(Buffer->Undo());
@@ -641,7 +648,7 @@ TEST(FTransBufferTests, PieQueriesGuardHistoryAndPendingRecordsAgainstReentry)
 		std::optional<Durin::Tests::FBufferRecording> Scope;
 		Scope.emplace(Buffer.Get(), FTransactionContext{.Description = "Pending query"});
 		auto Change = std::make_unique<FManagementProbeChange>(); auto* Probe = Change.get();
-		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change)));
 		if (!bPending) { Scope.reset(); Buffer->SetUndoBarrier(); }
 		int Visits = 0;
 		Probe->OnInspect = [&] {
@@ -693,7 +700,7 @@ TEST(FTransBufferTests, TransientPieEndKeepsDestructorsGuarded)
 		EXPECT_EQ(Buffer->GetTransaction(0), nullptr); EXPECT_EQ(Buffer->GetRedoContext().TransactionId, 0u);
 		RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested()); EXPECT_NE(ResolveObjectKey(Key), nullptr);
 	};
-	ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+	ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change)));
 	EXPECT_EQ(Scope.End(), 1);
 	EXPECT_EQ(Inspected, 1); EXPECT_EQ(Destroyed, 1); EXPECT_TRUE(Buffer->CanTransact());
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId);
@@ -719,7 +726,7 @@ TEST(FTransBufferTests, FinalizationMetadataRemainsGuardedAfterPieQuery)
 		Buffer->Reset(); EXPECT_FALSE(Buffer->CanTransact()); EXPECT_LT(Buffer->Begin("Reentry", "Details"), 0);
 		RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested());
 	};
-	ASSERT_TRUE(Buffer->StoreUndo(std::move(Change))); EXPECT_TRUE(Scope.End());
+	ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change))); EXPECT_TRUE(Scope.End());
 	Probe->OnInspect = {}; Probe->OnDetails = {};
 	EXPECT_GT(DetailsCalls, 0); EXPECT_TRUE(*Retired); EXPECT_TRUE(Buffer->CanTransact());
 	CollectGarbage(Durin::EObjectFlags::Standalone); ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
@@ -733,7 +740,7 @@ TEST(FTransBufferTests, UnknownFinalizationExceptionIsDiagnosed)
 		Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Throwing metadata"});
 		auto Change = std::make_unique<FManagementProbeChange>();
 		Change->OnDetails = [] { throw 42; };
-		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change)));
 		Scope.End();
 	};
 	EXPECT_DEATH(Run(), "unknown exception");
@@ -791,7 +798,7 @@ TEST(FTransBufferTests, ScopedDestructionTerminatesOnFinalizationFault)
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Destructor finalization"});
 		auto Change = std::make_unique<FManagementProbeChange>();
 		Change->OnDetails = [] { throw std::runtime_error("Scoped finalization exception"); };
-		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change)));
 	};
 	EXPECT_DEATH(EndScope(), "Scoped finalization exception");
 }
@@ -817,7 +824,7 @@ TEST(FTransBufferTests, CompositeParticipantsReceiveHooksWithoutEditingGcDepende
 	TStrongObjectPtr<DTransactionRecordParticipant> First(NewObject<DTransactionRecordParticipant>(nullptr, "CompositeFirst"));
 	TStrongObjectPtr<DTransactionRecordParticipant> Second(NewObject<DTransactionRecordParticipant>(nullptr, "CompositeSecond"));
 	TStrongObjectPtr<DTransactionRecordParticipant> Dependency(NewObject<DTransactionRecordParticipant>(nullptr, "CompositeDependency"));
-	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FDeclaredParticipantChange>(First.Get(), Second.Get(), Dependency.Get())));
+	ASSERT_TRUE(RecordPair(*Buffer, *First, *Second, Dependency.Get()));
 	const auto* Transaction = Buffer->GetTransaction(0);
 	ASSERT_NE(Transaction, nullptr);
 	EXPECT_TRUE(Transaction->ContainsObject(First.Get()));
@@ -857,7 +864,7 @@ TEST(FTransBufferTests, CompositeParticipantPackagesAndExpiryAreExplicit)
 	TStrongObjectPtr<DPackage> SecondPackage(NewObject<DPackage>(nullptr, "ParticipantPackageSecond"));
 	TStrongObjectPtr<DTransactionRecordParticipant> First(NewObject<DTransactionRecordParticipant>(FirstPackage.Get(), "First"));
 	TStrongObjectPtr<DTransactionRecordParticipant> Second(NewObject<DTransactionRecordParticipant>(SecondPackage.Get(), "Second"));
-	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FDeclaredParticipantChange>(First.Get(), Second.Get(), nullptr)));
+	ASSERT_TRUE(RecordPair(*Buffer, *First, *Second, nullptr));
 	const auto Packages = Buffer->GetTransaction(0)->GetAffectedPackages();
 	EXPECT_EQ(Packages.size(), 2u);
 	EXPECT_TRUE(std::ranges::contains(Packages, FirstPackage.Get()));
@@ -878,6 +885,11 @@ TEST(FTransBufferTests, RuntimeBoundaryPreservesOperationContextAndRejectsInvali
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "RuntimeCommand"));
 	ASSERT_EQ(Buffer->Begin("runtime", "Runtime command"), 0);
 	ITransaction& Recording = *GUndo;
+	EXPECT_FALSE(Recording.StoreUndo(nullptr, std::make_unique<FManagementProbeChange>()));
+	std::string MissingTarget;
+	EXPECT_FALSE(Buffer->StoreUndo(nullptr, std::make_unique<FManagementProbeChange>(), &MissingTarget));
+	EXPECT_NE(MissingTarget.find("target"), std::string::npos);
+	EXPECT_EQ(static_cast<FTransaction&>(Recording).GetRecordCount(), 0u);
 	Recording.SetPrimaryObject(Target.Get());
 	const auto Context = Recording.GetContext();
 	EXPECT_NE(Context.TransactionId, 0u);
@@ -895,7 +907,7 @@ TEST(FTransBufferTests, RuntimeBoundaryPreservesOperationContextAndRejectsInvali
 		ReplayOperations.push_back(Buffer->GetTransaction(0)->GetContext().OperationId);
 	};
 	Target->Value = 9;
-	ASSERT_TRUE(Recording.StoreUndo(std::move(Change)));
+	ASSERT_TRUE(Recording.StoreUndo(Target.Get(), std::move(Change)));
 	EXPECT_EQ(Buffer->End(), 1);
 	EXPECT_EQ(Buffer->GetTransaction(0)->GetContext().OperationId, 0u);
 	ASSERT_TRUE(Buffer->Undo());
@@ -1494,7 +1506,7 @@ TEST(FTransBufferTests, DetachedOwnedChildSurvivesCollectionUndoRedoAndReleasesW
 	auto* HistoryOuter = NewObject<DObject>(nullptr, "DetachedGraphObjects");
 	const auto ChildHandle = FObjectKey(Child);
 	const auto HistoryHandle = FObjectKey(HistoryOuter);
-	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FDetachedChildChange>(Owner, Child, HistoryOuter)));
+	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, *Owner, std::make_unique<FDetachedChildChange>(Owner, Child, HistoryOuter)));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_EQ(ResolveObjectKey(ChildHandle), Child);
 	EXPECT_EQ(Child->GetOuter(), HistoryOuter);
@@ -1563,7 +1575,7 @@ TEST(FTransBufferTests, CancelingJoinedChangeDiscardsRecordingWithoutRevertingEd
 		FScopedTransaction Inner("Custom edit");
 		ASSERT_TRUE(Inner.IsOutstanding());
 		CommandValue = 2;
-		ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), CommandValue, 0, 2)));
+		ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(CommandValue, 0, 2)));
 		Inner.Cancel();
 		EXPECT_FALSE(Inner.IsOutstanding());
 	}
@@ -1604,7 +1616,7 @@ TEST(FTransBufferTests, JoinedAppliedChangeAndPropertyCaptureShareTheVisibleCand
 	Target->Value = 42;
 	Value = 3;
 	auto Change = std::make_unique<FTestCustomChange>(Value, 1, 3);
-	ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+	ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change)));
 	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, 0u);
 	ASSERT_NE(Buffer->GetTransaction(0), nullptr);
 	EXPECT_EQ(Buffer->GetTransaction(0)->GetId(), Prior);
@@ -1678,7 +1690,7 @@ TEST(FTransBufferTests, MissingSnapshotRejectsMixedEntryUntilSameTargetReturns)
 		ASSERT_TRUE(Live->Modify());
 		Missing->Value = 11;
 		Live->Value = 22;
-		ASSERT_TRUE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(Value, 0, 1)));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::make_unique<FTestCustomChange>(Value, 0, 1)));
 	}
 	const auto Id = Buffer->GetUndoContext().TransactionId;
 	Missing->MarkAsGarbage();
@@ -1726,8 +1738,8 @@ TEST(FTransBufferTests, PartialUndoFaultReportsOriginalRecord)
 		Failing->ReplayProbe = [&] {
 			if (Second != 0) throw std::runtime_error("Second record has not been undone");
 		};
-		ASSERT_TRUE(Buffer->StoreUndo(std::move(Failing)));
-		ASSERT_TRUE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(Second, 0, 2)));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Failing)));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::make_unique<FTestCustomChange>(Second, 0, 2)));
 	}
 	const auto Id = Buffer->GetUndoContext().TransactionId;
 	EXPECT_DEATH((void)Buffer->UndoExpected(Id), std::format("Transaction {} during Undo record 0: .*Injected mutation failure", Id));
@@ -1737,6 +1749,7 @@ TEST(FTransBufferTests, ValidationRejectsUnavailableCustomRecordBeforeExecution)
 {
 	using namespace Durin;
 	int Value = 1;
+	InitializeDObjectSystem();
 	FTransaction Transaction(42, {.Description = "Typed validation"});
 	FTransBufferTestAccess::AddCommand(Transaction, std::make_unique<FTestCustomChange>(Value, 1, 2));
 	FTransBufferTestAccess::AddCommand(Transaction, std::unique_ptr<FCommandChange>{});
@@ -1760,6 +1773,7 @@ TEST(FTransBufferTests, DirectRedoFaultReportsOriginalRecord)
 {
 	using namespace Durin;
 	int First = 1, Second = 2;
+	InitializeDObjectSystem();
 	FTransaction Transaction(43, {.Description = "Partial Redo"});
 	FTransBufferTestAccess::AddCommand(Transaction, std::make_unique<FTestCustomChange>(First, 1, 10));
 	auto FailingChange = std::make_unique<FTestCustomChange>(Second, 2, 20);
@@ -2084,7 +2098,7 @@ TEST(FTransBufferTests, CommandBeforeModifyReplaysOnlyTheRecordedCommand)
 		FScopedTransaction Outer("Command first");
 		ASSERT_TRUE(Outer.IsOutstanding());
 		Target->Value = 1;
-		ASSERT_TRUE(GUndo->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), Target->Value, 0, 1)));
+		ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 0, 1)));
 		{
 			FScopedTransaction Inner("Modify participant");
 			ASSERT_TRUE(Inner.IsOutstanding());
@@ -2120,9 +2134,7 @@ TEST(FTransBufferTests, ExplicitParticipantsSuppressSnapshotsAndCollectorOnlyDep
 	auto* Dependency = NewObject<DTransactionRecordParticipant>(nullptr, "CollectorOnlyDependency");
 	{
 		Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Composite command and dependency edit"});
-		auto Command = std::make_unique<FDeclaredParticipantChange>(First, Second, Dependency);
-		Command->Apply();
-		ASSERT_TRUE(Buffer->StoreUndo(std::move(Command)));
+		ASSERT_TRUE(RecordPair(*Buffer, *First, *Second, Dependency));
 		EXPECT_TRUE(GUndo->ContainsObject(First));
 		EXPECT_TRUE(GUndo->ContainsObject(Second));
 		EXPECT_FALSE(GUndo->ContainsObject(Dependency));
@@ -2134,7 +2146,7 @@ TEST(FTransBufferTests, ExplicitParticipantsSuppressSnapshotsAndCollectorOnlyDep
 		EXPECT_EQ(Dependency->SerializationSaves, 1);
 		Dependency->Value = 9;
 	}
-	ASSERT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 2u);
+	ASSERT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 3u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(First->Value, 0);
 	EXPECT_EQ(Second->Value, 0);
@@ -2202,10 +2214,10 @@ TEST(FTransBufferTests, ModifyBeforeCustomPreservesOrderedReplay)
 		{
 			FScopedTransaction Inner("Append custom change");
 			ASSERT_TRUE(Inner.IsOutstanding());
-			auto Change = std::make_unique<FTestCustomChange>(Target.Get(), Target->Value, 1, 2);
+			auto Change = std::make_unique<FTestCustomChange>(Target->Value, 1, 2);
 			Change->ReplayProbe = [&] { ValuesBeforeCustomReplay.push_back(Target->Value); };
 			Target->Value = 2;
-			ASSERT_TRUE(GUndo->StoreUndo(std::move(Change)));
+			ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::move(Change)));
 		}
 		EXPECT_TRUE(Outer.IsOutstanding());
 		EXPECT_EQ(Buffer->GetQueueLength(), 0u);
@@ -2523,7 +2535,7 @@ TEST(FTransBufferTests, OnlyOneBufferCanPublishTheCurrentRecording)
     auto* Current = GUndo;
     ASSERT_NE(Current, nullptr);
     EXPECT_EQ(Second->Begin("test", "Competing"), -1);
-    EXPECT_FALSE(Second->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), Target->Value, 0, 1)));
+    EXPECT_FALSE(Second->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 0, 1)));
     EXPECT_EQ(Second->GetQueueLength(), 0u);
     EXPECT_EQ(GUndo, Current);
     ASSERT_TRUE(Target->Modify()); Target->Value = 2;
@@ -2759,7 +2771,7 @@ TEST(FTransBufferTests, ScopedStoreUndoRecordsAlreadyAppliedWritesWithoutApplyin
 		Value = 7;
 		auto Change = std::make_unique<FTestCustomChange>(Value, 2, 7);
 		Change->ReplayProbe = [&] { bApplied = true; };
-		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change)));
 	}
 	EXPECT_FALSE(bApplied); EXPECT_EQ(Value, 7);
 	EXPECT_EQ(Buffer->GetTransaction(0)->GetContext().OperationId, 0u);
@@ -2778,7 +2790,7 @@ TEST(FTransBufferTests, ModuleRetirementCannotResurrectAnEarlierCleanCheckpoint)
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Mixed module entry"});
 		ASSERT_TRUE(Target->Modify()); Target->Value = 1;
-		ASSERT_TRUE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(DomainValue, 0, 1, nullptr, "RetiredCheckpointModule")));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::make_unique<FTestCustomChange>(DomainValue, 0, 1, nullptr, "RetiredCheckpointModule")));
 	}
 	Buffer->SetUndoBarrier();
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Surviving entry"}); ASSERT_TRUE(Target->Modify()); Target->Value = 2; }
@@ -2803,7 +2815,7 @@ TEST(FTransBufferTests, ForgetPackageRemapsBarriersAndInvalidatesSurvivingPartic
 	TStrongObjectPtr<DTransactionRecordParticipant> A(NewObject<DTransactionRecordParticipant>(First.Get(), "A"));
 	TStrongObjectPtr<DTransactionRecordParticipant> B(NewObject<DTransactionRecordParticipant>(Second.Get(), "B"));
 	First->ClearDirty(); Second->ClearDirty();
-	ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FDeclaredParticipantChange>(A.Get(), B.Get(), nullptr)));
+	ASSERT_TRUE(RecordPair(*Buffer, *A, *B, nullptr));
 	Buffer->SetUndoBarrier();
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Retained package entry"}); ASSERT_TRUE(B->Modify()); B->Value = 8; }
 	SimulatePackageSave(*Second);
@@ -2847,7 +2859,7 @@ TEST(FTransBufferTests, UndoRestoresCapturedDirtyBitAfterUnrecordedEdits)
 	{
 		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Scoped command"});
 		Target->Value = 2;
-		ASSERT_TRUE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), Target->Value, 1, 2)));
+		ASSERT_TRUE(Buffer->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 1, 2)));
 	}
 	ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->UnrecordedValue, 17); EXPECT_FALSE(Package->IsDirty());
@@ -2865,7 +2877,7 @@ TEST(FTransBufferTests, RejectedForeignStoreUndoPreservesTheRecordedDirtyBit)
 	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Recorded"}); ASSERT_TRUE(Target->Modify()); Target->Value = 1; }
 	EXPECT_FALSE(Target->Modify()); Target->UnrecordedValue = 29;
 	ASSERT_EQ(Foreign->Begin("test", "Foreign scope"), 0);
-	EXPECT_FALSE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(Target.Get(), Target->Value, 0, 1)));
+	EXPECT_FALSE(Buffer->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 0, 1)));
 	Foreign->Cancel(); ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->UnrecordedValue, 29); EXPECT_FALSE(Package->IsDirty());
 }
@@ -2995,7 +3007,7 @@ TEST(FTransBufferTests, UndoDoesNotInspectReferencesAfterObjectNotification)
 	auto* Probe = Change.get();
 	{
 		Tests::FBufferRecording Recording(Buffer.Get(), {.Description = "Edit with native references"});
-		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+		ASSERT_TRUE(Buffer->StoreUndo(Durin::NewObject<Durin::DObject>(nullptr, NAME_None), std::move(Change)));
 		ASSERT_TRUE(Target->Modify());
 		Target->Value = 1;
 	}

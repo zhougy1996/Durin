@@ -101,7 +101,8 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 		Drag();
 		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Original);
 		EXPECT_FALSE(Package->IsDirty());
-		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 1u);
+		EXPECT_TRUE(Transactions->IsActive());
+		EXPECT_EQ(Transactions->GetQueueLength(), 0u);
 		EXPECT_FALSE(Transactions->CanUndo());
 		Frame({Start.x + 60, Start.y}, false);
 		const auto Preview = Material->FindParameterDefinition(Definition.Id)->Value;
@@ -1747,7 +1748,8 @@ TEST(FMaterialGraphInteractionTests, ConstantInputCommitsWhenFocusLeavesAndCance
 	};
 	TypeValue("7");
 	EXPECT_EQ(GetValue(), FVector3(7, Original.y, Original.z));
-	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
+	EXPECT_TRUE(Transactions->IsActive());
+	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
 	EXPECT_FALSE(Transactions->CanUndo());
 	Frame(true);
 	EXPECT_EQ(GetValue(), FVector3(7, Original.y, Original.z));

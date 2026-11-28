@@ -7,6 +7,7 @@
 #include "Components/SplineMeshComponent.h"
 #include "Actors/SplineMeshActor.h"
 #include "DObject/Class.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Transactions/Transactor.h"
 #include "Engine/Actor.h"
@@ -165,7 +166,13 @@ namespace Durin::LevelEditor
 			}
 			auto IsValid() const -> bool override { return ResolvePoint() != nullptr; }
 			auto GetIdentity() const -> const void* override { return ResolvePoint(); }
-			auto GetModifiedObjects() const -> std::vector<DObject*> override { return {Spline.Get()}; }
+			auto GetDataOwner() const -> DObject* override { return Spline.Get(); }
+			auto AddReferencedObjects(FReferenceCollector& Collector) -> void override
+			{
+				// Element indices and topology revisions belong to this exact spline generation.
+				DObject* Object = Spline.Get();
+				if (Object) Collector.AddReferencedObject(Object);
+			}
 			auto GetTransform() const -> FTransform override
 			{
 				FTransform Result;

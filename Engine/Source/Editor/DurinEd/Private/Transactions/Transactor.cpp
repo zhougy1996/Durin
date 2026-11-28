@@ -118,17 +118,13 @@ namespace Durin
 		}
 	}
 
-	FTransaction::FObjectRecord::FObjectRecord(std::unique_ptr<FCommandChange> Change)
-		: Data(std::move(Change))
+	FTransaction::FObjectRecord::FObjectRecord(DObject& Target, std::unique_ptr<FCommandChange> Change)
+		: Data(FCommandRecord{FPersistentObjectRef::FromKey(FObjectKey(&Target)), std::move(Change), {}})
 	{
-		const auto& Custom = std::get<std::unique_ptr<FCommandChange>>(Data);
-		if (Custom)
-		{
-			for (DObject* Participant : Custom->GetModifiedObjects())
-				ModifiedObjects.Add(FPersistentObjectRef::FromKey(FObjectKey(Participant)));
-			for (DPackage* Package : Custom->GetAffectedPackages())
-				DeclaredPackages.Add(FPersistentObjectRef::FromKey(FObjectKey(Package)));
-		}
+		auto& Custom = std::get<FCommandRecord>(Data);
+		if (Custom.Change)
+			for (DPackage* Package : Custom.Change->GetAffectedPackages())
+				Custom.DeclaredPackages.Add(FPersistentObjectRef::FromKey(FObjectKey(Package)));
 	}
 
 	auto FTransaction::FObjectRecord::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
@@ -148,55 +144,41 @@ namespace Durin
 
 	auto FTransaction::FObjectRecord::Reinstance(const FObjectReplacementMap& Map) -> FTransactionCaptureResult
 	{
-		FReinstancingReferenceCollector Collector(Map);
-		ModifiedObjects.AddReferencedObjects(Collector);
 		if (auto* Object = std::get_if<FWholeObjectData>(&Data)) return Object->Reinstance(Map);
-		auto& Command = std::get<std::unique_ptr<FCommandChange>>(Data);
+		auto& Custom = std::get<FCommandRecord>(Data);
+		auto& Command = Custom.Change;
 		if (!Command) return std::unexpected("A missing custom command cannot be reinstanced.");
-		DeclaredPackages.AddReferencedObjects(Collector);
+		FReinstancingReferenceCollector Collector(Map);
+		Custom.Target.AddReferencedObjects(Collector);
+		Custom.DeclaredPackages.AddReferencedObjects(Collector);
 		Command->AddReferencedObjects(Collector);
-		for (auto* Participant : Command->GetModifiedObjects())
-			if (Map.Find(Participant)) return std::unexpected("Command retained a replaced participant.");
 		for (auto* Package : Command->GetAffectedPackages())
 			if (Map.Find(Package)) return std::unexpected("Command retained a replaced package.");
+		if (HasReplacementReferences(Map)) return std::unexpected("Command retained a replaced reference.");
 		return {};
 	}
 
-	auto FTransaction::FObjectRecord::GetModifiedObjects() const -> std::vector<DObject*>
+	auto FTransaction::FObjectRecord::GetTarget() const -> const FPersistentObjectRef&
 	{
-		if (const auto* Record = std::get_if<FTransaction::FWholeObjectData>(&Data))
-			return {Record->GetTarget().Get()};
-		std::vector<DObject*> Result;
-		for (const auto& Reference : ModifiedObjects.GetReferences())
-			if (auto* Object = Reference.Get()) Result.push_back(Object);
-		return Result;
+		if (const auto* Whole = std::get_if<FWholeObjectData>(&Data)) return Whole->GetTarget();
+		return std::get<FCommandRecord>(Data).Target;
 	}
 
 	auto FTransaction::FObjectRecord::HasExpired() const noexcept -> bool
 	{
-		return std::visit([](const auto& Record) -> bool {
-			using T = std::decay_t<decltype(Record)>;
-			if constexpr (std::is_same_v<T, std::unique_ptr<FCommandChange>>)
-				return Record && Record->HasExpired();
-			else
-				return Record.HasExpired();
-		}, Data);
+		if (const auto* Whole = std::get_if<FWholeObjectData>(&Data)) return Whole->HasExpired();
+		const auto& Custom = std::get<FCommandRecord>(Data);
+		const auto* Target = Custom.Target.Get();
+		return Custom.Change && Custom.Change->HasExpired(Target);
 	}
 
 	auto FTransaction::FObjectRecord::Validate() const -> FTransactionCaptureResult
 	{
-		return std::visit([&](const auto& Record) -> FTransactionCaptureResult {
-			using T = std::decay_t<decltype(Record)>;
-			if constexpr (std::is_same_v<T, FTransaction::FWholeObjectData>)
-			{
-				for (const auto& Reference : ModifiedObjects.GetReferences())
-					if (!Reference.Get()) return std::unexpected("A modified transaction participant is unavailable.");
-				return Record.Validate();
-			}
-			else if constexpr (std::is_same_v<T, std::unique_ptr<FCommandChange>>)
-				if (!Record) return std::unexpected(std::string("The custom transaction change is unavailable."));
-			return {};
-		}, Data);
+		if (const auto* Whole = std::get_if<FWholeObjectData>(&Data)) return Whole->Validate();
+		const auto& Custom = std::get<FCommandRecord>(Data);
+		if (!Custom.Change) return std::unexpected("The custom transaction change is unavailable.");
+		if (!Custom.Target.Get()) return std::unexpected("The custom transaction target is unavailable.");
+		return {};
 	}
 
 	auto FTransaction::FObjectRecord::CaptureInverse() -> void
@@ -221,11 +203,13 @@ namespace Durin
 	{
 		std::visit([&](auto& Record) {
 			using T = std::decay_t<decltype(Record)>;
-			if constexpr (std::is_same_v<T, std::unique_ptr<FCommandChange>>)
+			if constexpr (std::is_same_v<T, FCommandRecord>)
 			{
-				if (!Record) throw std::runtime_error("The custom transaction change is unavailable.");
-				if (bBefore) Record->Revert();
-				else Record->Apply();
+				if (!Record.Change) throw std::runtime_error("The custom transaction change is unavailable.");
+				auto* Target = Record.Target.Get();
+				if (!Target) throw std::runtime_error("The custom transaction target is unavailable.");
+				if (bBefore) Record.Change->Revert(Target);
+				else Record.Change->Apply(Target);
 			}
 			else Record.Apply(Origin);
 		}, Data);
@@ -233,13 +217,13 @@ namespace Durin
 
 	auto FTransaction::FObjectRecord::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
-		ModifiedObjects.AddReferencedObjects(Collector);
 		std::visit([&](const auto& Record) {
 			using T = std::decay_t<decltype(Record)>;
-			if constexpr (std::is_same_v<T, std::unique_ptr<FCommandChange>>)
+			if constexpr (std::is_same_v<T, FCommandRecord>)
 			{
-				DeclaredPackages.AddReferencedObjects(Collector);
-				if (Record) Record->AddReferencedObjects(Collector);
+				Record.Target.AddReferencedObjects(Collector);
+				Record.DeclaredPackages.AddReferencedObjects(Collector);
+				if (Record.Change) Record.Change->AddReferencedObjects(Collector);
 			}
 			else Record.AddReferencedObjects(Collector);
 		}, Data);
@@ -249,18 +233,16 @@ namespace Durin
 	{
 		return std::visit([&](const auto& Record) {
 			using T = std::decay_t<decltype(Record)>;
-			if constexpr (std::is_same_v<T, std::unique_ptr<FCommandChange>>)
+			if constexpr (std::is_same_v<T, FCommandRecord>)
 			{
-				if (!Record) return false;
-				const size_t Allocated = Record->GetAllocatedSize();
+				if (!Record.Change) return false;
+				const size_t Allocated = Record.Change->GetAllocatedSize();
 				if (Allocated > std::numeric_limits<size_t>::max()
 					- sizeof(FCommandChange)) return false;
-				size_t ParticipantBytes = 0;
-				if (!ModifiedObjects.TryGetAllocatedSize(ParticipantBytes)) return false;
 				OutBytes = sizeof(FCommandChange) + Allocated;
-				if (!AddSize(OutBytes, ParticipantBytes)) return false;
+				if (!AddSize(OutBytes, Record.Target.GetAllocatedSize())) return false;
 				size_t PackageBytes = 0;
-				if (!DeclaredPackages.TryGetAllocatedSize(PackageBytes) || !AddSize(OutBytes, PackageBytes)) return false;
+				if (!Record.DeclaredPackages.TryGetAllocatedSize(PackageBytes) || !AddSize(OutBytes, PackageBytes)) return false;
 				return true;
 			}
 			else return Record.TryGetAllocatedSize(OutBytes);
@@ -269,11 +251,10 @@ namespace Durin
 
 	auto FTransaction::FObjectRecord::GetDetails(bool bReplay) const -> std::string
 	{
-		if (const auto* Change = std::get_if<std::unique_ptr<FCommandChange>>(&Data);
-			Change && *Change)
+		if (const auto* Custom = std::get_if<FCommandRecord>(&Data); Custom && Custom->Change)
 		{
-			if (!bReplay) return (*Change)->GetDetails();
-			try { return (*Change)->GetDetails(); }
+			if (!bReplay) return Custom->Change->GetDetails();
+			try { return Custom->Change->GetDetails(); }
 			catch (const std::exception& Error) { DURIN_WARN("Transaction replay details unavailable: {}", Error.what()); }
 			catch (...) { DURIN_WARN("Transaction replay details unavailable."); }
 		}
@@ -284,16 +265,18 @@ namespace Durin
 	{
 		if (const auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Data)) return Object->GetAffectedPackages();
 		std::vector<DPackage*> Packages;
-		for (const auto& Reference : DeclaredPackages.GetReferences())
-			if (auto* Package = Cast<DPackage>(Reference.Get())) Packages.push_back(Package);
+		const auto& Custom = std::get<FCommandRecord>(Data);
+		if (auto* Object = Custom.Target.Get())
+			if (auto* Package = Object->GetPackage()) Packages.push_back(Package);
+		for (const auto& Reference : Custom.DeclaredPackages.GetReferences())
+			if (auto* Package = Cast<DPackage>(Reference.Get()); Package && !std::ranges::contains(Packages, Package)) Packages.push_back(Package);
 		return Packages;
 	}
 
 	auto FTransaction::FObjectRecord::IsOwnedByModule(std::string_view ModuleName) const -> bool
 	{
-		if (const auto* Change = std::get_if<std::unique_ptr<FCommandChange>>(&Data);
-			Change && *Change)
-			return (*Change)->GetOwningModule() == ModuleName;
+		if (const auto* Custom = std::get_if<FCommandRecord>(&Data); Custom && Custom->Change)
+			return Custom->Change->GetOwningModule() == ModuleName;
 		return false;
 	}
 
@@ -336,17 +319,18 @@ namespace Durin
 		OperationId = 0;
 		return {};
 	}
-	auto FTransaction::StoreUndo(std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult
+	auto FTransaction::StoreUndo(DObject* Target, std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult
 	{
 		if (bBusy || bFinalized) return std::unexpected("Transaction records are closed to capture.");
+		if (!IsValid(Target)) return std::unexpected("The custom transaction target is unavailable.");
 		if (!Change) return std::unexpected("The custom transaction change is unavailable.");
 		if (RecordingOwner)
 		{
 			if (GUndo != this) return std::unexpected("The transaction is not the active recording.");
 			std::string Error;
-			if (!RecordingOwner->StoreUndo(std::move(Change), &Error)) return std::unexpected(std::move(Error));
+			if (!RecordingOwner->StoreUndo(Target, std::move(Change), &Error)) return std::unexpected(std::move(Error));
 		}
-		else AddRecord(std::move(Change));
+		else AddRecord(*Target, std::move(Change));
 		return {};
 	}
 	auto FTransaction::ContainsPieObjects() const -> std::expected<bool, std::string>
@@ -359,13 +343,7 @@ namespace Durin
 
 	auto FTransaction::IndexRecord(FObjectIndex& Index, const FTransaction::FObjectRecord& Record) -> void
 	{
-		if (const auto* Whole = std::get_if<FTransaction::FWholeObjectData>(&Record.Data))
-			Index.insert(Whole->GetTarget());
-		else
-		{
-			for (const auto& Participant : Record.ModifiedObjects.GetReferences())
-				Index.insert(Participant);
-		}
+		Index.insert(Record.GetTarget());
 	}
 
 	auto FTransaction::GetCaptureIndex() -> FObjectIndex&
@@ -397,11 +375,11 @@ namespace Durin
 		return Records.size();
 	}
 
-	auto FTransaction::AddRecord(std::unique_ptr<FCommandChange> Change) -> uint64
+	auto FTransaction::AddRecord(DObject& Target, std::unique_ptr<FCommandChange> Change) -> uint64
 	{
 		if (bBusy || bFinalized) return 0;
 		const TGuardValue BusyScope(bBusy, true);
-		return AppendRecord(FTransaction::FObjectRecord(std::move(Change)));
+		return AppendRecord(FTransaction::FObjectRecord(Target, std::move(Change)));
 	}
 
 	auto FTransaction::ContainsObject(const DObject* Object) const -> bool
@@ -413,7 +391,7 @@ namespace Durin
 			const auto It = CaptureIndex->find(FPersistentObjectRef(const_cast<DObject*>(Object)));
 			return It != CaptureIndex->end() && It->Resolve() == Object;
 		}
-		return std::ranges::any_of(Records, [&](const auto& Record) { return std::ranges::contains(Record.GetModifiedObjects(), Object); });
+		return std::ranges::any_of(Records, [&](const auto& Record) { return Record.GetTarget().Get() == Object; });
 	}
 
 	auto FTransaction::SaveObject(DObject* Object) -> void
@@ -462,9 +440,8 @@ namespace Durin
 				catch (...) { TransactionRecordFault(Id, "Finalize", Index, "Final capture threw an unknown exception."); }
 				if (bCapture) Annotation = Whole->SerializedObjectFlip->Annotation;
 			}
-			for (auto* Object : Record.GetModifiedObjects())
-				if (Object && Seen.insert(Object).second)
-					ChangedObjects.push_back({FPersistentObjectRef(Object), &Record, Annotation});
+			if (auto* Object = Record.GetTarget().Get(); Object && Seen.insert(Object).second)
+				ChangedObjects.push_back({FPersistentObjectRef(Object), &Record, Annotation});
 		}
 		NotifyRecords(ChangedObjects, ETransactionObjectEventType::Finalized);
 		CaptureIndex.reset();
@@ -602,9 +579,8 @@ namespace Durin
 			auto& Record = Records[Index];
 			if (auto* Whole = std::get_if<FWholeObjectData>(&Record.Data); Whole && !Whole->bFinalized)
 				ExecuteRecord(Index, [&] { Whole->CaptureAfter(); });
-			for (auto* Object : Record.GetModifiedObjects())
+			if (auto* Object = Record.GetTarget().Get())
 			{
-				if (!Object) continue;
 				const auto [It, bFirst] = Positions.try_emplace(Object, ChangedObjects.size());
 				if (bFirst)
 				{
@@ -668,8 +644,7 @@ namespace Durin
 	{
 		std::vector<DObject*> Objects;
 		for (const auto& Record : Records)
-			for (auto* Object : Record.GetModifiedObjects())
-				if (Object && !std::ranges::contains(Objects, Object)) Objects.push_back(Object);
+			if (auto* Object = Record.GetTarget().Get(); Object && !std::ranges::contains(Objects, Object)) Objects.push_back(Object);
 		return Objects;
 	}
 
@@ -678,13 +653,9 @@ namespace Durin
 		std::vector<DPackage*> Packages;
 		for (const FTransaction::FObjectRecord& Record : Records)
 		{
-			for (DObject* Object : Record.GetModifiedObjects())
-			{
-				if (!Object) continue;
-				DPackage* Package = Object->GetPackage();
-				if (Package && !std::ranges::contains(Packages, Package))
+			if (auto* Object = Record.GetTarget().Get())
+				if (auto* Package = Object->GetPackage(); Package && !std::ranges::contains(Packages, Package))
 					Packages.push_back(Package);
-			}
 			for (DPackage* Package : Record.GetAffectedPackages())
 				if (Package && !std::ranges::contains(Packages, Package))
 					Packages.push_back(Package);
@@ -884,15 +855,16 @@ namespace Durin
 		Pending->AppendRecord(std::move(Record));
 	}
 
-	auto DTransBuffer::StoreUndo(std::unique_ptr<FCommandChange> Change, std::string* OutError) -> bool
+	auto DTransBuffer::StoreUndo(DObject* Target, std::unique_ptr<FCommandChange> Change, std::string* OutError) -> bool
 	try
 	{
 		CheckThread();
 		if (!IsActive() || !CanTransact()) return FailWithReason(OutError, "Storing a custom change requires an active recording available for capture.");
+		if (!IsValid(Target)) return FailWithReason(OutError, "The custom transaction target is unavailable.");
 		if (!Change) return FailWithReason(OutError, "The custom transaction change is unavailable.");
 		const TGuardValue BusyScope(Pending->bBusy, true);
-		// Native participant and package callbacks may throw after mutating the model.
-		FTransaction::FObjectRecord Record(std::move(Change));
+		// Native package callbacks may throw after mutating the model.
+		FTransaction::FObjectRecord Record(*Target, std::move(Change));
 		try { AppendCommandRecord(std::move(Record)); }
 		catch (const std::bad_alloc&) { return FailWithReason(OutError, "Could not allocate the custom transaction record."); }
 		catch (const std::length_error&) { return FailWithReason(OutError, "The custom record exceeds transaction capacity."); }

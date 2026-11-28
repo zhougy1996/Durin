@@ -76,161 +76,161 @@ namespace Durin::MaterialEditor
 	auto DMaterialGraphNode::OnRenameNode(std::string NewName, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Graph = Cast<DMaterialGraph>(GetOuter());
-		auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
-		auto* Expression = GetMaterialExpression();
-		if (!Owner || !Expression || !Expression->CanRenameNode()) return RejectCommand("The selected node cannot be renamed.");
-		if (Expression->GetEditableName() == NewName) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (const auto* Terminal = GetTerminalPort(Expression))
-		{
-			auto Port = *Terminal;
-			Port.Name = std::move(NewName);
-			return SetFunctionPort(std::move(Port), bShouldTransact);
-		}
-		const auto Duplicated = DuplicateObject(Expression, nullptr, NAME_None);
-		if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
-		TStrongObjectPtr<DMaterialExpression> Draft(Cast<DMaterialExpression>(*Duplicated));
-		Draft->SetEditableName(std::move(NewName));
-		return CommitExpressionReplacement(*Owner, *Draft, *Admission);
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			auto* Graph = Cast<DMaterialGraph>(GetOuter());
+			auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
+			auto* Expression = GetMaterialExpression();
+			if (!Owner || !Expression || !Expression->CanRenameNode()) return RejectCommand("The selected node cannot be renamed.");
+			if (Expression->GetEditableName() == NewName) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			if (const auto* Terminal = GetTerminalPort(Expression))
+			{
+				auto Port = *Terminal;
+				Port.Name = std::move(NewName);
+				return SetFunctionPort(std::move(Port), bShouldTransact);
+			}
+			const auto Duplicated = DuplicateObject(Expression, nullptr, NAME_None);
+			if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
+			TStrongObjectPtr<DMaterialExpression> Draft(Cast<DMaterialExpression>(*Duplicated));
+			Draft->SetEditableName(std::move(NewName));
+			return CommitExpressionReplacement(*Owner, *Draft, Transactions);
+		});
 	}
 
 	auto DMaterialGraphNode::SetFunctionPort(FMaterialFunctionPort Port, bool bShouldTransact) -> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Graph = Cast<DMaterialGraph>(GetOuter());
-		auto* Function = Graph ? Cast<DMaterialFunction>(Graph->GetMaterialOrFunction()) : nullptr;
-		auto* Expression = GetMaterialExpression();
-		auto* Target = GetTerminalPort(Expression);
-		if (!Function || !Target || Target->Id != Port.Id) return RejectCommand("The function port is unavailable.");
-		if (*Target == Port) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		auto Renamed = *Target;
-		Renamed.Name = Port.Name;
-		if (Renamed == Port)
-		{
-			auto Signature = Function->GetFunctionSignature();
-			auto& Ports = Cast<DMaterialExpressionFunctionInput>(Expression) ? Signature.Inputs : Signature.Outputs;
-			const auto Entry = std::ranges::find(Ports, Port.Id, &FMaterialFunctionPort::Id);
-			if (Entry == Ports.end()) return RejectCommand("The function port is unavailable.");
-			Entry->Name = Port.Name;
-			if (auto Validation = ValidateMaterialFunctionSignature(Signature); !Validation)
-				return RejectCommand("The function signature is invalid.", std::move(Validation.Diagnostics));
-			return EditExpressions(*Function, *Admission, "Rename Function Port", {&Expression, 1},
-				[&] { Target->Name = std::move(Port.Name); });
-		}
-		const auto Duplicated = DuplicateObject(Expression, nullptr, NAME_None);
-		if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
-		TStrongObjectPtr<DMaterialExpression> Draft(Cast<DMaterialExpression>(*Duplicated));
-		*GetTerminalPort(Draft.Get()) = std::move(Port);
-		return CommitExpressionReplacement(*Function, *Draft, *Admission);
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			auto* Graph = Cast<DMaterialGraph>(GetOuter());
+			auto* Function = Graph ? Cast<DMaterialFunction>(Graph->GetMaterialOrFunction()) : nullptr;
+			auto* Expression = GetMaterialExpression();
+			auto* Target = GetTerminalPort(Expression);
+			if (!Function || !Target || Target->Id != Port.Id) return RejectCommand("The function port is unavailable.");
+			if (*Target == Port) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			auto Renamed = *Target;
+			Renamed.Name = Port.Name;
+			if (Renamed == Port)
+			{
+				auto Signature = Function->GetFunctionSignature();
+				auto& Ports = Cast<DMaterialExpressionFunctionInput>(Expression) ? Signature.Inputs : Signature.Outputs;
+				const auto Entry = std::ranges::find(Ports, Port.Id, &FMaterialFunctionPort::Id);
+				if (Entry == Ports.end()) return RejectCommand("The function port is unavailable.");
+				Entry->Name = Port.Name;
+				if (auto Validation = ValidateMaterialFunctionSignature(Signature); !Validation)
+					return RejectCommand("The function signature is invalid.", std::move(Validation.Diagnostics));
+				return EditExpressions(*Function, Transactions, "Rename Function Port", {&Expression, 1},
+					[&] { Target->Name = std::move(Port.Name); });
+			}
+			const auto Duplicated = DuplicateObject(Expression, nullptr, NAME_None);
+			if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
+			TStrongObjectPtr<DMaterialExpression> Draft(Cast<DMaterialExpression>(*Duplicated));
+			*GetTerminalPort(Draft.Get()) = std::move(Port);
+			return CommitExpressionReplacement(*Function, *Draft, Transactions);
+		});
 	}
 
 	auto DMaterialGraphNode::SetConstantValue(const FMaterialParameterValue& Value, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Graph = Cast<DMaterialGraph>(GetOuter());
-		auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
-		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		auto* Expression = GetMaterialExpression();
-		if (!Expression) return RejectCommand("The expression no longer exists.");
-		if (!Cast<DMaterialExpressionScalarConstant>(Expression) && !Cast<DMaterialExpressionVector2Constant>(Expression)
-			&& !Cast<DMaterialExpressionVector3Constant>(Expression) && !Cast<DMaterialExpressionVector4Constant>(Expression))
-			return RejectCommand("The selected expression is not a constant.");
-		const auto Literal = ReadParameterLiteral(GetProgramType(Value.GetType()), Value);
-		if (!std::isfinite(Literal.X) || !std::isfinite(Literal.Y) || !std::isfinite(Literal.Z) || !std::isfinite(Literal.W))
-			return RejectCommand("Constant values must be finite.", {{.NodeId = Expression->Id, .Message = "Expression constant must be finite."}});
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			auto* Graph = Cast<DMaterialGraph>(GetOuter());
+			auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
+			if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+			auto* Expression = GetMaterialExpression();
+			if (!Expression) return RejectCommand("The expression no longer exists.");
+			if (!Cast<DMaterialExpressionScalarConstant>(Expression) && !Cast<DMaterialExpressionVector2Constant>(Expression)
+				&& !Cast<DMaterialExpressionVector3Constant>(Expression) && !Cast<DMaterialExpressionVector4Constant>(Expression))
+				return RejectCommand("The selected expression is not a constant.");
+			const auto Literal = ReadParameterLiteral(GetProgramType(Value.GetType()), Value);
+			if (!std::isfinite(Literal.X) || !std::isfinite(Literal.Y) || !std::isfinite(Literal.Z) || !std::isfinite(Literal.W))
+				return RejectCommand("Constant values must be finite.", {{.NodeId = Expression->Id, .Message = "Expression constant must be finite."}});
 
-		const auto SetValue = [&]<class T>(const auto& NewValue) -> FMaterialGraphCommandResult {
-			if (auto* Constant = Cast<T>(Expression))
+			const auto SetValue = [&]<class T>(const auto& NewValue) -> FMaterialGraphCommandResult {
+				if (auto* Constant = Cast<T>(Expression))
+				{
+					if (Constant->Value == NewValue) return {.Status = EMaterialGraphCommandStatus::NoChange};
+					if (auto Valid = ValidateGraphEdit(*Owner); !Valid) return Valid;
+					return EditExpressions(*Owner, Transactions, "Edit Constant Expression", std::array{Expression},
+						[&] { Constant->Value = NewValue; });
+				}
+				TStrongObjectPtr<T> Replacement(NewObject<T>(nullptr, NAME_None));
+				Replacement->Id = Expression->Id;
+				Replacement->Value = NewValue;
+				return CommitExpressionReplacement(*Owner, *Replacement, Transactions);
+			};
+			switch (Value.GetType())
 			{
-				if (Constant->Value == NewValue) return {.Status = EMaterialGraphCommandStatus::NoChange};
-				if (auto Valid = ValidateGraphEdit(*Owner); !Valid) return Valid;
-				return EditExpressions(*Owner, *Admission, "Edit Constant Expression", std::array{Expression},
-					[&] { Constant->Value = NewValue; });
+			case EMaterialParameterType::Scalar: return SetValue.operator()<DMaterialExpressionScalarConstant>(Value.GetScalar());
+			case EMaterialParameterType::Vector2: return SetValue.operator()<DMaterialExpressionVector2Constant>(Value.GetVector2());
+			case EMaterialParameterType::Vector: return SetValue.operator()<DMaterialExpressionVector3Constant>(Value.GetVector());
+			case EMaterialParameterType::Vector4: return SetValue.operator()<DMaterialExpressionVector4Constant>(Value.GetVector4());
+			default: return RejectCommand("Constants require a numeric value.");
 			}
-			TStrongObjectPtr<T> Replacement(NewObject<T>(nullptr, NAME_None));
-			Replacement->Id = Expression->Id;
-			Replacement->Value = NewValue;
-			return CommitExpressionReplacement(*Owner, *Replacement, *Admission);
-		};
-		switch (Value.GetType())
-		{
-		case EMaterialParameterType::Scalar: return SetValue.operator()<DMaterialExpressionScalarConstant>(Value.GetScalar());
-		case EMaterialParameterType::Vector2: return SetValue.operator()<DMaterialExpressionVector2Constant>(Value.GetVector2());
-		case EMaterialParameterType::Vector: return SetValue.operator()<DMaterialExpressionVector3Constant>(Value.GetVector());
-		case EMaterialParameterType::Vector4: return SetValue.operator()<DMaterialExpressionVector4Constant>(Value.GetVector4());
-		default: return RejectCommand("Constants require a numeric value.");
-		}
+		});
 	}
 
 	auto DMaterialGraphNode::SetSwizzleComponents(std::span<const uint8> Components, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		if (Components.empty() || Components.size() > 4 || std::ranges::any_of(Components, [](uint8 Channel) { return Channel > 3; }))
-			return RejectCommand("Swizzles require one to four valid components.");
-		auto* Graph = Cast<DMaterialGraph>(GetOuter());
-		auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
-		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		auto* Expression = GetMaterialExpression();
-		if (!Expression) return RejectCommand("The expression no longer exists.");
-		auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression);
-		if (!Swizzle) return RejectCommand("The selected expression is not a swizzle.");
-		if (std::ranges::equal(Swizzle->Components, Components)) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		return EditExpressionInputs(*Owner, *Admission, "Edit Swizzle", {Swizzle},
-			[&] { Swizzle->Components.assign(Components.begin(), Components.end()); }, {}, {},
-			{{Swizzle, static_cast<EMaterialProgramValueType>(Components.size() - 1)}});
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			if (Components.empty() || Components.size() > 4 || std::ranges::any_of(Components, [](uint8 Channel) { return Channel > 3; }))
+				return RejectCommand("Swizzles require one to four valid components.");
+			auto* Graph = Cast<DMaterialGraph>(GetOuter());
+			auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
+			if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+			auto* Expression = GetMaterialExpression();
+			if (!Expression) return RejectCommand("The expression no longer exists.");
+			auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression);
+			if (!Swizzle) return RejectCommand("The selected expression is not a swizzle.");
+			if (std::ranges::equal(Swizzle->Components, Components)) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			return EditExpressionInputs(*Owner, Transactions, "Edit Swizzle", {Swizzle},
+				[&] { Swizzle->Components.assign(Components.begin(), Components.end()); }, {}, {},
+				{{Swizzle, static_cast<EMaterialProgramValueType>(Components.size() - 1)}});
+		});
 	}
 
 	auto DMaterialGraphNode::SetAttributeOutputEnabled(FGuid AttributeId, bool Enabled, bool bShouldTransact)
 		-> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
-		auto Admission = ResolveEditorTransactor(bShouldTransact);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Surface = Cast<DMaterialExpressionGetMaterialAttributes>(GetMaterialExpression());
-		if (!Surface) return RejectCommand("The selected node has no material attribute outputs.");
-		const auto* Definition = FMaterialAttributeDefinitionMap::Find(AttributeId);
-		if (!Definition) return RejectCommand("Unknown material attribute.");
-		if (Surface->IsSelected(Definition->Property) == Enabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		return WithGraphRecording(bShouldTransact, [&](DTransactor* Transactions) -> FMaterialGraphCommandResult {
+			auto* Surface = Cast<DMaterialExpressionGetMaterialAttributes>(GetMaterialExpression());
+			if (!Surface) return RejectCommand("The selected node has no material attribute outputs.");
+			const auto* Definition = FMaterialAttributeDefinitionMap::Find(AttributeId);
+			if (!Definition) return RejectCommand("Unknown material attribute.");
+			if (Surface->IsSelected(Definition->Property) == Enabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
 
-		auto& Owner = *Surface->GetOuter();
-		std::vector<DMaterialExpression*> Objects{Surface};
-		std::vector<FMaterialExpressionInput*> Removed;
-		FProposedLinks Links;
-		auto Outputs = Surface->AttributeIDs;
-		if (Enabled) Outputs.push_back(AttributeId);
-		else std::erase(Outputs, AttributeId);
-		if (!Enabled)
-		{
-			const auto UsesOutput = [&](const FMaterialExpressionInput& Input) {
-				return Input.Expression.Get() == Surface && Input.OutputIndex == static_cast<int32>(Definition->Property);
-			};
-			// Hidden root inputs also retain authored connections.
-			for (const auto& Consumer : FMaterialExpressionEditing::GetExpressions(Owner))
+			auto& Owner = *Surface->GetOuter();
+			std::vector<DMaterialExpression*> Objects{Surface};
+			std::vector<FMaterialExpressionInput*> Removed;
+			FProposedLinks Links;
+			auto Outputs = Surface->AttributeIDs;
+			if (Enabled) Outputs.push_back(AttributeId);
+			else std::erase(Outputs, AttributeId);
+			if (!Enabled)
 			{
-				VisitStoredMaterialInputs(*Consumer, [&](FMaterialExpressionInput& Input) {
-					if (UsesOutput(Input))
-					{
-						if (!std::ranges::contains(Objects, Consumer.Get())) Objects.push_back(Consumer.Get());
-						Removed.push_back(&Input);
-						Links.emplace(&Input, FMaterialExpressionInput{});
-					}
-				});
+				const auto UsesOutput = [&](const FMaterialExpressionInput& Input) {
+					return Input.Expression.Get() == Surface && Input.OutputIndex == static_cast<int32>(Definition->Property);
+				};
+				// Hidden root inputs also retain authored connections.
+				for (const auto& Consumer : FMaterialExpressionEditing::GetExpressions(Owner))
+				{
+					VisitStoredMaterialInputs(*Consumer, [&](FMaterialExpressionInput& Input) {
+						if (UsesOutput(Input))
+						{
+							if (!std::ranges::contains(Objects, Consumer.Get())) Objects.push_back(Consumer.Get());
+							Removed.push_back(&Input);
+							Links.emplace(&Input, FMaterialExpressionInput{});
+						}
+					});
+				}
 			}
-		}
-		return EditExpressionInputs(Owner, *Admission, "Edit Material Attribute Outputs", std::move(Objects), [&] {
-			Surface->AttributeIDs = std::move(Outputs);
-			for (auto* Input : Removed) *Input = {};
-		}, Links);
+			return EditExpressionInputs(Owner, Transactions, "Edit Material Attribute Outputs", std::move(Objects), [&] {
+				Surface->AttributeIDs = std::move(Outputs);
+				for (auto* Input : Removed) *Input = {};
+			}, Links);
+		});
 	}
 
 	auto DMaterialGraphNode::Refresh(DMaterialExpression* Expression, size_t Ordinal) -> void

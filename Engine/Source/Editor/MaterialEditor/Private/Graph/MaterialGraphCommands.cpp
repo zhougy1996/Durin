@@ -117,15 +117,17 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		return ValidateProposedGraph(Owner, Collection, Links, nullptr, nullptr);
 	}
 
-	auto RecordGraphEdit(DObject& Owner, DTransactor* Transactions, std::string Description,
-		std::span<DObject* const> Objects, const std::function<void()>& Apply) -> FMaterialGraphCommandResult
+	auto RecordGraphObjects(DObject& Owner, DTransactor* Transactions, std::string_view Description,
+		std::span<DObject* const> Objects, bool bBatchGraphChanges,
+		const std::function<FMaterialGraphCommandResult()>& Apply) -> FMaterialGraphCommandResult
 	{
 		if (Transactions && ResolveEditorTransactor(true).value_or(nullptr) != Transactions)
 			return RejectCommand("The editor transactor is busy.");
 		if (std::ranges::any_of(Objects, [](const auto* Object) { return !IsValid(Object); }))
 			return RejectCommand("An edited graph object is unavailable.");
 		const bool bNested = Transactions && Transactions->IsActive();
-		FScopedMaterialGraphChange Batch(Owner);
+		std::optional<FScopedMaterialGraphChange> Batch;
+		if (bBatchGraphChanges) Batch.emplace(Owner);
 		FScopedTransaction Recording("MaterialGraph", Description, &Owner, Transactions && !bNested);
 		if (Transactions)
 		{
@@ -137,12 +139,22 @@ namespace Durin::MaterialEditor::GraphEditInternals
 				Object->SetFlags(EObjectFlags::Transactional);
 				if (Object->Modify(false)) continue;
 				if (!bNested) Recording.Cancel();
-				return RejectCommand("Unable to record the expression.");
+				return RejectCommand("Unable to record an edited graph object.");
 			}
 		}
-		Apply();
-		FMaterialExpressionEditing::Publish(Owner);
-		return {};
+		auto Result = Apply();
+		if (!Result && !bNested) Recording.Cancel();
+		return Result;
+	}
+
+	auto RecordGraphEdit(DObject& Owner, DTransactor* Transactions, std::string Description,
+		std::span<DObject* const> Objects, const std::function<void()>& Apply) -> FMaterialGraphCommandResult
+	{
+		return RecordGraphObjects(Owner, Transactions, Description, Objects, /*bBatchGraphChanges=*/true, [&]() -> FMaterialGraphCommandResult {
+			Apply();
+			FMaterialExpressionEditing::Publish(Owner);
+			return {};
+		});
 	}
 
 	auto EditExpressions(DObject& Owner, DTransactor* Transactions, std::string Description,

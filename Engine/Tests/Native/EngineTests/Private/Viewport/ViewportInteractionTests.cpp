@@ -35,7 +35,8 @@ namespace
 	public:
 		auto IsValid() const -> bool override { return bValid; }
 		auto GetIdentity() const -> const void* override { return this; }
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { return {}; }
+		auto GetDataOwner() const -> Durin::DObject* override { return Owner.Get(); }
+		Durin::TStrongObjectPtr<Durin::DObject> Owner{Durin::NewObject<Durin::DObject>(nullptr, Durin::NAME_None)};
 		auto GetTransform() const -> Durin::FTransform override { return Transform; }
 		auto SetTransform(const Durin::FTransform& Value) -> bool override
 		{
@@ -43,7 +44,12 @@ namespace
 			Transform = Value;
 			return bValid;
 		}
-		auto GetPackage() const -> Durin::DPackage* override { return Package.Get(); }
+		auto GetPackage() const -> Durin::DPackage* override
+		{
+			if (bFailRecording && Durin::GUndo) throw std::runtime_error("Injected gizmo metadata failure");
+			return Package.Get();
+		}
+		bool bFailRecording = false;
 		auto GetLabel() const -> std::string override { return "Probe"; }
 		auto GetCapabilities() const -> Durin::LevelEditor::ETransformGizmoCapability override { return Capabilities; }
 		Durin::FTransform Transform;
@@ -470,7 +476,9 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	EXPECT_EQ(TransformTransactions->GetUndoContext().Description, "Translate 2 Actors");
 	const auto* Edit = TransformTransactions->GetTransaction(0);
 	ASSERT_NE(Edit, nullptr);
-	EXPECT_EQ(Edit->GetRecordCount(), 1u);
+	EXPECT_EQ(Edit->GetRecordCount(), 2u);
+	EXPECT_FALSE(Edit->ContainsObject(Actor));
+	EXPECT_FALSE(Edit->ContainsObject(Peer));
 	EXPECT_TRUE(Edit->ContainsObject(Actor->GetRootComponent()));
 	EXPECT_TRUE(Edit->ContainsObject(Peer->GetRootComponent()));
 	const auto Dragged = Actor->GetActorTransform().Translation;
@@ -769,6 +777,62 @@ namespace
 		auto Release(Durin::DTransactor* Buffer) -> void
 		{ Input.bLeftMouseDown = false; Gizmo.Update(Targets, View, Input, Buffer); }
 	};
+}
+
+TEST(FTransformGizmoTests, ReleaseGroupsElementsByDataOwnerInOneUndoStep)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(3));
+	Probe.Objects[2]->Owner = Probe.Objects[0]->Owner;
+	Tests::FTestEditorTransactorOwner Buffer;
+	const auto Before = Probe.Objects.front()->Transform;
+	Probe.Begin(Buffer.Get());
+	Probe.Move(Buffer.Get());
+	EXPECT_FALSE(Buffer->IsActive());
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+	const auto After = Probe.Objects.front()->Transform;
+	ASSERT_NE(After.Translation, Before.Translation);
+	Probe.Release(Buffer.Get());
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
+	const auto* Entry = Buffer->GetTransaction(0);
+	ASSERT_NE(Entry, nullptr);
+	EXPECT_EQ(Entry->GetRecordCount(), 2u);
+	EXPECT_TRUE(Entry->ContainsObject(Probe.Objects[0]->Owner.Get()));
+	EXPECT_TRUE(Entry->ContainsObject(Probe.Objects[1]->Owner.Get()));
+	ASSERT_TRUE(Buffer->Undo());
+	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->Transform.Translation, Before.Translation);
+	ASSERT_TRUE(Buffer->Redo());
+	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->Transform.Translation, After.Translation);
+	Probe.Objects[0]->bValid = false;
+	EXPECT_FALSE(Buffer->Undo());
+	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->Transform.Translation, After.Translation);
+}
+
+TEST(FTransformGizmoTests, RejectedSecondOwnerDiscardsTheFirstRecordAndRestoresPreview)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(2));
+	Tests::FTestEditorTransactorOwner Buffer;
+	const auto Before = Probe.Objects.front()->Transform;
+	Probe.Begin(Buffer.Get());
+	Probe.Move(Buffer.Get());
+	Probe.Objects[1]->bFailRecording = true;
+	size_t CanceledRecords = 0;
+	const auto Listener = Buffer->OnTransactionStateChanged().AddLambda(
+		[&](const FTransactionContext&, ETransactionStateEventType Event) {
+			if (Event == ETransactionStateEventType::TransactionCanceled) CanceledRecords = static_cast<FTransaction*>(GUndo)->GetRecordCount();
+		});
+	Probe.Release(Buffer.Get());
+	Buffer->OnTransactionStateChanged().Remove(Listener);
+	EXPECT_EQ(CanceledRecords, 1u);
+	EXPECT_FALSE(Buffer->IsActive());
+	EXPECT_FALSE(Probe.Gizmo.IsDragging());
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+	for (const auto& Target : Probe.Objects) ExpectVectorNear(Target->Transform.Translation, Before.Translation);
 }
 
 TEST(FTransformGizmoTests, FailedCancelRetainsRetryStateAndNeverClearsDirty)

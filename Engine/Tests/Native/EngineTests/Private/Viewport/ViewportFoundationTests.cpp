@@ -582,10 +582,9 @@ TEST(FEditorTransactionManagerTests, EachExpiredCandidateSeesItsOwnCursorPositio
 	public:
 		FExpiredChange(DTransactor& InBuffer, std::vector<size_t>& InCounts) : Buffer(InBuffer), Counts(InCounts) {}
 		auto GetDescription() const -> std::string_view override { return "Expired"; }
-		auto GetModifiedObjects() const -> std::vector<DObject*> override { return {}; }
-		auto Apply() -> void override {}
-		auto Revert() -> void override {}
-		auto HasExpired() const noexcept -> bool override
+		auto Apply(Durin::DObject*) -> void override {}
+		auto Revert(Durin::DObject*) -> void override {}
+		auto HasExpired(const Durin::DObject*) const noexcept -> bool override
 		{
 			Counts.push_back(Buffer.GetUndoCount());
 			return true;
@@ -650,6 +649,7 @@ TEST(FEditorTransactionManagerTests, ExpiredCommandSkipsWholeGroupAndPreservesPa
 
 TEST(FEditorTransactionManagerTests, TerminalReplayDiagnosticIdentifiesUndoAndRedo)
 {
+	InitializeDObjectSystem();
 	int Value = 0;
 	FTransactionControl Control;
 	Durin::Tests::FTestTransactorOwner Manager;

@@ -112,8 +112,7 @@ namespace Durin::LevelEditor
 			explicit FActorTransformGizmoTarget(AActor* InActor) : Actor(InActor) {}
 			auto IsValid() const -> bool override { return Actor && !Actor->IsHidden() && Actor->GetRootComponent(); }
 			auto GetIdentity() const -> const void* override { return Actor.Get(); }
-			auto GetModifiedObjects() const -> std::vector<DObject*> override
-			{ return {Actor.Get(), Actor ? Actor->GetRootComponent() : nullptr}; }
+			auto GetDataOwner() const -> DObject* override { return Actor ? Actor->GetRootComponent() : nullptr; }
 			auto GetTransform() const -> FTransform override { return Actor ? Actor->GetActorTransform() : FTransform{}; }
 			auto SetTransform(const FTransform& Transform) -> bool override { return Actor && Actor->SetActorTransform(Transform); }
 			auto GetParentRotation() const -> FQuat override
@@ -386,10 +385,7 @@ namespace Durin::LevelEditor
 		if (Transactions)
 		{
 			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
-			auto Change = Proxy->CreateChange(Action, Transactions->GetHistoryId());
-			// Keep multi-frame previews independent of unrelated editor transactions.
-			FScopedTransaction Recording("TransformGizmo", std::string(Change->GetDescription()), nullptr);
-			if (!Recording.IsOutstanding() || !Transactions->StoreUndo(std::move(Change)))
+			if (!Proxy->RecordChanges(*Transactions, Action))
 			{
 				CancelDrag();
 				return false;

@@ -231,9 +231,13 @@ their packages, and the shared pivot and basis. The gizmo computes a frame from
 pointer input and snapping. The proxy applies it to each target from its initial
 world transform, including rotation and scale about the shared pivot.
 Targets apply preview and restoration transforms without marking packages dirty.
-On release the gizmo records one `FTransformProxyChange` through `StoreUndo(Change)`.
-The change retains the history targets and each target’s initial and actual preview
-transforms. Later changes of selection or viewport lifetime do not redirect replay.
+On release the gizmo groups changed elements by data owner and appends one
+`FTransformProxyChange` per owner through `StoreUndo(Owner, Change)` in one
+transaction. Actor transforms belong to their root scene components. Spline
+points and tangent handles belong to their spline component. Each command
+retains its elements' initial and actual preview transforms. A rejected group
+cancels the recording before the gizmo restores its previews.
+Later changes of selection or viewport lifetime do not redirect replay.
 The document controller owns save admission for both commands and direct calls:
 saving and save-producing rename require an idle transactor and no active gesture
 or unfinished restore.

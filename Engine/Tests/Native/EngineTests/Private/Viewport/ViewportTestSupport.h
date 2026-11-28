@@ -74,8 +74,6 @@ namespace
 	class FCountingTransaction final : public Durin::FCommandChange
 	{
 	public:
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
-		{ return {}; }
 
 		explicit FCountingTransaction(int& InValue, int InDelta = 1) : Value(InValue), Delta(InDelta) {}
 		auto GetDescription() const -> std::string_view override { return "Counting"; }
@@ -83,11 +81,11 @@ namespace
 		{
 			return "Counter changed";
 		}
-		auto Revert() -> void override
+		auto Revert(Durin::DObject*) -> void override
 		{
 			Value -= Delta;
 		}
-		auto Apply() -> void override
+		auto Apply(Durin::DObject*) -> void override
 		{
 			Value += Delta;
 		}
@@ -103,17 +101,15 @@ namespace
 	class FControlledTransaction final : public Durin::FCommandChange
 	{
 	public:
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
-		{ return {}; }
 
 		FControlledTransaction(int& InValue, FTransactionControl& InControl) : Value(InValue), Control(InControl) {}
 		auto GetDescription() const -> std::string_view override { return "Controlled"; }
-		auto Revert() -> void override
+		auto Revert(Durin::DObject*) -> void override
 		{
 			if (Control.bFailUndo) throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation}));
 			--Value;
 		}
-		auto Apply() -> void override
+		auto Apply(Durin::DObject*) -> void override
 		{
 			if (Control.bFailRedo) throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation}));
 			++Value;
@@ -126,8 +122,6 @@ namespace
 	class FPackageCountingTransaction final : public Durin::FCommandChange
 	{
 	public:
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
-		{ return {}; }
 
 		FPackageCountingTransaction(
 			int& InValue,
@@ -145,14 +139,14 @@ namespace
 		}
 
 		auto GetDescription() const -> std::string_view override { return "Package Counting"; }
-		auto HasExpired() const noexcept -> bool override { return Expired && *Expired; }
+		auto HasExpired(const Durin::DObject*) const noexcept -> bool override { return Expired && *Expired; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
-		auto Revert() -> void override
+		auto Revert(Durin::DObject*) -> void override
 		{
 			if (Control && Control->bFailUndo) throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation}));
 			Value -= Delta;
 		}
-		auto Apply() -> void override
+		auto Apply(Durin::DObject*) -> void override
 		{
 			if (Control && Control->bFailRedo) throw std::runtime_error(Durin::FormatActorChangeError({.Code = Durin::EActorChangeError::InjectedMutation}));
 			Value += Delta;

@@ -14,7 +14,7 @@ namespace Durin
 	struct FTransBufferTestAccess
 	{
 		static auto AddCommand(FTransaction& Transaction, std::unique_ptr<FCommandChange> Change) -> void
-		{ Transaction.AddRecord(std::move(Change)); }
+		{ Transaction.AddRecord(*NewObject<DObject>(nullptr, NAME_None), std::move(Change)); }
 
 		static auto CaptureIndex(const FTransaction& Transaction) { return Transaction.CaptureIndex.get(); }
 
@@ -64,15 +64,20 @@ namespace Durin::Tests
 	};
 
 	// Seed real history for consumers that exercise Undo, Redo or history inspection.
-	inline auto RecordTestEdit(DTransactor& Buffer, std::unique_ptr<FCommandChange> Change) -> FTransactionId
+	inline auto RecordTestEdit(DTransactor& Buffer, DObject& Target, std::unique_ptr<FCommandChange> Change) -> FTransactionId
 	{
 		FBufferRecording Scope(&Buffer, {"TestEdit", std::string(Change->GetDescription())});
 		if (!Scope.IsOutstanding()) return 0;
-		Change->Apply();
+		Change->Apply(&Target);
 		const auto Id = GUndo->GetContext().TransactionId;
-		return Buffer.StoreUndo(std::move(Change)) ? Id : 0;
+		return Buffer.StoreUndo(&Target, std::move(Change)) ? Id : 0;
 	}
 
+	// Counter-only fixtures still need an explicit, independently collectible record target.
+	inline auto RecordTestEdit(DTransactor& Buffer, std::unique_ptr<FCommandChange> Change) -> FTransactionId
+	{
+		return RecordTestEdit(Buffer, *NewObject<DObject>(nullptr, NAME_None), std::move(Change));
+	}
 
 	// Editor-command tests exercise the real process editor and its own history.
 	class FTestEditorTransactorOwner final

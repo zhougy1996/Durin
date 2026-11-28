@@ -112,7 +112,7 @@ namespace Durin
 		public:
 			explicit FObjectRecord(FWholeObjectData Record)
 				: Data(std::move(Record)) {}
-			DURINED_API explicit FObjectRecord(std::unique_ptr<FCommandChange> Change);
+			DURINED_API explicit FObjectRecord(DObject& Target, std::unique_ptr<FCommandChange> Change);
 
 			DURINED_API auto HasExpired() const noexcept -> bool;
 			DURINED_API auto Validate() const -> FTransactionCaptureResult;
@@ -125,7 +125,7 @@ namespace Durin
 			DURINED_API auto GetDetails(bool bReplay) const -> std::string;
 			DURINED_API auto GetAffectedPackages() const -> std::vector<DPackage*>;
 			DURINED_API auto IsOwnedByModule(std::string_view ModuleName) const -> bool;
-			DURINED_API auto GetModifiedObjects() const -> std::vector<DObject*>;
+			DURINED_API auto GetTarget() const -> const FPersistentObjectRef&;
 			DURINED_API auto CaptureInverse() -> void;
 			DURINED_API auto Reinstance(const FObjectReplacementMap& Map) -> FTransactionCaptureResult;
 			DURINED_API auto HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool;
@@ -134,9 +134,13 @@ namespace Durin
 			friend class FTransaction;
 			friend class DTransBuffer;
 			auto GetReplayAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>;
-			std::variant<FWholeObjectData, std::unique_ptr<FCommandChange>> Data;
-			FTransactionObjectReferenceSet ModifiedObjects;
-			FTransactionObjectReferenceSet DeclaredPackages;
+			struct FCommandRecord
+			{
+				FPersistentObjectRef Target;
+				std::unique_ptr<FCommandChange> Change;
+				FTransactionObjectReferenceSet DeclaredPackages;
+			};
+			std::variant<FWholeObjectData, FCommandRecord> Data;
 		};
 	public:
 		DURINED_API FTransaction(FTransactionId Id, FTransactionContext Context, DTransBuffer* RecordingOwner = nullptr);
@@ -150,7 +154,7 @@ namespace Durin
 		DURINED_API auto SetPrimaryObject(DObject* Object) -> void override;
 		DURINED_API auto BeginOperation() -> FTransactionCaptureResult override;
 		DURINED_API auto EndOperation() -> FTransactionCaptureResult override;
-		DURINED_API auto StoreUndo(std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult override;
+		DURINED_API auto StoreUndo(DObject* Target, std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult override;
 		DURINED_API auto ContainsPieObjects() const -> std::expected<bool, std::string> override;
 		auto GetRecordCount() const -> size_t { return Records.size(); }
 		DURINED_API auto RemoveNoOpRecords() -> void;
@@ -194,7 +198,7 @@ namespace Durin
 		bool bNotifyingPreFinalize = false;
 		std::optional<std::string> FailureReason;
 		friend struct FTransBufferTestAccess;
-		DURINED_API auto AddRecord(std::unique_ptr<FCommandChange> Change) -> uint64;
+		DURINED_API auto AddRecord(DObject& Target, std::unique_ptr<FCommandChange> Change) -> uint64;
 		// Participants without a whole-object snapshot have position zero.
 		using FObjectIndex = std::unordered_set<FPersistentObjectRef>;
 		static auto IndexRecord(FObjectIndex& Index, const FObjectRecord& Record) -> void;
@@ -239,9 +243,9 @@ namespace Durin
 		DURINED_API virtual auto End() -> int32 = 0;
 		DURINED_API virtual auto Cancel(int32 StartIndex = 0) -> void = 0;
 		DURINED_API virtual auto IsActive() const -> bool = 0;
-		// Store an already-applied command. Its declared participants suppress later Modify() snapshots.
+		// Store an already-applied command. Its explicit target suppresses later Modify() snapshots.
 		// Call Modify() before the first write to keep a whole-object baseline alongside the command.
-		DURINED_API virtual auto StoreUndo(std::unique_ptr<FCommandChange> Change, std::string* OutError = nullptr) -> bool = 0;
+		DURINED_API virtual auto StoreUndo(DObject* Target, std::unique_ptr<FCommandChange> Change, std::string* OutError = nullptr) -> bool = 0;
 		DURINED_API virtual auto Undo(bool bCanRedo = true) -> bool = 0;
 		// Delayed history actions must supply the ID they were created for.
 		DURINED_API virtual auto UndoExpected(FTransactionId ExpectedId, std::string* OutError = nullptr) -> bool = 0;
@@ -297,7 +301,7 @@ namespace Durin
 		DURINED_API auto End() -> int32 override;
 		DURINED_API auto Cancel(int32 StartIndex = 0) -> void override;
 		auto IsActive() const -> bool override { return ActiveCount != 0; }
-		DURINED_API auto StoreUndo(std::unique_ptr<FCommandChange> Change, std::string* OutError = nullptr) -> bool override;
+		DURINED_API auto StoreUndo(DObject* Target, std::unique_ptr<FCommandChange> Change, std::string* OutError = nullptr) -> bool override;
 		DURINED_API auto Undo(bool bCanRedo = true) -> bool override;
 		DURINED_API auto UndoExpected(FTransactionId ExpectedId, std::string* OutError = nullptr) -> bool override;
 		DURINED_API auto Redo() -> bool override;

@@ -21,9 +21,9 @@ namespace Durin
 		virtual auto EndOperation() -> FTransactionCaptureResult = 0;
 		virtual auto Apply() -> void = 0;
 		virtual auto Finalize() -> void = 0;
-		// Store an already-applied command. Its declared participants suppress later Modify() snapshots.
+		// Store an already-applied command. Its explicit target suppresses later Modify() snapshots.
 		// Call Modify() before the first write to keep a whole-object baseline alongside the command.
-		virtual auto StoreUndo(std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult = 0;
+		virtual auto StoreUndo(DObject* Target, std::unique_ptr<FCommandChange> Change) -> FTransactionCaptureResult = 0;
 		// Unsupported inspection must be reported, never interpreted as no PIE references.
 		virtual auto ContainsPieObjects() const -> std::expected<bool, std::string> = 0;
 	};

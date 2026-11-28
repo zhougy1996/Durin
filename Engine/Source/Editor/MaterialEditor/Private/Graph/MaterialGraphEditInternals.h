@@ -28,6 +28,32 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		return false;
 	}
 
+	// Admit the command before it inspects or prepares objects. Open an undo scope
+	// only when RecordGraphEdit receives a validated change and its participants.
+	template<class Command>
+	auto WithGraphRecording(bool bShouldTransact, Command&& Edit)
+	{
+		using Result = std::invoke_result_t<Command, DTransactor*>;
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
+		if (Admission) return Edit(*Admission);
+		auto Failure = RejectCommand(std::move(Admission.error()));
+		if constexpr (std::is_same_v<Result, FMaterialGraphCommandResult>) return Failure;
+		else return Result(std::unexpected(std::move(Failure)));
+	}
+
+	template<class Command>
+	auto WithGraphRecording(bool bShouldTransact, std::string* OutError, Command&& Edit) -> bool
+	{
+		auto Admission = ResolveEditorTransactor(bShouldTransact);
+		if (!Admission) return FailWithError(OutError, Admission.error());
+		return Edit(*Admission);
+	}
+
+	// Configuration publishes its own change and may reject the write.
+	auto RecordGraphObjects(DObject& Owner, DTransactor* Transactions, std::string_view Description,
+		std::span<DObject* const> Objects, bool bBatchGraphChanges,
+		const std::function<FMaterialGraphCommandResult()>& Apply) -> FMaterialGraphCommandResult;
+
 	inline auto ReadGraphPresentation(const DObject& Owner) -> FMaterialGraphPresentation
 	{
 		if (const auto* Material = Cast<DMaterial>(&Owner)) return Material->GetMaterialGraphPresentation();
