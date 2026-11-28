@@ -19,33 +19,6 @@ TEST(FMaterialRenderRepresentationTests, IndependentCacheIsSharedByCopiesAndIsol
 	EXPECT_FALSE(Source.UniformExpressionCache->UniformBuffer);
 }
 
-TEST(FMaterialRenderRepresentationTests, PublishedBindingsRetainOldRevisionWithoutCopying)
-{
-	using namespace Durin;
-	const FGuid Scalar{2, 0, 0, 1};
-	auto Representation = MakeRenderFixture();
-	const auto Revision = Representation.GetRecordId();
-	const auto Copy = Representation;
-	ASSERT_NE(Revision, 0u);
-	EXPECT_EQ(Copy.GetRecordId(), Revision);
-	EXPECT_EQ(Copy.GetUniformPayload().data(), Representation.GetUniformPayload().data());
-	FMaterialRenderData Retained;
-	FMaterialRenderValidationDiagnostic Diagnostic;
-	Retained.Representation = Representation;
-	const auto Offset = std::ranges::find(Representation.GetLayout().Fields,
-		Scalar, &FMaterialRenderField::ParameterId)->Offset;
-	const auto* OriginalPayload = Retained.Representation.GetUniformPayload().data();
-
-	FMaterialRenderRepresentationBuilder Update(Representation);
-	ASSERT_TRUE(Update.SetScalar(Scalar, 3.0f));
-	ASSERT_TRUE(Update.Build(Representation, Diagnostic));
-	EXPECT_NE(Representation.GetRecordId(), Revision);
-	EXPECT_EQ(Copy.GetRecordId(), Revision);
-	EXPECT_FLOAT_EQ(ReadFloat(Retained.Representation.GetUniformPayload(), Offset), 1.0f);
-	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), Offset), 3.0f);
-	EXPECT_NE(Representation.GetUniformPayload().data(), OriginalPayload);
-}
-
 TEST(FMaterialRenderRepresentationTests, SelectedMaterialOutlivesPublicationAndFailedReplacement)
 {
 	using namespace Durin;

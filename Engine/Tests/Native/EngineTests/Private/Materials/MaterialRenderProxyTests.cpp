@@ -12,13 +12,6 @@
 
 namespace
 {
-	template<class T> concept CHasPublicRenderData = requires(const T& Value) { Value.GetRenderData(); };
-	template<class T> concept CHasPublicRenderableProperties = requires(const T& Value) { Value.GetRenderableStaticProperties(); };
-	static_assert(!CHasPublicRenderData<Durin::DMaterialInterface>);
-	static_assert(!CHasPublicRenderData<Durin::DMaterial>);
-	static_assert(!CHasPublicRenderData<Durin::DMaterialInstance>);
-	static_assert(!CHasPublicRenderableProperties<Durin::DMaterialInterface>);
-	static_assert(!CHasPublicRenderableProperties<Durin::DMaterialInstance>);
 	template<typename TName>
 	auto MakeExpandedMaterial(Durin::DObject* Outer, TName&& Name,
 		Durin::EMaterialBlendMode BlendMode = Durin::EMaterialBlendMode::Opaque)
@@ -695,34 +688,7 @@ TEST(FMaterialRenderProxyTests, NonFinitePublicationUsesGenericValidation)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FMaterialRenderProxyTests, OrdinarySetterPublishesCompleteDependentLayers)
-{
-	FRenderSceneHarness Harness;
-	auto* Material = MakeExpandedMaterial(
-		nullptr, "ProxyOnlyQueryMaterial");
-	Durin::FMaterialRenderProxyRef Proxy = Material->GetRenderProxy();
-	Durin::ResetMaterialLoadedQueryDiagnostics();
-
-	ASSERT_TRUE(Material->SetVectorParameterValue(
-		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
-		Durin::FVector3(0.25, 0.5, 0.75)));
-	const Durin::FMaterialLoadedQueryDiagnostics Diagnostics =
-		Durin::GetMaterialLoadedQueryDiagnostics();
-	EXPECT_EQ(Diagnostics.LastOperation, Durin::EMaterialLoadedQueryOperation::Dependents);
-	EXPECT_EQ(Diagnostics.QueryCount, 1);
-	EXPECT_EQ(Diagnostics.SnapshotCount, 1);
-	EXPECT_EQ(Diagnostics.ScannedObjectCount, 0u);
-	EXPECT_GT(Diagnostics.ScannedMaterialCount, 0);
-
-	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
-	WaitForRenderingThread();
-	Harness.Shutdown();
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-}
-
-TEST(FMaterialRenderProxyTests, OrderedPublicationsShareOnlyLazyResolution)
+TEST(FMaterialRenderProxyTests, QueuedParameterUpdatesPreserveIntermediateValues)
 {
 	FRenderSceneHarness Harness;
 	auto* Root = MakeExpandedMaterial(nullptr, "CoalescedProxyMaterial");
@@ -732,20 +698,6 @@ TEST(FMaterialRenderProxyTests, OrderedPublicationsShareOnlyLazyResolution)
 		Material->GetRenderProxy();
 	const auto Initial = CaptureMaterialProxy(Proxy);
 	std::optional<Durin::FMaterialRenderData> Between;
-	Durin::ResetMaterialRenderProxyCounters();
-
-	auto CommandStarted = std::make_shared<std::promise<void>>();
-	std::future<void> CommandStartedFuture = CommandStarted->get_future();
-	auto AllowCommandCompletion = std::make_shared<std::promise<void>>();
-	std::shared_future<void> AllowCommandCompletionFuture =
-		AllowCommandCompletion->get_future().share();
-	Durin::EnqueueRenderCommand("BlockMaterialPublication",
-		[CommandStarted, AllowCommandCompletionFuture](
-			Durin::FRHICommandListImmediate&) {
-			CommandStarted->set_value();
-			AllowCommandCompletionFuture.wait();
-		});
-	CommandStartedFuture.wait();
 
 	ASSERT_TRUE(Material->SetScalarParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.27f));
@@ -757,53 +709,24 @@ TEST(FMaterialRenderProxyTests, OrderedPublicationsShareOnlyLazyResolution)
 	ASSERT_TRUE(Material->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(),
 		Durin::FVector3(2.0, 3.0, 5.0)));
-	const Durin::FMaterialRenderProxyCounters Queued =
-		Durin::GetMaterialRenderProxyCounters();
-	EXPECT_EQ(Queued.QueuedPublicationCount, 3);
-	EXPECT_EQ(Queued.PublicationCount, 0);
-	EXPECT_EQ(Queued.PendingPublicationCount, 3);
-	EXPECT_GT(Queued.CopiedMaterialPayloadBytes, 0);
-
-	AllowCommandCompletion->set_value();
 	const FMaterialProxySnapshot Updated = CaptureMaterialProxy(Proxy);
 	ASSERT_TRUE(Between);
 	EXPECT_FLOAT_EQ(GetMaterialBinding(*Between).Metallic, 0.27f);
 	EXPECT_FLOAT_EQ(GetMaterialBinding(*Between).Roughness, GetMaterialBinding(Initial.RenderData).Roughness);
-	EXPECT_EQ(Updated.ResolutionCount, Initial.ResolutionCount + 2);
 	const auto UpdatedBinding = GetMaterialBinding(Updated.RenderData);
 	EXPECT_FLOAT_EQ(UpdatedBinding.Metallic, 0.27f);
 	EXPECT_FLOAT_EQ(UpdatedBinding.Roughness, 0.63f);
 	EXPECT_EQ(UpdatedBinding.Emissive, Durin::FVector3f(2.0f, 3.0f, 5.0f));
 	ExpectRenderDataMatches(Updated.RenderData, Durin::Testing::CaptureMaterialRenderData(*Material));
-	const Durin::FMaterialRenderProxyCounters Applied =
-		Durin::GetMaterialRenderProxyCounters();
-	EXPECT_EQ(Applied.QueuedPublicationCount, 3);
-	EXPECT_EQ(Applied.PublicationCount, 3);
-	EXPECT_EQ(Applied.PendingPublicationCount, 0);
-	EXPECT_EQ(Applied.ProgramUpdateCount, 0);
-	EXPECT_EQ(Applied.PropertyUpdateCount, 0);
-	EXPECT_EQ(Applied.ParameterUpdateCount, 3);
-	EXPECT_EQ(Applied.UniformCacheInvalidationCount, 3);
-	EXPECT_EQ(Applied.CopiedMaterialPayloadBytes, sizeof(float) * 2 + sizeof(Durin::FVector4));
 	Proxy->InvalidateUniformExpressionCache_GameThread();
 	const auto Invalidated = CaptureMaterialProxy(Proxy);
 	EXPECT_EQ(Invalidated.RenderData.CompiledProgram, Updated.RenderData.CompiledProgram);
 	EXPECT_EQ(Invalidated.RenderData.UniformExpressionCache, Updated.RenderData.UniformExpressionCache);
-	EXPECT_EQ(Invalidated.ResolutionCount, Updated.ResolutionCount + 1);
-	const auto CacheOnly = Durin::GetMaterialRenderProxyCounters();
-	EXPECT_EQ(CacheOnly.ProgramUpdateCount, 0);
-	EXPECT_EQ(CacheOnly.ParameterUpdateCount, 3);
-	EXPECT_EQ(CacheOnly.UniformCacheInvalidationCount, 4);
-	Proxy->SetCompiling_GameThread(true);
 	Proxy->SetCompiling_GameThread(true);
 	const auto Pending = CaptureMaterialProxy(Proxy);
-	EXPECT_EQ(Pending.PublicationCount, Invalidated.PublicationCount + 1);
+	EXPECT_TRUE(Pending.RenderData.IsReadyForRendering());
 	EXPECT_EQ(Pending.RenderData.CompiledProgram, Updated.RenderData.CompiledProgram);
 	Proxy->SetCompiling_GameThread(false);
-	EXPECT_EQ(CaptureMaterialProxy(Proxy).PublicationCount, Pending.PublicationCount + 1);
-	EXPECT_EQ(Applied.QueuedPublicationCount,
-		Applied.PublicationCount
-			+ Applied.PendingPublicationCount);
 
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Root);

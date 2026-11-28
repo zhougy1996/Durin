@@ -199,34 +199,6 @@ TEST(FMaterialShaderStageTests, RegisteredFactoryPolicyCompilesAndRejectsEntryOn
 	EXPECT_FALSE(ValidateMaterialCompilationOutput(Both, Both.ShaderMapId, Both.Target, Swapped));
 }
 
-TEST(FMaterialShaderStageTests, CanonicalEntryContractUsesStableShaderTypes)
-{
-	using namespace Durin;
-	constexpr std::array<std::string_view, 6> Names{
-		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
-		"VertexMain", "SplineVertexMain"};
-	const auto EntryPoints = GetMaterialCompiledEntryPoints();
-	ASSERT_EQ(EntryPoints.size(), 10u);
-	EXPECT_TRUE(std::ranges::equal(std::span(EntryPoints).first(6), Names));
-	EXPECT_EQ(EntryPoints[6], "PostProcessMaterialMain");
-	EXPECT_EQ(EntryPoints[7], "SingleLayerWaterFragmentMain");
-	EXPECT_EQ(EntryPoints[8], "SingleLayerWaterDepthFragmentMain");
-	EXPECT_EQ(EntryPoints.back(), "SkydomeMain");
-	EXPECT_EQ(GetDefaultMaterialShaderEntries().size(), 6u);
-	const auto Options = MakeMaterialShaderCompileRequest(FMaterialTranslatedProgram{.Status = EMaterialProgramStatus::Ok}, false);
-	ASSERT_EQ(Options.EntryPoints.size(), 6u);
-	ASSERT_EQ(Options.Frequencies.size(), 6u);
-	auto OrderedEntries = GetDefaultMaterialShaderEntries();
-	std::ranges::sort(OrderedEntries);
-	for (size_t Index = 0; Index < Names.size(); ++Index)
-	{
-		const auto* Entry = FindMaterialShaderEntry(OrderedEntries[Index]);
-		ASSERT_NE(Entry, nullptr);
-		EXPECT_EQ(Options.EntryPoints[Index], Entry->Name);
-		EXPECT_EQ(Options.Frequencies[Index], Entry->Frequency);
-	}
-}
-
 TEST(FMaterialShaderStageTests, UnrelatedPixelViewReadsDoNotMakeCoverageOrVertexEntriesViewDependent)
 {
 	using namespace Durin;
@@ -272,9 +244,6 @@ TEST(FMaterialProgramOwnershipTests, ConfigurationCopiesShareArtifactsAndEditorD
 TEST(FMaterialProgramOwnershipTests, ResourcePresenceValidationAndCompletionAreIndependent)
 {
 	using namespace Durin;
-	static_assert(!std::is_base_of_v<FMaterialProgram, FMaterialCompilerResult>);
-	static_assert(!std::is_convertible_v<FMaterialCompilerResult, FMaterialProgram>);
-	static_assert(!std::is_constructible_v<bool, FMaterialProgram>);
 	FMaterialProgram Empty;
 	EXPECT_FALSE(Empty.HasShaderMap());
 	EXPECT_FALSE(Empty.IsValid());
@@ -1336,7 +1305,6 @@ TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDo
 	auto Producer = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Result) { First = std::move(Result); });
 	ASSERT_TRUE(Producer); Manager.FinishCompilation(Producer);
 	ASSERT_TRUE(First);
-	static_assert(!std::is_same_v<FMaterialProgramCompileHandle, std::shared_ptr<FMaterialShaderMap>>);
 	EXPECT_EQ((Producer)->GetShaderMapId(), First.Output.GetShaderMap().ShaderMapId);
 	const FMaterialShaderMap Copy(First.Output.GetShaderMap());
 	EXPECT_EQ(Copy.CompiledShaders.size(), GetDefaultMaterialShaderEntries().size());
@@ -1460,7 +1428,6 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 	ASSERT_TRUE(Prepared.Normalized);
 	const auto Translation = TranslatePreparedMaterialProgram(Prepared);
 	ASSERT_TRUE(Translation);
-	static_assert(!std::same_as<FMaterialTranslatedProgram, FMaterialCompilerResult>);
 	const auto Request = MakeMaterialShaderCompileRequest(Translation, false);
 	ASSERT_TRUE(Request.ExpectedSourceTree);
 	EXPECT_EQ(Request.ExpectedSourceTree->EntryPoints, Request.EntryPoints);

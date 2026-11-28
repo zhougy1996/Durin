@@ -22,7 +22,6 @@
 #include "FunctionPortTestFixture.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialCookedProgramTestSupport.h"
-#include "MaterialVariantTestFixture.h"
 #include "MaterialResultFanoutTestSupport.h"
 #include "Threading/Task.h"
 #include "MaterialTestSupport.h"
@@ -718,7 +717,75 @@ TEST_F(FMaterialAsyncCompileTests, ReplacingCanceledSharedFlightCompletesItsOthe
 
 TEST_F(FMaterialAsyncCompileTests, InstanceVariantsShareOnlyCompatiblePrograms)
 {
-	ASSERT_NO_FATAL_FAILURE(Durin::Testing::CheckInstanceVariantsForTest(false));
+	struct FFixtureScope
+	{
+		std::vector<Durin::DObject*> Objects;
+		~FFixtureScope()
+		{
+			for (auto* Object : Objects) Durin::MarkAsGarbage(Object);
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
+		}
+	} Scope;
+	auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "VariantFixtureRoot");
+	Scope.Objects.push_back(Root);
+	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Root));
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Root);
+	ASSERT_TRUE(Root->GetMaterialCompileStatus().IsCurrent());
+	Durin::FMaterialCompilerEnvironment Environment;
+	const auto CompilerEnvironmentResult = Durin::BuildDefaultMaterialCompilerEnvironment(Environment);
+	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
+	auto InputCapture = Durin::SnapshotMaterialCompilerInput(*Root, Environment);
+	ASSERT_TRUE(InputCapture);
+	auto& Input = InputCapture.Snapshot->Input;
+
+	const auto Before = Durin::GetMaterialCompilationStatistics();
+	std::array<Durin::DMaterialInstance*, 8> Instances{};
+	std::vector<Durin::FMaterialProgramIdentity> Identities;
+	uint32 CompatibleOwners = 0;
+	for (size_t Index = 0; Index < Instances.size(); ++Index)
+	{
+		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
+			nullptr, Durin::FName(std::format("VariantFixture{}", Index)));
+		Scope.Objects.push_back(Instance);
+		Instances[Index] = Instance;
+		ASSERT_TRUE(Instance->SetParent(Index == 7 ? Instances[6]
+			: static_cast<Durin::DMaterialInterface*>(Root)));
+		auto Properties = Root->GetStaticProperties();
+		if (Index == 1) Properties.OpacityMaskThreshold = 0.25f;
+		if (Index == 2 || Index == 3)
+		{
+			Properties.BlendMode = Durin::EMaterialBlendMode::Masked;
+			Properties.OpacityMaskThreshold = Index == 2 ? 0.25f : 0.75f;
+		}
+		if (Index == 4) Properties.BlendMode = Durin::EMaterialBlendMode::Translucent;
+		if (Index == 5)
+		{
+			Properties.bTwoSided = true;
+			Properties.DepthWritePolicy = Durin::EMaterialDepthWritePolicy::Disabled;
+		}
+		if (Index != 0 && Index != 7)
+			ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, Properties}));
+		Input.StaticProperties = Instance->GetStaticProperties();
+		const auto Normalized = Durin::MIR::Normalize(Input);
+		ASSERT_TRUE(Normalized);
+		if (std::ranges::find(Identities, Normalized.Identity) == Identities.end())
+			Identities.push_back(Normalized.Identity);
+		// Count complete accepted owners only after aggregate finish below.
+	}
+	ASSERT_TRUE(Instances[7]->SetParent(Instances[2]));
+	EXPECT_EQ(Instances[7]->GetStaticProperties().BlendMode, Durin::EMaterialBlendMode::Masked);
+	ASSERT_TRUE(Instances[7]->SetParent(Instances[6]));
+	ASSERT_TRUE(Instances[0]->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.7f));
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	const auto After = Durin::GetMaterialCompilationStatistics();
+	for (auto* Instance : Instances)
+		if (Instance->GetAcceptedCompiledProgram()) ++CompatibleOwners;
+	EXPECT_EQ(Identities.size(), 4u);
+	EXPECT_EQ(CompatibleOwners, 8u);
+	EXPECT_GT(After.AcceptedRequests - Before.AcceptedRequests, 0u);
+	EXPECT_EQ(After.InFlightCount, 0u);
+	EXPECT_EQ(After.OutstandingConsumerCount, 0u);
+	EXPECT_EQ(After.PendingPublicationCount, 0u);
 }
 
 TEST_F(FMaterialAsyncCompileTests, InstanceOwnersQueueWithoutCapacityRetries)

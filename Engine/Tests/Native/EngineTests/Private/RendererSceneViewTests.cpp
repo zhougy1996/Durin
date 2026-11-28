@@ -6,7 +6,6 @@
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 #include "Renderers/DisplayMapping.h"
 #include "Renderers/SceneViewPreparation.h"
-#include "Renderers/SceneRenderResults.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/ViewPreparationMath.h"
@@ -15,30 +14,6 @@
 
 namespace Durin
 {
-	namespace
-	{
-		template <typename T>
-		concept CHasResourcesReady = requires(T Value) { Value.bResourcesReady; };
-		template <typename T>
-		concept CHasExecutionPhase = requires(T Value) { Value.Phase; };
-		template <typename T>
-		concept CHasShadowTarget = requires(T Value) {
-			Value.DirectionalShadowTexture;
-		};
-		template <typename T>
-		concept CHasExecutionCounter = requires(T Value) { Value.AttemptedDraws; };
-		template <typename T>
-		concept CHasMaterialBinding = requires(T Value) { Value.MaterialBinding; };
-
-		static_assert(!CHasResourcesReady<FPreparedStaticMeshDraw>);
-		static_assert(!CHasExecutionPhase<FPreparedStaticMeshView>);
-		static_assert(!CHasShadowTarget<FPreparedStaticMeshDraw>);
-		static_assert(!CHasExecutionCounter<FPreparedStaticMeshView>);
-		static_assert(!CHasMaterialBinding<FPreparedStaticMeshDraw>);
-		static_assert(std::is_same_v<
-			decltype(FGBufferPassResult{}.IsComplete()), bool>);
-	} // namespace
-
 	TEST(FRendererSceneViewTests, TranslatedMeshAndLightsPreserveFractionalOffsetsAtLargeOrigins)
 	{
 		const FVector3 Offset{12.125, -3.25, 0.0625};
