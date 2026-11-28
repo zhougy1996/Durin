@@ -308,20 +308,21 @@ namespace Durin::LevelEditor
 		DragStartVector = DragStartPoint - Pivot;
 		if (Math::LengthSquared(DragStartVector) > Epsilon) DragStartVector = Math::Normalize(DragStartVector);
 		DragStartMouseY = Input.MousePosition.y;
-		if (!Proxy.emplace(Targets, Pivot, Basis).MatchesSelection(Targets))
+		Proxy = std::make_unique<FTransformProxy>(Targets, Pivot, Basis);
+		if (!Proxy->MatchesSelection(Targets))
 		{
 			ClearDrag();
 			return false;
 		}
-		ChangeSources = FTransformProxyChangeSource::BeginChange(*Proxy);
+		ChangeSources = Proxy->CreateChangeSources();
 		bRestorePending = false;
 		return true;
 	}
 
-	auto FTransformGizmo::UpdateDrag(const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool
+	auto FTransformGizmo::ComputeDragFrame(const FSceneView& View, const FLevelEditorViewportInput& Input) -> std::optional<FTransform>
 	{
 		FVector3 RayOrigin, RayDirection, Current;
-		if (!SceneViewProjection::BuildViewportRay(View, Input.MousePosition, RayOrigin, RayDirection) || !RayPlane(RayOrigin, RayDirection, Pivot, DragPlaneNormal, Current)) return true;
+		if (!SceneViewProjection::BuildViewportRay(View, Input.MousePosition, RayOrigin, RayDirection) || !RayPlane(RayOrigin, RayDirection, Pivot, DragPlaneNormal, Current)) return std::nullopt;
 		const bool bSnap = SnapSettings.bEnabled || Input.bCtrl;
 		if (Mode == ETransformGizmoMode::Translate)
 		{
@@ -338,19 +339,19 @@ namespace Durin::LevelEditor
 			auto Frame = Proxy->GetInitialTransform();
 			Frame.Translation += Delta;
 			DisplayPivot = Frame.Translation;
-			return Proxy->SetTransform(Frame);
+			return Frame;
 		}
 		else if (Mode == ETransformGizmoMode::Rotate)
 		{
 			FVector3 Vector = Current - Pivot;
-			if (Math::LengthSquared(Vector) <= Epsilon) return true;
+			if (Math::LengthSquared(Vector) <= Epsilon) return std::nullopt;
 			Vector = Math::Normalize(Vector);
 			double Angle = std::atan2(Math::Dot(DragAxis, Math::Cross(DragStartVector, Vector)), Math::Dot(DragStartVector, Vector));
 			if (bSnap) Angle = Math::DegreesToRadians(Snap(Math::RadiansToDegrees(Angle), SnapSettings.RotationDegrees));
 			auto Frame = Proxy->GetInitialTransform();
 			Frame.Rotation = Math::Normalize(Math::MakeQuaternionFromAxisAngleRadians(Angle, DragAxis) * Basis);
 			if (GetEffectiveSpace() == ETransformGizmoSpace::Local) DisplayBasis = Frame.Rotation;
-			return Proxy->SetTransform(Frame);
+			return Frame;
 		}
 		else
 		{
@@ -368,7 +369,7 @@ namespace Durin::LevelEditor
 				Factors.z = Factor;
 			auto Frame = Proxy->GetInitialTransform();
 			Frame.Scale3D = Factors;
-			return Proxy->SetTransform(Frame);
+			return Frame;
 		}
 	}
 
@@ -391,12 +392,21 @@ namespace Durin::LevelEditor
 			Recording.emplace("TransformGizmo", Description, nullptr);
 			if (!Recording->IsOutstanding()) return false;
 
-			const auto StoreChange = [&](const FTransformProxyChangeSource& Source) {
-				auto Change = Source.EndChange(*Proxy, Transactions.GetHistoryId(), Action);
-				return !Change || Transactions.StoreUndo(Source.GetChangeTarget(), std::move(Change));
-			};
-			if (Proxy->CheckPreviewOwnership() && std::ranges::all_of(ChangeSources, StoreChange)
-				&& Proxy->CheckPreviewOwnership()) return true;
+			if (!Proxy->CheckPreviewOwnership())
+			{
+				Recording->Cancel();
+				return false;
+			}
+			for (const auto& Source : ChangeSources)
+			{
+				auto Change = Source.EndChange(Transactions.GetHistoryId(), Action);
+				if (Change && !Transactions.StoreUndo(Source.GetChangeTarget(), std::move(Change)))
+				{
+					Recording->Cancel();
+					return false;
+				}
+			}
+			if (Proxy->CheckPreviewOwnership()) return true;
 		}
 		catch (const std::exception& Error) { DURIN_WARN("Transform recording failed: {}", Error.what()); }
 		catch (...) { DURIN_WARN("Transform recording failed."); }
@@ -457,10 +467,7 @@ namespace Durin::LevelEditor
 			if (bRestorePending) return CancelDrag();
 			if (Input.bCancel || !Proxy->MatchesSelection(Targets)) return CancelDrag();
 			if (!Input.bLeftMouseDown) return FinishDrag(Transactions);
-			if (!Proxy->CheckPreviewOwnership()) { CancelDrag(); return false; }
-			const bool bApplied = UpdateDrag(View, Input);
-			const bool bCaptured = Proxy->CapturePreviewValues();
-			if (!bApplied || !bCaptured) { CancelDrag(); return false; }
+			if (!Proxy->UpdatePreview(ComputeDragFrame(View, Input))) { CancelDrag(); return false; }
 			return true;
 		}
 		if (!RebuildState(Targets, View))

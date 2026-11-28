@@ -166,7 +166,17 @@ namespace Durin::LevelEditor
 		}
 	}
 
-	auto FTransformProxy::SetTransform(const FTransform& Frame) -> bool
+	auto FTransformProxy::UpdatePreview(const std::optional<FTransform>& Frame) -> bool
+	{
+		if (!CheckPreviewOwnership()) return false;
+		if (!Frame) return true;
+		const bool bApplied = ApplyFrame(*Frame);
+		// A failed group write may already have changed some targets.
+		const bool bCaptured = CapturePreviewValues();
+		return bApplied && bCaptured;
+	}
+
+	auto FTransformProxy::ApplyFrame(const FTransform& Frame) -> bool
 	{
 		const FVector3 Offset = Frame.Translation - InitialFrame.Translation;
 		const bool bRotate = Frame.Rotation != InitialFrame.Rotation;
@@ -271,21 +281,21 @@ namespace Durin::LevelEditor
 			: std::format("{} {} {}", Action, Snapshots.size(), CollectionLabel);
 	}
 
-	auto FTransformProxyChangeSource::BeginChange(const FTransformProxy& Proxy) -> std::vector<FTransformProxyChangeSource>
+	auto FTransformProxy::CreateChangeSources() const -> std::vector<FTransformProxyChangeSource>
 	{
 		std::vector<FTransformProxyChangeSource> Sources;
 		std::unordered_map<FObjectKey, size_t> ByOwner;
-		for (size_t Index = 0; Index < Proxy.Snapshots.size(); ++Index)
+		for (size_t Index = 0; Index < Snapshots.size(); ++Index)
 		{
-			const auto Owner = Proxy.Snapshots[Index].Owner;
+			const auto Owner = Snapshots[Index].Owner;
 			const auto [It, Added] = ByOwner.try_emplace(Owner, Sources.size());
-			if (Added) Sources.emplace_back().Owner = Owner;
+			if (Added) Sources.push_back(FTransformProxyChangeSource(*this, Owner));
 			Sources[It->second].SnapshotIndices.push_back(Index);
 		}
 		return Sources;
 	}
 
-	auto FTransformProxyChangeSource::EndChange(const FTransformProxy& Proxy, uint64 HistoryId, std::string_view Action) const
+	auto FTransformProxyChangeSource::EndChange(uint64 HistoryId, std::string_view Action) const
 		-> std::unique_ptr<FCommandChange>
 	{
 		std::vector<FTransformProxyChange::FEntry> Entries;

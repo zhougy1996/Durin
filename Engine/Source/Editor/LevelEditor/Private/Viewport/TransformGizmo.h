@@ -74,7 +74,7 @@ namespace Durin::LevelEditor
 		auto RebuildState(const FTransformGizmoTargetSet& Targets, const FSceneView& View) -> bool;
 		auto HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle;
 		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
-		auto UpdateDrag(const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
+		auto ComputeDragFrame(const FSceneView& View, const FLevelEditorViewportInput& Input) -> std::optional<FTransform>;
 		auto FinishDrag(DTransactor* Transactions) -> bool;
 		auto CommitDrag(DTransactor& Transactions) -> bool;
 		auto ClearDrag() -> void;
@@ -89,7 +89,7 @@ namespace Durin::LevelEditor
 		FQuat Basis{1.0, 0.0, 0.0, 0.0};
 		FQuat DisplayBasis{1.0, 0.0, 0.0, 0.0};
 		float WorldScale = 1.0f;
-		std::optional<FTransformProxy> Proxy;
+		std::unique_ptr<FTransformProxy> Proxy;
 		std::vector<FTransformProxyChangeSource> ChangeSources;
 		ETransformGizmoCapability ActiveCapabilities = ETransformGizmoCapability::None;
 		FVector3 DragAxis{0.0};

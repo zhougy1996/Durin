@@ -137,14 +137,34 @@ TEST(FTransformProxyTests, SharedFrameRotatesAndScalesAboutTheInitialPivot)
 	FTransformProxy Proxy({{First, Second}, "Probes"}, Pivot, Basis);
 	auto Frame = Proxy.GetInitialTransform();
 	Frame.Rotation = Basis * Frame.Rotation;
-	ASSERT_TRUE(Proxy.SetTransform(Frame));
+	ASSERT_TRUE(Proxy.UpdatePreview(Frame));
 	ExpectVectorNear(First->Transform.Translation, Pivot + Basis * Axis);
 	ExpectVectorNear(Second->Transform.Translation, Pivot - Basis * Axis);
 	Frame = Proxy.GetInitialTransform();
 	Frame.Scale3D.x = 2.0;
-	ASSERT_TRUE(Proxy.SetTransform(Frame));
+	ASSERT_TRUE(Proxy.UpdatePreview(Frame));
 	ExpectVectorNear(First->Transform.Translation, Pivot + 2.0 * Axis);
 	ExpectVectorNear(Second->Transform.Translation, Pivot - 2.0 * Axis);
+}
+
+TEST(FTransformProxyTests, MissingDragFrameStillDetectsOutsideWrites)
+{
+	using namespace Durin;
+	using namespace Durin::LevelEditor;
+	InitializeDObjectSystem();
+	auto First = std::make_shared<FProbeTransformTarget>();
+	auto Second = std::make_shared<FProbeTransformTarget>();
+	const auto Initial = First->Transform;
+	FTransformProxy Proxy({{First, Second}, "Probes"}, Initial.Translation, Initial.Rotation);
+	auto Frame = Proxy.GetInitialTransform();
+	Frame.Translation.x += 5.0;
+	ASSERT_TRUE(Proxy.UpdatePreview(Frame));
+	Second->Transform.Translation.x += 2.0;
+	const auto Outside = Second->Transform;
+	EXPECT_FALSE(Proxy.UpdatePreview(std::nullopt));
+	ASSERT_TRUE(Proxy.Restore());
+	ExpectVectorNear(First->Transform.Translation, Initial.Translation);
+	ExpectVectorNear(Second->Transform.Translation, Outside.Translation);
 }
 
 TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowledge)
