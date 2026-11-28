@@ -2509,16 +2509,16 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 		});
 		FlushRenderingCommands();
 		FMatrix Transform(1.0);
-		auto Publish = [&](bool bVisible = true) {
+		auto Publish = [&](const FMaterialRenderData& FirstSection) {
 			auto Proxy = std::make_unique<FProceduralProxy>();
 			Proxy->Geometry = Geometry;
 			Proxy->Publications = Publications;
-			Proxy->Materials = {Data, Data};
+			Proxy->Materials = {FirstSection, Data};
 			EXPECT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Owner,
-				FPrimitiveComponentId(410), std::move(Proxy), Transform, bVisible));
+				FPrimitiveComponentId(410), std::move(Proxy), Transform, true));
 			FlushRenderingCommands();
 		};
-		Publish();
+		Publish(Data);
 		FSceneView View;
 		View.ViewportWidth = 192; View.ViewportHeight = 108;
 		View.Settings.Mode.RenderMode = ERenderMode::Unlit;
@@ -2531,6 +2531,7 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)),
 			ERenderViewResult::Success);
 		std::array<FByteBuffer, 12> Pixels;
+		std::shared_ptr<const FMeshDrawDescription> OldDraw;
 		const auto WarmPSOs = GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations;
 		static FViewRenderTelemetry Telemetry;
 		for (size_t Frame = 0; Frame < Pixels.size(); ++Frame)
@@ -2541,7 +2542,7 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 				ASSERT_TRUE(Builder.SetScalar(BrightnessParameterKey, 0.25f));
 				FMaterialRenderValidationDiagnostic Diagnostic;
 				ASSERT_TRUE(Builder.Build(Data.Representation, Diagnostic));
-				Publish();
+				Publish(Data);
 			}
 			if (Frame == 6) { Transform = Math::ScaleMatrix(FVector3(0.5)); Owner->UpdatePrimitiveTransform(FPrimitiveComponentId(410), Transform); }
 			if (Frame == 8) Owner->UpdatePrimitiveVisibility(FPrimitiveComponentId(410), false);
@@ -2554,11 +2555,17 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 				ASSERT_TRUE(Builder.SetTexture(TextureParameterKey, Reference.GetTextureReferenceRHI(), Sampler));
 				FMaterialRenderValidationDiagnostic Diagnostic;
 				ASSERT_TRUE(Builder.Build(Data.Representation, Diagnostic));
-				Publish();
+				Publish(Data);
 			}
 			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 				if (Frame == 2) Reference.SetReferencedTexture_RenderThread(Textures[1]);
-				if (Frame == 4) Reference.Clear_RenderThread();
+				if (Frame == 4)
+				{
+					Reference.Clear_RenderThread();
+					const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, Owner->GetPrimitiveSceneInfos(), View, ERasterMode::Solid);
+					ASSERT_FALSE(Prepared.Opaque.empty());
+					OldDraw = Prepared.Opaque.front().Command;
+				}
 				View.MaterialTimeSeconds = Frame;
 				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
 					FRHITextureCreateDesc::Create2D("EarlyCommandOutput", 192, 108, EPixelFormat::SRGBA8_UNORM)
@@ -2617,6 +2624,25 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 			EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, WarmPSOs) << Frame;
 			if (Frame == 6) EXPECT_EQ(Telemetry.StaticMesh.PrimitiveUniformUploads, 0u);
 		}
+		// Both draws share the proxy cache. Prepare old and new scalar values in one frame.
+		ASSERT_TRUE(OldDraw);
+		ASSERT_TRUE(Data.UniformExpressionCache);
+		ASSERT_EQ(OldDraw->Material.UniformExpressionCache, Data.UniformExpressionCache);
+		Transform = FMatrix(1.0);
+		Publish(OldDraw->Material);
+		FByteBuffer Mixed;
+		ASSERT_EQ(RenderPreparedGeometryView(Renderer, *Owner, View,
+			FRHITextureCreateDesc::Create2D("MixedMaterialPublications", 192, 108, EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy),
+			{}, [&](FRHICommandListImmediate& Commands, FRHITexture* Target) { ReadGeometryTexture(Commands, Target, Mixed); }),
+			ERenderViewResult::Success);
+		ASSERT_EQ(Mixed.size(), Pixels[4].size());
+		auto Expected = Pixels[5];
+		for (size_t Row = 0; Row < 108; ++Row)
+			std::copy_n(Pixels[4].begin() + Row * 192 * 4, 96 * 4, Expected.begin() + Row * 192 * 4);
+		EXPECT_NE(Expected, Pixels[4]);
+		EXPECT_NE(Expected, Pixels[5]);
+		EXPECT_TRUE(Mixed == Expected);
 		Owner.Reset();
 		FlushRenderingCommands();
 	}
@@ -4400,7 +4426,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		Durin::Testing::QueueMaterialTestState(*MaterialProxy, Compiling);
 		EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate& Commands) {
 			EXPECT_EQ(MaterialProxy->GetMaterialNoFallback(), nullptr);
-			EXPECT_TRUE(MaterialProxy->QueryMaterial_RenderThread().Representation.IsPending());
+			EXPECT_TRUE(MaterialProxy->QueryMaterial_RenderThread().bPending);
 			const auto* DefaultMaterial = DefaultMaterialProxy->GetMaterialNoFallback();
 			ASSERT_NE(DefaultMaterial, nullptr);
 			EXPECT_EQ(&MaterialProxy->GetMaterialWithFallback(), DefaultMaterial);
@@ -4422,7 +4448,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 				const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, Scene.GetPrimitiveSceneInfos(), View,
 					ERasterMode::Solid, ERenderPreparationMode::Full);
 				ASSERT_FALSE(Prepared.Opaque.empty());
-				EXPECT_EQ(Prepared.Opaque.front().Command->Material.Representation.IsError(), bExpectError);
+				EXPECT_EQ(Prepared.Opaque.front().Command->Material.IsError(), bExpectError);
 				EXPECT_FALSE(FRenderPipelinePreparationBatch::HasPending());
 			});
 		};
@@ -4788,6 +4814,20 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	ShutdownRenderingThread();
 	FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 	RHIExit();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, PendingMeshMaterialSelectsAndCachesErrorPublication)
+{
+	using namespace Durin;
+	FMaterialRenderData Material;
+	Material.bPending = true;
+	ASSERT_TRUE(Material.bPending);
+	FStaticMeshPreparationCache Cache;
+	const auto Index = Cache.ResolveMaterial(Material);
+	ASSERT_TRUE(Index);
+	const auto ErrorId = GetErrorMaterialRenderData().Representation.GetRecordId();
+	EXPECT_EQ(Material.Representation.GetRecordId(), ErrorId);
+	EXPECT_EQ(Cache.Materials.at(*Index).Representation.GetRecordId(), ErrorId);
 }
 
 TEST(FStaticMeshRenderPreparationVulkanTests, SharedFactsRejectChangedTransformsAndMaterialResources)
@@ -5311,12 +5351,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					ASSERT_EQ(ValidationNative->GetState(), ERHIPipelineState::Ready);
 					PSOPrecacheValidation::Observe(PSOPrecacheValidation::Track(ValidationData), ValidationNative->GetStateObservation());
 
-					FMaterialRenderBinding Binding;
-					FMaterialRenderValidationDiagnostic BindingDiagnostic;
-					ASSERT_TRUE(TryGetMaterialRenderBinding(BindingDraw.Command->Material.Representation, Binding, BindingDiagnostic));
+					const auto& Publication = BindingDraw.Command->Material.Representation;
+					ASSERT_TRUE(BindingDraw.Command->Material.IsReadyForRendering());
 					FResolvedStaticMeshView::FMaterialUniform PassMaterial;
-					PassMaterial.Surface.bCompiledLayout = true; PassMaterial.Surface.bError = Binding.bError;
-					PassMaterial.Uniform = Commands.CreateUniformBufferRange(Binding.CompiledUniformPayload.data(), static_cast<uint32>(Binding.CompiledUniformPayload.size()));
+					PassMaterial.Surface.bCompiledLayout = true; PassMaterial.Surface.bError = BindingDraw.Command->Material.IsError();
+					PassMaterial.Uniform = Commands.CreateUniformBufferRange(Publication.GetUniformPayload().data(), static_cast<uint32>(Publication.GetUniformPayload().size()));
 					const auto Transform = BuildFallbackPrimitiveUniform(*Primitive);
 					const auto PrimitiveUniform = Commands.CreateUniformBufferRange(&Transform, sizeof(Transform));
 					FMaterialViewUniform ViewParameters;
@@ -5664,7 +5703,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceRepla
 			EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) {
 				auto Proxy = std::make_unique<FProceduralProxy>(); Proxy->Geometry = Geometry;
 				Proxy->Materials = {ProxyRef->GetMaterialWithFallback(),ProxyRef->GetMaterialWithFallback()};
-				ASSERT_FALSE(Proxy->Materials[0].Representation.IsError());
+				ASSERT_FALSE(Proxy->Materials[0].IsError());
 				ASSERT_TRUE(Proxy->PublishGeometry());
 				ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(8001), std::move(Proxy), FMatrix(1.0)));
 			});
@@ -5830,7 +5869,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ExplicitTextureLODVertexDisplaceme
 				EnqueueRenderCommand("CapturePreparedStaticMeshView", [&](FRHICommandListImmediate&) {
 					auto Proxy = std::make_unique<FProceduralProxy>(); Proxy->Geometry = Geometry;
 					Proxy->Materials = {ProxyRef->GetMaterialWithFallback(),ProxyRef->GetMaterialWithFallback()};
-					ASSERT_FALSE(Proxy->Materials[0].Representation.IsError());
+					ASSERT_FALSE(Proxy->Materials[0].IsError());
 					EXPECT_EQ(Proxy->Materials[0].CompiledProgram,Program);
 					ASSERT_TRUE(Proxy->PublishGeometry());
 					ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene,FPrimitiveComponentId(8002),std::move(Proxy),FMatrix(1.0)));

@@ -383,10 +383,10 @@ TEST(FMaterialInstanceTests, DynamicInstancesFollowAcceptedParentGenerationAndPr
 	Overrides.Values.BlendMode = EMaterialBlendMode::Masked;
 	ASSERT_TRUE(Asset->SetPropertyOverrides(Overrides));
 	EXPECT_FALSE(Dynamic->GetAcceptedCompiledProgram());
-	EXPECT_TRUE(Durin::Testing::CaptureMaterialRenderData(*Dynamic).Representation.IsError());
+	EXPECT_TRUE(Durin::Testing::CaptureMaterialRenderData(*Dynamic).IsError());
 	const auto Pending = CaptureScene(Harness.Scene);
 	EXPECT_EQ(Pending.Proxy, Initial.Proxy);
-	EXPECT_TRUE(Pending.Material.Representation.IsError());
+	EXPECT_TRUE(Pending.Material.IsError());
 	ASSERT_TRUE(RequestMaterialRecompile(*Asset));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Asset));
 	const auto Accepted = CaptureScene(Harness.Scene);
@@ -399,7 +399,7 @@ TEST(FMaterialInstanceTests, DynamicInstancesFollowAcceptedParentGenerationAndPr
 	// A broken asset chain invalidates the dynamic child rather than retaining stale code.
 	ASSERT_TRUE(Asset->SetParent(nullptr));
 	EXPECT_FALSE(Dynamic->GetAcceptedCompiledProgram());
-	EXPECT_TRUE(CaptureScene(Harness.Scene).Material.Representation.IsError());
+	EXPECT_TRUE(CaptureScene(Harness.Scene).Material.IsError());
 	EXPECT_FALSE(Dynamic->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.5f));
 	Component->UnregisterComponent();
 	MarkAsGarbage(Component);
@@ -589,17 +589,17 @@ TEST(FMaterialInstanceTests, InstanceStaticOverridesNeverReuseIncompatibleParent
 	PipelineOnly.bTwoSided = true;
 	ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, PipelineOnly}));
 	EXPECT_EQ(Instance->GetAcceptedCompiledProgram()->ShaderMap, ParentProgram->ShaderMap);
-	EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Instance).Representation.IsError());
-	EXPECT_FALSE(CaptureScene(Harness.Scene).Material.Representation.IsError());
+	EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Instance).IsError());
+	EXPECT_FALSE(CaptureScene(Harness.Scene).Material.IsError());
 
 	auto Incompatible = PipelineOnly;
 	Incompatible.BlendMode = Durin::EMaterialBlendMode::Masked;
 	ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, Incompatible}));
 	ASSERT_TRUE(Instance->GetAcceptedCompiledProgram());
 	EXPECT_NE(Instance->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ParentProgram->GetShaderMap().ShaderMapId);
-	EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Instance).Representation.IsError());
+	EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Instance).IsError());
 	const auto Scene = CaptureScene(Harness.Scene);
-	EXPECT_FALSE(Scene.Material.Representation.IsError());
+	EXPECT_FALSE(Scene.Material.IsError());
 	EXPECT_EQ(Scene.Material.PlanningPassIdentity.ShaderMap.BlendMode, Durin::EMaterialBlendMode::Masked);
 
 	Durin::MarkAsGarbage(Instance);
@@ -914,7 +914,7 @@ TEST(FMaterialInstanceTests, RenderLayerResolvesMixedOverridesAndRefreshesEachBu
 	const auto CheckLayer = [&](float Opacity, const FVector3& Color) {
 		const auto Data = Durin::Testing::CaptureMaterialRenderData(*Child);
 		ASSERT_NE(Data.CompiledProgram, nullptr);
-		ASSERT_FALSE(Data.Representation.IsError());
+		ASSERT_FALSE(Data.IsError());
 		ExpectColorNear(GetMaterialBinding(Data).BaseColor,
 			FVector4f(static_cast<float>(Color.x), static_cast<float>(Color.y), static_cast<float>(Color.z), Opacity));
 		EXPECT_EQ(std::ranges::find(Data.CompiledProgram->GetShaderMap().ActiveParameters, Stale.ParameterId,
@@ -981,7 +981,7 @@ TEST(FMaterialInstanceTests, ParentRemovalPreservesOrphansAndExcludesThemFromRen
 	EXPECT_TRUE(Instance->IsParameterValueOrphanByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));
 	Durin::FResolvedMaterialParameter Resolved;
 	EXPECT_FALSE(Instance->ResolveParameterValueByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}, Resolved));
-	EXPECT_TRUE(Durin::Testing::CaptureMaterialRenderData(*Instance).Representation.IsError());
+	EXPECT_TRUE(Durin::Testing::CaptureMaterialRenderData(*Instance).IsError());
 
 	ASSERT_TRUE(Instance->SetParent(Base));
 	EXPECT_FALSE(Instance->IsParameterValueOrphanByInfo({.Name = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName()}));

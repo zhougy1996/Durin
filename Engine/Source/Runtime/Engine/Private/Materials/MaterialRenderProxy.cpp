@@ -328,7 +328,7 @@ namespace Durin
 		if (!std::ranges::all_of(Values, [](double Component) {
 			return std::abs(Component) <= std::numeric_limits<float>::max();
 		})) return false;
-		const auto& Fields = CachedResolvedData.Representation.GetLayout().Fields;
+		const auto& Fields = RenderingThreadProgram->GetShaderMap().Layout.Fields;
 		return FieldIndex < Fields.size() && Fields[FieldIndex].Storage == EMaterialRenderFieldStorage::Uniform && Fields[FieldIndex].Type == Type;
 	}
 
@@ -337,13 +337,13 @@ namespace Durin
 		CheckRenderingThread();
 		if (!RenderingThreadProgram) return nullptr;
 		const auto& Material = QueryMaterial_RenderThread();
-		return Material.CompiledProgram && !Material.Representation.IsError() ? &Material : nullptr;
+		return Material.CompiledProgram && !Material.IsError() ? &Material : nullptr;
 	}
 
 	auto FMaterialRenderProxy::GetMaterialWithFallback() -> const FMaterialRenderData&
 	{
 		const auto& Material = QueryMaterial_RenderThread();
-		if (!Material.Representation.IsPending()) return Material;
+		if (!Material.bPending) return Material;
 		if (auto* Default = GetDefaultMaterialRenderProxy_RenderThread(); Default && Default != this)
 			if (const auto* ReadyDefault = Default->GetMaterialNoFallback()) return *ReadyDefault;
 		return GetErrorMaterialRenderData();
@@ -360,16 +360,14 @@ namespace Durin
 		}
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.fetch_add(1);
 
-		CachedResolvedData = {};
-		CachedResolvedData.UniformExpressionCache = UniformExpressionCache;
+		CachedResolvedData = {.UniformExpressionCache = UniformExpressionCache};
 		if (!RenderingThreadProgram && bCompiling)
 		{
-			CachedResolvedData.Representation = FMaterialRenderRepresentation::Pending();
+			CachedResolvedData.bPending = true;
 			++ResolutionCount;
 			bHasResolvedData = true;
 			return CachedResolvedData;
 		}
-		CachedResolvedData.Representation = FMaterialRenderRepresentation{};
 		if (RenderingThreadProgram)
 		{
 			CachedResolvedData.CompiledProgram = RenderingThreadProgram;
@@ -377,7 +375,8 @@ namespace Durin
 				RenderingThreadProgram->GetShaderMap().ShaderMapId;
 		}
 		FMaterialRenderRepresentationBuilder RepresentationBuilder = CachedResolvedData.CompiledProgram
-			? FMaterialRenderRepresentationBuilder(CachedResolvedData.CompiledProgram->GetShaderMap().Layout)
+			? FMaterialRenderRepresentationBuilder(std::shared_ptr<const FMaterialRenderLayout>(
+				RenderingThreadProgram->ShaderMap, &RenderingThreadProgram->GetShaderMap().Layout))
 			: FMaterialRenderRepresentationBuilder(CachedResolvedData.Representation);
 		bool bRepresentationValid = true;
 		if (CachedResolvedData.CompiledProgram)

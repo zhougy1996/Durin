@@ -1636,7 +1636,7 @@ TEST(FMaterialFunctionTests, DependencyEditsInvalidateProgramsAndPreserveOwnerSo
 	struct FRenderScope { ~FRenderScope() { ShutdownRenderingThread(); } } RenderScope;
 	auto* Dynamic = DMaterialInstance::CreateDynamic(Child);
 	ASSERT_TRUE(Dynamic);
-	EXPECT_FALSE(Testing::CaptureMaterialRenderData(*Dynamic).Representation.IsError());
+	EXPECT_FALSE(Testing::CaptureMaterialRenderData(*Dynamic).IsError());
 	ASSERT_FALSE(First->GetAcceptedExpressionSources().empty());
 	ASSERT_FALSE(Second->GetAcceptedExpressionSources().empty());
 	EXPECT_EQ(First->GetAcceptedExpressionSources()[0].CallPath[0], FirstCall);
@@ -1655,7 +1655,7 @@ TEST(FMaterialFunctionTests, DependencyEditsInvalidateProgramsAndPreserveOwnerSo
 	}
 
 	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
-	EXPECT_TRUE(Testing::CaptureMaterialRenderData(*Dynamic).Representation.IsError());
+	EXPECT_TRUE(Testing::CaptureMaterialRenderData(*Dynamic).IsError());
 	ASSERT_TRUE(First->CompileEdits());
 	ASSERT_TRUE(Second->CompileEdits());
 	EXPECT_NE(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Accepted->GetShaderMap().ShaderMapId);

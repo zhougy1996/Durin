@@ -1,29 +1,18 @@
 #include "Materials/MaterialRenderTypes.h"
-#include "Materials/MaterialRenderProxy.h"
 #include "Hash/XxHash.h"
-#include "RenderingThread.h"
 
 namespace Durin
 {
 	struct FMaterialRenderRepresentation::FStorage
 	{
-		FMaterialRenderLayout Layout;
+		std::shared_ptr<const FMaterialRenderLayout> Layout;
 		FByteBuffer UniformPayload;
 		std::vector<FRHITextureReferenceRef> Resources;
 		std::vector<FMaterialSamplerState> Samplers;
 		std::vector<EMaterialTextureFallback> TextureFallbacks;
-		bool bError = false;
 		uint64 RecordId = 0;
 		uint64 ContentHash = 0;
-		mutable std::shared_ptr<FUniformExpressionCache> UniformExpressionCache;
 	};
-	auto FMaterialRenderRepresentation::GetUniformExpressionCache() const -> std::shared_ptr<FUniformExpressionCache>
-	{
-		CheckRenderingThread();
-		if (!Storage->UniformExpressionCache)
-			Storage->UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
-		return Storage->UniformExpressionCache;
-	}
 	namespace
 	{
 		auto SetValidationFailure(FMaterialRenderValidationDiagnostic& OutDiagnostic,
@@ -41,33 +30,25 @@ namespace Durin
 	}
 	FMaterialRenderRepresentation::FMaterialRenderRepresentation()
 	{
-		static const FMaterialRenderRepresentation Error(MakeErrorMaterialRenderLayout(),
-			FByteBuffer(MaterialUniformHeaderBytes, std::byte{0}), {}, {}, {}, true);
+		static const FMaterialRenderRepresentation Error(std::make_shared<const FMaterialRenderLayout>(MakeErrorMaterialRenderLayout()),
+			FByteBuffer(MaterialUniformHeaderBytes, std::byte{0}), {}, {}, {});
 		Storage = Error.Storage;
 	}
 
-	auto FMaterialRenderRepresentation::Pending() -> const FMaterialRenderRepresentation&
-	{
-		static const FMaterialRenderRepresentation Representation({}, {}, {}, {}, {}, false);
-		return Representation;
-	}
-
 	FMaterialRenderRepresentation::FMaterialRenderRepresentation(
-		FMaterialRenderLayout InLayout,
+		std::shared_ptr<const FMaterialRenderLayout> InLayout,
 		FByteBuffer InUniformPayload,
 		std::vector<FRHITextureReferenceRef> InResources,
 		std::vector<FMaterialSamplerState> InSamplers,
-		std::vector<EMaterialTextureFallback> InFallbacks,
-		bool bInError)
+		std::vector<EMaterialTextureFallback> InFallbacks)
 	{
 		static std::atomic<uint64> NextRecordId{1};
 		const uint64 Id = NextRecordId.fetch_add(1, std::memory_order_relaxed);
 		checkf(Id != 0, "Material publication record IDs exhausted.");
 		FXxHash64Builder Hash;
 		Hash.Update(InUniformPayload);
-		Hash.UpdateValue(InLayout.Identity.Version);
-		Hash.UpdateValue(InLayout.Identity.Id);
-		Hash.UpdateValue(bInError);
+		Hash.UpdateValue(InLayout->Identity.Version);
+		Hash.UpdateValue(InLayout->Identity.Id);
 		for (const auto& Resource : InResources) Hash.UpdateValue(Resource.GetReference());
 		for (const auto& Sampler : InSamplers)
 		{
@@ -80,10 +61,18 @@ namespace Durin
 		for (const auto Fallback : InFallbacks) Hash.UpdateValue(Fallback);
 		Storage = std::make_shared<const FStorage>(FStorage{
 			std::move(InLayout), std::move(InUniformPayload), std::move(InResources),
-			std::move(InSamplers), std::move(InFallbacks), bInError, Id, Hash.Finalize().HashValue});
+			std::move(InSamplers), std::move(InFallbacks), Id, Hash.Finalize().HashValue});
 	}
 
-	auto FMaterialRenderRepresentation::TryCreate(
+	auto FMaterialRenderRepresentation::TryCreate(FMaterialRenderLayout Layout, FMaterialRenderRepresentationInput Input,
+		FMaterialRenderRepresentation& OutRepresentation, FMaterialRenderValidationDiagnostic& OutDiagnostic) -> bool
+	{
+		return TryCreateFromLayout(std::make_shared<const FMaterialRenderLayout>(std::move(Layout)),
+			std::move(Input), OutRepresentation, OutDiagnostic);
+	}
+
+	auto FMaterialRenderRepresentation::TryCreateFromLayout(
+		std::shared_ptr<const FMaterialRenderLayout> Layout,
 		FMaterialRenderRepresentationInput Input,
 		FMaterialRenderRepresentation& OutRepresentation,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
@@ -91,19 +80,19 @@ namespace Durin
 	{
 		OutRepresentation = FMaterialRenderRepresentation();
 		OutDiagnostic = {};
-		if (!ValidateMaterialRenderLayout(Input.Layout, OutDiagnostic)) return false;
-		if (Input.UniformPayload.size() != Input.Layout.UniformPayloadSize)
+		if (!ValidateMaterialRenderLayout(*Layout, OutDiagnostic)) return false;
+		if (Input.UniformPayload.size() != Layout->UniformPayloadSize)
 		{
 			SetValidationFailure(OutDiagnostic, "Material render uniform payload size does not match its layout.");
 			return false;
 		}
-		if (Input.Resources.size() != Input.Layout.ResourceFieldCount)
+		if (Input.Resources.size() != Layout->ResourceFieldCount)
 		{
 			SetValidationFailure(OutDiagnostic, "Material render resource count does not match its layout.");
 			return false;
 		}
 
-		if (Input.Layout.Identity.Version == CompiledMaterialRenderLayoutVersion)
+		if (Layout->Identity.Version == CompiledMaterialRenderLayoutVersion)
 		{
 			if (Input.Samplers.size() != Input.Resources.size()
 				|| Input.TextureFallbacks.size() != Input.Resources.size())
@@ -113,9 +102,9 @@ namespace Durin
 					return SetValidationFailure(OutDiagnostic, std::format("Material sampling state or fallback is invalid. [index {}]", Index));
 		}
 		std::vector<bool> Covered(Input.UniformPayload.size(), false);
-		for (uint32 FieldIndex = 0; FieldIndex < Input.Layout.Fields.size(); ++FieldIndex)
+		for (uint32 FieldIndex = 0; FieldIndex < Layout->Fields.size(); ++FieldIndex)
 		{
-			const FMaterialRenderField& Field = Input.Layout.Fields[FieldIndex];
+			const FMaterialRenderField& Field = Layout->Fields[FieldIndex];
 			if (Field.Storage == EMaterialRenderFieldStorage::Resource)
 			{
 				if (Field.Type == EMaterialRenderValueType::TextureCube && Input.TextureFallbacks[Field.CompactIndex] == EMaterialTextureFallback::FlatRGNormal)
@@ -155,19 +144,18 @@ namespace Durin
 		}
 
 		OutRepresentation = FMaterialRenderRepresentation(
-			std::move(Input.Layout),
+			std::move(Layout),
 			std::move(Input.UniformPayload),
 			std::move(Input.Resources),
 			std::move(Input.Samplers),
-			std::move(Input.TextureFallbacks),
-			false);
+			std::move(Input.TextureFallbacks));
 		return true;
 	}
 
 	auto FMaterialRenderRepresentation::GetLayout() const
 		-> const FMaterialRenderLayout&
 	{
-		return Storage->Layout;
+		return *Storage->Layout;
 	}
 
 	auto FMaterialRenderRepresentation::GetUniformPayload() const
@@ -182,16 +170,6 @@ namespace Durin
 		return Storage->Resources;
 	}
 
-	auto FMaterialRenderRepresentation::IsError() const -> bool
-	{
-		return Storage->bError;
-	}
-
-	auto FMaterialRenderRepresentation::IsPending() const -> bool
-	{
-		return Storage == Pending().Storage;
-	}
-
 	auto FMaterialRenderRepresentation::GetSamplers() const -> std::span<const FMaterialSamplerState>
 	{ return Storage->Samplers; }
 	auto FMaterialRenderRepresentation::GetTextureFallbacks() const -> std::span<const EMaterialTextureFallback>
@@ -201,36 +179,9 @@ namespace Durin
 	auto FMaterialRenderRepresentation::GetContentHash() const -> uint64
 	{ return Storage->ContentHash; }
 
-	auto TryGetMaterialRenderBinding(
-		const FMaterialRenderRepresentation& Representation,
-		FMaterialRenderBinding& OutBinding,
-		FMaterialRenderValidationDiagnostic& OutDiagnostic
-	) -> bool
-	{
-		OutBinding = FMaterialRenderBinding{};
-		OutDiagnostic = {};
-		if (Representation.IsPending())
-			return SetValidationFailure(OutDiagnostic, "Material is still compiling.");
-		if (Representation.GetLayout().Identity.Version == CompiledMaterialRenderLayoutVersion)
-		{
-			// TryCreate validates before immutable publication. Retain the publication
-			// instead of validating and copying its layout and arrays for each draw.
-			OutBinding.Owner = Representation.Storage;
-			OutBinding.bError = Representation.IsError();
-			OutBinding.LayoutIdentity = Representation.GetLayout().Identity;
-			OutBinding.CompiledLayout = &Representation.GetLayout();
-			OutBinding.CompiledUniformPayload = Representation.GetUniformPayload();
-			OutBinding.CompiledTextures = Representation.GetResources();
-			OutBinding.CompiledSamplers = Representation.GetSamplers();
-			OutBinding.CompiledTextureFallbacks = Representation.GetTextureFallbacks();
-			return true;
-		}
-		return SetValidationFailure(OutDiagnostic, "The material binding requires the current compiled layout version.");
-	}
-
 	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(
 		const FMaterialRenderRepresentation& Source)
-		: Input{.Layout = Source.GetLayout()}
+		: Layout(Source.Storage->Layout)
 	{
 		Input.UniformPayload.assign(
 			Source.GetUniformPayload().begin(),
@@ -242,29 +193,34 @@ namespace Durin
 		Input.TextureFallbacks.assign(Source.GetTextureFallbacks().begin(), Source.GetTextureFallbacks().end());
 	}
 
-	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(const FMaterialRenderLayout& Layout)
+	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(const FMaterialRenderLayout& InLayout)
+		: FMaterialRenderRepresentationBuilder(std::make_shared<const FMaterialRenderLayout>(InLayout))
 	{
-		Input.Layout = Layout;
-		const auto Valid = ValidateCompiledMaterialLayout(Layout);
+	}
+
+	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(std::shared_ptr<const FMaterialRenderLayout> InLayout)
+		: Layout(std::move(InLayout))
+	{
+		const auto Valid = ValidateCompiledMaterialLayout(*Layout);
 		bInvalid = !Valid;
 		if (bInvalid) return;
-		Input.UniformPayload.resize(Layout.UniformPayloadSize, std::byte{0});
-		Input.Resources.resize(Layout.ResourceFieldCount);
-		Input.Samplers.resize(Layout.ResourceFieldCount);
-		Input.TextureFallbacks.resize(Layout.ResourceFieldCount, EMaterialTextureFallback::White);
+		Input.UniformPayload.resize(Layout->UniformPayloadSize, std::byte{0});
+		Input.Resources.resize(Layout->ResourceFieldCount);
+		Input.Samplers.resize(Layout->ResourceFieldCount);
+		Input.TextureFallbacks.resize(Layout->ResourceFieldCount, EMaterialTextureFallback::White);
 	}
 
 	auto FMaterialRenderRepresentationBuilder::SetParameter(const FMaterialFieldKey& Id, const FMaterialParameterValue& Value) -> bool
 	{
 		const auto* Field = FindField(Id);
 		if (!Field) return RejectField(Id);
-		return WriteBoundParameter(static_cast<uint32>(Field - Input.Layout.Fields.data()), Value);
+		return WriteBoundParameter(static_cast<uint32>(Field - Layout->Fields.data()), Value);
 	}
 
 	auto FMaterialRenderRepresentationBuilder::WriteBoundParameter(uint32 FieldIndex, const FMaterialParameterValue& Value) -> bool
 	{
-		if (bInvalid || FieldIndex >= Input.Layout.Fields.size()) return RejectField({});
-		const auto& Field = Input.Layout.Fields[FieldIndex];
+		if (bInvalid || FieldIndex >= Layout->Fields.size()) return RejectField({});
+		const auto& Field = Layout->Fields[FieldIndex];
 		const auto& Id = Field.ParameterId;
 		if (Value.GetType() == EMaterialParameterType::Texture)
 		{
@@ -296,10 +252,10 @@ namespace Durin
 		const FMaterialFieldKey& ParameterId) const -> const FMaterialRenderField*
 	{
 		const auto It = std::ranges::find(
-			Input.Layout.Fields,
+			Layout->Fields,
 			ParameterId,
 			&FMaterialRenderField::ParameterId);
-		return It == Input.Layout.Fields.end() ? nullptr : &*It;
+		return It == Layout->Fields.end() ? nullptr : &*It;
 	}
 
 	auto FMaterialRenderRepresentationBuilder::RejectField(
@@ -392,7 +348,7 @@ namespace Durin
 			return RejectField(ParameterId);
 		}
 		Input.Resources[Field->CompactIndex] = Value;
-		if (Input.Layout.Identity.Version == CompiledMaterialRenderLayoutVersion)
+		if (Layout->Identity.Version == CompiledMaterialRenderLayoutVersion)
 		{
 			if (!IsValidMaterialSampling(Sampler, Fallback) || (Field->Type == EMaterialRenderValueType::TextureCube && Fallback == EMaterialTextureFallback::FlatRGNormal)) return RejectField(ParameterId);
 			Input.Samplers[Field->CompactIndex] = Sampler;
@@ -414,8 +370,8 @@ namespace Durin
 			};
 			return false;
 		}
-		return FMaterialRenderRepresentation::TryCreate(
-			Input,
+		return FMaterialRenderRepresentation::TryCreateFromLayout(
+			Layout, Input,
 			OutRepresentation,
 			OutDiagnostic);
 	}

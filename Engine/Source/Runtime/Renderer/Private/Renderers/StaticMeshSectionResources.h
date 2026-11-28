@@ -47,7 +47,6 @@ namespace Durin
 		{
 			// Description owns GeometryOwner, which retains the immutable binding/declaration.
 			std::shared_ptr<const FMeshDrawDescription> Description;
-			FMaterialRenderBinding Material;
 			std::shared_ptr<const RendererPrivate::FMeshPassPipeline> Pipeline;
 		};
 		std::unordered_map<FKey, FEntry, FKeyHash> Entries;

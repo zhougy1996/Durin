@@ -108,17 +108,18 @@ TEST(FMaterialRenderProxyTests, PendingProgramDoesNotBecomeInvalidMaterial)
 	Durin::Testing::QueueMaterialTestState(*Proxy, Pending);
 	const auto Compiling = CaptureMaterialProxy(Proxy);
 	EXPECT_FALSE(Compiling.bHasMaterial);
-	EXPECT_TRUE(Compiling.RenderData.Representation.IsPending());
-	EXPECT_FALSE(Compiling.RenderData.Representation.IsError());
+	EXPECT_TRUE(Compiling.RenderData.bPending);
+	EXPECT_FALSE(Compiling.RenderData.IsError());
 	EXPECT_EQ(GetMaterialFallbackDiagnosticsSnapshot().Get(EMaterialFallbackReason::MaterialDataInvalid),
 		Before.Get(EMaterialFallbackReason::MaterialDataInvalid));
 	EXPECT_EQ(GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, Counters.RepresentationValidationFailureCount);
 	Durin::Testing::QueueMaterialTestState(*Proxy, {});
 	const auto Failed = CaptureMaterialProxy(Proxy);
 	EXPECT_FALSE(Failed.bHasMaterial);
-	EXPECT_FALSE(Failed.RenderData.Representation.IsPending());
-	EXPECT_TRUE(Failed.RenderData.Representation.IsError());
-	EXPECT_NE(Compiling.RenderData.Representation.GetRecordId(), Failed.RenderData.Representation.GetRecordId());
+	EXPECT_FALSE(Failed.RenderData.bPending);
+	EXPECT_TRUE(Failed.RenderData.IsError());
+	EXPECT_FALSE(Compiling.RenderData.IsReadyForRendering());
+	EXPECT_TRUE(Failed.RenderData.IsReadyForRendering());
 	EXPECT_EQ(GetMaterialFallbackDiagnosticsSnapshot().Get(EMaterialFallbackReason::MaterialDataInvalid),
 		Before.Get(EMaterialFallbackReason::MaterialDataInvalid) + 1);
 	ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
@@ -167,6 +168,7 @@ TEST(FMaterialRenderProxyTests, IndexedFieldsMatchSymbolicWritesAfterLayoutRepla
 			if (Publisher) EXPECT_EQ(Published.UniformExpressionCache, Publisher);
 			Publisher = Published.UniformExpressionCache;
 			const auto& Actual = Published.Representation;
+			EXPECT_EQ(&Actual.GetLayout(), &Published.CompiledProgram->GetShaderMap().Layout);
 			FMaterialRenderRepresentationBuilder ExpectedBuilder(Program->GetShaderMap().Layout);
 			for (const auto& Parameter : Layer.Parameters) ASSERT_TRUE(ExpectedBuilder.SetParameter(Parameter.Id, Parameter.Value));
 			FMaterialRenderRepresentation Expected;
@@ -188,7 +190,7 @@ TEST(FMaterialRenderProxyTests, IndexedFieldsMatchSymbolicWritesAfterLayoutRepla
 		Layer.CompiledProgram = Replacement;
 		Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
 		const auto& Changed = Proxy->GetMaterialWithFallback().Representation;
-		EXPECT_FALSE(Changed.IsError());
+		EXPECT_FALSE(Proxy->GetMaterialWithFallback().IsError());
 		EXPECT_FALSE(Proxy->HasStableOpaqueDepth_RenderThread());
 		EXPECT_EQ(Changed.GetLayout().Fields.front().ParameterId, Layer.Parameters[1].Id);
 		FMaterialRenderRepresentationBuilder Rebound(ReplacementArtifact->Layout);
@@ -200,22 +202,22 @@ TEST(FMaterialRenderProxyTests, IndexedFieldsMatchSymbolicWritesAfterLayoutRepla
 		EXPECT_TRUE(std::ranges::equal(Changed.GetUniformPayload(), ExpectedRebound.GetUniformPayload()));
 		Layer.Parameters.erase(Layer.Parameters.begin());
 		Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
-		EXPECT_FALSE(Proxy->GetMaterialWithFallback().Representation.IsError());
+		EXPECT_FALSE(Proxy->GetMaterialWithFallback().IsError());
 		Layer.Parameters[0].Value = 0.5f; // An orphan type must not reuse the old vector write.
 		Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
-		EXPECT_FALSE(Proxy->GetMaterialWithFallback().Representation.IsError());
+		EXPECT_FALSE(Proxy->GetMaterialWithFallback().IsError());
 		const auto Failures = GetMaterialRenderProxyCounters().RepresentationValidationFailureCount;
 		// Supply prebound records directly so neither invalid write is filtered by name lookup.
 		const uint32 PastEnd = static_cast<uint32>(ReplacementArtifact->Layout.Fields.size());
 		FMaterialInstanceParameterSet Invalid;
 		Invalid.SetParameter(PastEnd, 0.5f);
 		Proxy->InitParameters_RenderThread(std::move(Invalid));
-		EXPECT_TRUE(Proxy->GetMaterialWithFallback().Representation.IsError());
+		EXPECT_TRUE(Proxy->GetMaterialWithFallback().IsError());
 		EXPECT_EQ(GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, Failures + 1);
 
 		Proxy->InitParameters_RenderThread({});
 		Proxy->UpdateParameter_RenderThread(0, 0.5f); // Field zero now requires a Vector2.
-		EXPECT_TRUE(Proxy->GetMaterialWithFallback().Representation.IsError());
+		EXPECT_TRUE(Proxy->GetMaterialWithFallback().IsError());
 		EXPECT_EQ(GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, Failures + 2);
 	});
 	FlushRenderingCommands();

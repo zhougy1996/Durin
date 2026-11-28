@@ -1116,8 +1116,7 @@ unavailable defaults use ErrorMaterial.
   validated compiled binding contract and never performs GUID or `FName` lookup or
   reads reflected material objects.
 - StaticMesh and SplineMesh use one Renderer-private material
-  binding resolver. It accepts validated compiled layouts through
-  `TryGetMaterialRenderBinding`; an unsupported layout records the shared
+  selection path. It checks the selected representation before use. An unsupported layout records the shared
   fallback reason, emits a renderer-specific `ShaderBinding` diagnostic, and
   selects the code-constructed ErrorMaterial before shader-map or pipeline
   selection. An incompatible terminal is a checked invariant and skips the
@@ -1158,15 +1157,16 @@ unavailable defaults use ErrorMaterial.
   no game-thread parameter mirror. Unchanged single-value commands may be rejected
   on RenderThread. Whole-operation no-ops are rejected by the material mutation.
   There is no whole-material queue/apply API, mutable mailbox or publication token.
-- Uniform cache invalidation is independent. Parameter changes invalidate values
-  while preserving collection buffers and the uniform-buffer object. A changed
-  ShaderMap clears collection bindings and recreates the native uniform buffer only
-  when its layout changes. Explicit cache invalidation does not replace programs
+- Parameter changes invalidate cached values while preserving the proxy cache
+  and its collection buffers. A changed ShaderMap clears collection bindings.
+  Draw preparation reuses an equivalent uniform buffer or creates a replacement
+  when a new publication changes the bytes, resource table or layout. Explicit cache invalidation does not replace programs
   or parameters. Native uniform evaluation remains lazy at the renderer binding
   path, where counted textures and resource members are available.
-  A proxy owns its stable cache. Independent render representations create their
-  fallback cache only on first render-thread access; copies of one publication
-  share it. Proxy-backed representations allocate no unused fallback cache.
+  A proxy owns its stable cache and publishes a shared reference in
+  `FMaterialRenderData`. Independent render data owns a separate cache even
+  when it uses the same parameter snapshot. Copies of that data share its cache.
+  The render thread allocates the uniform buffer on first evaluation.
   Resolution also remains lazy: consecutive updates without a consumer resolve
   only the resulting state. A dirty flag retains pre-start demand, and first
   proxy admission initializes every required channel before later draw commands.
@@ -1248,17 +1248,19 @@ it never publishes a partially filled payload. The representation retains no
 reflected object or raw texture pointer.
 
 Each publication has a process-unique nonzero record ID and shared immutable
-storage. Copying a representation preserves its ID and retains the layout,
+storage. Proxy parameter snapshots share the immutable layout of the accepted Shader Map.
+Independent builders retain their own layout. Copying a representation preserves its ID and retains the layout,
 payload and resource arrays without copying them. A successful builder publication
 gets a new ID; failed construction selects the shared error terminal. Content
 hashing occurs during publication. IDs are runtime revision tokens, not serialized
 asset identities, shader generations or backend readiness proofs.
 
-`TryGetMaterialRenderBinding` retains this validated publication and exposes
-read-only spans; it does not revalidate the immutable layout or copy payload and
-resource arrays. Binding copies keep their own counted owner, so replacing or
-destroying the source representation cannot invalidate a prepared binding.
-Storage retires after its last consumer, without a global historical record cache.
+Each draw retains its selected `FMaterialRenderData`. The program, immutable
+representation and uniform cache come from that selection. Compilation readiness
+is part of the selection and is independent of the parameter record ID. Prepared draws skip
+an unusable selection. A prepared mesh uniform range retains the RHI buffer
+used by that draw. Publishing changed parameter bytes or texture bindings
+preserves the buffer referenced by earlier draws.
 Texture references still resolve their current render-thread resources through
 the existing generation and readiness checks.
 

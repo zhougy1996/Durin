@@ -112,7 +112,7 @@ namespace Durin
 		auto CanPreserveOcclusionForParameter(uint32 FieldIndex, const FMaterialParameterValue& Value) const -> bool;
 		std::unordered_map<FSceneInterface*, uint32> SceneReferences;
 
-		FMaterialRenderData CachedResolvedData;
+		FMaterialRenderData CachedResolvedData{.UniformExpressionCache = UniformExpressionCache};
 		// Diagnostic counts never participate in ordering or cache validity.
 		uint64 PublicationCount = 0;
 		uint64 ResolutionCount = 0;

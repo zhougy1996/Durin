@@ -4,31 +4,25 @@
 
 namespace Durin::RendererPrivate
 {
-	auto ResolvePreparedMaterialBinding(
+	auto IsPreparedMaterialReady(
 		const FMaterialRenderData& Material,
-		FMaterialRenderBinding& OutBinding,
 		std::string_view DiagnosticResource
 	) -> bool
 	{
-		FMaterialRenderValidationDiagnostic Diagnostic;
-		if (TryGetMaterialRenderBinding(
-				Material.Representation, OutBinding, Diagnostic))
+		if (Material.IsReadyForRendering())
 			return true;
 
-		DURIN_ERROR("Renderer material binding failed: context={}, identity=prepared-material, message={}",
-			DiagnosticResource, Diagnostic.Message);
+		DURIN_ERROR("Renderer material binding failed: context={}, identity=prepared-material, pending={}",
+			DiagnosticResource, Material.bPending);
 		return false;
 	}
 
-	auto ResolveMaterialBinding(
+	auto SelectMeshMaterial(
 		FMaterialRenderData& Material,
-		FMaterialRenderBinding& OutBinding,
 		std::string_view DiagnosticResource
 	) -> bool
 	{
-		FMaterialRenderValidationDiagnostic Diagnostic;
-		if (TryGetMaterialRenderBinding(
-				Material.Representation, OutBinding, Diagnostic))
+		if (Material.IsReadyForRendering())
 		{
 			return true;
 		}
@@ -36,22 +30,19 @@ namespace Durin::RendererPrivate
 		RecordMaterialFallbackReason(EMaterialFallbackReason::UnsupportedLayout);
 		const FMaterialRenderLayoutIdentity RejectedIdentity =
 			Material.Representation.GetLayout().Identity;
-		DURIN_ERROR("Renderer material binding failed: context={}, layout-version={}, layout-id={}, message={}. ErrorMaterial was selected.",
+		DURIN_ERROR("Renderer material binding failed: context={}, layout-version={}, layout-id={}, pending={}. ErrorMaterial was selected.",
 			DiagnosticResource, RejectedIdentity.Version, RejectedIdentity.Id.ToString(),
-			Diagnostic.Message);
+			Material.bPending);
 
 		Material = GetErrorMaterialRenderData();
-		FMaterialRenderValidationDiagnostic ErrorDiagnostic;
-		if (TryGetMaterialRenderBinding(
-				Material.Representation, OutBinding, ErrorDiagnostic))
+		if (Material.IsReadyForRendering())
 		{
 			return true;
 		}
 
 		checkf(
 			false,
-			"ErrorMaterial must satisfy the compiled layout binding contract: %s",
-			ErrorDiagnostic.Message.c_str());
+			"ErrorMaterial must satisfy the compiled layout binding contract");
 		return false;
 	}
 }

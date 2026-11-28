@@ -532,7 +532,7 @@ namespace Durin
 		const auto* Data = &Proxy->QueryMaterial_RenderThread();
 		if (!Data->CompiledProgram)
 		{
-			const std::string Diagnostic = Data->Representation.IsPending()
+			const std::string Diagnostic = Data->bPending
 				? "pending without an accepted program" : "missing or failed accepted program";
 			if (State->MaterialDiagnostic != Diagnostic)
 				DURIN_WARN("PostProcess material bypassed: {}. Material compiler diagnostics remain on the material.", Diagnostic);
@@ -594,11 +594,11 @@ namespace Durin
 			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return {};
 		}
 		auto Prepared = std::make_shared<FPreparedPostProcessMaterial>();
-		Prepared->Program = Program;
+		if (!IsPreparedMaterialReady(*Data, "FPostProcessMaterialShader")) return {};
+		Prepared->Material = *Data;
 		Prepared->bRejectBindings = bRejectBindings;
 		Prepared->PipelineVertexDeclaration = Pipeline->PipelineVertexDeclaration;
 		Prepared->Vertex = Pipeline->Vertex; Prepared->Fragment = Pipeline->Fragment; Prepared->PipelineInitializer = Pipeline->PipelineInitializer;
-		if (!ResolvePreparedMaterialBinding(*Data, Prepared->Material, "FPostProcessMaterialShader")) return {};
 		if (!State->MaterialResources) State->MaterialResources = std::make_unique<FSurfaceMaterialResources>(Coordinator, GetDefaultTextureResources());
 		FResolvedSurfaceMaterial Material;
 		if (!State->MaterialResources->Ensure_RenderThread(Prepared->Material, ESurfaceMaterialPass::PostProcess)
@@ -611,7 +611,7 @@ namespace Durin
 			if (Range.Buffer) Prepared->Resources.emplace_back(Range.Buffer);
 			return Range;
 		};
-		const auto MaterialBuffer = RetainUniform(Prepared->Material.CompiledUniformPayload);
+		const auto MaterialBuffer = RetainUniform(Prepared->Material.Representation.GetUniformPayload());
 		const auto ViewBuffer = PrepareMeshViewUniform(Commands, View, false);
 		if (!ViewBuffer.Buffer) return {};
 		Prepared->Resources.emplace_back(ViewBuffer.Buffer);
@@ -650,7 +650,7 @@ namespace Durin
 		const FMaterialSceneTextureUniform& Uniform) -> bool
 	{
 		if (Prepared.bRejectBindings || !Input0 || Input0 == Prepared.Output.GetReference() || !Prepared.Output) return false;
-		auto Scene = ResolveMaterialSceneTextureBindings(Commands, std::span<const FMaterialShaderBinding>(Prepared.Program->GetShaderMap().Entries[0].Bindings), Input0, Depth, Uniform);
+		auto Scene = ResolveMaterialSceneTextureBindings(Commands, std::span<const FMaterialShaderBinding>(Prepared.Material.CompiledProgram->GetShaderMap().Entries[0].Bindings), Input0, Depth, Uniform);
 		if (!Scene) return false;
 		auto Bindings = Prepared.Bindings;
 		Bindings.insert(Bindings.end(), Scene->Parameters.begin(), Scene->Parameters.end());

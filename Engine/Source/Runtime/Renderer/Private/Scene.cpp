@@ -404,7 +404,8 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		const auto& Material = Context.ResolveMaterial(MaterialRenderProxy);
-		if (!MaterialInputs || MaterialInputs->Material.Representation.GetRecordId() != Material.Representation.GetRecordId())
+		if (!MaterialInputs || MaterialInputs->Material.bPending != Material.bPending
+			|| MaterialInputs->Material.Representation.GetRecordId() != Material.Representation.GetRecordId())
 			MaterialInputs = std::make_shared<const FStaticMeshBatchInputs>(GeometryRecord, SegmentIndex, Material);
 		return MaterialInputs;
 	}

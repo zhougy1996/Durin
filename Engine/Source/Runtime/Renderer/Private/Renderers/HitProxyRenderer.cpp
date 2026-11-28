@@ -208,9 +208,9 @@ namespace Durin
 				Item.Primitive = Prepared.GetPrimitive(Draw);
 				Item.Draw = &Draw;
 				const auto Factory = FindMeshVertexFactory(Draw.Command->PipelineKey.FactoryKey);
-				FMaterialRenderBinding Binding;
+
 				if (!Item.Primitive || !Factory
-					|| !ResolvePreparedMaterialBinding(Draw.Command->Material, Binding, "HitProxyMaterial")) { bReady = false; break; }
+					|| !IsPreparedMaterialReady(Draw.Command->Material, "HitProxyMaterial")) { bReady = false; break; }
 				const auto Program = Draw.Command->Material.CompiledProgram;
 				const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EShadingPath::Deferred, EMeshPipelinePass::HitProxy);
 				const auto* VertexType = Factory->UsesGeneratedMaterialVertexStage(Processor.GetVertexFactoryPass())
@@ -220,7 +220,7 @@ namespace Durin
 				bFrameDependent |= View.MaterialTimeSeconds < 0.0 && Program && std::ranges::any_of(Program->GetShaderMap().Entries,
 					[&](const auto& Entry) { return Entry.Requirements.Context.bMaterialView
 						&& (Entry.Shader.ShaderType == "FHitProxyFragmentShader" || (VertexType && Entry.Shader.EntryPoint == VertexType->GetEntryPoint())); });
-				for (const auto& Texture : Binding.CompiledTextures)
+				for (const auto& Texture : Draw.Command->Material.Representation.GetResources())
 					if (Texture && Texture->GetReferencedTexture_RenderThread())
 						bFrameDependent |= EnumHasAnyFlags(Texture->GetReferencedTexture_RenderThread()->GetFlags(), ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::Storage);
 				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory,
@@ -230,8 +230,8 @@ namespace Durin
 				if (ShaderCompletion.Status == ERenderResourceAvailability::Pending) { PreparationScope.MarkPending(); FRenderPipelinePreparationBatch::MarkResourcePending(); bReady = false; break; }
 				if (ShaderCompletion.Status == ERenderResourceAvailability::Canceled) { bReady = false; break; }
 				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", std::string(ShaderCompletion.Error)); bReady = false; break; }
-				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
-					|| !SurfaceMaterials.Prepare_RenderThread(Commands, &Binding, ESurfaceMaterialPass::MaskedShadow, {}, nullptr, nullptr, Item.Material)) { bReady = false; break; }
+				if (!SurfaceMaterials.Ensure_RenderThread(Draw.Command->Material, ESurfaceMaterialPass::MaskedShadow)
+					|| !SurfaceMaterials.Prepare_RenderThread(Commands, Draw.Command->Material, ESurfaceMaterialPass::MaskedShadow, {}, nullptr, nullptr, Item.Material)) { bReady = false; break; }
 				if (!Processor.PreparePipeline(Batch, Item, Item.Primitive->CollectedBinding->Declaration, Item.Pipeline)) { bReady = false; break; }
 				if (!Factory->SupportsGPUScene()) Item.Transform = PrepareFallbackPrimitiveUniform(Commands, *Item.Primitive);
 				const auto It = Ids.find(Item.Primitive->PrimitiveId.Value);

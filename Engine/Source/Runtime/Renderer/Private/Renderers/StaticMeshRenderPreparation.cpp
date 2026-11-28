@@ -249,17 +249,20 @@ namespace Durin
 
 	auto FStaticMeshPreparationCache::ResolveMaterial(FMaterialRenderData& Material) -> std::optional<uint32>
 	{
+		if (!SelectMeshMaterial(Material, "StaticMeshMaterialSelection")) return std::nullopt;
 		const auto& Representation = Material.Representation;
-		const auto RecordId = std::make_pair(Representation.GetRecordId(), Material.UniformExpressionCache.get());
+		const auto RecordId = std::make_tuple(Representation.GetRecordId(), Material.UniformExpressionCache.get(), Material.CompiledProgram.get());
 		if (const auto It = MaterialRecordIndices.find(RecordId); It != MaterialRecordIndices.end())
 			return It->second;
 		const uint64 Hash = MaterialFactHash(Representation);
 		const auto [Begin, End] = MaterialIndices.equal_range(Hash);
 		for (auto It = Begin; It != End; ++It)
 		{
-			const auto& Cached = Materials[It->second];
+			const auto& Selection = Materials[It->second];
+			const auto& Cached = Selection.Representation;
 			// Hash collisions and equal uniforms with different textures/layouts are distinct.
-			if (MaterialPublishers[It->second] == Material.UniformExpressionCache && Cached.IsError() == Representation.IsError()
+			if (Selection.CompiledProgram == Material.CompiledProgram && Selection.UniformExpressionCache == Material.UniformExpressionCache
+				&& Selection.IsError() == Material.IsError()
 				&& Cached.GetLayout() == Representation.GetLayout()
 				&& std::ranges::equal(Cached.GetUniformPayload(), Representation.GetUniformPayload())
 				&& std::ranges::equal(Cached.GetResources(), Representation.GetResources())
@@ -271,14 +274,10 @@ namespace Durin
 			}
 		}
 		++MaterialBuilds;
-		FMaterialRenderBinding Binding;
-		if (!ResolveMaterialBinding(Material, Binding, "StaticMeshMaterialSelection")) return std::nullopt;
 		const uint32 Index = static_cast<uint32>(Materials.size());
-		Materials.push_back(Material.Representation);
-		MaterialPublishers.push_back(Material.UniformExpressionCache);
-		// Resolution may have selected ErrorMaterial; hash its final representation.
-		MaterialIndices.emplace(MaterialFactHash(Material.Representation), Index);
-		MaterialRecordIndices.emplace(std::make_pair(Material.Representation.GetRecordId(), Material.UniformExpressionCache.get()), Index);
+		Materials.push_back(Material);
+		MaterialIndices.emplace(Hash, Index);
+		MaterialRecordIndices.emplace(RecordId, Index);
 		return Index;
 	}
 
@@ -668,7 +667,7 @@ namespace Durin
 					const auto SectionIndex = Element.ElementId;
 					auto& Item = FrozenBatch.Elements[ElementIndex];
 					auto Material = Element.Material;
-					if (Material.Representation.IsPending())
+					if (Material.bPending)
 					{
 						bStableMaterials = false;
 						continue;
@@ -1131,37 +1130,14 @@ namespace Durin
 			AssignResolvedIndices(Result.Opaque, Result.Masked, Result.Translucent);
 			// Build a separate group schedule without disturbing translucent draw order.
 			std::vector<uint32> UniformGroups(MaterialCount, UINT32_MAX);
-			std::unordered_multimap<uint32, uint32> AdditionalCollectionGroups;
-			auto Collections = [](const FPreparedStaticMeshDraw& Draw) -> std::span<const FMaterialParameterCollectionLayout> {
-				const auto& Program = Draw.Command->Material.CompiledProgram;
-				return Program ? std::span<const FMaterialParameterCollectionLayout>(Program->ActiveCollections)
-					: std::span<const FMaterialParameterCollectionLayout>{};
-			};
 			for (auto* Bucket : {&Result.Opaque, &Result.Masked, &Result.Translucent})
 				for (auto& Draw : *Bucket)
 				{
-					const auto MaterialIndex = Draw.MaterialUniformIndex;
-					auto& FirstGroup = UniformGroups[MaterialIndex];
-					uint32 Group = FirstGroup;
-					auto Matches = [&](uint32 Candidate) {
-						return std::ranges::equal(Collections(Draw),
-							Collections(Result.GetDraw(Result.MaterialUniformGroups[Candidate].RepresentativeDraw)));
-					};
-					// Equal local bytes do not imply equal Collection bindings. Keep the
-					// common collection-free path allocation-free and split only collisions.
-					if (Group != UINT32_MAX && !Matches(Group))
-					{
-						Group = UINT32_MAX;
-						const auto [Begin, End] = AdditionalCollectionGroups.equal_range(MaterialIndex);
-						for (auto It = Begin; It != End; ++It)
-							if (Matches(It->second)) { Group = It->second; break; }
-					}
+					auto& Group = UniformGroups[Draw.MaterialUniformIndex];
 					if (Group == UINT32_MAX)
 					{
 						Group = static_cast<uint32>(Result.MaterialUniformGroups.size());
 						Result.MaterialUniformGroups.push_back({Draw.ResolvedIndex});
-						if (FirstGroup == UINT32_MAX) FirstGroup = Group;
-						else AdditionalCollectionGroups.emplace(MaterialIndex, Group);
 					}
 					Draw.MaterialUniformIndex = Group;
 				}

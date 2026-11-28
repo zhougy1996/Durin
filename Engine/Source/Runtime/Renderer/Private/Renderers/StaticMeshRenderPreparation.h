@@ -152,9 +152,8 @@ namespace Durin
 		std::unordered_map<const FStaticMeshPassSections*, FResolvedSections> ResolvedSections;
 		FMeshBatchValidationCache Admission;
 		std::unordered_multimap<uint64, uint32> MaterialIndices;
-		std::map<std::pair<uint64, const FUniformExpressionCache*>, uint32> MaterialRecordIndices;
-		std::vector<std::shared_ptr<const FUniformExpressionCache>> MaterialPublishers;
-		std::vector<FMaterialRenderRepresentation> Materials;
+		std::map<std::tuple<uint64, const FUniformExpressionCache*, const FMaterialProgram*>, uint32> MaterialRecordIndices;
+		std::vector<FMaterialRenderData> Materials;
 		size_t MaterialBuilds = 0;
 
 		RENDERER_API auto ResolveMaterial(FMaterialRenderData& Material) -> std::optional<uint32>;
@@ -455,13 +454,6 @@ namespace Durin
 		{
 			return Draw.ResolvedIndex < Draws.size()
 				&& Draws[Draw.ResolvedIndex].bReady;
-		}
-		auto GetMaterialBinding(const FPreparedStaticMeshDraw& Draw) const
-			-> const FMaterialRenderBinding*
-		{
-			return Draw.ResolvedIndex < Draws.size()
-				&& Draws[Draw.ResolvedIndex].MaterialBinding
-				? &*Draws[Draw.ResolvedIndex].MaterialBinding : nullptr;
 		}
 	};
 

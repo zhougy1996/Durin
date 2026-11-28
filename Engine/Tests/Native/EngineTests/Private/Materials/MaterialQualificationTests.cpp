@@ -127,7 +127,7 @@ TEST_F(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 					for (auto& Proxy : Proxies)
 					{
 						Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
-						EXPECT_FALSE(Proxy->GetMaterialWithFallback().Representation.IsError());
+						EXPECT_FALSE(Proxy->GetMaterialWithFallback().IsError());
 					}
 					const auto Resolved = std::chrono::steady_clock::now();
 					for (auto& Proxy : Proxies) (void)Proxy->GetMaterialWithFallback();

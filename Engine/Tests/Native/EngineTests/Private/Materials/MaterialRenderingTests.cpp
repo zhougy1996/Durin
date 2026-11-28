@@ -344,7 +344,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyUsesSharedEngineDefaultForUnassigne
 		const auto Binding = GetMaterialBinding(Default);
 		EXPECT_EQ(Binding.Textures[0], nullptr);
 		ExpectColorNear(Binding.BaseColor, Durin::FVector4f(0.f, 0.f, 0.f, 1.f));
-		EXPECT_FALSE(Default.Representation.IsError());
+		EXPECT_FALSE(Default.IsError());
 		EXPECT_NE(Snapshot.MaterialProxies[SlotIndex], nullptr);
 	}
 	EXPECT_EQ(Snapshot.MaterialProxies[0], Snapshot.MaterialProxies[1]);

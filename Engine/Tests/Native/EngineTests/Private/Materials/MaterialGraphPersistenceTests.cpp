@@ -1260,7 +1260,7 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 			if (Id == WeightId) { ASSERT_TRUE(Edit.SetValue(Value.GetScalar())); }
 			else { ASSERT_TRUE(Edit.SetValue(Value.GetVector4())); }
 			ASSERT_TRUE(Edit.Commit());
-			const auto Updated=Testing::CaptureMaterialRenderData(*Material); EXPECT_FALSE(Updated.Representation.IsError());
+			const auto Updated=Testing::CaptureMaterialRenderData(*Material); EXPECT_FALSE(Updated.IsError());
 			ASSERT_TRUE(Updated.CompiledProgram); EXPECT_EQ(Updated.CompiledProgram->ShaderMap,Program->ShaderMap);
 			const auto Field=std::ranges::find(Updated.Representation.GetLayout().Fields,Material->FindParameterDefinition(Id)->Name.ToString(),&FMaterialRenderField::ParameterId);
 			EXPECT_EQ(Field!=Updated.Representation.GetLayout().Fields.end(),Id==ColorId || Index<2);
@@ -1280,12 +1280,12 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 		{
 			TStrongObjectPtr<DMaterialInstance> Instance(DMaterialInstance::CreateDynamic(Material)); ASSERT_TRUE(Instance);
 			FAssetCompilingManager::Get().FinishCompilationForObject(*Instance);
-			const auto BeforeInstance=Testing::CaptureMaterialRenderData(*Instance); ASSERT_TRUE(BeforeInstance.CompiledProgram); EXPECT_FALSE(BeforeInstance.Representation.IsError());
+			const auto BeforeInstance=Testing::CaptureMaterialRenderData(*Instance); ASSERT_TRUE(BeforeInstance.CompiledProgram); EXPECT_FALSE(BeforeInstance.IsError());
 			const auto InstanceRequests=GetMaterialCompilationStatistics().AcceptedRequests;
 			if (Index<2) ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = "LayerWeight"},FMaterialParameterValue::MakeScalar(.875f)));
 			else EXPECT_FALSE(Instance->SetParameterValueByInfo({.Name = "LayerWeight"},FMaterialParameterValue::MakeScalar(.875f)));
 			ASSERT_TRUE(Instance->SetParameterValueByInfo({.Name = "Emission"},FMaterialParameterValue::MakeVector4({.8,.2,.1,1})));
-			const auto Updated=Testing::CaptureMaterialRenderData(*Instance); EXPECT_FALSE(Updated.Representation.IsError()); ASSERT_TRUE(Updated.CompiledProgram);
+			const auto Updated=Testing::CaptureMaterialRenderData(*Instance); EXPECT_FALSE(Updated.IsError()); ASSERT_TRUE(Updated.CompiledProgram);
 			EXPECT_EQ(Updated.CompiledProgram->ShaderMap,BeforeInstance.CompiledProgram->ShaderMap);
 			for (const auto& Field:Updated.Representation.GetLayout().Fields)
 				if (Field.ParameterId == std::string("LayerWeight") || Field.ParameterId == std::string("Emission")) { float Value; std::memcpy(&Value,Updated.Representation.GetUniformPayload().data()+Field.Offset,sizeof(Value)); EXPECT_FLOAT_EQ(Value,Field.ParameterId == std::string("LayerWeight") ? .875f : .8f); }

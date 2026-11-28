@@ -141,7 +141,7 @@ namespace Durin
 		const auto Proxy = bProcedural ? RequestProceduralSkyMaterialProxy_RenderThread() : Environment.CubeMaterial;
 		if (!Proxy) return false;
 		const auto& Data = Proxy->QueryMaterial_RenderThread();
-		if (Data.Representation.IsPending())
+		if (Data.bPending)
 		{
 			FRenderPipelinePreparationBatch::MarkResourcePending();
 			return false;
@@ -216,14 +216,14 @@ namespace Durin
 				if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return false;
 			}
 		}
-		FMaterialRenderBinding Binding;
+
 		FResolvedSurfaceMaterial Material;
-		if (!ResolvePreparedMaterialBinding(Data, Binding, "SkyBackground")
-			|| !Materials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::Background)
-			|| !Materials.Resolve_RenderThread(Binding, ESurfaceMaterialPass::Background, {}, nullptr, nullptr, Material)) return false;
+		if (!IsPreparedMaterialReady(Data, "SkyBackground")
+			|| !Materials.Ensure_RenderThread(Data, ESurfaceMaterialPass::Background)
+			|| !Materials.Resolve_RenderThread(Data, ESurfaceMaterialPass::Background, {}, nullptr, nullptr, Material)) return false;
 		SkyBoxRendering::FSkyBoxUniform Uniform;
 		if (!SkyBoxRendering::BuildUniform(View, Sky, Uniform)) return false;
-		const auto Payload = Binding.CompiledUniformPayload;
+		const auto Payload = Data.Representation.GetUniformPayload();
 		Draw->Projection = Uniform.DomeProjection;
 		const auto MaterialBuffer = Payload.empty() ? FRHIUniformBufferRange{} : Commands.CreateUniformBufferRange(Payload.data(),Payload.size());
 		const auto SkyBuffer = Commands.CreateUniformBufferRange(&Sky.ProceduralSky, sizeof(Sky.ProceduralSky));

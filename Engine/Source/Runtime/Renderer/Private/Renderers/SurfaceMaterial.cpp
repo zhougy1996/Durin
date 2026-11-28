@@ -70,13 +70,15 @@ namespace Durin::RendererPrivate
 	FSurfaceMaterialResources::~FSurfaceMaterialResources() = default;
 
 	auto FSurfaceMaterialResources::Ensure_RenderThread(
-		const FMaterialRenderBinding& Binding,
+		const FMaterialRenderData& Material,
 		ESurfaceMaterialPass Pass) -> bool
 	{
 		check(IsInRenderingThread());
-		if (Binding.bError) return true;
-		if (Binding.LayoutIdentity.Version != CompiledMaterialRenderLayoutVersion) return false;
-		std::vector<FMaterialSamplerState> RequiredSamplers(Binding.CompiledSamplers.begin(), Binding.CompiledSamplers.end());
+		const auto& Representation = Material.Representation;
+		if (Material.bPending) return false;
+		if (Material.IsError()) return true;
+		const auto Samplers = Representation.GetSamplers();
+		std::vector<FMaterialSamplerState> RequiredSamplers(Samplers.begin(), Samplers.end());
 		if (Pass == ESurfaceMaterialPass::Forward) RequiredSamplers.emplace_back();
 		for (size_t Role = 0; Role < RequiredSamplers.size(); ++Role)
 		{
@@ -109,7 +111,7 @@ namespace Durin::RendererPrivate
 	}
 
 	auto FSurfaceMaterialResources::Resolve_RenderThread(
-		const FMaterialRenderBinding& Binding,
+		const FMaterialRenderData& Material,
 		ESurfaceMaterialPass Pass,
 		const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 		FRHITexture* DirectionalShadowTexture,
@@ -121,46 +123,45 @@ namespace Durin::RendererPrivate
 
 		const FRenderResourceGeneration Generation =
 			Coordinator.GetGeneration_RenderThread();
-		OutMaterial.bError = Binding.bError;
-		OutMaterial.bCompiledLayout = Binding.LayoutIdentity.Version == CompiledMaterialRenderLayoutVersion;
-		if (OutMaterial.bCompiledLayout)
+		const auto& Representation = Material.Representation;
+		if (Material.bPending) return false;
+		OutMaterial.bCompiledLayout = true;
+		OutMaterial.bError = Material.IsError();
+		if (OutMaterial.bError) return true;
+
+		const auto Textures = Representation.GetResources();
+		const auto Samplers = Representation.GetSamplers();
+		const auto Fallbacks = Representation.GetTextureFallbacks();
+		const auto& Fields = Representation.GetLayout().Fields;
+		for (size_t Index = 0; Index < Textures.size(); ++Index)
 		{
-			const size_t Count = Binding.CompiledTextures.size();
-			if (!Binding.CompiledLayout || Binding.CompiledLayout->Identity != Binding.LayoutIdentity || Binding.CompiledSamplers.size() != Count || Binding.CompiledTextureFallbacks.size() != Count
-				|| Binding.CompiledUniformPayload.size() < MaterialUniformHeaderBytes) return false;
-			if (Binding.bError) return Count == 0;
-			for (size_t Index = 0; Index < Count; ++Index)
+			const auto* Entry = State->Samplers.Find(Samplers[Index]);
+			if (!Entry || HasSelectedRenderResourceGenerationChanged(Entry->Slot.GetPayloadGeneration(),
+				Generation, ERenderResourceGenerationDependency::Device) || !Entry->Slot.GetPayload()) return false;
+			FRHITexture* Texture = Textures[Index];
+			EDefaultTexture Fallback;
+			switch (Fallbacks[Index])
 			{
-				const auto* Entry = State->Samplers.Find(Binding.CompiledSamplers[Index]);
-				if (!Entry || HasSelectedRenderResourceGenerationChanged(Entry->Slot.GetPayloadGeneration(),
-					Generation, ERenderResourceGenerationDependency::Device) || !Entry->Slot.GetPayload()) return false;
-				FRHITexture* Texture = Binding.CompiledTextures[Index];
-				EDefaultTexture Fallback;
-				switch (Binding.CompiledTextureFallbacks[Index])
-				{
-				case EMaterialTextureFallback::White: Fallback = EDefaultTexture::White; break;
-				case EMaterialTextureFallback::Black: Fallback = EDefaultTexture::Black; break;
-				case EMaterialTextureFallback::FlatRGNormal: Fallback = EDefaultTexture::FlatNormal; break;
-				default: return false;
-				}
-				const auto& Fields = Binding.CompiledLayout->Fields;
-				const auto Field = std::ranges::find_if(Fields, [&](const auto& V) {
-					return V.Storage == EMaterialRenderFieldStorage::Resource && V.CompactIndex == Index;
-				});
-				if (Field == Fields.end()) return false;
-				const bool Cube = Field->Type == EMaterialRenderValueType::TextureCube;
-				const auto* Actual = Binding.CompiledTextures[Index] ? Binding.CompiledTextures[Index]->GetReferencedTexture_RenderThread() : nullptr;
-				if (Actual && Actual->GetDimension() != (Cube ? ETextureDimension::TextureCube : ETextureDimension::Texture2D)) return false;
-				FRHITexture* FallbackTexture = Cube ? DefaultTextures.GetCube_RenderThread(Fallback) : DefaultTextures.Get_RenderThread(Fallback);
-				if (!Texture) Texture = FallbackTexture;
-				OutMaterial.CompiledTextureFallbacks.push_back(FallbackTexture);
-				FRHISampler* Sampler = Entry->Slot.GetPayload()->GetReference();
-				if (!Texture || !Sampler) return false;
-				OutMaterial.CompiledTextures.push_back(Texture);
-				OutMaterial.CompiledSamplers.push_back(Sampler);
+			case EMaterialTextureFallback::White: Fallback = EDefaultTexture::White; break;
+			case EMaterialTextureFallback::Black: Fallback = EDefaultTexture::Black; break;
+			case EMaterialTextureFallback::FlatRGNormal: Fallback = EDefaultTexture::FlatNormal; break;
+			default: return false;
 			}
+			const auto Field = std::ranges::find_if(Fields, [&](const auto& V) {
+				return V.Storage == EMaterialRenderFieldStorage::Resource && V.CompactIndex == Index;
+			});
+			if (Field == Fields.end()) return false;
+			const bool Cube = Field->Type == EMaterialRenderValueType::TextureCube;
+			const auto* Actual = Texture ? Textures[Index]->GetReferencedTexture_RenderThread() : nullptr;
+			if (Actual && Actual->GetDimension() != (Cube ? ETextureDimension::TextureCube : ETextureDimension::Texture2D)) return false;
+			FRHITexture* FallbackTexture = Cube ? DefaultTextures.GetCube_RenderThread(Fallback) : DefaultTextures.Get_RenderThread(Fallback);
+			if (!Texture) Texture = FallbackTexture;
+			OutMaterial.CompiledTextureFallbacks.push_back(FallbackTexture);
+			FRHISampler* Sampler = Entry->Slot.GetPayload()->GetReference();
+			if (!Texture || !Sampler) return false;
+			OutMaterial.CompiledTextures.push_back(Texture);
+			OutMaterial.CompiledSamplers.push_back(Sampler);
 		}
-		else return false;
 
 		return RefreshPassResources_RenderThread(Pass, Environment, DirectionalShadowTexture,
 			DirectionalShadowSampler, OutMaterial);
@@ -381,10 +382,11 @@ namespace Durin::RendererPrivate
 		}
 	}
 	auto FSurfaceMaterialResources::UpdateUniformExpressionCache_RenderThread(FRHICommandListImmediate& Commands,
-		FUniformExpressionCache& Cache, const FMaterialRenderRepresentation& Representation,
-		const FMaterialRenderBinding& Binding, std::span<const FRHIUniformBufferRange> Collections) const -> bool
+		const FMaterialRenderData& Material, std::span<const FRHIUniformBufferRange> Collections) const -> bool
 	{
-		const auto* Uniform = Cache.UniformBuffer->GetRHI();
+		const auto& Representation = Material.Representation;
+		auto& Cache = *Material.UniformExpressionCache;
+		const auto* Uniform = Cache.UniformBuffer ? Cache.UniformBuffer->GetRHI() : nullptr;
 		const size_t Base = Representation.GetResources().size() * 3;
 		if (Cache.IsUpToDate(Representation) && Uniform->GetResourceTable().size() == Base + Collections.size())
 		{
@@ -394,20 +396,20 @@ namespace Durin::RendererPrivate
 			if (Current) return true;
 		}
 		FResolvedSurfaceMaterial Surface;
-		if (!Resolve_RenderThread(Binding, ESurfaceMaterialPass::GBuffer, {}, nullptr, nullptr, Surface)) return false;
+		if (!Resolve_RenderThread(Material, ESurfaceMaterialPass::GBuffer, {}, nullptr, nullptr, Surface)) return false;
 		std::vector<FRHIResource*> Resources;
 		std::vector<FRHIUniformBufferResource> Members;
 		CollectMaterialUniformResources(Surface, Collections, Resources, Members);
 		return Cache.UpdateUniformBuffer(Commands, Representation, Resources, Members);
 	}
-	auto FSurfaceMaterialResources::Prepare_RenderThread(FRHICommandListImmediate& Commands, const FMaterialRenderBinding* Binding,
+	auto FSurfaceMaterialResources::Prepare_RenderThread(FRHICommandListImmediate& Commands, const FMaterialRenderData& Material,
 		ESurfaceMaterialPass Pass, const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 		FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,
 		FPreparedSurfaceMaterial& OutMaterial, const FRHIUniformBufferRange& SharedUniform) const -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareSurfaceMaterial");
-		if (Binding == nullptr || !Resolve_RenderThread(
-			*Binding, Pass, Environment,
+		if (!Resolve_RenderThread(
+			Material, Pass, Environment,
 			DirectionalShadowTexture, DirectionalShadowSampler,
 			OutMaterial.Surface))
 		{
@@ -421,9 +423,10 @@ namespace Durin::RendererPrivate
 				std::vector<FRHIResource*> Resources;
 				std::vector<FRHIUniformBufferResource> Members;
 				CollectMaterialUniformResources(OutMaterial.Surface, {}, Resources, Members);
-				const auto Buffer = Commands.CreateUniformBuffer({static_cast<uint32>(Binding->CompiledUniformPayload.size()), std::move(Members)},
-					ERHIBufferLifetimeUsage::SingleFrame, Binding->CompiledUniformPayload, Resources);
-				OutMaterial.Uniform = {Buffer.GetReference(), 0, static_cast<uint32>(Binding->CompiledUniformPayload.size()), Buffer};
+				const auto Payload = Material.Representation.GetUniformPayload();
+				const auto Buffer = Commands.CreateUniformBuffer({static_cast<uint32>(Payload.size()), std::move(Members)},
+					ERHIBufferLifetimeUsage::SingleFrame, Payload, Resources);
+				OutMaterial.Uniform = {Buffer.GetReference(), 0, static_cast<uint32>(Payload.size()), Buffer};
 			}
 			return OutMaterial.Uniform.Buffer != nullptr;
 		}

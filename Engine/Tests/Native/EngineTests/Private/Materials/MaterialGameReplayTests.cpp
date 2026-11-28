@@ -107,7 +107,7 @@ TEST(FMaterialGameReplayTests, IsolatedCorpusLoadsAndSharesWithoutCompilerModule
 				EXPECT_NE(Entry.ParameterMapIdentity,FXxHash128{});
 			}
 			const auto Data=Testing::CaptureMaterialRenderData(*Material);
-			ASSERT_FALSE(Data.Representation.IsError());
+			ASSERT_FALSE(Data.IsError());
 			auto* Instance=DMaterialInstance::CreateDynamic(Material,Material,"ReplayInstance");
 			ASSERT_NE(Instance,nullptr);
 			EXPECT_EQ(Instance->GetAcceptedCompiledProgram(),Program);

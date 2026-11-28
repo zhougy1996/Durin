@@ -520,7 +520,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		EXPECT_NE(Variant->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
 		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
-		EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Variant).Representation.IsError());
+		EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Variant).IsError());
 		ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Variant)).BaseColor,
 			Durin::FVector4f(0.8f, 0.3f, 0.1f, 1.0f));
 	}
@@ -714,16 +714,16 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		});
 		const auto RootBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded));
 		const auto InstanceBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*LoadedInstance));
-		EXPECT_EQ(RootBinding.LayoutIdentity, ExpectedLayout.Identity);
-		EXPECT_EQ(InstanceBinding.LayoutIdentity, ExpectedLayout.Identity);
-		ASSERT_EQ(InstanceBinding.CompiledSamplers.size(), 1u);
-		EXPECT_EQ(RootBinding.CompiledSamplers[0], Texture.Value.GetTexture().SamplerState);
-		EXPECT_EQ(InstanceBinding.CompiledSamplers[0], Sampling.GetTexture().SamplerState);
-		EXPECT_EQ(InstanceBinding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
+		EXPECT_EQ(RootBinding.Representation.GetLayout().Identity, ExpectedLayout.Identity);
+		EXPECT_EQ(InstanceBinding.Representation.GetLayout().Identity, ExpectedLayout.Identity);
+		ASSERT_EQ(InstanceBinding.Representation.GetSamplers().size(), 1u);
+		EXPECT_EQ(RootBinding.Representation.GetSamplers()[0], Texture.Value.GetTexture().SamplerState);
+		EXPECT_EQ(InstanceBinding.Representation.GetSamplers()[0], Sampling.GetTexture().SamplerState);
+		EXPECT_EQ(InstanceBinding.Representation.GetTextureFallbacks()[0], EMaterialTextureFallback::Black);
 		for (const auto& Field : ExpectedLayout.Fields) if (Field.ParameterId == Tint.Name.ToString())
 		{
-			EXPECT_FLOAT_EQ(ReadFloat(RootBinding.CompiledUniformPayload, Field.Offset), 0.2f);
-			EXPECT_FLOAT_EQ(ReadFloat(InstanceBinding.CompiledUniformPayload, Field.Offset), 0.8f);
+			EXPECT_FLOAT_EQ(ReadFloat(RootBinding.Representation.GetUniformPayload(), Field.Offset), 0.2f);
+			EXPECT_FLOAT_EQ(ReadFloat(InstanceBinding.Representation.GetUniformPayload(), Field.Offset), 0.8f);
 		}
 	}
 	ShutdownAssetRuntime(); CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -892,7 +892,7 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 			EXPECT_EQ(Actual.ShaderMapId,Expected.ShaderMapId); EXPECT_EQ(Actual.Entries,Expected.Entries); EXPECT_EQ(Actual.Layout,Expected.Layout);
 			ASSERT_EQ(Actual.CompiledShaders.size(),Expected.CompiledShaders.size());
 			for (size_t I=0;I<Actual.CompiledShaders.size();++I) { EXPECT_EQ(Actual.CompiledShaders[I].CodeHash,Expected.CompiledShaders[I].CodeHash); EXPECT_TRUE(std::ranges::equal(Actual.CompiledShaders[I].Code,Expected.CompiledShaders[I].Code)); }
-			const auto Data=Testing::CaptureMaterialRenderData(*Loaded); EXPECT_FALSE(Data.Representation.IsError());
+			const auto Data=Testing::CaptureMaterialRenderData(*Loaded); EXPECT_FALSE(Data.IsError());
 			const auto Field=std::ranges::find(Actual.Layout.Fields,std::string("color"),&FMaterialRenderField::ParameterId);
 			if (Field!=Actual.Layout.Fields.end())
 			{

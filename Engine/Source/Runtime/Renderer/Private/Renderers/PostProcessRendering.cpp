@@ -246,7 +246,7 @@ namespace Durin
 			const auto Projection = Math::TransposeToFloat(RecordView.ProjectionMatrix);
 			for (uint32 Row = 0; Row < 4; ++Row) Textures.ProjectionRows[Row] = Projection[Row];
 			Textures.ClearDepth = RecordView.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.f : 1.f;
-			auto Plan = PlanMaterialSceneTextures(Graph, Prepared->Program->GetShaderMap().Entries[0], Textures, Output);
+			auto Plan = PlanMaterialSceneTextures(Graph, Prepared->Material.CompiledProgram->GetShaderMap().Entries[0], Textures, Output);
 			if (Plan)
 			{
 				const auto Applied = Graph.CreateValue<bool>("Scene.PostProcessMaterial.Applied", "optional-material-result");

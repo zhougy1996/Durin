@@ -274,19 +274,18 @@ namespace Durin
 				-> FSurfaceMaterialResources& = delete;
 
 			auto Ensure_RenderThread(
-				const FMaterialRenderBinding& Binding,
+				const FMaterialRenderData& Material,
 				ESurfaceMaterialPass Pass) -> bool;
 			auto Resolve_RenderThread(
-				const FMaterialRenderBinding& Binding,
+				const FMaterialRenderData& Material,
 				ESurfaceMaterialPass Pass,
 				const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 				FRHITexture* DirectionalShadowTexture,
 				FRHISampler* DirectionalShadowSampler,
 				FResolvedSurfaceMaterial& OutMaterial) const -> bool;
 			RENDERER_API auto UpdateUniformExpressionCache_RenderThread(FRHICommandListImmediate& Commands,
-				FUniformExpressionCache& Cache, const FMaterialRenderRepresentation& Representation,
-				const FMaterialRenderBinding& Binding, std::span<const FRHIUniformBufferRange> Collections) const -> bool;
-			auto Prepare_RenderThread(FRHICommandListImmediate& Commands, const FMaterialRenderBinding* Binding,
+				const FMaterialRenderData& Material, std::span<const FRHIUniformBufferRange> Collections) const -> bool;
+			auto Prepare_RenderThread(FRHICommandListImmediate& Commands, const FMaterialRenderData& Material,
 				ESurfaceMaterialPass Pass, const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 				FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,
 				FPreparedSurfaceMaterial& OutMaterial, const FRHIUniformBufferRange& SharedUniform = {}) const -> bool;

@@ -18,7 +18,6 @@ namespace Durin
 
 	struct FMaterialRenderRepresentationInput
 	{
-		FMaterialRenderLayout Layout;
 		FByteBuffer UniformPayload;
 		std::vector<FRHITextureReferenceRef> Resources;
 		std::vector<FMaterialSamplerState> Samplers;
@@ -27,11 +26,6 @@ namespace Durin
 
 	// Immutable after construction; no reflected object or raw resource pointer
 	// is retained in the published representation.
-	struct FMaterialRenderBinding;
-	struct FUniformExpressionCache;
-	class FMaterialRenderRepresentation;
-	ENGINE_API auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
-		FMaterialRenderBinding&, FMaterialRenderValidationDiagnostic&) -> bool;
 	class FMaterialRenderRepresentation final
 	{
 	public:
@@ -40,6 +34,7 @@ namespace Durin
 		auto operator=(const FMaterialRenderRepresentation&) -> FMaterialRenderRepresentation& = default;
 
 		ENGINE_API static auto TryCreate(
+			FMaterialRenderLayout Layout,
 			FMaterialRenderRepresentationInput Input,
 			FMaterialRenderRepresentation& OutRepresentation,
 			FMaterialRenderValidationDiagnostic& OutDiagnostic
@@ -49,57 +44,27 @@ namespace Durin
 		ENGINE_API auto GetUniformPayload() const -> FByteView;
 		ENGINE_API auto GetResources() const
 			-> std::span<const FRHITextureReferenceRef>;
-		ENGINE_API auto IsError() const -> bool;
-		ENGINE_API auto IsPending() const -> bool;
 		ENGINE_API auto GetSamplers() const -> std::span<const FMaterialSamplerState>;
 		ENGINE_API auto GetTextureFallbacks() const -> std::span<const EMaterialTextureFallback>;
 		ENGINE_API auto GetRecordId() const -> uint64;
-		// Render-thread-only fallback for independent values; copies share the lazily created cache.
-		ENGINE_API auto GetUniformExpressionCache() const -> std::shared_ptr<FUniformExpressionCache>;
 		ENGINE_API auto GetContentHash() const -> uint64;
 
 	private:
-		static auto Pending() -> const FMaterialRenderRepresentation&;
-		friend class FMaterialRenderProxy;
-
 		FMaterialRenderRepresentation(
-			FMaterialRenderLayout InLayout,
+			std::shared_ptr<const FMaterialRenderLayout> InLayout,
 			FByteBuffer InUniformPayload,
 			std::vector<FRHITextureReferenceRef> InResources,
 			std::vector<FMaterialSamplerState> InSamplers,
-			std::vector<EMaterialTextureFallback> InFallbacks,
-			bool bInError);
+			std::vector<EMaterialTextureFallback> InFallbacks);
 
+		friend class FMaterialRenderRepresentationBuilder;
+		static auto TryCreateFromLayout(std::shared_ptr<const FMaterialRenderLayout> Layout,
+			FMaterialRenderRepresentationInput Input, FMaterialRenderRepresentation& OutRepresentation,
+			FMaterialRenderValidationDiagnostic& OutDiagnostic) -> bool;
 		struct FStorage;
 		std::shared_ptr<const FStorage> Storage;
-		friend ENGINE_API auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
-			FMaterialRenderBinding&, FMaterialRenderValidationDiagnostic&) -> bool;
 	};
 
-	struct FMaterialRenderBinding
-	{
-		bool bError = false;
-		FMaterialRenderLayoutIdentity LayoutIdentity;
-		const FMaterialRenderLayout* CompiledLayout = nullptr;
-		FByteView CompiledUniformPayload;
-		std::span<const FRHITextureReferenceRef> CompiledTextures;
-		std::span<const FMaterialSamplerState> CompiledSamplers;
-		std::span<const EMaterialTextureFallback> CompiledTextureFallbacks;
-		// Copying a binding retains its immutable publication, including all views.
-		FMaterialRenderBinding() = default;
-		FMaterialRenderBinding(const FMaterialRenderBinding&) = default;
-		auto operator=(const FMaterialRenderBinding&) -> FMaterialRenderBinding& = default;
-	private:
-		std::shared_ptr<const void> Owner;
-		friend ENGINE_API auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
-			FMaterialRenderBinding&, FMaterialRenderValidationDiagnostic&) -> bool;
-	};
-
-	ENGINE_API auto TryGetMaterialRenderBinding(
-		const FMaterialRenderRepresentation& Representation,
-		FMaterialRenderBinding& OutBinding,
-		FMaterialRenderValidationDiagnostic& OutDiagnostic
-	) -> bool;
 	// Compiles GUID-addressed Engine values into one layout's compact payload.
 	// GUID lookup is confined to this Engine-side builder; Renderer consumes the
 	// resulting representation through offsets and resource indices.
@@ -131,11 +96,13 @@ namespace Durin
 
 	private:
 		friend class FMaterialRenderProxy;
+		explicit FMaterialRenderRepresentationBuilder(std::shared_ptr<const FMaterialRenderLayout> Layout);
 		auto WriteBoundParameter(uint32 FieldIndex, const FMaterialParameterValue& Value) -> bool;
 		ENGINE_API auto FindField(const FMaterialFieldKey& ParameterId) const
 			-> const FMaterialRenderField*;
 		ENGINE_API auto RejectField(const FMaterialFieldKey& ParameterId) -> bool;
 
+		std::shared_ptr<const FMaterialRenderLayout> Layout;
 		FMaterialRenderRepresentationInput Input;
 		bool bInvalid = false;
 		FMaterialFieldKey InvalidParameterId;
@@ -158,17 +125,24 @@ namespace Durin
 
 	struct FUniformExpressionCache
 	{
-		std::shared_ptr<FUniformBuffer> UniformBuffer = FUniformBuffer::Create();
+		std::shared_ptr<FUniformBuffer> UniformBuffer;
 		auto InvalidateUniformExpressionCache() -> void { CachedRepresentation = 0; ParameterCollections.clear(); }
 		auto InvalidateUniformValues() -> void { CachedRepresentation = 0; }
 		auto ReleaseRHI() -> void
 		{
-			UniformBuffer->ReleaseRHI();
+			if (UniformBuffer) UniformBuffer->ReleaseRHI();
 			for (const auto& [Key, Buffer] : ParameterCollections) Buffer->ReleaseRHI();
 			InvalidateUniformExpressionCache();
 		}
+		auto GetRetainedUniformRange() const -> FRHIUniformBufferRange
+		{
+			if (!UniformBuffer) return {};
+			auto Range = UniformBuffer->GetRange();
+			Range.ResourceOwner = UniformBuffer->GetRHI();
+			return Range;
+		}
 		auto IsUpToDate(const FMaterialRenderRepresentation& Material) const -> bool
-		{ return CachedRepresentation == Material.GetRecordId() && UniformBuffer->GetRHI(); }
+		{ return CachedRepresentation == Material.GetRecordId() && UniformBuffer && UniformBuffer->GetRHI(); }
 		ENGINE_API auto UpdateUniformBuffer(FRHICommandListBase& Commands, const FMaterialRenderRepresentation& Material,
 			std::span<FRHIResource* const> Resources = {}, std::span<const FRHIUniformBufferResource> Members = {}) -> bool;
 		ENGINE_API auto GetParameterCollectionUniformBuffer(const std::shared_ptr<const FMaterialProgram>& Program,
@@ -179,10 +153,15 @@ namespace Durin
 	};
 	struct FMaterialRenderData
 	{
-		// Actual proxy-owned expression cache; independent values use their representation cache.
-		std::shared_ptr<FUniformExpressionCache> UniformExpressionCache;
+		// A proxy publishes its stable cache here. Independent sources own a cache shared by their copies.
+		std::shared_ptr<FUniformExpressionCache> UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
 		FMaterialRenderRepresentation Representation;
 		std::shared_ptr<const FMaterialProgram> CompiledProgram;
+		bool bPending = false;
+		ENGINE_API auto IsError() const -> bool;
+		auto IsReadyForRendering() const -> bool
+		{ return !bPending && Representation.GetLayout().Identity.Version == CompiledMaterialRenderLayoutVersion; }
+
 		FMaterialPlanningPassIdentity PlanningPassIdentity{
 			.ShaderMap = {
 				.RenderLayout = MakeErrorMaterialRenderLayout().Identity,

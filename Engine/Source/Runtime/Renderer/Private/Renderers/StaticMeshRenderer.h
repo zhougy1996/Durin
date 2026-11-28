@@ -27,7 +27,7 @@ namespace Durin
 	struct FResolvedMeshDrawRecord;
 	struct FPreparedStaticMeshDraw;
 	struct FPreparedStaticMeshPrimitive;
-	struct FMaterialRenderBinding;
+	struct FMaterialRenderData;
 	enum class ERasterMode : uint8;
 	enum class ERenderMode : uint8;
 	struct FRHIUniformBufferRange;
@@ -97,12 +97,11 @@ namespace Durin
 			const FPreparedStaticMeshDraw& Draw, FResolvedMeshDrawRecord& Record,
 			EStaticMeshSectionResourcePolicy Policy, FStaticMeshSectionResourceContext* ResourceContext) -> bool;
 		auto EnsureMaterialSamplers_RenderThread(
-			const FMaterialRenderBinding& MaterialBinding
+			const FMaterialRenderData& Material
 		) -> bool;
 		auto EnsureSectionResources_RenderThread(
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,
-			const FMaterialRenderBinding& MaterialBinding,
 			std::shared_ptr<const RendererPrivate::FMeshPassPipeline>& OutPipeline,
 			const RendererPrivate::FMeshPassProcessor& Processor
 		) -> bool;

@@ -6,14 +6,12 @@
 
 namespace Durin::RendererPrivate
 {
-	auto ResolveMaterialBinding(
+	auto SelectMeshMaterial(
 		FMaterialRenderData& Material,
-		FMaterialRenderBinding& OutBinding,
 		std::string_view DiagnosticResource
 	) -> bool;
-	auto ResolvePreparedMaterialBinding(
+	auto IsPreparedMaterialReady(
 		const FMaterialRenderData& Material,
-		FMaterialRenderBinding& OutBinding,
 		std::string_view DiagnosticResource
 	) -> bool;
 }

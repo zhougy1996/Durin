@@ -21,7 +21,7 @@ namespace Durin
 			return GetErrorMaterialRenderData();
 		}
 		const auto& Material = Proxy->QueryMaterial_RenderThread();
-		if (Material.Representation.IsPending()) FRenderPipelinePreparationBatch::MarkResourcePending();
+		if (Material.bPending) FRenderPipelinePreparationBatch::MarkResourcePending();
 		return Material;
 	}
 

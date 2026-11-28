@@ -14,6 +14,11 @@ namespace Durin
 		return ErrorMaterial;
 	}
 
+	auto FMaterialRenderData::IsError() const -> bool
+	{
+		return !bPending && Representation.GetRecordId() == GetErrorMaterialRenderData().Representation.GetRecordId();
+	}
+
 	auto RecordMaterialFallbackReason(EMaterialFallbackReason Reason) -> void
 	{
 		const size_t Index = static_cast<size_t>(Reason);

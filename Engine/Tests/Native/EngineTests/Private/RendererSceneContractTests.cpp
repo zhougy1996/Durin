@@ -600,15 +600,13 @@ TEST(FRendererSceneContractTests, DirectionalShadowPassAcceptsSharedGPUSceneRead
 TEST(FRendererSceneContractTests, ErrorMaterialUsesCompiledBindingWithoutRoleResources)
 {
 	const auto& Error = Durin::GetErrorMaterialRenderData();
-	Durin::FMaterialRenderBinding Binding;
-	Durin::FMaterialRenderValidationDiagnostic Diagnostic;
-	ASSERT_TRUE(Durin::TryGetMaterialRenderBinding(Error.Representation, Binding, Diagnostic));
-	EXPECT_TRUE(Binding.bError);
-	EXPECT_EQ(Binding.LayoutIdentity, Error.PlanningPassIdentity.ShaderMap.RenderLayout);
-	EXPECT_EQ(Binding.LayoutIdentity.Version, Durin::CompiledMaterialRenderLayoutVersion);
-	EXPECT_TRUE(Binding.CompiledTextures.empty());
-	EXPECT_TRUE(Binding.CompiledSamplers.empty());
-	EXPECT_EQ(Binding.CompiledUniformPayload.size(), Durin::MaterialUniformHeaderBytes);
+	ASSERT_TRUE(Error.IsReadyForRendering());
+	EXPECT_TRUE(Error.IsError());
+	EXPECT_EQ(Error.Representation.GetLayout().Identity, Error.PlanningPassIdentity.ShaderMap.RenderLayout);
+	EXPECT_EQ(Error.Representation.GetLayout().Identity.Version, Durin::CompiledMaterialRenderLayoutVersion);
+	EXPECT_TRUE(Error.Representation.GetResources().empty());
+	EXPECT_TRUE(Error.Representation.GetSamplers().empty());
+	EXPECT_EQ(Error.Representation.GetUniformPayload().size(), Durin::MaterialUniformHeaderBytes);
 }
 
 namespace

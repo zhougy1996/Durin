@@ -132,8 +132,8 @@ namespace Durin::RendererPrivate
 				Description.SectionIndex, Primitive.PrimitiveId.Value, Primitive.BatchId, static_cast<uint64>(Variant.Pass),
 				static_cast<uint64>(Variant.DepthCompare), Variant.NumColorRenderTargets};
 		const auto& Material = Description.Material;
-		Key.Bindings = {static_cast<bool>(Material.UniformExpressionCache),
-			MaterialUniform ? reinterpret_cast<uint64>(MaterialUniform) : Material.UniformExpressionCache ? reinterpret_cast<uint64>(Material.UniformExpressionCache.get()) : Material.Representation.GetRecordId()};
+		Key.Bindings = {reinterpret_cast<uint64>(Material.UniformExpressionCache.get()),
+			MaterialUniform ? reinterpret_cast<uint64>(MaterialUniform) : Material.Representation.GetRecordId()};
 		Key.Pipeline = Pipeline.GetIdentity();
 		return Key;
 	}
@@ -253,7 +253,6 @@ namespace Durin::RendererPrivate
 		Info->Storage = this;
 		Info->CommandIndex = *CommandIndex;
 		Info->MeshPass = Command.Pipeline->GetPassKey();
-		Material.Uniform.ResourceOwner = {};
 		for (auto& Range : Material.CollectionUniforms) Range.ResourceOwner = {};
 		auto Entry = std::make_unique<FEntry>();
 		Entry->Info = std::move(Info);

@@ -215,8 +215,9 @@ namespace
 
 	using namespace Durin;
 	// Test-only projection of familiar PBR names from generic compiled fields.
-	struct FMaterialTestBinding : Durin::FMaterialRenderBinding
+	struct FMaterialTestBinding
 	{
+		FMaterialRenderRepresentation Representation;
 		FVector4f BaseColor{0.f, 0.f, 0.f, 1.f};
 		FVector3f Emissive{0.0f};
 		FVector3f Normal{0.0f, 0.0f, 1.0f};
@@ -242,11 +243,9 @@ namespace
 		-> FMaterialTestBinding
 	{
 		FMaterialTestBinding Binding;
-		Durin::FMaterialRenderValidationDiagnostic Diagnostic;
-		EXPECT_TRUE(Durin::TryGetMaterialRenderBinding(
-			RenderData.Representation, Binding, Diagnostic))
-			<< Diagnostic.Message;
-		if (Binding.LayoutIdentity.Version
+		Binding.Representation = RenderData.Representation;
+		EXPECT_TRUE(RenderData.IsReadyForRendering());
+		if (Binding.Representation.GetLayout().Identity.Version
 			== Durin::CompiledMaterialRenderLayoutVersion)
 		{
 			const auto Payload = RenderData.Representation.GetUniformPayload();
@@ -308,12 +307,12 @@ namespace
 				if (Field != Fields.end() && Field->CompactIndex < Resources.size())
 				{
 					Binding.Textures[RoleIndex] = Resources[Field->CompactIndex];
-					Binding.Samplers[RoleIndex] = Binding.CompiledSamplers[Field->CompactIndex];
+					Binding.Samplers[RoleIndex] = Binding.Representation.GetSamplers()[Field->CompactIndex];
 				}
 			}
 		}
 		// Error color is shader-owned; it has no declared uniform field.
-		if (RenderData.Representation.IsError())
+		if (RenderData.IsError())
 			Binding.BaseColor = Durin::FVector4f(1.0f, 0.0f, 1.0f, 1.0f);
 		return Binding;
 	}

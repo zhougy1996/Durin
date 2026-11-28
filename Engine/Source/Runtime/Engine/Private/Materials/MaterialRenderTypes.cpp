@@ -8,9 +8,17 @@ namespace Durin
 		-> bool
 	{
 		CheckRenderingThread();
-		auto Result = UniformBuffer->Update(Commands, Material.GetUniformPayload(), Resources, Members);
-		if (Result) CachedRepresentation = Material.GetRecordId();
-		return Result;
+		// Commands already prepared from another publication retain its exact RHI buffer.
+		auto Target = UniformBuffer ? UniformBuffer : FUniformBuffer::Create();
+		if (const auto* Current = Target->GetRHI(); Current && CachedRepresentation != Material.GetRecordId()
+			&& (!std::ranges::equal(Target->GetData(), Material.GetUniformPayload())
+				|| !std::ranges::equal(Current->GetResourceTable(), Resources,
+					[](const auto& A, auto* B) { return A.GetReference() == B; })))
+			Target = FUniformBuffer::Create();
+		if (!Target->Update(Commands, Material.GetUniformPayload(), Resources, Members)) return false;
+		UniformBuffer = std::move(Target);
+		CachedRepresentation = Material.GetRecordId();
+		return true;
 	}
 	auto FUniformExpressionCache::GetParameterCollectionUniformBuffer(const std::shared_ptr<const FMaterialProgram>& Program,
 		FGuid Collection) -> FUniformBuffer&

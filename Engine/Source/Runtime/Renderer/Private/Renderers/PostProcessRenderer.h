@@ -76,8 +76,7 @@ namespace Durin
 
 	struct FPreparedPostProcessMaterial
 	{
-		std::shared_ptr<const FMaterialProgram> Program;
-		FMaterialRenderBinding Material;
+		FMaterialRenderData Material;
 		FShaderRHIRef Fragment;
 		FShaderRHIRef Vertex;
 		FVertexDeclarationRHIRef PipelineVertexDeclaration;

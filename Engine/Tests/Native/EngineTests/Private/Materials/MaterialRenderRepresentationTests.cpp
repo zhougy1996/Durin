@@ -9,21 +9,14 @@
 TEST(FMaterialRenderRepresentationTests, IndependentCacheIsSharedByCopiesAndIsolatedFromOtherPublications)
 {
 	using namespace Durin;
-	FModuleManager::Get().LoadModule("RenderCore");
-	InitRenderingThread();
-	{
-		const auto Representation = MakeRenderFixture();
-		EnqueueRenderCommand("CheckIndependentMaterialCache",
-			[Representation, Copy = Representation, Independent = MakeRenderFixture()](FRHICommandListImmediate&) {
-				const auto Cache = Representation.GetUniformExpressionCache();
-				EXPECT_NE(Cache, nullptr);
-				EXPECT_EQ(Cache, Copy.GetUniformExpressionCache());
-				EXPECT_EQ(Cache, Representation.GetUniformExpressionCache());
-				EXPECT_NE(Cache, Independent.GetUniformExpressionCache());
-			});
-	}
-	FlushRenderingCommands();
-	ShutdownRenderingThread();
+	const auto Parameters = MakeRenderFixture();
+	const FMaterialRenderData Source{.Representation = Parameters};
+	const auto Copy = Source;
+	const FMaterialRenderData Independent{.Representation = Parameters};
+	EXPECT_EQ(Copy.UniformExpressionCache, Source.UniformExpressionCache);
+	EXPECT_NE(Independent.UniformExpressionCache, Source.UniformExpressionCache);
+	EXPECT_EQ(Independent.Representation.GetRecordId(), Source.Representation.GetRecordId());
+	EXPECT_FALSE(Source.UniformExpressionCache->UniformBuffer);
 }
 
 TEST(FMaterialRenderRepresentationTests, PublishedBindingsRetainOldRevisionWithoutCopying)
@@ -36,49 +29,48 @@ TEST(FMaterialRenderRepresentationTests, PublishedBindingsRetainOldRevisionWitho
 	ASSERT_NE(Revision, 0u);
 	EXPECT_EQ(Copy.GetRecordId(), Revision);
 	EXPECT_EQ(Copy.GetUniformPayload().data(), Representation.GetUniformPayload().data());
-	FMaterialRenderBinding Retained;
+	FMaterialRenderData Retained;
 	FMaterialRenderValidationDiagnostic Diagnostic;
-	ASSERT_TRUE(TryGetMaterialRenderBinding(Representation, Retained, Diagnostic));
+	Retained.Representation = Representation;
 	const auto Offset = std::ranges::find(Representation.GetLayout().Fields,
 		Scalar, &FMaterialRenderField::ParameterId)->Offset;
-	const auto* OriginalPayload = Retained.CompiledUniformPayload.data();
-	for (uint32 Draw = 0; Draw < 128; ++Draw)
-	{
-		FMaterialRenderBinding Binding;
-		ASSERT_TRUE(TryGetMaterialRenderBinding(Copy, Binding, Diagnostic));
-		EXPECT_EQ(Binding.CompiledUniformPayload.data(), OriginalPayload);
-	}
+	const auto* OriginalPayload = Retained.Representation.GetUniformPayload().data();
+
 	FMaterialRenderRepresentationBuilder Update(Representation);
 	ASSERT_TRUE(Update.SetScalar(Scalar, 3.0f));
 	ASSERT_TRUE(Update.Build(Representation, Diagnostic));
 	EXPECT_NE(Representation.GetRecordId(), Revision);
 	EXPECT_EQ(Copy.GetRecordId(), Revision);
-	EXPECT_FLOAT_EQ(ReadFloat(Retained.CompiledUniformPayload, Offset), 1.0f);
+	EXPECT_FLOAT_EQ(ReadFloat(Retained.Representation.GetUniformPayload(), Offset), 1.0f);
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), Offset), 3.0f);
 	EXPECT_NE(Representation.GetUniformPayload().data(), OriginalPayload);
 }
 
-TEST(FMaterialRenderRepresentationTests, BindingOutlivesPublicationAndFailedReplacement)
+TEST(FMaterialRenderRepresentationTests, SelectedMaterialOutlivesPublicationAndFailedReplacement)
 {
 	using namespace Durin;
-	FMaterialRenderBinding Retained;
+	FMaterialRenderData Retained;
 	FMaterialRenderValidationDiagnostic Diagnostic;
 	uint32 Offset = 0;
 	{
 		auto Representation = MakeRenderFixture();
 		Offset = std::ranges::find(Representation.GetLayout().Fields,
 			FGuid{2, 0, 0, 1}, &FMaterialRenderField::ParameterId)->Offset;
-		ASSERT_TRUE(TryGetMaterialRenderBinding(Representation, Retained, Diagnostic));
+		Retained.Representation = Representation;
 		FMaterialRenderRepresentationBuilder Invalid(Representation);
 		ASSERT_TRUE(Invalid.SetScalar(FGuid{2, 0, 0, 1}, std::numeric_limits<float>::quiet_NaN()));
 		EXPECT_FALSE(Invalid.Build(Representation, Diagnostic));
 		EXPECT_FALSE(Diagnostic.Message.empty());
-		EXPECT_TRUE(Representation.IsError());
 		EXPECT_EQ(Representation.GetRecordId(), FMaterialRenderRepresentation().GetRecordId());
 	}
 	const auto Copy = Retained;
-	Retained = {};
-	EXPECT_FLOAT_EQ(ReadFloat(Copy.CompiledUniformPayload, Offset), 1.0f);
+	EXPECT_FALSE(FMaterialRenderData{.bPending = true}.IsReadyForRendering());
+	float Value = 0;
+	std::thread Reader([Copy, Offset, &Value] {
+		Value = ReadFloat(Copy.Representation.GetUniformPayload(), Offset);
+	});
+	Reader.join();
+	EXPECT_FLOAT_EQ(Value, 1.0f);
 }
 
 TEST(FMaterialRenderRepresentationTests, IndependentPublicationsHaveDistinctIdsAndEqualContentHashes)
@@ -105,7 +97,7 @@ TEST(FMaterialRenderRepresentationTests, DefaultLayoutHasStableIdentityAndPackin
 	ASSERT_TRUE(Layout.Fields.empty());
 
 	const Durin::FMaterialRenderRepresentation Error;
-	EXPECT_TRUE(Error.IsError());
+	EXPECT_EQ(Error.GetRecordId(), Durin::GetErrorMaterialRenderData().Representation.GetRecordId());
 	EXPECT_EQ(Error.GetLayout(), Durin::MakeErrorMaterialRenderLayout());
 	EXPECT_EQ(Error.GetLayout().Identity.Version, Durin::CompiledMaterialRenderLayoutVersion);
 	EXPECT_TRUE(Error.GetLayout().Fields.empty());
@@ -113,14 +105,10 @@ TEST(FMaterialRenderRepresentationTests, DefaultLayoutHasStableIdentityAndPackin
 	EXPECT_TRUE(std::ranges::all_of(Error.GetUniformPayload(),
 		[](std::byte Byte) { return Byte == std::byte{0}; }));
 	EXPECT_TRUE(Error.GetResources().empty());
-	Durin::FMaterialRenderBinding ErrorBinding;
-	ASSERT_TRUE(Durin::TryGetMaterialRenderBinding(Error, ErrorBinding, Diagnostic));
-	EXPECT_TRUE(ErrorBinding.CompiledTextures.empty());
-
 
 	const Durin::FMaterialRenderData& ErrorData =
 		Durin::GetErrorMaterialRenderData();
-	EXPECT_TRUE(ErrorData.Representation.IsError());
+	EXPECT_TRUE(ErrorData.IsError());
 	EXPECT_EQ(
 		ErrorData.PlanningPassIdentity.ShaderMap.ShadingModel,
 		Durin::EMaterialShadingModel::Unlit);
@@ -201,7 +189,7 @@ TEST(FMaterialProgramIdentityTests,
 
 	const Durin::FMaterialRenderData& Error =
 		Durin::GetErrorMaterialRenderData();
-	EXPECT_TRUE(Error.Representation.IsError());
+	EXPECT_TRUE(Error.IsError());
 	EXPECT_TRUE(std::ranges::all_of(
 		Error.Representation.GetResources(),
 		[](const auto& Resource) { return Resource == nullptr; }));
@@ -250,10 +238,10 @@ TEST(FMaterialProgramIdentityTests,
 	const auto LightBinding = GetMaterialBinding(LightData);
 	const auto HeavyBinding = GetMaterialBinding(HeavyData);
 	ASSERT_LT(MaskField->CompactIndex,
-		HeavyBinding.CompiledTextureFallbacks.size());
-	EXPECT_EQ(LightBinding.CompiledTextureFallbacks[MaskField->CompactIndex],
+		HeavyBinding.Representation.GetTextureFallbacks().size());
+	EXPECT_EQ(LightBinding.Representation.GetTextureFallbacks()[MaskField->CompactIndex],
 		EMaterialTextureFallback::Black);
-	EXPECT_EQ(HeavyBinding.CompiledTextureFallbacks[MaskField->CompactIndex],
+	EXPECT_EQ(HeavyBinding.Representation.GetTextureFallbacks()[MaskField->CompactIndex],
 		EMaterialTextureFallback::White);
 	MarkAsGarbage(HeavyRust); MarkAsGarbage(LightRust); MarkAsGarbage(Root);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -295,7 +283,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	EXPECT_FLOAT_EQ(Binding.Roughness, 0.5f);
 	EXPECT_FLOAT_EQ(Binding.AmbientOcclusion, 1.0f);
 	EXPECT_EQ(Binding.Emissive, Durin::FVector3f(0.0f));
-	EXPECT_FALSE(Resolved.Representation.IsError());
+	EXPECT_FALSE(Resolved.IsError());
 	EXPECT_EQ(
 		Resolved.PlanningPassIdentity.ShaderMap.ShadingModel,
 		Durin::EMaterialShadingModel::DefaultLit);
@@ -353,7 +341,7 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 		1u);
 	const Durin::FMaterialRenderData& Error =
 		Durin::GetErrorMaterialRenderData();
-	EXPECT_TRUE(Error.Representation.IsError());
+	EXPECT_TRUE(Error.IsError());
 	const auto Binding = GetMaterialBinding(Error);
 	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(1.0f, 0.0f, 1.0f, 1.0f));
 	Durin::ShutdownDefaultMaterialService();
@@ -372,7 +360,7 @@ TEST(FErrorMaterialTests, MissingStructuralProxyUsesErrorWithoutAssetLookup)
 			Resolved = Durin::QueryMeshMaterial_RenderThread({});
 		});
 	WaitForRenderingThread();
-	EXPECT_TRUE(Resolved.Representation.IsError());
+	EXPECT_TRUE(Resolved.IsError());
 	EXPECT_EQ(
 		GetMaterialBinding(Resolved).BaseColor,
 		Durin::FVector4f(1.0f, 0.0f, 1.0f, 1.0f));
@@ -387,9 +375,9 @@ TEST(FMaterialRenderRepresentationTests, ValidPayloadIsAcceptedAsOneCompleteRepr
 {
 	const Durin::FMaterialRenderRepresentation Fallback =
 		MakeRenderFixture();
-	EXPECT_FALSE(Fallback.IsError());
+	EXPECT_NE(Fallback.GetRecordId(), Durin::GetErrorMaterialRenderData().Representation.GetRecordId());
 	Durin::FMaterialRenderRepresentationInput Input;
-	Input.Layout = Fallback.GetLayout();
+	auto Layout = Fallback.GetLayout();
 	Input.UniformPayload.assign(
 		Fallback.GetUniformPayload().begin(), Fallback.GetUniformPayload().end());
 	Input.Resources.assign(Fallback.GetResources().begin(), Fallback.GetResources().end());
@@ -397,9 +385,9 @@ TEST(FMaterialRenderRepresentationTests, ValidPayloadIsAcceptedAsOneCompleteRepr
 	Durin::FMaterialRenderValidationDiagnostic Diagnostic;
 	Durin::FMaterialRenderRepresentation Representation;
 	ASSERT_TRUE(Durin::FMaterialRenderRepresentation::TryCreate(
-		std::move(Input), Representation, Diagnostic));
+		std::move(Layout), std::move(Input), Representation, Diagnostic));
 	EXPECT_TRUE(Diagnostic.Message.empty());
-	EXPECT_FALSE(Representation.IsError());
+	EXPECT_NE(Representation.GetRecordId(), Durin::GetErrorMaterialRenderData().Representation.GetRecordId());
 	EXPECT_EQ(Representation.GetUniformPayload().size(), 48u);
 }
 
@@ -409,35 +397,35 @@ TEST(FMaterialRenderRepresentationTests, RejectsUnsupportedLayoutAndMalformedPay
 
 	{
 		Durin::FMaterialRenderRepresentationInput Input;
-		Input.Layout = Fallback.GetLayout();
-		Input.Layout.Identity.Version = 1;
+		auto Layout = Fallback.GetLayout();
+		Layout.Identity.Version = 1;
 		Input.UniformPayload.assign(
 			Fallback.GetUniformPayload().begin(), Fallback.GetUniformPayload().end());
 		Input.Resources.assign(Fallback.GetResources().begin(), Fallback.GetResources().end());
 		Durin::FMaterialRenderValidationDiagnostic Diagnostic;
 		Durin::FMaterialRenderRepresentation Representation;
 		EXPECT_FALSE(Durin::FMaterialRenderRepresentation::TryCreate(
-			std::move(Input), Representation, Diagnostic));
+			std::move(Layout), std::move(Input), Representation, Diagnostic));
 		EXPECT_FALSE(Diagnostic.Message.empty());
 	}
 
 	{
 		Durin::FMaterialRenderRepresentationInput Input;
-		Input.Layout = Fallback.GetLayout();
-		Input.Layout.Fields[0].Offset = 4;
+		auto Layout = Fallback.GetLayout();
+		Layout.Fields[0].Offset = 4;
 		Input.UniformPayload.assign(
 			Fallback.GetUniformPayload().begin(), Fallback.GetUniformPayload().end());
 		Input.Resources.assign(Fallback.GetResources().begin(), Fallback.GetResources().end());
 		Durin::FMaterialRenderValidationDiagnostic Diagnostic;
 		Durin::FMaterialRenderRepresentation Representation;
 		EXPECT_FALSE(Durin::FMaterialRenderRepresentation::TryCreate(
-			std::move(Input), Representation, Diagnostic));
+			std::move(Layout), std::move(Input), Representation, Diagnostic));
 		EXPECT_FALSE(Diagnostic.Message.empty());
 	}
 
 	{
 		Durin::FMaterialRenderRepresentationInput Input;
-		Input.Layout = Fallback.GetLayout();
+		auto Layout = Fallback.GetLayout();
 		Input.UniformPayload.assign(
 			Fallback.GetUniformPayload().begin(), Fallback.GetUniformPayload().end());
 		const float NaN = std::numeric_limits<float>::quiet_NaN();
@@ -446,13 +434,13 @@ TEST(FMaterialRenderRepresentationTests, RejectsUnsupportedLayoutAndMalformedPay
 		Durin::FMaterialRenderValidationDiagnostic Diagnostic;
 		Durin::FMaterialRenderRepresentation Representation;
 		EXPECT_FALSE(Durin::FMaterialRenderRepresentation::TryCreate(
-			std::move(Input), Representation, Diagnostic));
+			std::move(Layout), std::move(Input), Representation, Diagnostic));
 		EXPECT_FALSE(Diagnostic.Message.empty());
 	}
 
 	{
 		Durin::FMaterialRenderRepresentationInput Input;
-		Input.Layout = Fallback.GetLayout();
+		auto Layout = Fallback.GetLayout();
 		Input.UniformPayload.assign(
 			Fallback.GetUniformPayload().begin(), Fallback.GetUniformPayload().end());
 		Input.UniformPayload[28] = std::byte{1};
@@ -460,7 +448,7 @@ TEST(FMaterialRenderRepresentationTests, RejectsUnsupportedLayoutAndMalformedPay
 		Durin::FMaterialRenderValidationDiagnostic Diagnostic;
 		Durin::FMaterialRenderRepresentation Representation;
 		EXPECT_FALSE(Durin::FMaterialRenderRepresentation::TryCreate(
-			std::move(Input), Representation, Diagnostic));
+			std::move(Layout), std::move(Input), Representation, Diagnostic));
 		EXPECT_FALSE(Diagnostic.Message.empty());
 	}
 }
@@ -478,10 +466,8 @@ TEST(FMaterialRenderRepresentationTests, BuilderCompilesValuesIntoCompactSlots)
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 20), 0.4f);
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 24), 0.6f);
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 32), 0.35f);
-	FMaterialRenderBinding Binding;
-	ASSERT_TRUE(TryGetMaterialRenderBinding(Representation, Binding, Diagnostic));
-	EXPECT_EQ(Binding.CompiledUniformPayload.size(), 48u);
-	EXPECT_TRUE(Binding.CompiledTextures.empty());
+	EXPECT_EQ(Representation.GetUniformPayload().size(), 48u);
+	EXPECT_TRUE(Representation.GetResources().empty());
 }
 
 TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelectedLayout)
@@ -507,7 +493,7 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 	EXPECT_FLOAT_EQ(Binding.BaseColor.b, 0.35f);
 	EXPECT_FLOAT_EQ(Binding.BaseColor.a, 0.45f);
 	EXPECT_FLOAT_EQ(Binding.Roughness, 0.25f);
-	EXPECT_FALSE(RenderData.Representation.IsError());
+	EXPECT_FALSE(RenderData.IsError());
 	using Role = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole;
 	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 	const auto BaseId = Durin::AssetForge::Builtins::MaterialParameters::BaseColorName().ToString();
@@ -551,7 +537,7 @@ TEST(FMaterialRenderRepresentationTests, CompilationPreservesAuthoredInputsAndRe
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(),
 		std::numeric_limits<float>::quiet_NaN()));
 	EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Material)).Roughness, 2.5f);
-	EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Material).Representation.IsError());
+	EXPECT_FALSE(Durin::Testing::CaptureMaterialRenderData(*Material).IsError());
 
 	Durin::MarkAsGarbage(WrongUsageTexture);
 	Durin::MarkAsGarbage(Material);
@@ -576,35 +562,32 @@ TEST(FMaterialRenderRepresentationTests, CompiledLayoutPreservesTypedValuesAndSa
 	FMaterialRenderRepresentation Representation;
 	FMaterialRenderValidationDiagnostic Diagnostic;
 	ASSERT_TRUE(Builder.Build(Representation, Diagnostic));
-	FMaterialRenderBinding Binding;
-	ASSERT_TRUE(TryGetMaterialRenderBinding(Representation, Binding, Diagnostic));
-	EXPECT_EQ(Binding.LayoutIdentity, Compiled.Layout.Identity);
-	ASSERT_EQ(Binding.CompiledSamplers.size(), 1u);
-	EXPECT_EQ(Binding.CompiledSamplers[0], Sampling);
-	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::FlatRGNormal);
+	EXPECT_EQ(Representation.GetLayout().Identity, Compiled.Layout.Identity);
+	ASSERT_EQ(Representation.GetSamplers().size(), 1u);
+	EXPECT_EQ(Representation.GetSamplers()[0], Sampling);
+	EXPECT_EQ(Representation.GetTextureFallbacks()[0], EMaterialTextureFallback::FlatRGNormal);
 	for (const auto& Field : Compiled.Layout.Fields)
 	{
 		if (Field.ParameterId == UV)
 		{
-			EXPECT_FLOAT_EQ(ReadFloat(Binding.CompiledUniformPayload, Field.Offset), 2.0f);
-			EXPECT_FLOAT_EQ(ReadFloat(Binding.CompiledUniformPayload, Field.Offset + 4), 3.0f);
-			EXPECT_FLOAT_EQ(ReadFloat(Binding.CompiledUniformPayload, Field.Offset + 8), 0.0f);
+			EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), Field.Offset), 2.0f);
+			EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), Field.Offset + 4), 3.0f);
+			EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), Field.Offset + 8), 0.0f);
 		}
 		if (Field.ParameterId == Tint)
-			EXPECT_FLOAT_EQ(ReadFloat(Binding.CompiledUniformPayload, Field.Offset + 12), 0.4f);
+			EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), Field.Offset + 12), 0.4f);
 	}
 	FMaterialRenderRepresentationInput Input;
-	Input.Layout = Compiled.Layout;
-	Input.UniformPayload.assign(Binding.CompiledUniformPayload.begin(), Binding.CompiledUniformPayload.end());
-	Input.Resources.assign(Binding.CompiledTextures.begin(), Binding.CompiledTextures.end());
-	Input.Samplers.assign(Binding.CompiledSamplers.begin(), Binding.CompiledSamplers.end());
-	Input.TextureFallbacks.assign(Binding.CompiledTextureFallbacks.begin(), Binding.CompiledTextureFallbacks.end());
+	Input.UniformPayload.assign(Representation.GetUniformPayload().begin(), Representation.GetUniformPayload().end());
+	Input.Resources.assign(Representation.GetResources().begin(), Representation.GetResources().end());
+	Input.Samplers.assign(Representation.GetSamplers().begin(), Representation.GetSamplers().end());
+	Input.TextureFallbacks.assign(Representation.GetTextureFallbacks().begin(), Representation.GetTextureFallbacks().end());
 	Input.UniformPayload[0] = std::byte{1};
-	EXPECT_FALSE(FMaterialRenderRepresentation::TryCreate(Input, Representation, Diagnostic));
+	EXPECT_FALSE(FMaterialRenderRepresentation::TryCreate(Compiled.Layout, Input, Representation, Diagnostic));
 	EXPECT_EQ(Diagnostic.Message, "Material render uniform padding must be zero.");
 	Input.UniformPayload[0] = std::byte{0};
 	Input.Samplers[0].AddressU = static_cast<EMaterialSamplerAddressMode>(255);
-	EXPECT_FALSE(FMaterialRenderRepresentation::TryCreate(Input, Representation, Diagnostic));
+	EXPECT_FALSE(FMaterialRenderRepresentation::TryCreate(Compiled.Layout, Input, Representation, Diagnostic));
 	EXPECT_EQ(Diagnostic.Message, "Material sampling state or fallback is invalid. [index 0]");
 	const auto Empty = CompileMaterialLayout({});
 	ASSERT_TRUE(Empty);
@@ -647,23 +630,23 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	ASSERT_TRUE(ChildAccepted);
 	EXPECT_EQ(ChildAccepted->ShaderMap, Accepted->ShaderMap);
 	auto Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Child));
-	ASSERT_EQ(Binding.CompiledSamplers.size(), 1u);
-	EXPECT_EQ(Binding.CompiledSamplers[0], Definition.Value.GetTexture().SamplerState);
-	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::FlatRGNormal);
+	ASSERT_EQ(Binding.Representation.GetSamplers().size(), 1u);
+	EXPECT_EQ(Binding.Representation.GetSamplers()[0], Definition.Value.GetTexture().SamplerState);
+	EXPECT_EQ(Binding.Representation.GetTextureFallbacks()[0], EMaterialTextureFallback::FlatRGNormal);
 	auto Value = Definition.Value;
 	Value.GetTexture().SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
 	Value.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
 	ASSERT_TRUE(Child->SetParameterValueByInfo(Definition.GetParameterInfo(), Value));
 	Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Child));
-	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
-	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
+	EXPECT_EQ(Binding.Representation.GetSamplers()[0], Value.GetTexture().SamplerState);
+	EXPECT_EQ(Binding.Representation.GetTextureFallbacks()[0], EMaterialTextureFallback::Black);
 	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Child).CompiledProgram, ChildAccepted);
 	ASSERT_TRUE(Root->SetParameterValueByInfo(Definition.GetParameterInfo(), Value));
 	EXPECT_EQ(Root->GetAcceptedCompiledProgram()->ShaderMap, Accepted->ShaderMap);
 	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Root).PlanningPassIdentity.ShaderMap.ProgramIdentity, Accepted->GetShaderMap().ShaderMapId);
 	ASSERT_TRUE(Child->ClearParameterValueByInfo(Definition.GetParameterInfo()));
 	Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Child));
-	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
-	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
+	EXPECT_EQ(Binding.Representation.GetSamplers()[0], Value.GetTexture().SamplerState);
+	EXPECT_EQ(Binding.Representation.GetTextureFallbacks()[0], EMaterialTextureFallback::Black);
 	MarkAsGarbage(Child); MarkAsGarbage(Root); CollectGarbage(Durin::EObjectFlags::Standalone);
 }

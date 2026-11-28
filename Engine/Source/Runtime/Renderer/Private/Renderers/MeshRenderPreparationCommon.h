@@ -188,7 +188,6 @@ namespace Durin
 
 	struct FResolvedMeshDrawRecord
 	{
-		std::optional<FMaterialRenderBinding> MaterialBinding;
 		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<const RendererPrivate::FMeshPassPipeline>> Pipelines;
 		std::map<RendererPrivate::FMeshPassKey, RendererPrivate::FCachedMeshDrawCommand> SelectedCachedCommands;
 		bool bReady = false;
