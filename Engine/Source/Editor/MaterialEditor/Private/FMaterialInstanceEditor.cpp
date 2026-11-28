@@ -143,8 +143,20 @@ namespace Durin::MaterialEditor
 		auto SubmitColorEdit(bool bChanged, const FMaterialParameterValue& Value,
 			const MonaImGui::PropertyEdit::FPropertyInteractionState& Picker) -> void
 		{
-			if (bOverrideEnabled)
-				Model.UpdateValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Picker, bChanged ? &Value : nullptr);
+			if (!bOverrideEnabled) return;
+			auto& Original = Editor.OriginalPickerColor;
+			const auto Context = Editor.MakePropertyViewContext();
+			if (bChanged && (!Original || Original->first != Picker.Id || !Editor.PropertyView.IsEditing()))
+				Original.emplace(Picker.Id, Entry.Value.GetVector4());
+			if (Picker.End == MonaImGui::PropertyEdit::EPropertyInteractionEnd::Cancel && Original && Original->first == Picker.Id
+				&& !bDisabled && Editor.PropertyView.IsEditing())
+			{
+				auto Restored = Entry.Value;
+				Restored.GetVector4() = Original->second;
+				Model.SubmitValueEdit(Editor.PropertyView, Context, Entry, Restored, false);
+			}
+			else Model.UpdateValueEdit(Editor.PropertyView, Context, Entry, Picker, bChanged ? &Value : nullptr);
+			if (Original && Original->first == Picker.Id && !Editor.PropertyView.IsEditing()) Original.reset();
 		}
 
 		auto IsReadOnly() const -> bool { return bDisabled; }

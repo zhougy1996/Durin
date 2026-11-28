@@ -269,8 +269,11 @@ TEST(FSharedDetailCustomizationTests, DeferredTargetsPreserveDragReleaseEscapeAn
 	for (uint32 Frame = 0; Frame < 30; ++Frame) Draw(); // Avoid double-click text entry.
 	Drag(40.0f);
 	ASSERT_TRUE(View.IsEditing());
+	const float BeforeEscape = Value();
 	IO.AddKeyEvent(ImGuiKey_Escape, true); Draw();
 	EXPECT_FALSE(View.IsEditing());
+	EXPECT_EQ(Value(), BeforeEscape);
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Value(), Committed);
 	IO.AddKeyEvent(ImGuiKey_Escape, false);
 	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false); Draw();

@@ -1,5 +1,5 @@
+#include "NativePropertyControlTestSupport.h"
 #include "Editor/TransactionRecordTestSupport.h"
-#include "PropertyEditor/PropertyHandle.h"
 
 using namespace Durin::Tests::ObjectState;
 
@@ -427,11 +427,11 @@ TEST(FTransBufferTests, FinalizedPropertyObserverFaultIsTerminal)
 		FPropertyValueSnapshot Proposed;
 		ASSERT_TRUE(CapturePropertyValue(Property, Object.Get(), 0, Proposed));
 		Object->Value = 0;
-		Durin::PropertyEditor::FPropertyEdit Edit;
-		ASSERT_TRUE(Edit.Begin(FPropertyEditTarget::ForMember(Object.Get(), Property), "Set value", *Buffer));
-		ASSERT_TRUE(Edit.Apply(Proposed));
+		Durin::PropertyEditor::FPropertyControl Edit;
+		ASSERT_TRUE(Edit.BeginGesture(Durin::PropertyEditor::MakePropertyHandle(FPropertyEditTarget::ForMember(Object.Get(), Property)), true));
+		ASSERT_TRUE(Durin::Testing::ApplyControlInput(Edit, Proposed));
 		Object->TransactionObserver = [](const auto&) { throw std::runtime_error("Finalization observer failed"); };
-		Edit.Commit();
+		Edit.Finish(false);
 	};
 	EXPECT_DEATH(Run(), "Finalization observer failed");
 }

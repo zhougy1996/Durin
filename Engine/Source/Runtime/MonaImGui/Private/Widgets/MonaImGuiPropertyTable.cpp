@@ -418,7 +418,7 @@ namespace Durin::MonaImGui::PropertyEdit
 		bool bCancel = false;
 		if (bDrawnOpen)
 		{
-			bCancel = bReadOnly || (OutPickerState && ImGui::IsKeyPressed(ImGuiKey_Escape, false));
+			bCancel = bReadOnly;
 			if (bCancel) ImGui::CloseCurrentPopup();
 			else
 			{
@@ -426,6 +426,12 @@ namespace Durin::MonaImGui::PropertyEdit
 					? ImGui::ColorPicker4("##PickerValue", DisplayColor.RGBA, Flags | ImGuiColorEditFlags_AlphaBar)
 					: ImGui::ColorPicker3("##PickerValue", DisplayColor.RGBA, Flags);
 				AccumulateLastItemState(OutState);
+				if (OutPickerState && ImGui::Button("Cancel"))
+				{
+					bChanged = false;
+					bCancel = true;
+					ImGui::CloseCurrentPopup();
+				}
 			}
 			ImGui::EndPopup();
 		}

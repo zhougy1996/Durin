@@ -423,6 +423,8 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 2000.0f);
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
 	View.FinishActiveEdit(&Context, true);
+	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 2000.0f);
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.1f);
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
 	EXPECT_FALSE(Transactions->CanUndo());

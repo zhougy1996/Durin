@@ -1,9 +1,9 @@
+#include "NativePropertyControlTestSupport.h"
 #include "Asset/PackageInspection.h"
 #include "Texture/Texture2DBuildDiagnostics.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "DObject/PropertyChange.h"
-#include "PropertyEditor/PropertyHandle.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "../DerivedDataBuildTestSupport.h"
 #include "../AssetCacheLogTestSupport.h"
@@ -3041,16 +3041,16 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	const auto LastBuild = [&] { return Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).RequestId; };
 	const auto BeforeGesture = LastBuild();
-	Durin::PropertyEditor::FPropertyEdit Gesture;
-	ASSERT_TRUE(Gesture.Begin(Durin::FPropertyEditTarget::ForMember(Texture, AlphaCoverageThresholdProperty),
-		"Edit alpha coverage", *Transactions));
-	ASSERT_TRUE(Gesture.SetValue(1.0f));
+	Durin::PropertyEditor::FPropertyControl Gesture;
+	ASSERT_TRUE(Gesture.BeginGesture(Durin::PropertyEditor::MakePropertyHandle(Durin::FPropertyEditTarget::ForMember(Texture, AlphaCoverageThresholdProperty)), true));
+	ASSERT_TRUE(Durin::Testing::ApplyControlInput(Gesture, 1.0f));
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.5f);
 	Durin::FPropertyValueSnapshot Corrected;
 	ASSERT_TRUE(Durin::CapturePropertyValue(AlphaCoverageThresholdProperty, Texture, 0, Corrected));
-	EXPECT_EQ(Gesture.GetCurrentValue(), Corrected.GetPayload());
+	EXPECT_TRUE(Durin::Testing::ApplyControlInput(Gesture, Corrected));
+	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.5f);
 	EXPECT_EQ(LastBuild(), BeforeGesture);
-	ASSERT_TRUE(Gesture.Commit());
+	ASSERT_TRUE(Gesture.Finish(false));
 	EXPECT_NE(LastBuild(), BeforeGesture);
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.5f);
 	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));

@@ -1,3 +1,4 @@
+#include "NativePropertyControlTestSupport.h"
 #include "MaterialGraphPinTestSupport.h"
 #include "MaterialGraph.h"
 #include "DObject/PackageFormat.h"
@@ -1237,11 +1238,11 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 			FMaterialEditorPreviewParameters Parameters(Material);
 			auto Preview = Parameters.Find(Id);
 			ASSERT_TRUE(Preview);
-			PropertyEditor::FPropertyEdit Edit;
-			ASSERT_TRUE(Edit.Begin(Preview->GetEditTarget(), "Edit parameter", *Transactions));
-			if (Id == WeightId) { ASSERT_TRUE(Edit.SetValue(Value.GetScalar())); }
-			else { ASSERT_TRUE(Edit.SetValue(Value.GetVector4())); }
-			ASSERT_TRUE(Edit.Commit());
+			PropertyEditor::FPropertyControl Edit;
+			ASSERT_TRUE(Edit.BeginGesture(Durin::PropertyEditor::MakePropertyHandle(Preview->GetEditTarget()), true));
+			if (Id == WeightId) { ASSERT_TRUE(Durin::Testing::ApplyControlInput(Edit, Value.GetScalar())); }
+			else { ASSERT_TRUE(Durin::Testing::ApplyControlInput(Edit, Value.GetVector4())); }
+			ASSERT_TRUE(Edit.Finish(false));
 			const auto Updated=Testing::CaptureMaterialRenderData(*Material); EXPECT_FALSE(Updated.IsError());
 			ASSERT_TRUE(Updated.CompiledProgram); EXPECT_EQ(Updated.CompiledProgram->ShaderMap,Program->ShaderMap);
 			const auto Field=std::ranges::find(Updated.Representation.GetLayout().Fields,Material->FindParameterDefinition(Id)->Name.ToString(),&FMaterialRenderField::ParameterId);

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "DObject/AssetPath.h"
+#include "PropertyEditor/PropertyControl.h"
 #include "PropertyEditor/PropertyControlFrame.h"
 #include "PropertyEditor/PropertyEditing.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
@@ -106,11 +107,11 @@ namespace Durin
 		// Reports whether the active edit has ended.
 		DURINED_API auto FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool;
 		DURINED_API auto HandleOwnerContext(const FPropertyViewContext& Context, DObject* Object) -> bool;
-		auto IsEditing() const -> bool { return EditSession.IsActive(); }
+		auto IsEditing() const -> bool { return Gesture.IsActive(); }
 		auto IsEditingObject(const DObject* Object) const -> bool
-		{ return EditSession.IsEditingObject(Object); }
+		{ return Gesture.IsEditingObject(Object); }
 		auto IsEditingTarget(const FPropertyEditTarget& Target) const -> bool
-		{ return EditSession.MatchesTarget(Target); }
+		{ return Gesture.MatchesTarget(Target); }
 
 	private:
 		using FWidgetAssignment = std::function<void(FProperty*, void*, uint32)>;
@@ -173,7 +174,7 @@ namespace Durin
 		auto ReconcileInteraction(const FPropertyViewContext& Context, bool bEndOfFrame = false) -> bool;
 		auto PreparePropertyWrite(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
 			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr) -> bool;
-		auto BeginEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target) -> bool;
+		auto BeginEdit(const FPropertyViewContext& Context, const std::shared_ptr<PropertyEditor::IPropertyHandle>& Handle, bool bColorPicker = false) -> bool;
 		auto WritePropertyValue(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
 			const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool bContinuous, bool* OutChanged) -> bool;
 		template<typename TWrite>
@@ -192,8 +193,13 @@ namespace Durin
 		} MapKeyInteraction;
 		std::string LastTransientError;
 		double LastTransientErrorTime = 0.0;
-		PropertyEditor::FPropertyEdit EditSession;
-		PropertyEditor::TPropertyControlFrame<ImGuiID, PropertyEditor::FReflectedPropertyHandle, FWidgetAssignment> Controls;
+		PropertyEditor::FPropertyControl Gesture;
+		struct FWidgetTarget
+		{
+			std::shared_ptr<PropertyEditor::IPropertyHandle> Handle;
+			bool bColorPicker;
+		};
+		PropertyEditor::TPropertyControlFrame<ImGuiID, FWidgetTarget, FWidgetAssignment> Controls;
 		DObject* OwnerContextObject = nullptr;
 		DObject* ActiveEditOwnerObject = nullptr;
 		MonaImGui::PropertyEdit::FPropertyEditInteraction EditInteraction;

@@ -1,4 +1,4 @@
-#include "PropertyEditor/PropertyHandle.h"
+#include "PropertyEditor/PropertyHandleImpl.h"
 
 #include "CoreGlobals.h"
 #include "Editor/EditorEngine.h"
@@ -92,32 +92,25 @@ namespace Durin::PropertyEditor
 		return true;
 	}
 
-	template<typename TValue>
-	auto FPropertyEdit::WriteValue(const TValue& Value, std::string* OutError) -> bool
+	auto MakePropertyHandle(FPropertyEditTarget Target) -> std::shared_ptr<IPropertyHandle>
 	{
-		if (!IsActive())
-			return Reject(OutError, "The property edit cannot write this value.");
-		const auto& Target = *Handle.PathTarget;
-		FPropertyValueDraft Draft(Target);
-		FPropertyValueSnapshotPayload Proposed;
-		if (!PrepareTypedValue(Target, Value, Draft, Proposed, OutError)) return false;
-		return Proposed == CurrentValue || ApplyDraft(Draft, OutError, nullptr);
+		return std::make_shared<FPropertyHandleBase>(std::move(Target));
 	}
 
-	auto FPropertyEdit::SetValue(const FPropertyControlValue& Value, std::string* OutError) -> bool
+	auto MakePropertyHandle(DObject& Object, FName Member, uint32 ArrayIndex) -> std::shared_ptr<IPropertyHandle>
 	{
-		return std::visit([&](const auto& TypedValue) { return WriteValue(TypedValue, OutError); }, Value);
+		return std::make_shared<FPropertyHandleBase>(Object, Member, ArrayIndex);
 	}
 
-	FReflectedPropertyHandle::FReflectedPropertyHandle(DObject& InObject, FName InMember, uint32 InArrayIndex)
+	FPropertyHandleBase::FPropertyHandleBase(DObject& InObject, FName InMember, uint32 InArrayIndex)
 		: Object(&InObject), Member(InMember), ArrayIndex(InArrayIndex)
 	{}
 
-	FReflectedPropertyHandle::FReflectedPropertyHandle(FPropertyEditTarget Target)
+	FPropertyHandleBase::FPropertyHandleBase(FPropertyEditTarget Target)
 		: Object(Target.Object), PathTarget(std::move(Target))
 	{}
 
-	auto FReflectedPropertyHandle::ResolveMember(DObject*& OutOwner) const -> const FProperty*
+	auto FPropertyHandleBase::ResolveMember(DObject*& OutOwner) const -> const FProperty*
 	{
 		OutOwner = Object.Get();
 		const auto* Property = OutOwner ? OutOwner->GetClass()->FindPropertyByName(Member) : nullptr;
@@ -125,39 +118,39 @@ namespace Durin::PropertyEditor
 		return Property;
 	}
 
-	auto FReflectedPropertyHandle::GetValue(int32& OutValue) const -> FPropertyAccess::Result
+	auto FPropertyHandleBase::GetValue(int32& OutValue) const -> FPropertyAccess::Result
 	{
 		return ReadValue(OutValue) ? FPropertyAccess::Success : FPropertyAccess::Fail;
 	}
 
-	auto FReflectedPropertyHandle::GetValue(float& OutValue) const -> FPropertyAccess::Result
+	auto FPropertyHandleBase::GetValue(float& OutValue) const -> FPropertyAccess::Result
 	{
 		return ReadValue(OutValue) ? FPropertyAccess::Success : FPropertyAccess::Fail;
 	}
 
-	auto FReflectedPropertyHandle::GetValue(FVector2& OutValue) const -> FPropertyAccess::Result
+	auto FPropertyHandleBase::GetValue(FVector2& OutValue) const -> FPropertyAccess::Result
 	{
 		return ReadValue(OutValue) ? FPropertyAccess::Success : FPropertyAccess::Fail;
 	}
 
-	auto FReflectedPropertyHandle::GetValue(FVector3& OutValue) const -> FPropertyAccess::Result
+	auto FPropertyHandleBase::GetValue(FVector3& OutValue) const -> FPropertyAccess::Result
 	{
 		return ReadValue(OutValue) ? FPropertyAccess::Success : FPropertyAccess::Fail;
 	}
 
-	auto FReflectedPropertyHandle::GetValue(FVector4& OutValue) const -> FPropertyAccess::Result
+	auto FPropertyHandleBase::GetValue(FVector4& OutValue) const -> FPropertyAccess::Result
 	{
 		return ReadValue(OutValue) ? FPropertyAccess::Success : FPropertyAccess::Fail;
 	}
 
-	auto FReflectedPropertyHandle::GetValue(FLinearColor& OutValue) const -> FPropertyAccess::Result
+	auto FPropertyHandleBase::GetValue(FLinearColor& OutValue) const -> FPropertyAccess::Result
 	{
 		return ReadValue(OutValue) ? FPropertyAccess::Success : FPropertyAccess::Fail;
 	}
 
 
 	template<typename TValue>
-	auto FReflectedPropertyHandle::ReadValue(TValue& OutValue) const -> bool
+	auto FPropertyHandleBase::ReadValue(TValue& OutValue) const -> bool
 	{
 		FResolvedPropertyValue Resolved;
 		if (PathTarget)
@@ -175,7 +168,7 @@ namespace Durin::PropertyEditor
 		return true;
 	}
 
-	auto FReflectedPropertyHandle::IsEditable() const -> bool
+	auto FPropertyHandleBase::IsEditable() const -> bool
 	{
 		if (PathTarget)
 			return ResolveEditablePath() && IsSupportedMember(PathTarget->LeafProperty);
@@ -184,58 +177,127 @@ namespace Durin::PropertyEditor
 		return Owner && Property && Owner->CanEditChange(Property);
 	}
 
-	auto FReflectedPropertyHandle::ResolveEditablePath() const -> const FPropertyEditTarget*
+	auto FPropertyHandleBase::ResolveEditablePath() const -> const FPropertyEditTarget*
 	{
 		FResolvedPropertyValue Leaf;
 		return PathTarget && ResolveBoundPath(Object.Get(), *PathTarget, Leaf) && IsEditablePath(*PathTarget)
 			? &*PathTarget : nullptr;
 	}
 
-	auto FReflectedPropertyHandle::ResolveTarget() const -> FPropertyEditTarget
+	auto FPropertyHandleBase::ResolveTarget() const -> FPropertyEditTarget
 	{
-		if (PathTarget) return *PathTarget;
+		if (PathTarget)
+		{
+			auto Target = *PathTarget;
+			Target.Object = Object.Get();
+			return Target;
+		}
 		DObject* Owner = nullptr;
 		const auto* Property = ResolveMember(Owner);
 		return FPropertyEditTarget::ForMember(Owner, Property, ArrayIndex);
 	}
 
-	auto FReflectedPropertyHandle::SetValue(const int32& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
+	auto FPropertyHandleBase::SetValue(const int32& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
 	{
 		return SetValueWithFlags(Value, Flags);
 	}
 
-	auto FReflectedPropertyHandle::SetValue(const float& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
+	auto FPropertyHandleBase::SetValue(const float& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
 	{
 		return SetValueWithFlags(Value, Flags);
 	}
 
-	auto FReflectedPropertyHandle::SetValue(const FVector2& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
+	auto FPropertyHandleBase::SetValue(const FVector2& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
 	{
 		return SetValueWithFlags(Value, Flags);
 	}
 
-	auto FReflectedPropertyHandle::SetValue(const FVector3& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
+	auto FPropertyHandleBase::SetValue(const FVector3& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
 	{
 		return SetValueWithFlags(Value, Flags);
 	}
 
-	auto FReflectedPropertyHandle::SetValue(const FVector4& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
+	auto FPropertyHandleBase::SetValue(const FVector4& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
 	{
 		return SetValueWithFlags(Value, Flags);
 	}
 
-	auto FReflectedPropertyHandle::SetValue(const FLinearColor& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
+	auto FPropertyHandleBase::SetValue(const FLinearColor& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
 	{
 		return SetValueWithFlags(Value, Flags);
 	}
 
-	auto FReflectedPropertyHandle::SetStructValue(const DStruct* Type, const void* Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
+	auto FPropertyHandleBase::SetStructValue(const DStruct* Type, const void* Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
 	{
 		return SetValueWithFlags(FStructValue{Type, Value}, Flags);
 	}
 
+	static auto StartHandleRecording(const FPropertyEditTarget& Target, EPropertyValueSetFlags::Type Flags,
+		std::optional<FScopedTransaction>& Scope) -> std::expected<void, std::string>
+	{
+		if (!Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional))
+		{
+			const bool bOpenScope = !(Flags & EPropertyValueSetFlags::NotTransactable) && !GUndo;
+			const auto Transactor = ResolveEditorTransactor(bOpenScope);
+			if (!Transactor) return std::unexpected(Transactor.error());
+			if (*Transactor)
+			{
+				auto Recording = BeginPropertyRecording(Target, std::format("Edit {}", Target.MemberProperty->NamePrivate),
+					**Transactor, bOpenScope, Scope);
+				if (!Recording) return Recording;
+			}
+		}
+		return {};
+	}
+
+	auto FPropertyHandleBase::FinishInteractiveChange() -> void
+	{
+		if (Object.IsValid()) NotifyValueSet(ResolveTarget(), EPropertyValueSetFlags::DefaultFlags, false);
+	}
+
+	auto FPropertyHandleBase::SetValueFromSnapshot(const FPropertyValueSnapshot& Value, EPropertyValueSetFlags::Type Flags)
+		-> std::expected<bool, EPropertyWriteFailure>
+	{
+		LastError.clear();
+		auto Fail = [&](EPropertyWriteFailure Kind, std::string Message) {
+			LastError = std::move(Message);
+			return std::unexpected(Kind);
+		};
+		const TStrongObjectPtr<DObject> Owner(Object.Get());
+		if (!Owner) return Fail(EPropertyWriteFailure::Access, "The reflected-property edit target is no longer live.");
+		const auto Target = ResolveTarget();
+		if (auto Valid = Target.Validate(); !Valid)
+			return Fail(EPropertyWriteFailure::Access, FormatPropertyEditPathError(Valid.error()));
+		if (GEditor && GEditor->IsShutdownRequested())
+			return Fail(EPropertyWriteFailure::Access, "The editor is shutting down.");
+		if (!IsEditablePath(Target)) return Fail(EPropertyWriteFailure::Access, "The property is no longer editable.");
+
+		std::optional<FScopedTransaction> Scope;
+		if (auto Recording = StartHandleRecording(Target, Flags, Scope); !Recording)
+			return Fail(EPropertyWriteFailure::Access, Recording.error());
+		if (!Owner.IsValid() || !IsEditablePath(Target))
+			return Fail(EPropertyWriteFailure::Access, "The property is no longer editable.");
+		FPropertyValueSnapshotPayload Before;
+		if (auto Capture = CapturePropertyValuePayload(Target.SnapshotProperty, Target.SnapshotContainer,
+			Target.SnapshotArrayIndex, Before); !Capture)
+			return Fail(EPropertyWriteFailure::Value, ToString(Capture.error()));
+		if (Value.GetPayload() == Before)
+		{
+			NotifyValueSet(Target, Flags, false);
+			return false;
+		}
+		FPropertyValueDraft Draft(Target, &Value.GetPayload());
+		const bool bRecording = GUndo != nullptr;
+		auto Result = WriteDraft(Target, Draft, Flags, Before);
+		if (!Result) return Fail(EPropertyWriteFailure::Value, std::move(Result.error()));
+		NotifyValueSet(Target, Flags, *Result);
+		if (bRecording && !GUndo)
+			return Fail(EPropertyWriteFailure::Access, "The property transaction is no longer active.");
+		return *Result;
+	}
+
 	template<typename TValue>
-	auto FReflectedPropertyHandle::SetValueWithFlags(const TValue& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
+	auto FPropertyHandleBase::SetValueWithFlags(const TValue& Value, EPropertyValueSetFlags::Type Flags) -> FPropertyAccess::Result
 	{
 		LastError.clear();
 		auto Fail = [&](std::string_view Message) { LastError = Message; return FPropertyAccess::Fail; };
@@ -247,18 +309,8 @@ namespace Durin::PropertyEditor
 			return Fail("The property edit target is unavailable.");
 
 		std::optional<FScopedTransaction> Scope;
-		if (!Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional))
-		{
-			const bool bOpenScope = !(Flags & EPropertyValueSetFlags::NotTransactable) && !GUndo;
-			const auto Transactor = ResolveEditorTransactor(bOpenScope);
-			if (!Transactor) return Fail(Transactor.error());
-			if (*Transactor)
-			{
-				auto Recording = BeginPropertyRecording(Target, std::format("Edit {}", Target.MemberProperty->NamePrivate),
-					**Transactor, bOpenScope, Scope);
-				if (!Recording) return Fail(Recording.error());
-			}
-		}
+		if (auto Recording = StartHandleRecording(Target, Flags, Scope); !Recording)
+			return Fail(Recording.error());
 
 		if (!Owner.IsValid()) return Fail("The property edit target is unavailable.");
 		FPropertyValueSnapshotPayload Before;

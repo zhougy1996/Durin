@@ -17,6 +17,12 @@ namespace Durin
 	{
 	}
 
+	auto FDetailLayoutBuilder::GetProperty(FName Member, uint32 ArrayIndex) const -> std::shared_ptr<PropertyEditor::IPropertyHandle>
+	{
+		if (!IsValid(InspectedObject)) return PropertyEditor::MakePropertyHandle(FPropertyEditTarget{});
+		return PropertyEditor::MakePropertyHandle(*InspectedObject, Member, ArrayIndex);
+	}
+
 	auto FDetailLayoutBuilder::ApplyCustomization(DObject* Object, IDetailCustomization& Customization) -> void
 	{
 		requiref(!bCustomizationBound || InspectedObject == Object, "A details layout cannot change its inspected object.");

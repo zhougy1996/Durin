@@ -1,3 +1,4 @@
+#include "NativePropertyControlTestSupport.h"
 #include "Editor/ActorHierarchyChangeTestSupport.h"
 #include "WorldTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -13,7 +14,6 @@
 #include "DObject/Class.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
-#include "PropertyEditor/PropertyHandle.h"
 #include "Preview/PreviewScene.h"
 #include "IRendererModule.h"
 #include "Rendering/LightSceneProxy.h"
@@ -532,19 +532,21 @@ TEST(FWorldTests, ReflectedActorVisibilitySynchronizesInteractiveCancelAndHistor
 	ASSERT_TRUE(Durin::CapturePropertyValue(Hidden, Light, 0, HiddenValue));
 	Light->SetActorHiddenInGame(false);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	Durin::PropertyEditor::FPropertyEdit Session;
+	Durin::PropertyEditor::FPropertyControl Session;
 	const auto Target = Durin::FPropertyEditTarget::ForMember(Light, Hidden);
-	ASSERT_TRUE(Session.Begin(Target, "Hide light", *Transactions.Get()));
-	ASSERT_TRUE(Session.Apply(HiddenValue));
+	ASSERT_TRUE(Session.BeginGesture(Durin::PropertyEditor::MakePropertyHandle(Target), true));
+	ASSERT_TRUE(Durin::Testing::ApplyControlInput(Session, HiddenValue));
 	EXPECT_TRUE(Light->IsHidden());
 	EXPECT_TRUE(Scene.Lights.empty());
-	ASSERT_TRUE(Session.Cancel());
+	ASSERT_TRUE(Session.Finish(true));
+	EXPECT_TRUE(Light->IsHidden());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Light->IsHidden());
 	EXPECT_TRUE(Scene.Lights.contains(Light->GetLightComponent()));
 	EXPECT_FALSE(Transactions->CanUndo());
-	ASSERT_TRUE(Session.Begin(Target, "Hide light", *Transactions.Get()));
-	ASSERT_TRUE(Session.Apply(HiddenValue));
-	ASSERT_TRUE(Session.Commit());
+	ASSERT_TRUE(Session.BeginGesture(Durin::PropertyEditor::MakePropertyHandle(Target), true));
+	ASSERT_TRUE(Durin::Testing::ApplyControlInput(Session, HiddenValue));
+	ASSERT_TRUE(Session.Finish(false));
 	EXPECT_TRUE(Scene.Lights.empty());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Scene.Lights.contains(Light->GetLightComponent()));

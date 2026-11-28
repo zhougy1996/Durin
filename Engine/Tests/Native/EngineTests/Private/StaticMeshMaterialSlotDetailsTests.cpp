@@ -150,6 +150,8 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 	ASSERT_TRUE(Replace.AssignMaterial(PropertyView, Context, Replace.GetCurrentEntries()[0], Second, true));
 	EXPECT_EQ(Component->GetMaterialOverride(0), Second);
 	ASSERT_TRUE(PropertyView.FinishActiveEdit(&Context, true));
+	EXPECT_EQ(Component->GetMaterialOverride(0), Second);
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Component->GetMaterialOverride(0), First);
 
 	Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel Reset(Component, false);

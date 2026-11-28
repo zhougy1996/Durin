@@ -75,6 +75,8 @@ TEST(FAssetDetailCustomizationTests, PreservesPreviewCancellationAndAssetUndoRed
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, Target, AssignResolution, true)) << Error;
 	EXPECT_EQ(Texture->GetMaxResolution(), 512u);
 	ASSERT_TRUE(View.FinishActiveEdit(&Context, true));
+	EXPECT_EQ(Texture->GetMaxResolution(), 512u);
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Texture->GetMaxResolution(), Original);
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, Target, AssignResolution, false)) << Error;
 	ASSERT_TRUE(Transactions->Undo());

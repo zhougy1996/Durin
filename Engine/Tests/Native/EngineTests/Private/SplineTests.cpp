@@ -618,7 +618,7 @@ TEST(FSplineEditingTests, StructuralUndoAndRedoRestoreOrderAndInvalidateOldIndic
 	EXPECT_EQ(Spline->GetEvaluationData()->GetNumSegments(), Spline->GetNumSplineSegments());
 }
 
-TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoRecreateSegmentsWithStableSourceKeys)
+TEST(FSplineMeshActorEditingTests, InterruptedDragUndoAndRedoRecreateSegmentsWithStableSourceKeys)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SplineMeshActorEditing";
@@ -663,8 +663,11 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoRecreateSegmentsWithS
 	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
 	EXPECT_EQ(std::ranges::find(Segments, StableFirst), Segments.end());
 	ASSERT_TRUE(View.FinishActiveEdit(&Context, true));
-	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {100.0, 0.0, 0.0});
+	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {120.0, 25.0, 0.0});
 	EXPECT_TRUE(Level->GetPackage()->IsDirty());
+	ASSERT_TRUE(Transactions->Undo());
+	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {100.0, 0.0, 0.0});
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 
 	ASSERT_TRUE(SubmitPosition({130.0, 30.0, 0.0}, true));
 	ASSERT_TRUE(View.FinishActiveEdit(&Context, false));

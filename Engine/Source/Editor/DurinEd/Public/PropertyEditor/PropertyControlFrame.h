@@ -2,8 +2,6 @@
 
 #include "CoreMinimal.h"
 
-#include "Math/Color.h"
-#include "PropertyEditor/PropertyHandle.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 
 namespace Durin::PropertyEditor
@@ -79,27 +77,5 @@ namespace Durin::PropertyEditor
 		std::optional<TId> ActiveId;
 		std::optional<FObservation> ActiveObservation;
 		std::optional<FProposal> NewProposal;
-	};
-
-	// ImGui adapter for handle-backed controls. Observations are consumed after drawing.
-	class FPropertyControlFrame
-	{
-	public:
-		using EEnd = MonaImGui::PropertyEdit::EPropertyInteractionEnd;
-		using FValue = FPropertyControlValue;
-
-		DURINED_API auto Observe(ImGuiID Id, const FReflectedPropertyHandle& Handle, EEnd End,
-			std::optional<FValue> Value) -> void;
-		DURINED_API auto EndFrame(bool bCancel, bool bShouldTransact,
-			std::string* OutError = nullptr) -> bool;
-		DURINED_API auto Finish(bool bCancel, std::string* OutError = nullptr) -> bool;
-		auto IsActive() const -> bool { return Edit.IsActive(); }
-		auto IsEditingObject(const DObject* Object) const -> bool { return Edit.IsEditingObject(Object); }
-
-	private:
-		auto FinishEdit(bool bCancel, std::string* OutError) -> bool;
-
-		FPropertyEdit Edit;
-		TPropertyControlFrame<ImGuiID, FReflectedPropertyHandle, FValue> Frame;
 	};
 }

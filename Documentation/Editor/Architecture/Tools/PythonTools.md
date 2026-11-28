@@ -188,10 +188,10 @@ additionally require `ScriptReadWrite`; both entry points share the same writer.
 Read access does not imply write admission. Assets and subsystem fields cannot
 be written through this path.
 
-Each write converts a complete detached candidate before opening one native
-`FPropertyEdit`. Native proposal hooks normalize or reject it; script
+Each write converts a complete detached candidate before passing its snapshot
+to a property handle. Native proposal hooks normalize or reject it. Script
 admission and authoritative editability are checked again before publication.
-The session emits native notifications, updates dirty state and commits through
+The handle emits native notifications, updates dirty state and records through
 the Host transactor. `ScopedEditorTransaction` groups multiple writes. Rejection
 of an unchanged candidate ends only its own scope, preserving earlier edits and
 their enclosing history. Conversion failures never publish a partial value.

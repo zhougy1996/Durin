@@ -8,6 +8,7 @@
 #include "MaterialGraph.h"
 #include "MonaImGui.h"
 #include "PropertyEditor/DetailPanel.h"
+#include "PropertyEditor/PropertyControl.h"
 #include "PropertyEditor/PropertyControlFrame.h"
 
 namespace Durin
@@ -49,6 +50,7 @@ namespace Durin::MaterialEditor
 		auto ReplaceParameterDefinition(const DMaterialExpressionParameter& Expression,
 			const FMaterialParameterDefinition& Definition) -> FMaterialGraphCommandResult;
 		auto EndParameterFrame() -> void;
+		auto ApplyParameterFrame(std::string& Error) -> bool;
 		auto EndNodeLiteralFrame() -> void;
 		auto GetRootInputDraft() const -> const std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>>&
 		{
@@ -250,7 +252,14 @@ namespace Durin::MaterialEditor
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
 		FMaterialEditorPreviewParameters PreviewParameters;
-		PropertyEditor::FPropertyControlFrame ParameterControls;
+		struct FParameterWidget
+		{
+			std::shared_ptr<PropertyEditor::IPropertyHandle> Handle;
+			bool bColorPicker = false;
+		};
+		using FParameterInput = std::variant<float, FVector4>;
+		PropertyEditor::TPropertyControlFrame<ImGuiID, FParameterWidget, FParameterInput> ParameterFrame;
+		PropertyEditor::FPropertyControl ParameterControl;
 		struct FParameterTextDraft
 		{
 			EParameterTextField Field;

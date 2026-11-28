@@ -1,3 +1,4 @@
+#include "PropertyEditor/PropertyHandle.h"
 #include "PropertyEditor/PropertyView.h"
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
@@ -975,7 +976,8 @@ namespace Durin
 		DURIN_PROFILE_CPU_ZONE_NAMED("Details.Property.SubmitEdit");
 		if (Edit.bContinuous)
 		{
-			Controls.Observe(Edit.Interaction.Id, PropertyEditor::FReflectedPropertyHandle(EditTarget), Edit.Interaction.End,
+			Controls.Observe(Edit.Interaction.Id, {PropertyEditor::MakePropertyHandle(EditTarget),
+				Edit.Interaction.Boundary == MonaImGui::PropertyEdit::EPropertyInteractionBoundary::Popup}, Edit.Interaction.End,
 				Edit.AssignValue ? std::optional(Edit.AssignValue) : std::nullopt);
 			return false;
 		}
@@ -1002,10 +1004,29 @@ namespace Durin
 		FPropertyValueSnapshot Proposed;
 		if (auto Result = Draft.Capture(Proposed); !Result) return Reject(FormatPropertyValueDraftError(Result.error()));
 
-		if (!EditSession.IsActive() && !BeginEdit(Context, Target)) return false;
+		if (!bContinuous && !Gesture.IsActive())
+		{
+			const auto Handle = PropertyEditor::MakePropertyHandle(Target);
+			const auto Result = Handle->SetValueFromSnapshot(Proposed, Context.bShouldTransact
+				? PropertyEditor::EPropertyValueSetFlags::DefaultFlags : PropertyEditor::EPropertyValueSetFlags::NotTransactable);
+			if (OutChanged) *OutChanged = Result.value_or(false);
+			return Result.has_value() || Reject(Handle->GetLastError());
+		}
+		if (!Gesture.IsActive() && !BeginEdit(Context, PropertyEditor::MakePropertyHandle(Target))) return false;
 		if (OutChanged) *OutChanged = false;
 		std::string Error;
-		if (Proposed.GetPayload() != EditSession.GetCurrentValue() && !EditSession.ApplyDraft(Draft, &Error, OutChanged))
+		bool bWritten = false;
+		{
+			PropertyEditor::FPropertyControl::FInput Input(Gesture, &Error);
+			if (Input)
+			{
+				const auto Result = Input->SetValueFromSnapshot(Proposed, PropertyEditor::FPropertyControl::InteractiveFlags);
+				if (OutChanged) *OutChanged = Result.value_or(false);
+				bWritten = Result.has_value();
+				if (!bWritten) Error = Input->GetLastError();
+			}
+		}
+		if (!bWritten || !Error.empty())
 		{
 			ReportEditError(Context, std::move(Error));
 			FinishActiveEdit(&Context, true);
@@ -1415,7 +1436,7 @@ namespace Durin
 		if (Controls.IsActive() && !FinishActiveEdit(&Context, ImGui::GetCurrentContext()
 			&& ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
 			return false;
-		if (!EditSession.IsActive()) return true;
+		if (!Gesture.IsActive()) return true;
 		const bool bSameTarget = IsEditingTarget(Target);
 		const bool bCancel = EditInteraction.ShouldCancel();
 		const bool bDifferentWidget = Interaction && EditInteraction.IsActive() && !EditInteraction.Matches(*Interaction);
@@ -1430,15 +1451,15 @@ namespace Durin
 		return true;
 	}
 
-	auto FPropertyView::BeginEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target) -> bool
+	auto FPropertyView::BeginEdit(const FPropertyViewContext& Context, const std::shared_ptr<PropertyEditor::IPropertyHandle>& Handle, bool bColorPicker) -> bool
 	{
 		std::string Error;
-		if (!EditSession.Begin(Target, {}, Context.bShouldTransact, &Error))
+		if (!Gesture.BeginGesture(Handle, Context.bShouldTransact, bColorPicker, &Error))
 		{
 			ReportEditError(Context, std::move(Error));
 			return false;
 		}
-		ActiveEditOwnerObject = OwnerContextObject ? OwnerContextObject : Target.Object;
+		ActiveEditOwnerObject = OwnerContextObject ? OwnerContextObject : Handle->ResolveTarget().Object;
 		return true;
 	}
 
@@ -1482,12 +1503,12 @@ namespace Durin
 		if (Controls.IsActive() && !AssignValue) return true;
 		if (Interaction.IsCancelled() || Context.bReadOnly)
 		{
-			if (!EditSession.MatchesTarget(Target)) return true;
+			if (!Gesture.MatchesTarget(Target)) return true;
 			return FinishActiveEdit(&Context, true);
 		}
 
 		const bool bApplied = !AssignValue || ApplyPropertyValueEdit(Context, Target, AssignValue, true, &Interaction);
-		if (!EditSession.MatchesTarget(Target)) return bApplied;
+		if (!Gesture.MatchesTarget(Target)) return bApplied;
 		if (EditInteraction.Observe(Interaction))
 			return FinishActiveEdit(&Context, false) && bApplied;
 		return ReconcileInteraction(Context) && bApplied;
@@ -1503,18 +1524,8 @@ namespace Durin
 	auto FPropertyView::FinishSession(const FPropertyViewContext* Context, bool bCancel, bool* OutChanged) -> bool
 	{
 		std::string Error;
-		if (EditSession.IsActive())
-		{
-			if (bCancel && Controls.IsActive() && !EditSession.HasChanges()) EditSession.CancelUnchanged(&Error);
-			else if (bCancel)
-			{
-				const bool bChanged = EditSession.HasChanges();
-				const bool bRestored = EditSession.Cancel(&Error);
-				if (OutChanged) *OutChanged |= bRestored && bChanged;
-			}
-			else EditSession.Commit(&Error);
-		}
-		if (!EditSession.IsActive())
+		Gesture.Finish(bCancel, &Error, OutChanged);
+		if (!Gesture.IsActive())
 		{
 			ActiveEditOwnerObject = nullptr;
 			EditInteraction = {};
@@ -1525,12 +1536,12 @@ namespace Durin
 			if (Context) ReportEditError(*Context, std::move(Error));
 			else DURIN_ERROR("Could not finish the property edit: {}", Error);
 		}
-		return !EditSession.IsActive();
+		return !Gesture.IsActive();
 	}
 
 	auto FPropertyView::HandleOwnerContext(const FPropertyViewContext& Context, DObject* Object) -> bool
 	{
-		if (EditSession.IsActive() && (ActiveEditOwnerObject != Object || Context.bReadOnly))
+		if (Gesture.IsActive() && (ActiveEditOwnerObject != Object || Context.bReadOnly))
 		{
 			if (!FinishActiveEdit(&Context, true)) return false;
 		}
@@ -1542,17 +1553,16 @@ namespace Durin
 	auto FPropertyView::EndInteractionFrame(const FPropertyViewContext& Context, bool* OutChanged) -> bool
 	{
 		const bool bCancel = Context.bReadOnly || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
-		const bool bFinished = Controls.EndFrame(bCancel,
-			[&](ImGuiID, const PropertyEditor::FReflectedPropertyHandle& Handle) {
-				if (EditSession.IsActive() && !FinishSession(&Context, EditInteraction.ShouldCancel(true))) return false;
-				const auto* Target = Handle.ResolveEditablePath();
-				return Target && BeginEdit(Context, *Target);
+		if (bCancel) return FinishActiveEdit(&Context, false);
+		const bool bFinished = Controls.EndFrame(false,
+			[&](ImGuiID, const FWidgetTarget& Target) {
+				if (Gesture.IsActive() && !FinishSession(&Context, EditInteraction.ShouldCancel(true))) return false;
+				return BeginEdit(Context, Target.Handle, Target.bColorPicker);
 			},
 			[&](const FWidgetAssignment& AssignValue) {
 				bool bChanged = false;
-				const auto* Target = EditSession.Handle.ResolveEditablePath();
-				if (!Target) ReportEditError(Context, "The property edit target is unavailable or read-only.");
-				if (!Target || !WritePropertyValue(Context, *Target, AssignValue, true, &bChanged))
+				const auto Target = Gesture.GetHandle()->ResolveTarget();
+				if (!Target.Object || !WritePropertyValue(Context, Target, AssignValue, true, &bChanged))
 				{
 					FinishActiveEdit(&Context, true);
 					return false;

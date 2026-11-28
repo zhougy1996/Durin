@@ -13,7 +13,7 @@ namespace Durin::Testing
 	{
 		MaterialEditor::FMaterialEditorPreviewParameters Parameters(&Material);
 		const auto Preview = Parameters.Find(Id);
-		return Preview && PropertyEditor::FReflectedPropertyHandle(Preview->GetEditTarget()).SetValue(Value)
+		return Preview && PropertyEditor::MakePropertyHandle(Preview->GetEditTarget())->SetValue(Value)
 			== PropertyEditor::FPropertyAccess::Success;
 	}
 

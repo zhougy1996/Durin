@@ -16,7 +16,6 @@
 
 namespace Durin
 {
-	namespace PropertyEditor { class FPropertyEdit; }
 	class DLevel;
 }
 
@@ -208,8 +207,6 @@ namespace Durin
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> void;
 	private:
-		friend class PropertyEditor::FPropertyEdit;
-		std::vector<PropertyEditor::FPropertyEdit*> ActivePropertyEdits;
 		auto CheckEditorSubsystemUpdate() -> void;
 
 

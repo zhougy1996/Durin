@@ -34,6 +34,7 @@ namespace Durin
 	public:
 		virtual ~IDetailLayoutBuilder() = default;
 		virtual auto GetObject() const -> DObject* = 0;
+		virtual auto GetProperty(FName Member, uint32 ArrayIndex = 0) const -> std::shared_ptr<PropertyEditor::IPropertyHandle> = 0;
 		virtual auto GetSearchText() const -> std::string_view = 0;
 		virtual auto GetHostContext() const -> IDetailHostContext* = 0;
 		virtual auto EditCategory(std::string_view Name, std::string_view DisplayName = {}) -> IDetailCategoryBuilder& = 0;

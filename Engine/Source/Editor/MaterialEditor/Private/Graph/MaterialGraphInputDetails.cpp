@@ -38,13 +38,14 @@ namespace Durin::MaterialEditor
 		const FMaterialParameterValue& Value) -> std::expected<void, std::string>
 	{
 		std::string Error;
-		if (!ParameterControls.Finish(false, &Error)) return std::unexpected(std::move(Error));
+		ParameterFrame = {};
+		if (!ParameterControl.Finish(false, &Error)) return std::unexpected(std::move(Error));
 		if (!Error.empty()) ReportError(std::move(Error));
 		auto* Preview = PreviewParameters.Find(Parameter.Id);
 		if (!Preview) return std::unexpected("The material parameter definition is unavailable.");
-		PropertyEditor::FReflectedPropertyHandle Handle(Preview->GetEditTarget());
-		if (Handle.SetValue(Value.GetTexture()) != PropertyEditor::FPropertyAccess::Success)
-			return std::unexpected(Handle.GetLastError());
+		const auto Handle = PropertyEditor::MakePropertyHandle(Preview->GetEditTarget());
+		if (Handle->SetValue(Value.GetTexture()) != PropertyEditor::FPropertyAccess::Success)
+			return std::unexpected(Handle->GetLastError());
 		return {};
 	}
 
@@ -80,7 +81,7 @@ namespace Durin::MaterialEditor
 			return;
 		}
 		auto* Preview = PreviewParameters.Find(Parameter.Id);
-		const bool bEditing = Preview && ParameterControls.IsEditingObject(Preview);
+		const bool bEditing = Preview && ParameterControl.IsEditingObject(Preview);
 		ImGui::PushID(Parameter.Id.ToString().c_str());
 		MonaImGui::PropertyEdit::BeginRow("Default value");
 		const ImGuiID Widget = ImGui::GetID("##Value");
@@ -109,10 +110,7 @@ namespace Durin::MaterialEditor
 			if (Parameter.Presentation == EMaterialParameterPresentation::Color)
 			{
 				FLinearColor Color(Components[0], Components[1], Components[2], Components[3]);
-				FWidgetState PickerState;
-				Edited = DrawColorPicker(Color, EColorPickerMode::LinearHDR, true, false, &Interaction, &PickerState);
-				if (Interaction.End == EPropertyInteractionEnd::None && PickerState.bDeactivatedAfterEdit)
-					Interaction.End = EPropertyInteractionEnd::Commit;
+				Edited = DrawColorPicker(Color, EColorPickerMode::LinearHDR, true, false, &Interaction);
 				if (Edited) Value.GetVector4() = FVector4(Color.R, Color.G, Color.B, Color.A);
 			}
 			else
@@ -126,14 +124,14 @@ namespace Durin::MaterialEditor
 		if (Interaction.Id == 0) Interaction = FPropertyInteractionState::FromWidget(Widget, {Active, Deactivated}, false, Edited);
 		if (Preview && (Edited || bEditing))
 		{
-			std::optional<PropertyEditor::FPropertyControlValue> Proposed;
+			std::optional<FParameterInput> Proposed;
 			if (Edited)
 			{
 				if (Parameter.Type == EMaterialParameterType::Scalar) Proposed = Value.GetScalar();
 				else Proposed = Value.GetVector4();
 			}
-			ParameterControls.Observe(Interaction.Id, PropertyEditor::FReflectedPropertyHandle(Preview->GetEditTarget()),
-				Interaction.End, std::move(Proposed));
+			ParameterFrame.Observe(Interaction.Id, {PropertyEditor::MakePropertyHandle(Preview->GetEditTarget()),
+				Interaction.Boundary == EPropertyInteractionBoundary::Popup}, Interaction.End, std::move(Proposed));
 		}
 		MonaImGui::PropertyEdit::EndRow();
 		ImGui::PopID();
@@ -145,8 +143,32 @@ namespace Durin::MaterialEditor
 		EndNodeLiteralFrame();
 		EndRootInputFrame();
 		std::string Error;
-		ParameterControls.EndFrame(ImGui::IsKeyPressed(ImGuiKey_Escape, false), true, &Error);
+		if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ParameterFrame = {};
+			ParameterControl.Finish(false, &Error);
+		}
+		else ApplyParameterFrame(Error);
 		if (!Error.empty()) ReportError(std::move(Error));
+	}
+
+	auto FMaterialGraphCanvas::ApplyParameterFrame(std::string& Error) -> bool
+	{
+		return ParameterFrame.EndFrame(false,
+			[&](ImGuiID, const FParameterWidget& Widget) {
+				return ParameterControl.BeginGesture(Widget.Handle, true, Widget.bColorPicker, &Error);
+			},
+			[&](const FParameterInput& Value) {
+				PropertyEditor::FPropertyControl::FInput Input(ParameterControl, &Error);
+				if (!Input) return false;
+				const auto Result = std::visit([&](const auto& V) { return Input->SetValue(V, PropertyEditor::FPropertyControl::InteractiveFlags); }, Value);
+				if (Result == PropertyEditor::FPropertyAccess::Success) return true;
+				Error = Input->GetLastError();
+				ParameterFrame = {};
+				ParameterControl.Finish(false);
+				return false;
+			},
+			[&](bool bCancel) { ParameterControl.Finish(bCancel, &Error); return !ParameterControl.IsActive(); });
 	}
 
 	auto FMaterialGraphCanvas::DrawParameterText(const char* Label, EParameterTextField Field, const FGuid& TargetId,
@@ -230,7 +252,12 @@ namespace Durin::MaterialEditor
 	{
 		const auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
 		const bool bStale = RootInputDraft && (!Material || RootInputRevision != Material->GetMaterialContentRevision());
-		RootInputFrame.EndFrame(bStale || ImGui::IsKeyPressed(ImGuiKey_Escape, false),
+		if (!bStale && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			RootInputFrame.Finish(false, [this](bool bCancel) { return FinishRootInputEdit(bCancel); });
+			return;
+		}
+		RootInputFrame.EndFrame(bStale,
 			[this](const FRootInputControlId& Id, uint64 Revision) {
 				RootInputRevision = Revision;
 				RootInputDraft.emplace(Id.first, FMaterialInputDefault{});

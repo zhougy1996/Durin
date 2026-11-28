@@ -143,6 +143,7 @@ namespace Durin
 
 namespace Durin::PropertyEditor
 {
+	auto EnrollPropertyTarget(const FPropertyEditTarget& Target) -> std::expected<void, std::string>;
 	auto BeginPropertyRecording(const FPropertyEditTarget& Target, std::string_view Description,
 		DTransactor& Transactor, bool bOpenScope, std::optional<FScopedTransaction>& Scope)
 		-> std::expected<void, std::string>;

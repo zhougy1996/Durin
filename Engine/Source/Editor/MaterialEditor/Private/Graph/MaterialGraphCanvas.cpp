@@ -271,7 +271,7 @@ namespace Durin::MaterialEditor
 					const auto* Preview = PreviewParameters.Find(Id);
 					// A committed preview already holds the published default. An active draft still needs rebinding.
 					const auto* Definition = Material->FindParameterDefinition(Id);
-					return ParameterControls.IsActive() || !Preview || !Definition || Preview->GetValue() != Definition->Value;
+					return ParameterControl.IsActive() || !Preview || !Definition || Preview->GetValue() != Definition->Value;
 				}))
 				PreviewParameters.RegenerateArrays();
 		});
@@ -367,7 +367,8 @@ namespace Durin::MaterialEditor
 		if (!FinishDetailsEdit(true)) return false;
 		RootInputFrame.Finish(true, [this](bool bCancel) { return FinishRootInputEdit(bCancel); });
 		std::string Error;
-		const bool bFinished = ParameterControls.Finish(true, &Error);
+		ParameterFrame = {};
+		const bool bFinished = ParameterControl.Finish(true, &Error);
 		if (!Error.empty()) ReportError(Error);
 		if (!bFinished) return false;
 		if (MoveSession.IsActive())

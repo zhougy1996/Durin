@@ -74,6 +74,7 @@ namespace Durin::MaterialEditor
 		FAssetEditorSession EditorSession;
 		TStrongObjectPtr<DMaterialInstance> Source;
 		FPropertyView PropertyView;
+		std::optional<std::pair<ImGuiID, FVector4>> OriginalPickerColor;
 		std::shared_ptr<FMaterialPreview> Preview;
 		std::unique_ptr<FMaterialEditorProfileSettings> ProfileSettings;
 		std::unique_ptr<FMaterialParameterPanelCache> MaterialParameterPanelCache;

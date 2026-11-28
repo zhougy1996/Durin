@@ -67,34 +67,14 @@ namespace Durin::PythonReflection::Private
             return Error(Registry->AccessError, Path + ": target lost write admission");
         auto* Transactor = C->Host->GetTransactor();
         if (!Transactor) return Error(Registry->AccessError, Path + ": Host history is unavailable");
-        Durin::PropertyEditor::FPropertyEdit Session;
-        std::string EditError;
-        if (!Session.Begin(FPropertyEditTarget::ForMember(Object, &P), {}, *Transactor, &EditError))
-            return Error(Registry->AccessError, Path + ": " + EditError);
-        auto CloseRejected = [&](std::string* CleanupError = nullptr) {
-            return !Session.IsActive() || (Session.HasChanges() ? Session.Cancel(CleanupError) : Session.CancelUnchanged(CleanupError));
-        };
-        try
+        if (!GEditor || Transactor != GEditor->GetTransactor())
+            return Error(Registry->AccessError, Path + ": Property recording requires the active editor's transactor.");
+        const auto Handle = PropertyEditor::MakePropertyHandle(FPropertyEditTarget::ForMember(Object, &P));
+        if (const auto Result = Handle->SetValueFromSnapshot(Proposal); !Result)
         {
-            if (!Session.Apply(Proposal, &EditError))
-            {
-                std::string CleanupError;
-                const bool bCleanedUp = CloseRejected(&CleanupError);
-                auto Message = Path + ": " + (Call.GetError() ? Call.GetError()->Message : EditError);
-                if (!bCleanedUp) Message += " Cleanup failed: " + CleanupError;
-                return Error(Call.GetError() ? Registry->AccessError : PyExc_ValueError, Message);
-            }
-            if (!Session.Commit(&EditError))
-            {
-                std::string CleanupError;
-                if (!CloseRejected(&CleanupError)) EditError += " Cleanup failed: " + CleanupError;
-                return Error(Registry->AccessError, Path + ": " + EditError);
-            }
-        }
-        catch (...)
-        {
-            (void)CloseRejected();
-            throw;
+            if (Call.GetError()) return Error(Registry->AccessError, Path + ": " + Call.GetError()->Message);
+            return Error(Result.error() == PropertyEditor::EPropertyWriteFailure::Access ? Registry->AccessError : PyExc_ValueError,
+                Path + ": " + Handle->GetLastError());
         }
         Py_IncRef(Py_None); return Py_None;
     }

@@ -21,10 +21,9 @@ still use their own setters; `DObject` does not own editor history.
 | Scoped recording, Undo/Redo ordering, and package dirty state | [Transactors](../Transactions/Transactors.md) |
 | Property kinds, metadata, and value operations | [Property reflection](../../../Runtime/ObjectSystem/PropertyReflection.md) |
 
-`FPropertyView` and its frame-settled controls use the same `FPropertyEdit`
-implementation. An active edit roots its exact preview target and releases it
-on commit, cancel, or reset. The shared editor transactor owns committed history
-and its collector edges.
+Details and material graph parameter controls retain a property handle for the
+active gesture. The control pins its target until the gesture ends. The editor
+transactor owns committed history and its collector edges.
 
 ## Object Notification Contract
 
@@ -135,17 +134,11 @@ value captured for this write. A synchronous listener can close the recording or
 `Modify()`. Shutdown requests block new edit sessions and handle writes. A pending write can finish
 while its target remains live. Retiring the target in a proposal or dirty notification
 rejects publication.
-Canceling the recording discards its undo entry. A closed preview skips its cache
-update and further preview notifications. A session compares the result with its last preview to decide
-whether to notify, even when the live value already matched the draft.
-A publication or readback failure returns the original diagnostic and leaves
-live storage as it stands. The session then invalidates its cached value so
-explicit cancellation can still restore the gesture's original snapshot. A rejected proposal leaves
-the cached value intact. Same-target nested edits from a hook are rejected.
-
-Object hooks own validation and reactions. A post-edit hook can correct the
-authored value. An active interactive session reads back that value for its next
-comparison and for cancellation.
+Canceling the recording discards its undo entry. A request to finish a gesture
+during a property write is settled after publication. A failed write returns its
+diagnostic. Same-target nested writes from a proposal hook are rejected.
+Subsequent writes compare against live storage, including corrections made by
+post-edit hooks.
 
 Texture2D corrects invalid usage, compression quality, alpha mip mode, and
 alpha coverage threshold to their build defaults after a reflected write.
@@ -162,166 +155,48 @@ Python dependency; the Python adapter owns conversion and exception mapping.
 
 ## Edit Session Lifecycle
 
-`Durin::PropertyEditor::IPropertyHandle` provides typed reads and writes for
-reflected integers, floats, real vectors and linear colors. Callers compare
-the result with `FPropertyAccess::Success`. The reflected handle resolves a
-member or nested path on the current object generation. `SetValue` completes
-a standalone write synchronously. It seeds the draft and compares values using a payload of serialized data and object keys.
-Only the target is pinned by the handle during the call. A cross-frame session also
-retains hard references from the original value for cancellation. A rejected
-standalone write returns `Fail` without a property notification. Each property view owns one `FPropertyEdit` for interactive writes.
-Editor shutdown restores unfinished previews and releases their scopes before
-another editor can record.
+`IPropertyHandle` resolves the reflected member or nested path on the bound
+object generation. Typed setters and `SetValueFromSnapshot` publish a single
+change synchronously. The snapshot setter accepts complete detached values,
+including structures and containers. Access and validation failures carry
+diagnostics for the caller.
 
-Ordinary numeric, text, vector, transform and color controls record input during
-drawing. After all rows have drawn, `EndInteractionFrame` applies the outgoing
-control's terminal value and closes its scope before starting the incoming
-edit. Each proposal owns its widget value and is applied to a fresh draft of
-the live target. Row order therefore leaves the Undo boundaries unchanged.
-Escape or disappearance restores the outgoing preview. Escape also discards
-the incoming proposal for that frame.
+An active control holds the same handle throughout a drag. Each update uses
+`InteractiveChange | NotTransactable` inside the gesture transaction. On
+release, the handle sends one final `ValueSet` if an interactive change was
+published. It can finish with the same value as the last frame. Further
+identical writes are silent. Escape, a hidden control and owner changes end
+ordinary drags at the last published value. Undo reverses the whole drag.
 
-`FPropertyEdit` implements one logical edit. `Begin`, `Apply`, `Commit`,
-and `Cancel` return success as a boolean. Applying the current value succeeds
-and a no-op commit adds no undo record. The caller can supply a string output
-for diagnostics on failure. The view can surface a rejection as a short,
-non-modal notification and suppress repeated copies while it is visible.
-A proxy target can report a backing-object write failure after its committed notification.
-Callers can surface the diagnostic in the Details panel or a Python exception.
+Details settles the outgoing control before starting an incoming assignment.
+`UpdatePropertyValueEdit` can observe a widget without supplying a value.
+`SubmitPropertyValueEdit` accepts a detached assignment for explicit edits.
+Map keys retain widget identity across renames and validate uniqueness before
+publication.
 
-A completed property write closes its session even when the buffer subsequently
-discards the entry or reports a publication failure. The buffer owns that
-diagnostic. Callers can independently check availability before starting another edit.
+A color picker keeps its original color through multiple drags in the popup.
+Normal dismissal accepts the result. The Cancel button restores the original
+color. A failed restoration reports its diagnostic and ends the owned
+transaction normally so an outstanding change can be undone. A picker that
+joins an outer transaction leaves it open.
 
-The lifecycle is:
-
-```text
-Begin(target)
-  pin the exact live target generation with TStrongObjectPtr
-  capture original value
-  open the requested transaction scope
-
-Apply(proposal)
-  validate/normalize a detached draft
-  if the normalized value differs, modify the owner before writing
-  apply and recapture the actual value
-  notify Interactive when it changed
-
-Commit()
-  check the object's CanEditChange for the edited member
-  notify the final change type if a preview was published
-  end the scoped record
-
-Cancel()
-  if the live value differs, restore the saved original directly and notify ValueSet for the restored member
-  discard an owned recording or close the nested scope
-  create no transaction
-```
-
-Checkboxes, selections, and structural buttons normally begin and commit in one
-frame. Drag, text, vector, and transform widgets keep the session active
-until deactivation. Repeated `Apply()` calls therefore produce preview events
-but only one transaction. Escape restores the original value. A session that published a preview emits one final change on commit, including
-when the gesture returned to its original value. A session with no preview closes silently. Cancellation that writes the
-original value emits an ordinary `ValueSet`. Cancellation without a write is silent. An unchanged edit leaves history and package
-dirtiness untouched.
-
-Reflected color values use the picker popup as the edit boundary. Opening the
-popup does not begin a transaction. The first proposal begins a normal property
-edit session; subsequent picker gestures update the same preview until the popup
-closes. Normal dismissal commits the session, while Escape or losing the
-editable target cancels it. The picker reports its lifetime separately from
-the activation state of its nested controls; it does not write reflected
-storage or own history. Map keys remain structural edits and retain their widget
-identity across renames, with uniqueness validation on the structural write path.
-
-Release or text confirmation submits the terminal request once. The picker
-detects closure after drawing using its popup ID and window storage. Idle
-redraws leave an observed gesture open. Structural map-key editing and custom
-synchronous controls retain widget identity and last-drawn frame to detect
-abandonment. They finish through the same view-owned property session.
-
-The synchronous UI entry point `UpdatePropertyValueEdit` accepts one interaction description
-and an optional detached-value assignment. Missing assignments only observe the
-control lifetime. Its boolean result reports successful processing of the update.
-`SubmitPropertyValueEdit` remains the explicit non-widget assignment entry point
-and no longer accepts a second, overriding interaction policy. Both use the same
-snapshot preparation and property-session writer. Widget adapters reduce raw
-activation or popup state to one identity, boundary kind, and terminal request;
-the graph canvas does not maintain a second widget identity or visibility clock.
-
-All property writers prepare the write before copying the root into a detached
-proposal. Preparation checks read-only state, the current interaction boundary,
-and the logical target and widget identity. A switch settles the outgoing
-interaction before preparing the incoming assignment from live storage. Input from
-the cancelled gesture cannot restart it. Container mutations use the same gate
-and retain detached map keys across restoration. Prebuilt root snapshots are
-private to the prepared write path, so callers cannot submit a stale snapshot
-that resurrects another field's cancelled preview.
-
-Material Toolkit deactivation, close, discard, and working-copy replacement
-can proceed once a cancelled property gesture ends, including after a reported
-snapshot failure.
-
-This division follows UE 5.8's `IPropertyHandle::SetValue`,
-`SPropertyEditorNumeric::OnBeginSliderMovement`/`OnEndSliderMovement`, and
-`FColorStructCustomization` callbacks: interactive updates are distinct from
-the transaction owner's terminal action. Property handles accept per-write flags. `NotTransactable` skips creating a
-transaction. An enclosing recording can still capture the property owner.
-`InteractiveChange` sends an interactive notification and leaves the final
-notification to the caller's terminal write. Reuse the handle through the
-gesture. A cross-frame session holds that handle alongside its transaction and
-original snapshot. Commit flushes the handle's pending notification without
-rewriting the preview. The final write emits one committed notification even when its value
-matches the last interactive update. A subsequent identical write is silent.
-A commit after loss of editability ends the gesture with a diagnostic and
-leaves the live value in place. If an external Cancel or Reset retires the gesture's
-recording, a subsequent preview write, Commit, or Cancel releases the scoped
-session and preserves the live value. Hosts finish that session before starting
-an independent recording and use session activity to decide when to switch.
-
-`CancelUnchanged()` closes an active unchanged session and ends its transaction scope silently. It preserves an enclosing
-recording and earlier edits when a proposal is rejected. Sessions with applied
-changes restore the saved snapshot directly. Restoration skips proposal validation,
-normalization, and `Modify()`.
-
-The caller pairs a successful `Begin()` with `Commit()`, `Cancel()`, or
-`CancelUnchanged()` while the edit is active. Close nested scopes from the
-inside out. A `PreTransactionFinalized` listener may open its own nested edit
-and finish it before returning. Callers must finish a current recording scope
-outside protected transaction operations, including when destruction cancels
-an active edit. An always-on assertion checks for illegal reentry before final
-notification, preview restoration, or scope release.
-
-Cancellation attempts restoration once, discards an owned recording or ends its nested scope,
-and releases the session even if restoration fails. A failed restore returns
-its diagnostic and leaves the live value as it stands. A host reports the
-diagnostic and can switch controls or close. Destruction attempts cancellation
-only for a still-active session.
+Gesture state belongs to the control. A stale recording is checked against
+both its transactor and transaction ID, so late input cannot close an
+independent recording. Finishing from within a protected transaction operation
+is invalid.
 
 ## History Submission
 
-Begin requests a transaction by default. Passing `bShouldTransact = false`
-skips opening a scope. An existing recording still captures the target. The explicit
-non-null DTransactor reference overload remains for low-level native composition.
-NonTransactional property metadata continues to exclude that property from
-history, including when ordinary recorded admission is selected. Local preview
-snapshots, validation and cancellation restoration remain available without history.
+The first proposal opens a gesture transaction when requested. With
+`bShouldTransact = false`, an existing recording still captures eligible
+writes. NonTransactional property metadata excludes that member from history.
 
-Activation opens the requested scope. The session and property handle compare
-the validated, normalized proposal with the live value before publication.
-For a changed value they call `Modify()` before writing, so interactive
-notifications can observe a dirty package. Edits excluded from an active
-recording mark the package directly. Rejection and same-value proposals leave
-the package alone. Returning to the original value or canceling restores the
-value while preserving any dirty bit set during the gesture.
-Recorded sessions enroll ordinary targets with the Transactional object flag.
-Template targets follow runtime eligibility. The first accepted write captures the whole object before publication. Later
-writes to the same object in that transaction reuse its original snapshot.
-Commit ends the scope after the final change notification and records the applied
-value. An unchanged nested commit ends its action without canceling an enclosing
-recording. Cancellation discards a recording owned by the session; preview restoration
-remains the edit session's separate responsibility.
+A normalized change calls `Modify()` before publication, or marks the package
+directly for an excluded property. Rejected and identical proposals leave the
+package alone. Returning to the original value during a gesture can leave its
+package dirty. Ordinary targets are enrolled with the Transactional flag.
+The first recorded write captures the object and subsequent writes reuse that
+record. The gesture finishes its own transaction after the final notification.
 
 `FTransaction::FObjectRecord` reconstructs the target from its exact object identity,
 whole-object serialized payloads and annotations. Undo/Redo check structural/type/identity validity and restore historical

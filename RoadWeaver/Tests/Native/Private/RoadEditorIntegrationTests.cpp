@@ -1,7 +1,7 @@
+#include "NativePropertyControlTestSupport.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "RoadNet/RoadNetActor.h"
 #include "RoadNet/RoadNetBuilder.h"
-#include "PropertyEditor/PropertyHandle.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
@@ -149,11 +149,11 @@ namespace
 	{
 		const auto Changed = AddRoad();
 		ASSERT_TRUE(ValidateDefinition(Changed));
-		Durin::PropertyEditor::FPropertyEdit Session;
-		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Asset, Property), "Add road", *Transactor));
-		ASSERT_TRUE(Session.Apply(Capture(Changed)));
+		Durin::PropertyEditor::FPropertyControl Session;
+		ASSERT_TRUE(Session.BeginGesture(Durin::PropertyEditor::MakePropertyHandle(FPropertyEditTarget::ForMember(Asset, Property)), true));
+		ASSERT_TRUE(Durin::Testing::ApplyControlInput(Session, Capture(Changed)));
 		ExpectPreview(Changed);
-		ASSERT_TRUE(Session.Commit());
+		ASSERT_TRUE(Session.Finish(false));
 		EXPECT_EQ((Transactor->GetQueueLength() - Transactor->GetUndoCount()), 1u);
 		EXPECT_TRUE(Package->IsDirty());
 		ASSERT_TRUE(Transactor->Undo());
@@ -164,16 +164,17 @@ namespace
 		EXPECT_TRUE(Package->IsDirty());
 	}
 
-	TEST_P(FRoadEditorIntegrationTests, CancelRestoresStructuralPreviewWithoutCreatingHistory)
+	TEST_P(FRoadEditorIntegrationTests, InterruptedStructuralEditRemainsUndoable)
 	{
-		Durin::PropertyEditor::FPropertyEdit Session;
-		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Asset, Property), "Cancel road addition", *Transactor));
-		ASSERT_TRUE(Session.Apply(Capture(AddRoad())));
+		Durin::PropertyEditor::FPropertyControl Session;
+		ASSERT_TRUE(Session.BeginGesture(Durin::PropertyEditor::MakePropertyHandle(FPropertyEditTarget::ForMember(Asset, Property)), true));
+		ASSERT_TRUE(Durin::Testing::ApplyControlInput(Session, Capture(AddRoad())));
 		ASSERT_EQ(Actor->GetAlignments().size(), 2u);
-		ASSERT_TRUE(Session.Cancel());
-		ExpectPreview(Original);
+		ASSERT_TRUE(Session.Finish(true));
 		EXPECT_TRUE(Package->IsDirty());
-		EXPECT_EQ(Transactor->GetQueueLength(), 0u);
+		ASSERT_EQ(Transactor->GetQueueLength(), 1u);
+		ASSERT_TRUE(Transactor->Undo());
+		ExpectPreview(Original);
 	}
 
 	TEST_P(FRoadEditorIntegrationTests, InvalidStructuralDraftIsAtomicAndLeavesNoHistory)
@@ -181,10 +182,10 @@ namespace
 		auto Invalid = AddRoad();
 		Invalid.Roads.back().LaneSections.front().Lanes.front().Id = Original.Roads.front().LaneSections.front().Lanes.front().Id;
 		const auto Before = Actor->GetAlignments().front();
-		Durin::PropertyEditor::FPropertyEdit Session;
-		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Asset, Property), "Reject duplicate lane", *Transactor));
-		EXPECT_FALSE(Session.Apply(Capture(Invalid)));
-		EXPECT_TRUE(Session.CancelUnchanged());
+		Durin::PropertyEditor::FPropertyControl Session;
+		ASSERT_TRUE(Session.BeginGesture(Durin::PropertyEditor::MakePropertyHandle(FPropertyEditTarget::ForMember(Asset, Property)), true));
+		EXPECT_FALSE(Durin::Testing::ApplyControlInput(Session, Capture(Invalid)));
+		EXPECT_TRUE(Session.Finish(false));
 		ExpectPreview(Original);
 		EXPECT_EQ(Actor->GetAlignments().front(), Before);
 		EXPECT_FALSE(Package->IsDirty());

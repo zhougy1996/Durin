@@ -682,8 +682,9 @@ Commit records each shared declaration in the
 same transaction and publishes the final value from the preview object's
 committed property notification. Texture selection and sampler changes use the
 same binding with a single committed write.
-Escape, a hidden row or document deactivation restores the preview property
-before ending the gesture. Other writes in an enclosing transaction survive.
+Escape, a hidden row or document deactivation commits the current scalar or
+vector drag. Explicit picker cancellation restores the original color and
+preserves other writes in an enclosing transaction.
 Returning to the original value leaves no gesture history.
 
 Material configuration records the material before writing its domain and

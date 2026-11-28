@@ -29,6 +29,7 @@ namespace Durin
 		DURINED_API auto ApplyCustomization(DObject* Object, IDetailCustomization& Customization) -> void;
 		DURINED_API auto ApplyRegisteredCustomizations(DObject* Object) -> void;
 		auto GetObject() const -> DObject* override { return InspectedObject; }
+		DURINED_API auto GetProperty(FName Member, uint32 ArrayIndex = 0) const -> std::shared_ptr<PropertyEditor::IPropertyHandle> override;
 		auto GetSearchText() const -> std::string_view override { return SearchText; }
 		auto GetHostContext() const -> IDetailHostContext* override { return HostContext; }
 		DURINED_API auto EditCategory(std::string_view Name, std::string_view DisplayName = {}) -> IDetailCategoryBuilder& override;

@@ -11,7 +11,6 @@
 #include "Tickable.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorStartup.h"
-#include "PropertyEditor/PropertyHandle.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Notifications/Notification.h"
 #include "Notifications/EditorNotificationSubsystem.h"
@@ -557,18 +556,6 @@ namespace Durin
 
 	auto DEditorEngine::ShutdownHostConsumers() -> void
 	{
-		while (!ActivePropertyEdits.empty())
-		{
-			auto* Session = ActivePropertyEdits.back();
-			ActivePropertyEdits.pop_back();
-			std::string Error;
-			if (!Session->IsActive()) Session->Reset();
-			else if (!Session->Cancel(&Error))
-			{
-				DURIN_ERROR("Property preview cancellation during editor shutdown failed: {}", Error);
-				Session->Reset();
-			}
-		}
 		TeardownPlaySession();
 		if (Trans) Trans->Cancel();
 		if (EditorWorld) EditorWorld->CleanupWorld();

@@ -1,4 +1,4 @@
-#include "PropertyEditor/PropertyHandle.h"
+#include "PropertyEditor/PropertyHandleImpl.h"
 
 #include "PropertyEditor/PropertyValueDraft.h"
 #include "Editor/EditorEngine.h"
@@ -138,7 +138,7 @@ namespace Durin
 		Owner->PostEditChangeProperty(Event);
 	}
 
-	auto PropertyEditor::FReflectedPropertyHandle::NotifyValueSet(const FPropertyEditTarget& Target, EPropertyValueSetFlags::Type Flags, bool bChanged) -> void
+	auto PropertyEditor::FPropertyHandleBase::NotifyValueSet(const FPropertyEditTarget& Target, EPropertyValueSetFlags::Type Flags, bool bChanged) -> void
 	{
 		const bool bInteractive = (Flags & EPropertyValueSetFlags::InteractiveChange) != 0;
 		if (!bChanged && (bInteractive || !bInteractiveChangeInProgress)) return;
@@ -410,44 +410,13 @@ namespace Durin
 		return true;
 	}
 
-	namespace
+	auto PropertyEditor::EnrollPropertyTarget(const FPropertyEditTarget& Target) -> std::expected<void, std::string>
 	{
-		void CheckPropertyEditFinish(const std::optional<FScopedTransaction>& Scope, std::string_view Operation)
-		{
-			if (Scope && Scope->IsOutstanding() && GUndo)
-				requiref(GEditor->GetTransactor()->CanTransact(),
-					"FPropertyEdit::{} cannot finish transaction {} during a protected transaction operation.",
-					Operation, GUndo->GetContext().TransactionId);
-		}
-
-		auto FailPropertyEdit(std::string* OutError, std::string_view Message) -> bool
-		{
-			if (OutError) *OutError = Message;
-			return false;
-		}
+		if (!Target.Object->IsTemplateObject()) Target.Object->SetFlags(EObjectFlags::Transactional);
+		if (!GUndo || !CanTransactObject(*Target.Object) || !Target.Object->HasAnyObjectFlags(EObjectFlags::Transactional))
+			return std::unexpected("The target cannot participate in transaction history.");
+		return {};
 	}
-
-	PropertyEditor::FPropertyEdit::~FPropertyEdit()
-	{
-		if (!bActive) return;
-		Cancel();
-		Reset();
-	}
-
-	auto PropertyEditor::FPropertyEdit::Begin(const FPropertyEditTarget& Target,
-		std::string_view Description, bool bShouldTransact, std::string* OutError) -> bool
-	{
-		if (bShouldTransact && Target.SnapshotProperty
-			&& Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional))
-			return BeginInternal(Target, Description, nullptr, OutError);
-		auto Owner = ResolveEditorTransactor(bShouldTransact);
-		if (!Owner) return FailPropertyEdit(OutError, Owner.error());
-		return BeginInternal(Target, Description, *Owner, OutError, bShouldTransact);
-	}
-
-	auto PropertyEditor::FPropertyEdit::Begin(const FPropertyEditTarget& Target,
-		std::string_view Description, DTransactor& Transactor, std::string* OutError) -> bool
-	{ return BeginInternal(Target, Description, &Transactor, OutError); }
 
 	auto PropertyEditor::BeginPropertyRecording(const FPropertyEditTarget& Target, std::string_view Description,
 		DTransactor& Transactor, bool bOpenScope, std::optional<FScopedTransaction>& Scope)
@@ -461,83 +430,10 @@ namespace Durin
 			if (!Scope->IsOutstanding())
 				return std::unexpected("The reflected-property transactor rejected the edit scope.");
 		}
-		if (!Target.Object->IsTemplateObject()) Target.Object->SetFlags(EObjectFlags::Transactional);
-		if (!GUndo || !CanTransactObject(*Target.Object) || !Target.Object->HasAnyObjectFlags(EObjectFlags::Transactional))
-			return std::unexpected("The target cannot participate in transaction history.");
-		return {};
+		return EnrollPropertyTarget(Target);
 	}
 
-	auto PropertyEditor::FPropertyEdit::BeginInternal(
-		const FPropertyEditTarget& InTarget,
-		std::string_view InDescription,
-		DTransactor* InTransactor,
-		std::string* OutError,
-		bool bOpenScope
-	) -> bool
-	{
-		if (bActive) return FailPropertyEdit(OutError, "A reflected-property edit session is already active.");
-		if (const auto Validation = ValidateTarget(InTarget); !Validation)
-		{
-			const auto Message = FormatPropertyEditPathError(Validation.error());
-			Reset();
-			return FailPropertyEdit(OutError, Message);
-		}
-		TargetObject = TStrongObjectPtr<DObject>(FObjectKey(InTarget.Object));
-		if (!TargetObject)
-		{
-			const auto Message = "The reflected-property edit target is no longer live.";
-			Reset();
-			return FailPropertyEdit(OutError, Message);
-		}
-		Handle = FReflectedPropertyHandle(InTarget);
-		const auto& Target = *Handle.PathTarget;
-		const bool bRecord = InTransactor && !Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional);
-		Description = InDescription.empty()
-			? std::format("Edit {}", Target.MemberProperty->NamePrivate)
-			: InDescription;
-		if (const auto Capture = CapturePropertyValue(Target.SnapshotProperty, Target.SnapshotContainer,
-			Target.SnapshotArrayIndex, OriginalValue); !Capture)
-		{
-			const auto Message = ToString(Capture.error());
-			Reset();
-			return FailPropertyEdit(OutError, Message);
-		}
-		CurrentValue = GetOriginalValue();
-		if (GEditor)
-		{
-			if (GEditor->IsShutdownRequested())
-			{
-				Reset();
-				return FailPropertyEdit(OutError, "The editor is shutting down.");
-			}
-			GEditor->ActivePropertyEdits.push_back(this);
-		}
-		if (bRecord)
-		{
-			bOwnsRecording = !InTransactor->IsActive();
-			auto Recording = BeginPropertyRecording(Target, Description, *InTransactor, bOpenScope, TransactionScope);
-			if (!Recording)
-			{
-				Reset();
-				return FailPropertyEdit(OutError, Recording.error());
-			}
-		}
-		bActive = true;
-		return true;
-	}
-
-	auto PropertyEditor::FPropertyEdit::Apply(
-		const FPropertyValueSnapshot& ProposedValue, std::string* OutError) -> bool
-	{
-		return Apply(ProposedValue.GetPayload(), OutError);
-	}
-
-	auto PropertyEditor::FPropertyEdit::Apply(const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError) -> bool
-	{
-		return ApplyInternal(ProposedValue, OutError, nullptr);
-	}
-
-	auto PropertyEditor::FReflectedPropertyHandle::WriteDraft(const FPropertyEditTarget& WriteTarget, FPropertyValueDraft& Draft, EPropertyValueSetFlags::Type Flags,
+	auto PropertyEditor::FPropertyHandleBase::WriteDraft(const FPropertyEditTarget& WriteTarget, FPropertyValueDraft& Draft, EPropertyValueSetFlags::Type Flags,
 		FPropertyValueSnapshotPayload& LiveValue) -> std::expected<bool, std::string>
 	{
 		if (FGenericMutationScope::IsActiveFor(WriteTarget)) return std::unexpected(NestedMutationError);
@@ -583,6 +479,12 @@ namespace Durin
 			Script->Reject("Property target is no longer writable.");
 			return std::unexpected("Script property publication lost target admission.");
 		}
+		if (!Object->CanEditChange(WriteTarget.MemberProperty))
+		{
+			constexpr auto ReadOnly = "The property is no longer editable.";
+			if (auto* Script = FScopedEditorScriptCall::Current()) Script->Reject(ReadOnly);
+			return std::unexpected(ReadOnly);
+		}
 		if (Normalized == LiveValue) return false;
 		if (WriteTarget.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional))
 			Object->MarkPackageDirty();
@@ -605,162 +507,4 @@ namespace Durin
 		return bChanged;
 	}
 
-	auto PropertyEditor::FPropertyEdit::ApplyInternal(
-		const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError, bool* OutChanged) -> bool
-	{
-		if (OutChanged) *OutChanged = false;
-		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
-		if (ProposedValue == CurrentValue) return true;
-		FPropertyValueDraft Draft(*Handle.PathTarget, &ProposedValue);
-		return ApplyDraft(Draft, OutError, OutChanged);
-	}
-
-	auto PropertyEditor::FPropertyEdit::ApplyDraft(FPropertyValueDraft& Draft,
-		std::string* OutError, bool* OutChanged) -> bool
-	{
-		if (OutChanged) *OutChanged = false;
-		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
-		if (!CheckRecording(OutError)) return false;
-		const auto Owner = TargetObject;
-		const auto WriteTarget = *Handle.PathTarget;
-		FPropertyValueSnapshotPayload LiveValue;
-		if (auto Capture = CaptureTargetValue(WriteTarget, LiveValue); !Capture)
-			return FailPropertyEdit(OutError, ToString(Capture.error()));
-		constexpr auto Flags = EPropertyValueSetFlags::InteractiveChange;
-		const auto Result = Handle.WriteDraft(WriteTarget, Draft, Flags, LiveValue);
-		if (!Result)
-		{
-			if (IsEditingObject(WriteTarget.Object) && !LiveValue.IsValid()) CurrentValue = {};
-			return FailPropertyEdit(OutError, Result.error());
-		}
-		if (!IsEditingObject(WriteTarget.Object))
-		{
-			if (OutChanged) *OutChanged = *Result;
-			return true;
-		}
-		const bool bChanged = CurrentValue != LiveValue;
-		CurrentValue = std::move(LiveValue);
-		if (bChanged)
-		{
-			Handle.NotifyValueSet(WriteTarget, Flags, true);
-			// A post-edit hook can correct the authored value or close this session.
-			if (IsEditingObject(Owner.Get()) && MatchesTarget(WriteTarget))
-			{
-				if (const auto Capture = CaptureTargetValue(WriteTarget, CurrentValue); !Capture)
-				{
-					CurrentValue = {};
-					return FailPropertyEdit(OutError, ToString(Capture.error()));
-				}
-			}
-		}
-		if (OutChanged) *OutChanged = bChanged;
-		return true;
-	}
-
-	auto PropertyEditor::FPropertyEdit::MatchesTarget(const FPropertyEditTarget& Other) const -> bool
-	{
-		return bActive && Handle.PathTarget->MatchesContinuousEdit(Other);
-	}
-
-	auto PropertyEditor::FPropertyEdit::CheckRecording(std::string* OutError) -> bool
-	{
-		if (!TransactionScope || GUndo) return true;
-		Reset();
-		return FailPropertyEdit(OutError, "The property transaction is no longer active.");
-	}
-
-	auto PropertyEditor::FPropertyEdit::Commit(std::string* OutError) -> bool
-	{
-		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
-		if (bCommitting) return true;
-		if (!CheckRecording(OutError)) return false;
-		CheckPropertyEditFinish(TransactionScope, "Commit");
-		const auto& Target = *Handle.PathTarget;
-		if (!TargetObject.IsValid() || !Target.Object->CanEditChange(Target.MemberProperty))
-		{
-			Reset();
-			return FailPropertyEdit(OutError, "The property is no longer editable.");
-		}
-		bCommitting = true;
-		Handle.NotifyValueSet(Target, EPropertyValueSetFlags::DefaultFlags, false);
-		bCommitting = false;
-		if (!bActive) return FailPropertyEdit(OutError, "The property edit closed during publication.");
-		Reset();
-		return true;
-	}
-
-	auto PropertyEditor::FPropertyEdit::CancelUnchanged(std::string* OutError) -> bool
-	{
-		if (!bActive || HasChanges())
-			return FailPropertyEdit(OutError, "Unchanged cancellation requires an active unchanged edit.");
-		CheckPropertyEditFinish(TransactionScope, "CancelUnchanged");
-		Reset();
-		return true;
-	}
-
-	auto PropertyEditor::FPropertyEdit::Cancel(std::string* OutError) -> bool
-	{
-		if (bCommitting) return true;
-		if (!CheckRecording(OutError)) return false;
-		CheckPropertyEditFinish(TransactionScope, "Cancel");
-		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
-		std::string Error;
-		const bool bRestored = RestoreOriginalValue(OutError ? OutError : &Error);
-		if (bRestored && bOwnsRecording && TransactionScope)
-		{
-			// TransactionCanceled listeners must see the edit as closed.
-			Deactivate();
-			TransactionScope->Cancel();
-		}
-		Reset();
-		if (!bRestored && !OutError) DURIN_ERROR("Unable to restore the property preview: {}", Error);
-		return bRestored;
-	}
-
-	auto PropertyEditor::FPropertyEdit::RestoreOriginalValue(std::string* OutError) -> bool
-	{
-		if (HasChanges())
-		{
-			const auto Owner = TargetObject;
-			if (!Owner.IsValid()) return FailPropertyEdit(OutError, "The property edit target is unavailable.");
-			const auto RestoreTarget = *Handle.PathTarget;
-			FPropertyValueSnapshotPayload LiveValue;
-			if (auto Capture = CaptureTargetValue(RestoreTarget, LiveValue); !Capture)
-				return FailPropertyEdit(OutError, ToString(Capture.error()));
-			if (LiveValue != GetOriginalValue())
-			{
-				if (FGenericMutationScope::IsActiveFor(RestoreTarget)) return FailPropertyEdit(OutError, NestedMutationError);
-				{
-					FGenericMutationScope Scope(RestoreTarget);
-					if (auto Restore = RestoreTargetValue(RestoreTarget, GetOriginalValue()); !Restore)
-					{
-						CurrentValue = {};
-						return FailPropertyEdit(OutError, ToString(Restore.error()));
-					}
-				}
-				CurrentValue = GetOriginalValue();
-				NotifyMutation(FPropertyEditTarget::ForMember(Owner.Get(), RestoreTarget.MemberProperty,
-					RestoreTarget.SnapshotArrayIndex), EPropertyValueSetFlags::DefaultFlags);
-			}
-		}
-		return true;
-	}
-
-	auto PropertyEditor::FPropertyEdit::Deactivate() -> void
-	{
-		if (GEditor) std::erase(GEditor->ActivePropertyEdits, this);
-		bActive = false;
-	}
-
-	auto PropertyEditor::FPropertyEdit::Reset() -> void
-	{
-		Deactivate();
-		TransactionScope.reset();
-		bOwnsRecording = false;
-		Handle = {};
-		TargetObject.Reset();
-		OriginalValue = {};
-		CurrentValue = {};
-		Description.clear();
-	}
 }
