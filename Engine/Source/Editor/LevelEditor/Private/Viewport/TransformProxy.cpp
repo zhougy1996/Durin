@@ -240,10 +240,12 @@ namespace Durin::LevelEditor
 		return bValid;
 	}
 
-	auto FTransformProxy::MarkPackagesDirty() const -> void
+	auto FTransformProxy::GetPackageEditRevisions() const -> std::vector<std::pair<TObjectPtr<DPackage>, uint64>>
 	{
+		std::vector<std::pair<TObjectPtr<DPackage>, uint64>> Revisions;
 		for (const auto& Package : Packages)
-			if (Package) Package->MarkDirty();
+			if (Package) Revisions.emplace_back(Package, Package->GetEditRevision());
+		return Revisions;
 	}
 
 	auto FTransformProxy::Restore() -> bool
@@ -255,6 +257,11 @@ namespace Durin::LevelEditor
 		CapturePreviewValues();
 		for (const auto& Snapshot : Snapshots)
 			if (Snapshot.bOwnsPreview && (!Snapshot.Target->IsValid() || !SameTransform(Snapshot.Preview, Snapshot.Initial))) bRestored = false;
+		if (!bRestored)
+		{
+			for (const auto& Package : Packages)
+				if (Package) Package->MarkDirty();
+		}
 		return bRestored;
 	}
 

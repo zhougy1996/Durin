@@ -94,6 +94,7 @@ namespace Durin
 
 	auto DPrimitiveComponent::SetCollisionObjectType(ECollisionChannel Channel) -> void
 	{
+		if (BodyInstance.CollisionProfileName.IsNone() && BodyInstance.ObjectChannel == Channel) return;
 		BodyInstance.ObjectChannel = Channel;
 		BodyInstance.CollisionProfileName = FName();
 		MarkPackageDirty();
@@ -104,6 +105,7 @@ namespace Durin
 		ECollisionChannel Channel, ECollisionResponse Response
 	) -> void
 	{
+		if (BodyInstance.CollisionProfileName.IsNone() && BodyInstance.Responses.GetResponse(Channel) == Response) return;
 		BodyInstance.Responses.SetResponse(Channel, Response);
 		BodyInstance.CollisionProfileName = FName();
 		MarkPackageDirty();

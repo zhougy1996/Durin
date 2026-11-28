@@ -154,6 +154,7 @@ namespace Durin
 				return std::unexpected(ToError(*InspectionError));
 			AssetPrivate::FAssetPackageEncodedClosure Closure;
 			FAssetPackageSerializationOptions Serialization; Serialization.Mode = Mode;
+			Prepared.EditRevision = Package->GetEditRevision();
 			if (auto Result = AssetPrivate::EncodeAssetPackageClosure(Package, Closure, {.Serialization = Serialization, .OutExports = &Prepared.DiskExports}); !Result)
 				return std::unexpected(ObjectPackage::ToError(Result));
 			// The codec validates the closure. Capture its canonical header once;

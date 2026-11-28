@@ -6403,6 +6403,41 @@ TEST(FPackageAssetTests, SaveTaskFailurePreservesLazyBulkSourceForRetry)
 	EXPECT_TRUE(std::ranges::equal(SavedPayload->GetBytes(), Payload));
 }
 
+TEST(FPackageAssetTests, AsyncSaveKeepsEditsMadeAfterSnapshotDirtyUntilResaved)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	const bool bOwnScheduler = !IsTaskSchedulerRunning();
+	if (bOwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+	if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+	PackageSavePrivate::SetAsyncSaveAdmission(true);
+	struct FSchedulerScope
+	{
+		bool bOwn;
+		~FSchedulerScope() { (void)DPackage::DrainAsyncSaves(); if (bOwn) ShutdownTaskSystem(ETaskShutdownMode::Drain); }
+	} Scheduler{bOwnScheduler};
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/EditedDuringSave", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	auto* Package = Asset->GetPackage();
+	Asset->Label = "Captured";
+	Package->MarkDirty();
+	auto Save = SavePackageAsync(Package);
+	ASSERT_TRUE(Save.IsValid());
+	Asset->Label = "Edited";
+	Package->MarkDirty();
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	ASSERT_TRUE(Save.GetResult());
+	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(SavePackage(Package));
+	EXPECT_FALSE(Package->IsDirty());
+	ASSERT_TRUE(UnloadPackage(Path));
+	Asset = LoadObject<DPackageAssetForTest>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	ASSERT_NE(Asset, nullptr);
+	EXPECT_EQ(Asset->Label, "Edited");
+}
+
 TEST(FPackageAssetTests, AsyncSaveChecksHardReferenceIdentityButIgnoresDependencyContentAndSoftTargets)
 {
 	using namespace Durin;

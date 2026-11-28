@@ -30,7 +30,7 @@ namespace Durin
 
 	class DPackage;
 	COREDOBJECT_API auto GetLiveAssetPackages() -> std::vector<DPackage*>;
-	// Broadcast on the game thread after a persistent save clears the live package dirty flag.
+	// Broadcast on the game thread after a persistent save, including saves of an older edit revision.
 	COREDOBJECT_API auto OnPackageSaved() -> TMulticastDelegate<void(DPackage&)>&;
 	// Invalidates owner-thread asset metadata queries after package changes.
 	COREDOBJECT_API auto OnAssetPackagesChanged() -> TMulticastDelegate<void()>&;
@@ -66,6 +66,11 @@ namespace Durin
 		auto HasDiskExport(const DObject* Object) const -> bool { return std::ranges::binary_search(DiskExports, FObjectKey(Object)); }
 		auto MarkPartiallyLoaded() -> void { bFullyLoaded = false; }
 		auto IsDirty() const -> bool { return bDirty; }
+		auto GetEditRevision() const -> uint64 { return EditRevision; }
+		auto ClearDirtyIfRevisionMatches(uint64 SavedRevision) -> void
+		{
+			if (EditRevision == SavedRevision) ClearDirty();
+		}
 		auto IsCanonicalResaveRecommended() const -> bool { return bCanonicalResaveRecommended; }
 		auto GetPackageFlags() const -> EPackageFlags { return PackageFlags; }
 		auto IsAssetPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Asset); }
@@ -130,6 +135,7 @@ namespace Durin
 		// Tracks unsaved asset-package changes; compiled-in packages never become dirty.
 		DPROPERTY(Transient)
 		bool bDirty = false;
+		uint64 EditRevision = 0;
 
 		// Maintenance state is deliberately independent from authored Dirty state.
 		DPROPERTY(Transient)

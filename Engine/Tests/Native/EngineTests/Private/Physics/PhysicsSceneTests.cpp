@@ -117,6 +117,41 @@ TEST(FPrimitiveComponentCollisionEditingTests, DirectFilterEditsLeaveThePrevious
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FPrimitiveComponentCollisionEditingTests, RepeatedCustomFilterValuesKeepPackageClean)
+{
+	using namespace Durin;
+	Testing::InitializeAssetSystemForTests();
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CollisionFilter/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CollisionFilter/Edits", Path));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(Package, nullptr);
+	auto* Box = NewObject<DBoxComponent>(Package, "Box");
+	ASSERT_NE(Box, nullptr);
+	ASSERT_TRUE(Box->SetCollisionProfileName(CollisionProfile::WorldStatic));
+	Package->ClearDirty();
+	Box->SetCollisionObjectType(Box->GetCollisionObjectType());
+	EXPECT_TRUE(Box->GetCollisionProfileName().IsNone());
+	EXPECT_TRUE(Package->IsDirty());
+	Package->ClearDirty();
+	Box->SetCollisionObjectType(Box->GetCollisionObjectType());
+	EXPECT_FALSE(Package->IsDirty());
+	ASSERT_TRUE(Box->SetCollisionProfileName(CollisionProfile::WorldStatic));
+	Package->ClearDirty();
+	Box->SetCollisionResponseToChannel(ECollisionChannel::Visibility, ECollisionResponse::Block);
+	EXPECT_TRUE(Box->GetCollisionProfileName().IsNone());
+	EXPECT_TRUE(Package->IsDirty());
+	Package->ClearDirty();
+	Box->SetCollisionResponseToChannel(ECollisionChannel::Visibility, ECollisionResponse::Ignore);
+	EXPECT_TRUE(Package->IsDirty());
+	Package->ClearDirty();
+	Box->SetCollisionResponseToChannel(ECollisionChannel::Visibility, ECollisionResponse::Ignore);
+	EXPECT_FALSE(Package->IsDirty());
+	MarkObjectHierarchyAsGarbage(Package);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
 TEST(FPrimitiveComponentCollisionEditingTests, RestoringSettingsDoesNotConvertPresetsToCustom)
 {
 	using namespace Durin;

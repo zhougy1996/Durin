@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CoreMinimal.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/ObjectKey.h"
 #include "Viewport/TransformGizmoTypes.h"
@@ -20,7 +21,7 @@ namespace Durin::LevelEditor
 		auto CheckPreviewOwnership() -> bool;
 		auto CapturePreviewValues() -> bool;
 		auto Restore() -> bool;
-		auto MarkPackagesDirty() const -> void;
+		auto GetPackageEditRevisions() const -> std::vector<std::pair<TObjectPtr<DPackage>, uint64>>;
 		auto RecordChanges(DTransactor& Transactions, std::string_view Action) -> bool;
 
 	private:

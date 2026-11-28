@@ -137,7 +137,7 @@ namespace Durin::AssetPrivate
 			return RollbackAssetWrite(Write, FAssetWriteResult{.Error = ToError(*InspectionError)});
 		if (!Stamp.Exists)
 			return RollbackAssetWrite(Write, FAssetWriteResult{.Error = UnifiedError::FError{AssetWriteErrors::StaleData, "Committed package disappeared."}});
-		Package->ClearDirty();
+		Package->ClearDirtyIfRevisionMatches(Prepared.EditRevision);
 		OnPackageSaved().Broadcast(*Package);
 		const bool Inject = Context.Fault && Context.Fault(Testing::EPackageSaveFaultPoint::PublishRegistry, Context.PackageIndex);
 		FAssetWriteResult RegistryResult;

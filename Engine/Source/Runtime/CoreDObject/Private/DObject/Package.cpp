@@ -188,6 +188,7 @@ namespace Durin
 	{
 		if (!IsAssetPackage()) return;
 		bDirty = true;
+		++EditRevision;
 		if (!bGraphPrivate) Private::NotifyAssetPackageChanged();
 	}
 

@@ -401,7 +401,7 @@ TEST_F(FPackagePersistenceTests, ExternalBulkRoundTripsAndObsoleteCompanionIsRem
 	ASSERT_TRUE(Package->Save(Options));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Package.dbulk"));
 }
-TEST_F(FPackagePersistenceTests, AsyncSavePublishesCapturedBytesAndCancellationPreservesDirtyState)
+TEST_F(FPackagePersistenceTests, AsyncSavePublishesCapturedBytesAndPreservesLaterEdits)
 {
 	Testing::FScopedPackageNotificationCount Saved(OnPackageSaved(), Package);
 	Asset->Value = 33;
@@ -410,13 +410,12 @@ TEST_F(FPackagePersistenceTests, AsyncSavePublishesCapturedBytesAndCancellationP
 	Asset->Value = 55;
 	Package->MarkDirty();
 	ASSERT_TRUE(FinishSave(Operation));
-	ASSERT_FALSE(Package->IsDirty());
+	ASSERT_TRUE(Package->IsDirty());
 	EXPECT_EQ(Saved.Count, 1);
 	auto Linker = Read();
 	ASSERT_FALSE(Linker.Exports.empty());
 	EXPECT_TRUE(std::ranges::any_of(Linker.Exports.front().Properties, [](const auto& Tag) { return Tag.Value.Signed == 33; }));
 	EXPECT_EQ(Asset->Value, 55);
-	Package->MarkDirty();
 	Options.IsCancellationRequested = [this] { return Cancellation.IsCanceled(); };
 	Operation = FSavePackageContext{Options}.SaveAsync(Package);
 	ASSERT_TRUE(Operation.IsValid());
@@ -438,7 +437,9 @@ TEST_F(FPackagePersistenceTests, AsyncSavePublishesCapturedBytesAndCancellationP
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_EQ(Saved.Count, 2);
-	EXPECT_TRUE(std::filesystem::exists(Options.Destination));
+	Linker = Read();
+	ASSERT_FALSE(Linker.Exports.empty());
+	EXPECT_TRUE(std::ranges::any_of(Linker.Exports.front().Properties, [](const auto& Tag) { return Tag.Value.Signed == 55; }));
 }
 TEST_F(FPackagePersistenceTests, CompetingWriterAndStagedRollbackPreservePreviousContent)
 {

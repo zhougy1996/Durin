@@ -194,6 +194,7 @@ namespace Durin
 		std::vector<FObjectKey> DiskExports;
 		FXxHash128 MainDigest{};
 		FPackagePath Identity;
+		uint64 EditRevision = 0;
 		uint64 DetachedBytes = 0;
 		FSavePackageContext Context;
 		std::unique_ptr<IPackageWriteOperation> Write;
@@ -267,6 +268,7 @@ namespace Durin
 			|| !FFilePublicationStamp::Inspect(BulkFile.Destination, BulkStamp, &InspectionError))
 		{ if (OutError) *OutError = ToError(*InspectionError); return {}; }
 		ObjectPackage::FLinkerTables Linker;
+		Data.EditRevision = Package->GetEditRevision();
 		const auto CaptureResult = Data.Context.Capture(Package, Linker, ObjectPackage::DastV12FormatVersion, &Data.DiskExports);
 		if (!CaptureResult)
 		{
@@ -351,7 +353,7 @@ namespace Durin
 		if (Data.bClearDirty && Data.Package->GetPackagePathIdentity() == Data.Identity)
 		{
 			Data.Package->RecordDiskExports(std::move(Data.DiskExports), Data.MainDigest);
-			Data.Package->ClearDirty();
+			Data.Package->ClearDirtyIfRevisionMatches(Data.EditRevision);
 			OnPackageSaved().Broadcast(*Data.Package);
 		}
 		Data.Cleanup();

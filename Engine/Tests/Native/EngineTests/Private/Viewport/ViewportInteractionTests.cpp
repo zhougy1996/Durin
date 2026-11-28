@@ -931,7 +931,9 @@ TEST(FTransformGizmoTests, CommitPreservesOutsideDirtyAndReturnsOwnedEditsToChec
 		Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get());
 		EXPECT_FALSE(Package->IsDirty());
 		if (bOutsideWrite) Package->MarkDirty();
+		const auto RevisionBeforeRelease = Package->GetEditRevision();
 		Probe.Release(Buffer.Get()); ASSERT_TRUE(Buffer->CanUndo()); EXPECT_TRUE(Package->IsDirty());
+		EXPECT_EQ(Package->GetEditRevision(), RevisionBeforeRelease + 1);
 		ASSERT_TRUE(Buffer->Undo()); ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Initial.Translation);
 		EXPECT_EQ(Package->IsDirty(), bOutsideWrite);
 		ASSERT_TRUE(Buffer->Redo()); EXPECT_TRUE(Package->IsDirty());

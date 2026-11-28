@@ -25,6 +25,7 @@ namespace Durin::AssetPrivate
 		std::vector<FStrongObjectPtr> Exports;
 		std::vector<FObjectKey> DiskExports;
 		FXxHash128 MainDigest{};
+		uint64 EditRevision = 0;
 		uint64 DetachedBytes = 0;
 		FAssetPackageHeader Header;
 		std::filesystem::path Destination;

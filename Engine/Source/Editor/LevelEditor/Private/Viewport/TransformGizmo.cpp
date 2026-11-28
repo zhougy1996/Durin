@@ -382,6 +382,7 @@ namespace Durin::LevelEditor
 	{
 		if (!Proxy->CheckPreviewOwnership()) { CancelDrag(); return false; }
 		if (!Proxy->HasChanges()) return CancelDrag();
+		const auto PackageRevisions = Proxy->GetPackageEditRevisions();
 		if (Transactions)
 		{
 			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
@@ -390,9 +391,10 @@ namespace Durin::LevelEditor
 				CancelDrag();
 				return false;
 			}
-			Proxy->MarkPackagesDirty();
 		}
-		else Proxy->MarkPackagesDirty();
+		// A committed transaction marks its packages. A release without history still needs a dirty mark.
+		for (const auto& [Package, Revision] : PackageRevisions)
+			if (Package && Package->GetEditRevision() == Revision) Package->MarkDirty();
 		ClearDrag();
 		return true;
 	}
@@ -406,7 +408,7 @@ namespace Durin::LevelEditor
 			const bool bRestored = Proxy->Restore();
 			DisplayPivot = Pivot;
 			DisplayBasis = Basis;
-			if (!bRestored) { Proxy->MarkPackagesDirty(); return false; }
+			if (!bRestored) return false;
 		}
 		ClearDrag();
 		return true;
